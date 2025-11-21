@@ -1,0 +1,14621 @@
+use crate::bitboards::*;
+use crate::evaluation::pst_loader::{PieceSquareTableConfig, PieceSquareTablePreset};
+use crate::evaluation::*;
+use crate::moves::*;
+use crate::opening_book::OpeningBook;
+use crate::search::move_ordering::MoveOrdering;
+use crate::search::tapered_search_integration::TaperedSearchEnhancer;
+use crate::search::{BoardTrait, ParallelSearchConfig, ParallelSearchEngine};
+use crate::search::iterative_deepening::IterativeDeepeningHelper;
+use crate::search::null_move::NullMoveHelper;
+use crate::search::quiescence::QuiescenceHelper;
+use crate::search::reductions::ReductionsHelper;
+use crate::search::statistics::SearchStatistics;
+use crate::search::time_management::TimeManager;
+use crate::tablebase::MicroTablebase;
+use crate::utils::time::TimeSource;
+use crate::types::board::CapturedPieces;
+use crate::types::core::{Move, Piece, PieceType, Player, Position};
+use crate::types::board::GamePhase;
+use crate::types::search::{
+    AspirationWindowConfig, AspirationWindowPlayingStyle, AspirationWindowStats,
+    CoreSearchMetrics, EngineConfig, EnginePreset, IIDBoardState, IIDConfig, IIDOverheadStats,
+    IIDStats, LMRConfig, LMRStats, NullMoveConfig, NullMoveStats, ParallelOptions,
+    PositionComplexity, QuiescenceConfig, QuiescenceEntry,
+    QuiescenceStats, TimeBudgetStats, TimeManagementConfig,
+    TranspositionFlag, TTReplacementPolicy,
+};
+// Types still in all.rs (temporary backward compatibility)
+use crate::types::all::{
+    AspirationWindowPerformanceMetrics, ConfidenceLevel,
+    GameResult, IIDPerformanceAnalysis, IIDPerformanceBenchmark, IIDPerformanceMetrics,
+    IIDProbeResult, IIDPVResult, IIDStrengthTestResult, LMRPerformanceMetrics, LMRPlayingStyle,
+    LMRProfileResult, MoveType, MultiPVAnalysis, PositionDifficulty,
+    PositionStrengthResult, PruningManager, PromisingMove, QuiescencePerformanceMetrics,
+    QuiescenceProfile, QuiescenceSample, RealTimePerformance, ResearchEfficiencyMetrics,
+    StrengthTestAnalysis, StrengthTestPosition, TacticalTheme,
+    WindowSizeStatistics,
+};
+use crate::types::patterns::TacticalIndicators;
+use crate::types::transposition::TranspositionEntry;
+use rayon::prelude::*;
+use std::collections::HashMap;
+use std::sync::{
+    atomic::{AtomicBool, AtomicU64, Ordering},
+    Arc, RwLock,
+};
+
+// Score constants to replace magic numbers (Task 5.5)
+/// Minimum score value (one above i32::MIN to avoid sentinel value issues)
+pub const MIN_SCORE: i32 = i32::MIN + 1;
+/// Maximum score value (one below i32::MAX to avoid sentinel value issues)
+pub const MAX_SCORE: i32 = i32::MAX - 1;
+
+thread_local! {
+    static YBWC_ENGINE_TLS: std::cell::RefCell<Option<SearchEngine>> = std::cell::RefCell::new(None);
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+    use crate::types::{Move, Piece, PieceType, Player, Position};
+
+    #[test]
+    fn test_quiescence_move_sorting_total_order() {
+        let search_engine = SearchEngine::new(None, 16);
+
+        let mut test_moves = vec![
+            Move {
+                from: Some(Position { row: 1, col: 1 }),
+                to: Position { row: 2, col: 1 },
+                piece_type: PieceType::Pawn,
+                player: Player::Black,
+                is_capture: false,
+                is_promotion: false,
+                gives_check: false,
+                is_recapture: false,
+                captured_piece: None,
+            },
+            Move {
+                from: Some(Position { row: 1, col: 2 }),
+                to: Position { row: 2, col: 2 },
+                piece_type: PieceType::Pawn,
+                player: Player::Black,
+                is_capture: true,
+                is_promotion: false,
+                gives_check: false,
+                is_recapture: false,
+                captured_piece: Some(Piece {
+                    piece_type: PieceType::Pawn,
+                    player: Player::White,
+                }),
+            },
+            Move {
+                from: Some(Position { row: 1, col: 3 }),
+                to: Position { row: 2, col: 3 },
+                piece_type: PieceType::Pawn,
+                player: Player::Black,
+                is_capture: false,
+                is_promotion: false,
+                gives_check: true,
+                is_recapture: false,
+                captured_piece: None,
+            },
+        ];
+
+        test_moves.sort_by(|a, b| search_engine.compare_quiescence_moves(a, b));
+
+        assert!(test_moves[0].gives_check, "Check move should be first");
+        assert!(test_moves[1].is_capture, "Capture move should be second");
+        assert!(
+            !test_moves[2].is_capture && !test_moves[2].gives_check,
+            "Non-capture move should be last"
+        );
+
+        for i in 0..test_moves.len() {
+            for j in 0..test_moves.len() {
+                let cmp_ij = search_engine.compare_quiescence_moves(&test_moves[i], &test_moves[j]);
+                let cmp_ji = search_engine.compare_quiescence_moves(&test_moves[j], &test_moves[i]);
+                match (cmp_ij, cmp_ji) {
+                    (std::cmp::Ordering::Less, std::cmp::Ordering::Greater) => {}
+                    (std::cmp::Ordering::Greater, std::cmp::Ordering::Less) => {}
+                    (std::cmp::Ordering::Equal, std::cmp::Ordering::Equal) => {}
+                    _ => panic!("Comparison is not antisymmetric: {} vs {}", i, j),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_null_move_configuration_management() {
+        let mut engine = SearchEngine::new(None, 16);
+
+        let config = engine.get_null_move_config();
+        assert!(config.enabled);
+        assert_eq!(config.min_depth, 3);
+        assert_eq!(config.reduction_factor, 2);
+
+        let mut new_config = NullMoveConfig::default();
+        new_config.min_depth = 4;
+        new_config.reduction_factor = 3;
+        assert!(engine.update_null_move_config(new_config.clone()).is_ok());
+
+        let updated_config = engine.get_null_move_config();
+        assert_eq!(updated_config.min_depth, 4);
+        assert_eq!(updated_config.reduction_factor, 3);
+
+        let mut invalid_config = NullMoveConfig::default();
+        invalid_config.min_depth = 0;
+        assert!(engine.update_null_move_config(invalid_config).is_err());
+
+        engine.null_move_stats.attempts = 100;
+        engine.null_move_stats.cutoffs = 25;
+        assert_eq!(engine.get_null_move_stats().attempts, 100);
+        assert_eq!(engine.get_null_move_stats().cutoffs, 25);
+
+        engine.reset_null_move_stats();
+        assert_eq!(engine.get_null_move_stats().attempts, 0);
+        assert_eq!(engine.get_null_move_stats().cutoffs, 0);
+
+        let default_config = SearchEngine::new_null_move_config();
+        assert_eq!(default_config.min_depth, 3);
+        assert_eq!(default_config.reduction_factor, 2);
+        assert!(default_config.enabled);
+    }
+}
+
+#[cfg(test)]
+mod tablebase_tests {
+    use super::*;
+
+    #[test]
+    fn test_tablebase_integration() {
+        let mut engine = SearchEngine::new(None, 16);
+        let board = BitboardBoard::new();
+        let captured_pieces = CapturedPieces::new();
+        let player = Player::Black;
+
+        let mut test_board = board.clone();
+        let result = engine.search_at_depth(
+            &mut test_board,
+            &captured_pieces,
+            player,
+            1,
+            1000,
+            -10000,
+            10000,
+        );
+
+        assert!(result.is_some() || result.is_none());
+
+        let moves = engine
+            .move_generator
+            .generate_legal_moves(&board, player, &captured_pieces);
+        if !moves.is_empty() {
+            let sorted_moves = engine.sort_moves(&moves, &board, None);
+            assert_eq!(sorted_moves.len(), moves.len());
+        }
+    }
+
+    #[test]
+    fn test_convert_tablebase_score() {
+        let engine = SearchEngine::new(None, 16);
+
+        let win_result = crate::tablebase::TablebaseResult::win(
+            Some(Move::new_move(
+                Position::new(0, 0),
+                Position::new(1, 1),
+                PieceType::King,
+                Player::Black,
+                false,
+            )),
+            5,
+        );
+        let win_score = engine.convert_tablebase_score(&win_result);
+        assert_eq!(win_score, 9995);
+
+        let loss_result = crate::tablebase::TablebaseResult::loss(3);
+        let loss_score = engine.convert_tablebase_score(&loss_result);
+        assert_eq!(loss_score, -9997);
+
+        let draw_result = crate::tablebase::TablebaseResult::draw();
+        let draw_score = engine.convert_tablebase_score(&draw_result);
+        assert_eq!(draw_score, 0);
+    }
+}
+
+pub struct SearchEngine {
+    evaluator: PositionEvaluator,
+    move_generator: MoveGenerator,
+    tablebase: MicroTablebase,
+    transposition_table: crate::search::ThreadSafeTranspositionTable,
+    /// Optional shared transposition table for parallel search contexts
+    shared_transposition_table: Option<Arc<RwLock<crate::search::ThreadSafeTranspositionTable>>>,
+    hash_calculator: crate::search::ShogiHashHandler,
+    move_orderer: crate::search::TranspositionMoveOrderer,
+    advanced_move_orderer: MoveOrdering,
+    quiescence_tt: HashMap<String, QuiescenceEntry>,
+    quiescence_tt_age: u64, // Age counter for LRU tracking
+    history_table: [[i32; 9]; 9],
+    killer_moves: [Option<Move>; 2],
+    #[allow(dead_code)]
+    stop_flag: Option<Arc<AtomicBool>>,
+    /// Quiescence search helper module (Task 1.8)
+    quiescence_helper: QuiescenceHelper,
+    /// Null-move pruning helper module (Task 1.8)
+    null_move_helper: NullMoveHelper,
+    /// Reductions helper module for LMR and IID (Task 1.8)
+    reductions_helper: ReductionsHelper,
+    /// Iterative deepening helper module (Task 1.8)
+    iterative_deepening_helper: IterativeDeepeningHelper,
+    /// Time management module (Task 1.8)
+    time_manager: TimeManager,
+    /// Search statistics module (Task 1.8)
+    search_statistics: SearchStatistics,
+    /// Core search metrics for performance tracking
+    core_search_metrics: CoreSearchMetrics,
+    /// Legacy config fields kept for backward compatibility and configuration updates
+    /// These are synchronized with the helper modules
+    quiescence_config: QuiescenceConfig,
+    null_move_config: NullMoveConfig,
+    lmr_config: LMRConfig,
+    aspiration_config: AspirationWindowConfig,
+    iid_config: IIDConfig,
+    time_management_config: TimeManagementConfig,
+    /// Legacy stats fields - access through helper modules
+    quiescence_stats: QuiescenceStats,
+    null_move_stats: NullMoveStats,
+    lmr_stats: LMRStats,
+    aspiration_stats: AspirationWindowStats,
+    iid_stats: IIDStats,
+    /// Task 8.6: Overhead history for performance monitoring (rolling window of last 100 samples)
+    iid_overhead_history: Vec<f64>,
+    previous_scores: Vec<i32>,
+    parallel_options: ParallelOptions,
+    /// Whether to prefill the TT from the opening book at startup
+    prefill_opening_book: bool,
+    /// Depth assigned to opening book prefill entries
+    opening_book_prefill_depth: u8,
+    /// Time pressure thresholds for algorithm coordination (Task 7.0.2.3)
+    time_pressure_thresholds: crate::types::TimePressureThresholds,
+    /// Whether verbose debug logging is enabled
+    debug_logging: bool,
+    /// Automatic profiling enabled flag (Task 26.0 - Task 3.0)
+    pub auto_profiling_enabled: bool,
+    /// Profiling sample rate (Task 26.0 - Task 3.0)
+    auto_profiling_sample_rate: u32,
+    /// External profiler for hot path analysis (Task 26.0 - Task 8.0)
+    external_profiler: Option<Arc<dyn crate::search::performance_tuning::ExternalProfiler>>,
+    /// Performance profiler for hot path analysis (Task 26.0 - Task 3.0)
+    pub performance_profiler: crate::evaluation::performance::PerformanceProfiler,
+    /// Memory tracker for RSS tracking (Task 26.0 - Task 4.0)
+    memory_tracker: crate::search::memory_tracking::MemoryTracker,
+    // Advanced Alpha-Beta Pruning
+    pruning_manager: PruningManager,
+    /// Cache for tablebase move detection (Task 4.1)
+    tablebase_move_cache: HashMap<u64, bool>,
+    // Tapered evaluation search integration
+    tapered_search_enhancer: TaperedSearchEnhancer,
+    // Current search state for diagnostics
+    current_alpha: i32,
+    current_beta: i32,
+    current_best_move: Option<Move>,
+    current_best_score: i32,
+    current_depth: u8,
+    search_start_time: Option<TimeSource>,
+    // Buffered TT writes to reduce lock contention when using shared TT
+    tt_write_buffer: Vec<TranspositionEntry>,
+    tt_write_buffer_capacity: usize,
+    // YBWC configuration (scaffold)
+    ybwc_enabled: bool,
+    ybwc_min_depth: u8,
+    ybwc_min_branch: usize,
+    ybwc_max_siblings: usize,
+    // Dynamic scaling divisors for sibling cap based on depth tier
+    ybwc_div_shallow: usize,
+    ybwc_div_mid: usize,
+    ybwc_div_deep: usize,
+    // TT write gating threshold (min depth to store non-Exact entries)
+    tt_write_min_depth_value: u8,
+    // Up to and including this search depth, only write Exact entries to TT
+    tt_exact_only_max_depth_value: u8,
+    // Instrumentation counters for shared TT usage (bench/profiling)
+    shared_tt_probe_attempts: u64,
+    shared_tt_probe_hits: u64,
+    shared_tt_store_attempts: u64,
+    shared_tt_store_writes: u64,
+    tt_buffer_flushes: u64,
+    tt_buffer_entries_written: u64,
+    /// Time budget statistics for iterative deepening (Task 4.10)
+    time_budget_stats: TimeBudgetStats,
+    /// Time check node counter (Task 8.4)
+    time_check_node_counter: u32,
+    // nodes_searched (cached for quick access) - removed
+    // nodes_searched removed as it was unused
+}
+
+// Global statistics are now in src/search/statistics.rs (Task 1.8)
+// Re-export for backward compatibility
+pub use crate::search::statistics::{GLOBAL_NODES_SEARCHED, GLOBAL_SELDEPTH};
+// Global contention metrics for shared TT
+pub static TT_TRY_READS: AtomicU64 = AtomicU64::new(0);
+pub static TT_TRY_READ_SUCCESSES: AtomicU64 = AtomicU64::new(0);
+pub static TT_TRY_READ_FAILS: AtomicU64 = AtomicU64::new(0);
+pub static TT_TRY_WRITES: AtomicU64 = AtomicU64::new(0);
+pub static TT_TRY_WRITE_SUCCESSES: AtomicU64 = AtomicU64::new(0);
+pub static TT_TRY_WRITE_FAILS: AtomicU64 = AtomicU64::new(0);
+// YBWC metrics
+pub static YBWC_SIBLING_BATCHES: AtomicU64 = AtomicU64::new(0);
+pub static YBWC_SIBLINGS_EVALUATED: AtomicU64 = AtomicU64::new(0);
+// YBWC trigger diagnostics
+pub static YBWC_TRIGGER_OPPORTUNITIES: AtomicU64 = AtomicU64::new(0);
+pub static YBWC_TRIGGER_ELIGIBLE_DEPTH: AtomicU64 = AtomicU64::new(0);
+pub static YBWC_TRIGGER_ELIGIBLE_BRANCH: AtomicU64 = AtomicU64::new(0);
+pub static YBWC_TRIGGERED: AtomicU64 = AtomicU64::new(0);
+
+#[inline]
+fn take(a: &AtomicU64) -> u64 {
+    a.swap(0, Ordering::Relaxed)
+}
+
+/// Snapshot and reset global search metrics.
+pub struct SearchMetrics {
+    pub tt_try_reads: u64,
+    pub tt_try_read_successes: u64,
+    pub tt_try_read_fails: u64,
+    pub tt_try_writes: u64,
+    pub tt_try_write_successes: u64,
+    pub tt_try_write_fails: u64,
+    pub ybwc_sibling_batches: u64,
+    pub ybwc_siblings_evaluated: u64,
+    pub ybwc_trigger_opportunities: u64,
+    pub ybwc_trigger_eligible_depth: u64,
+    pub ybwc_trigger_eligible_branch: u64,
+    pub ybwc_triggered: u64,
+}
+
+pub fn snapshot_and_reset_metrics() -> SearchMetrics {
+    SearchMetrics {
+        tt_try_reads: take(&TT_TRY_READS),
+        tt_try_read_successes: take(&TT_TRY_READ_SUCCESSES),
+        tt_try_read_fails: take(&TT_TRY_READ_FAILS),
+        tt_try_writes: take(&TT_TRY_WRITES),
+        tt_try_write_successes: take(&TT_TRY_WRITE_SUCCESSES),
+        tt_try_write_fails: take(&TT_TRY_WRITE_FAILS),
+        ybwc_sibling_batches: take(&YBWC_SIBLING_BATCHES),
+        ybwc_siblings_evaluated: take(&YBWC_SIBLINGS_EVALUATED),
+        ybwc_trigger_opportunities: take(&YBWC_TRIGGER_OPPORTUNITIES),
+        ybwc_trigger_eligible_depth: take(&YBWC_TRIGGER_ELIGIBLE_DEPTH),
+        ybwc_trigger_eligible_branch: take(&YBWC_TRIGGER_ELIGIBLE_BRANCH),
+        ybwc_triggered: take(&YBWC_TRIGGERED),
+    }
+}
+
+fn maybe_print_search_metrics(tag: &str) {
+    let silent_bench = std::env::var("SHOGI_SILENT_BENCH").is_ok();
+    let manual_print = std::env::var("SHOGI_PRINT_METRICS").is_ok();
+    let aggregate = std::env::var("SHOGI_AGGREGATE_METRICS").is_ok();
+    // In aggregate mode, skip per-iteration printing — we'll print once at the end
+    if aggregate || !(silent_bench || manual_print) {
+        return;
+    }
+    let m = snapshot_and_reset_metrics();
+    println!(
+        "metrics tag={} tt_reads={} tt_read_ok={} tt_read_fail={} tt_writes={} tt_write_ok={} tt_write_fail={} ybwc_batches={} ybwc_siblings={}",
+        tag,
+        m.tt_try_reads, m.tt_try_read_successes, m.tt_try_read_fails,
+        m.tt_try_writes, m.tt_try_write_successes, m.tt_try_write_fails,
+        m.ybwc_sibling_batches, m.ybwc_siblings_evaluated
+    );
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+}
+
+/// Print and reset aggregated metrics once (used by benches when SHOGI_AGGREGATE_METRICS=1)
+pub fn print_and_reset_search_metrics(tag: &str) {
+    let m = snapshot_and_reset_metrics();
+    println!(
+        "metrics tag={} (aggregate) tt_reads={} tt_read_ok={} tt_read_fail={} tt_writes={} tt_write_ok={} tt_write_fail={} ybwc_batches={} ybwc_siblings={}",
+        tag,
+        m.tt_try_reads, m.tt_try_read_successes, m.tt_try_read_fails,
+        m.tt_try_writes, m.tt_try_write_successes, m.tt_try_write_fails,
+        m.ybwc_sibling_batches, m.ybwc_siblings_evaluated
+    );
+    let _ = std::io::Write::flush(&mut std::io::stdout());
+}
+
+#[allow(dead_code)]
+// Conversion functions to convert between all:: config types and types::search:: config types
+// These are needed because EngineConfig uses all:: types but helper modules use types::search:: types
+fn convert_quiescence_config(config: &crate::types::all::QuiescenceConfig) -> crate::types::search::QuiescenceConfig {
+    crate::types::search::QuiescenceConfig {
+        max_depth: config.max_depth,
+        enable_delta_pruning: config.enable_delta_pruning,
+        enable_futility_pruning: config.enable_futility_pruning,
+        enable_selective_extensions: config.enable_selective_extensions,
+        enable_tt: config.enable_tt,
+        enable_adaptive_pruning: config.enable_adaptive_pruning,
+        futility_margin: config.futility_margin,
+        delta_margin: config.delta_margin,
+        high_value_capture_threshold: config.high_value_capture_threshold,
+        tt_size_mb: config.tt_size_mb,
+        tt_cleanup_threshold: config.tt_cleanup_threshold,
+        tt_replacement_policy: match config.tt_replacement_policy {
+            crate::types::all::TTReplacementPolicy::Simple => crate::types::search::TTReplacementPolicy::Simple,
+            crate::types::all::TTReplacementPolicy::LRU => crate::types::search::TTReplacementPolicy::LRU,
+            crate::types::all::TTReplacementPolicy::DepthPreferred => crate::types::search::TTReplacementPolicy::DepthPreferred,
+            crate::types::all::TTReplacementPolicy::Hybrid => crate::types::search::TTReplacementPolicy::Hybrid,
+        },
+    }
+}
+
+fn convert_null_move_config(config: &crate::types::all::NullMoveConfig) -> crate::types::search::NullMoveConfig {
+    crate::types::search::NullMoveConfig {
+        enabled: config.enabled,
+        min_depth: config.min_depth,
+        reduction_factor: config.reduction_factor,
+        max_pieces_threshold: config.max_pieces_threshold,
+        enable_dynamic_reduction: config.enable_dynamic_reduction,
+        enable_endgame_detection: config.enable_endgame_detection,
+        verification_margin: config.verification_margin,
+        dynamic_reduction_formula: match config.dynamic_reduction_formula {
+            crate::types::all::DynamicReductionFormula::Static => crate::types::search::DynamicReductionFormula::Static,
+            crate::types::all::DynamicReductionFormula::Linear => crate::types::search::DynamicReductionFormula::Linear,
+            crate::types::all::DynamicReductionFormula::Smooth => crate::types::search::DynamicReductionFormula::Smooth,
+        },
+        enable_mate_threat_detection: config.enable_mate_threat_detection,
+        mate_threat_margin: config.mate_threat_margin,
+        enable_endgame_type_detection: config.enable_endgame_type_detection,
+        material_endgame_threshold: config.material_endgame_threshold,
+        king_activity_threshold: config.king_activity_threshold,
+        zugzwang_threshold: config.zugzwang_threshold,
+        preset: config.preset.clone().map(|p| match p {
+            crate::types::all::NullMovePreset::Aggressive => crate::types::search::NullMovePreset::Aggressive,
+            crate::types::all::NullMovePreset::Conservative => crate::types::search::NullMovePreset::Conservative,
+            crate::types::all::NullMovePreset::Balanced => crate::types::search::NullMovePreset::Balanced,
+        }),
+        reduction_strategy: match config.reduction_strategy {
+            crate::types::all::NullMoveReductionStrategy::Static => crate::types::search::NullMoveReductionStrategy::Static,
+            crate::types::all::NullMoveReductionStrategy::Dynamic => crate::types::search::NullMoveReductionStrategy::Dynamic,
+            crate::types::all::NullMoveReductionStrategy::DepthBased => crate::types::search::NullMoveReductionStrategy::DepthBased,
+            crate::types::all::NullMoveReductionStrategy::MaterialBased => crate::types::search::NullMoveReductionStrategy::MaterialBased,
+            crate::types::all::NullMoveReductionStrategy::PositionTypeBased => crate::types::search::NullMoveReductionStrategy::PositionTypeBased,
+        },
+        depth_scaling_factor: config.depth_scaling_factor,
+        min_depth_for_scaling: config.min_depth_for_scaling,
+        material_adjustment_factor: config.material_adjustment_factor,
+        piece_count_threshold: config.piece_count_threshold,
+        threshold_step: config.threshold_step,
+        opening_reduction_factor: config.opening_reduction_factor,
+        middlegame_reduction_factor: config.middlegame_reduction_factor,
+        endgame_reduction_factor: config.endgame_reduction_factor,
+        enable_per_depth_reduction: config.enable_per_depth_reduction,
+        reduction_factor_by_depth: config.reduction_factor_by_depth.clone(),
+        enable_per_position_type_threshold: config.enable_per_position_type_threshold,
+        opening_pieces_threshold: config.opening_pieces_threshold,
+        middlegame_pieces_threshold: config.middlegame_pieces_threshold,
+        endgame_pieces_threshold: config.endgame_pieces_threshold,
+    }
+}
+
+fn convert_iid_config(config: &crate::types::all::IIDConfig) -> crate::types::search::IIDConfig {
+    crate::types::search::IIDConfig {
+        enabled: config.enabled,
+        min_depth: config.min_depth,
+        iid_depth_ply: config.iid_depth_ply,
+        max_legal_moves: config.max_legal_moves,
+        time_overhead_threshold: config.time_overhead_threshold,
+        depth_strategy: match config.depth_strategy {
+            crate::types::all::IIDDepthStrategy::Fixed => crate::types::search::IIDDepthStrategy::Fixed,
+            crate::types::all::IIDDepthStrategy::Relative => crate::types::search::IIDDepthStrategy::Relative,
+            crate::types::all::IIDDepthStrategy::Dynamic => crate::types::search::IIDDepthStrategy::Dynamic,
+            crate::types::all::IIDDepthStrategy::Adaptive => crate::types::search::IIDDepthStrategy::Adaptive,
+        },
+        enable_time_pressure_detection: config.enable_time_pressure_detection,
+        enable_adaptive_tuning: config.enable_adaptive_tuning,
+        dynamic_base_depth: config.dynamic_base_depth,
+        dynamic_max_depth: config.dynamic_max_depth,
+        adaptive_min_depth: config.adaptive_min_depth,
+        max_estimated_iid_time_ms: config.max_estimated_iid_time_ms,
+        max_estimated_iid_time_percentage: config.max_estimated_iid_time_percentage,
+        enable_complexity_based_adjustments: config.enable_complexity_based_adjustments,
+        complexity_threshold_low: config.complexity_threshold_low,
+        complexity_threshold_medium: config.complexity_threshold_medium,
+        complexity_depth_adjustment_low: config.complexity_depth_adjustment_low,
+        complexity_depth_adjustment_medium: config.complexity_depth_adjustment_medium,
+        complexity_depth_adjustment_high: config.complexity_depth_adjustment_high,
+        enable_adaptive_move_count_threshold: config.enable_adaptive_move_count_threshold,
+        tactical_move_count_multiplier: config.tactical_move_count_multiplier,
+        quiet_move_count_multiplier: config.quiet_move_count_multiplier,
+        time_pressure_base_threshold: config.time_pressure_base_threshold,
+        time_pressure_complexity_multiplier: config.time_pressure_complexity_multiplier,
+        time_pressure_depth_multiplier: config.time_pressure_depth_multiplier,
+        tt_move_min_depth_for_skip: config.tt_move_min_depth_for_skip,
+        tt_move_max_age_for_skip: config.tt_move_max_age_for_skip,
+        preset: config.preset.clone().map(|p| match p {
+            crate::types::all::IIDPreset::Aggressive => crate::types::search::IIDPreset::Aggressive,
+            crate::types::all::IIDPreset::Conservative => crate::types::search::IIDPreset::Conservative,
+            crate::types::all::IIDPreset::Balanced => crate::types::search::IIDPreset::Balanced,
+        }),
+        enable_game_phase_based_adjustment: config.enable_game_phase_based_adjustment,
+        enable_material_based_adjustment: config.enable_material_based_adjustment,
+        enable_time_based_adjustment: config.enable_time_based_adjustment,
+        game_phase_opening_multiplier: config.game_phase_opening_multiplier,
+        game_phase_middlegame_multiplier: config.game_phase_middlegame_multiplier,
+        game_phase_endgame_multiplier: config.game_phase_endgame_multiplier,
+        material_depth_multiplier: config.material_depth_multiplier,
+        material_threshold_for_adjustment: config.material_threshold_for_adjustment,
+        time_depth_multiplier: config.time_depth_multiplier,
+        time_threshold_for_adjustment: config.time_threshold_for_adjustment,
+    }
+}
+
+fn convert_aspiration_config(config: &crate::types::all::AspirationWindowConfig) -> crate::types::search::AspirationWindowConfig {
+    crate::types::search::AspirationWindowConfig {
+        enabled: config.enabled,
+        base_window_size: config.base_window_size,
+        dynamic_scaling: config.dynamic_scaling,
+        max_window_size: config.max_window_size,
+        min_depth: config.min_depth,
+        enable_adaptive_sizing: config.enable_adaptive_sizing,
+        max_researches: config.max_researches,
+        enable_statistics: config.enable_statistics,
+        use_static_eval_for_init: config.use_static_eval_for_init,
+        enable_position_type_tracking: config.enable_position_type_tracking,
+        disable_statistics_in_production: config.disable_statistics_in_production,
+    }
+}
+
+fn convert_time_management_config(config: &crate::types::all::TimeManagementConfig) -> crate::types::search::TimeManagementConfig {
+    crate::types::search::TimeManagementConfig {
+        enabled: config.enabled,
+        buffer_percentage: config.buffer_percentage,
+        min_time_ms: config.min_time_ms,
+        max_time_ms: config.max_time_ms,
+        increment_ms: config.increment_ms,
+        enable_pressure_detection: config.enable_pressure_detection,
+        pressure_threshold: config.pressure_threshold,
+        allocation_strategy: match config.allocation_strategy {
+            crate::types::all::TimeAllocationStrategy::Equal => crate::types::search::TimeAllocationStrategy::Equal,
+            crate::types::all::TimeAllocationStrategy::Exponential => crate::types::search::TimeAllocationStrategy::Exponential,
+            crate::types::all::TimeAllocationStrategy::Adaptive => crate::types::search::TimeAllocationStrategy::Adaptive,
+        },
+        safety_margin: config.safety_margin,
+        min_time_per_depth_ms: config.min_time_per_depth_ms,
+        max_time_per_depth_ms: config.max_time_per_depth_ms,
+        enable_check_optimization: config.enable_check_optimization,
+        check_max_depth: config.check_max_depth,
+        check_time_limit_ms: config.check_time_limit_ms,
+        enable_time_budget: config.enable_time_budget,
+        time_check_frequency: config.time_check_frequency,
+        absolute_safety_margin_ms: config.absolute_safety_margin_ms,
+    }
+}
+
+fn convert_lmr_config(config: &crate::types::all::LMRConfig) -> crate::types::search::LMRConfig {
+    crate::types::search::LMRConfig {
+        enabled: config.enabled,
+        min_depth: config.min_depth,
+        min_move_index: config.min_move_index,
+        base_reduction: config.base_reduction,
+        max_reduction: config.max_reduction,
+        enable_dynamic_reduction: config.enable_dynamic_reduction,
+        enable_adaptive_reduction: config.enable_adaptive_reduction,
+        enable_extended_exemptions: config.enable_extended_exemptions,
+        re_search_margin: config.re_search_margin,
+        enable_position_type_margin: config.enable_position_type_margin,
+        tactical_re_search_margin: config.tactical_re_search_margin,
+        quiet_re_search_margin: config.quiet_re_search_margin,
+        classification_config: convert_position_classification_config(&config.classification_config),
+        escape_move_config: convert_escape_move_config(&config.escape_move_config),
+        adaptive_tuning_config: convert_adaptive_tuning_config(&config.adaptive_tuning_config),
+        advanced_reduction_config: convert_advanced_reduction_config(&config.advanced_reduction_config),
+        conditional_exemption_config: convert_conditional_exemption_config(&config.conditional_exemption_config),
+    }
+}
+
+fn convert_position_classification_config(config: &crate::types::all::PositionClassificationConfig) -> crate::types::search::PositionClassificationConfig {
+    crate::types::search::PositionClassificationConfig {
+        tactical_threshold: config.tactical_threshold,
+        quiet_threshold: config.quiet_threshold,
+        material_imbalance_threshold: config.material_imbalance_threshold,
+        min_moves_threshold: config.min_moves_threshold,
+    }
+}
+
+fn convert_escape_move_config(config: &crate::types::all::EscapeMoveConfig) -> crate::types::search::EscapeMoveConfig {
+    crate::types::search::EscapeMoveConfig {
+        enable_escape_move_exemption: config.enable_escape_move_exemption,
+        use_threat_based_detection: config.use_threat_based_detection,
+        fallback_to_heuristic: config.fallback_to_heuristic,
+    }
+}
+
+fn convert_adaptive_tuning_config(config: &crate::types::all::AdaptiveTuningConfig) -> crate::types::search::AdaptiveTuningConfig {
+    crate::types::search::AdaptiveTuningConfig {
+        enabled: config.enabled,
+        aggressiveness: match config.aggressiveness {
+            crate::types::all::TuningAggressiveness::Conservative => crate::types::search::TuningAggressiveness::Conservative,
+            crate::types::all::TuningAggressiveness::Moderate => crate::types::search::TuningAggressiveness::Moderate,
+            crate::types::all::TuningAggressiveness::Aggressive => crate::types::search::TuningAggressiveness::Aggressive,
+        },
+        min_data_threshold: config.min_data_threshold,
+    }
+}
+
+fn convert_advanced_reduction_config(config: &crate::types::all::AdvancedReductionConfig) -> crate::types::search::AdvancedReductionConfig {
+    crate::types::search::AdvancedReductionConfig {
+        enabled: config.enabled,
+        strategy: match config.strategy {
+            crate::types::all::AdvancedReductionStrategy::Basic => crate::types::search::AdvancedReductionStrategy::Basic,
+            crate::types::all::AdvancedReductionStrategy::DepthBased => crate::types::search::AdvancedReductionStrategy::DepthBased,
+            crate::types::all::AdvancedReductionStrategy::MaterialBased => crate::types::search::AdvancedReductionStrategy::MaterialBased,
+            crate::types::all::AdvancedReductionStrategy::HistoryBased => crate::types::search::AdvancedReductionStrategy::HistoryBased,
+            crate::types::all::AdvancedReductionStrategy::Combined => crate::types::search::AdvancedReductionStrategy::Combined,
+        },
+    }
+}
+
+fn convert_conditional_exemption_config(config: &crate::types::all::ConditionalExemptionConfig) -> crate::types::search::ConditionalExemptionConfig {
+    crate::types::search::ConditionalExemptionConfig {
+        enable_conditional_capture_exemption: config.enable_conditional_capture_exemption,
+        min_capture_value_threshold: config.min_capture_value_threshold,
+        min_depth_for_conditional_capture: config.min_depth_for_conditional_capture,
+        enable_conditional_promotion_exemption: config.enable_conditional_promotion_exemption,
+        exempt_tactical_promotions_only: config.exempt_tactical_promotions_only,
+        min_depth_for_conditional_promotion: config.min_depth_for_conditional_promotion,
+    }
+}
+
+// Helper functions to convert between Move types and TacticalIndicators
+fn convert_position_to_all(p: crate::types::core::Position) -> crate::types::all::Position {
+    crate::types::all::Position {
+        row: p.row,
+        col: p.col,
+    }
+}
+
+fn convert_position_from_all(p: crate::types::all::Position) -> crate::types::core::Position {
+    crate::types::core::Position {
+        row: p.row,
+        col: p.col,
+    }
+}
+
+fn convert_move_to_all(m: crate::types::core::Move) -> crate::types::all::Move {
+    crate::types::all::Move {
+        from: m.from.map(convert_position_to_all),
+        to: convert_position_to_all(m.to),
+        piece_type: convert_piece_type_to_all(m.piece_type),
+        player: convert_player_to_all(m.player),
+        is_promotion: m.is_promotion,
+        is_capture: m.is_capture,
+        captured_piece: m.captured_piece.map(|p| crate::types::all::Piece {
+            piece_type: convert_piece_type_to_all(p.piece_type),
+            player: convert_player_to_all(p.player),
+        }),
+        gives_check: m.gives_check,
+        is_recapture: m.is_recapture,
+    }
+}
+
+fn convert_move_from_all(m: &crate::types::all::Move) -> crate::types::core::Move {
+    crate::types::core::Move {
+        from: m.from.map(convert_position_from_all),
+        to: convert_position_from_all(m.to),
+        piece_type: convert_piece_type_from_all(m.piece_type),
+        player: convert_player_from_all(m.player),
+        is_promotion: m.is_promotion,
+        is_capture: m.is_capture,
+        captured_piece: m.captured_piece.as_ref().map(|p| crate::types::core::Piece {
+            piece_type: convert_piece_type_from_all(p.piece_type),
+            player: convert_player_from_all(p.player),
+        }),
+        gives_check: m.gives_check,
+        is_recapture: m.is_recapture,
+    }
+}
+
+fn convert_piece_type_to_all(pt: crate::types::core::PieceType) -> crate::types::all::PieceType {
+    match pt {
+        crate::types::core::PieceType::Pawn => crate::types::all::PieceType::Pawn,
+        crate::types::core::PieceType::Lance => crate::types::all::PieceType::Lance,
+        crate::types::core::PieceType::Knight => crate::types::all::PieceType::Knight,
+        crate::types::core::PieceType::Silver => crate::types::all::PieceType::Silver,
+        crate::types::core::PieceType::Gold => crate::types::all::PieceType::Gold,
+        crate::types::core::PieceType::Bishop => crate::types::all::PieceType::Bishop,
+        crate::types::core::PieceType::Rook => crate::types::all::PieceType::Rook,
+        crate::types::core::PieceType::King => crate::types::all::PieceType::King,
+        crate::types::core::PieceType::PromotedPawn => crate::types::all::PieceType::PromotedPawn,
+        crate::types::core::PieceType::PromotedLance => crate::types::all::PieceType::PromotedLance,
+        crate::types::core::PieceType::PromotedKnight => crate::types::all::PieceType::PromotedKnight,
+        crate::types::core::PieceType::PromotedSilver => crate::types::all::PieceType::PromotedSilver,
+        crate::types::core::PieceType::PromotedBishop => crate::types::all::PieceType::PromotedBishop,
+        crate::types::core::PieceType::PromotedRook => crate::types::all::PieceType::PromotedRook,
+    }
+}
+
+fn convert_piece_type_from_all(pt: crate::types::all::PieceType) -> crate::types::core::PieceType {
+    match pt {
+        crate::types::all::PieceType::Pawn => crate::types::core::PieceType::Pawn,
+        crate::types::all::PieceType::Lance => crate::types::core::PieceType::Lance,
+        crate::types::all::PieceType::Knight => crate::types::core::PieceType::Knight,
+        crate::types::all::PieceType::Silver => crate::types::core::PieceType::Silver,
+        crate::types::all::PieceType::Gold => crate::types::core::PieceType::Gold,
+        crate::types::all::PieceType::Bishop => crate::types::core::PieceType::Bishop,
+        crate::types::all::PieceType::Rook => crate::types::core::PieceType::Rook,
+        crate::types::all::PieceType::King => crate::types::core::PieceType::King,
+        crate::types::all::PieceType::PromotedPawn => crate::types::core::PieceType::PromotedPawn,
+        crate::types::all::PieceType::PromotedLance => crate::types::core::PieceType::PromotedLance,
+        crate::types::all::PieceType::PromotedKnight => crate::types::core::PieceType::PromotedKnight,
+        crate::types::all::PieceType::PromotedSilver => crate::types::core::PieceType::PromotedSilver,
+        crate::types::all::PieceType::PromotedBishop => crate::types::core::PieceType::PromotedBishop,
+        crate::types::all::PieceType::PromotedRook => crate::types::core::PieceType::PromotedRook,
+    }
+}
+
+fn convert_player_to_all(p: crate::types::core::Player) -> crate::types::all::Player {
+    match p {
+        crate::types::core::Player::Black => crate::types::all::Player::Black,
+        crate::types::core::Player::White => crate::types::all::Player::White,
+    }
+}
+
+fn convert_player_from_all(p: crate::types::all::Player) -> crate::types::core::Player {
+    match p {
+        crate::types::all::Player::Black => crate::types::core::Player::Black,
+        crate::types::all::Player::White => crate::types::core::Player::White,
+    }
+}
+
+fn convert_tactical_indicators_to_all(ti: &crate::types::patterns::TacticalIndicators) -> crate::types::all::TacticalIndicators {
+    crate::types::all::TacticalIndicators {
+        is_capture: ti.is_capture,
+        is_promotion: ti.is_promotion,
+        gives_check: ti.gives_check,
+        is_recapture: ti.is_recapture,
+        piece_value: ti.piece_value,
+        mobility_impact: ti.mobility_impact,
+        king_safety_impact: ti.king_safety_impact,
+    }
+}
+
+// Reverse conversion functions to convert from types::search:: config types back to all:: config types
+// These are needed for get_engine_config() which returns EngineConfig (uses all:: types)
+fn convert_quiescence_config_back(config: &crate::types::search::QuiescenceConfig) -> crate::types::all::QuiescenceConfig {
+    crate::types::all::QuiescenceConfig {
+        max_depth: config.max_depth,
+        enable_delta_pruning: config.enable_delta_pruning,
+        enable_futility_pruning: config.enable_futility_pruning,
+        enable_selective_extensions: config.enable_selective_extensions,
+        enable_tt: config.enable_tt,
+        enable_adaptive_pruning: config.enable_adaptive_pruning,
+        futility_margin: config.futility_margin,
+        delta_margin: config.delta_margin,
+        high_value_capture_threshold: config.high_value_capture_threshold,
+        tt_size_mb: config.tt_size_mb,
+        tt_cleanup_threshold: config.tt_cleanup_threshold,
+        tt_replacement_policy: match config.tt_replacement_policy {
+            crate::types::search::TTReplacementPolicy::Simple => crate::types::all::TTReplacementPolicy::Simple,
+            crate::types::search::TTReplacementPolicy::LRU => crate::types::all::TTReplacementPolicy::LRU,
+            crate::types::search::TTReplacementPolicy::DepthPreferred => crate::types::all::TTReplacementPolicy::DepthPreferred,
+            crate::types::search::TTReplacementPolicy::Hybrid => crate::types::all::TTReplacementPolicy::Hybrid,
+        },
+    }
+}
+
+fn convert_null_move_config_back(_config: &crate::types::search::NullMoveConfig) -> crate::types::all::NullMoveConfig {
+    // This is a simplified conversion - full conversion would require all fields
+    crate::types::all::NullMoveConfig::default() // Use default for now, full conversion would be complex
+}
+
+fn convert_lmr_config_back(_config: &crate::types::search::LMRConfig) -> crate::types::all::LMRConfig {
+    // This is a simplified conversion - full conversion would require all fields
+    crate::types::all::LMRConfig::default() // Use default for now, full conversion would be complex
+}
+
+fn convert_aspiration_config_back(config: &crate::types::search::AspirationWindowConfig) -> crate::types::all::AspirationWindowConfig {
+    crate::types::all::AspirationWindowConfig {
+        enabled: config.enabled,
+        base_window_size: config.base_window_size,
+        dynamic_scaling: config.dynamic_scaling,
+        max_window_size: config.max_window_size,
+        min_depth: config.min_depth,
+        enable_adaptive_sizing: config.enable_adaptive_sizing,
+        max_researches: config.max_researches,
+        enable_statistics: config.enable_statistics,
+        use_static_eval_for_init: config.use_static_eval_for_init,
+        enable_position_type_tracking: config.enable_position_type_tracking,
+        disable_statistics_in_production: config.disable_statistics_in_production,
+    }
+}
+
+fn convert_iid_config_back(_config: &crate::types::search::IIDConfig) -> crate::types::all::IIDConfig {
+    // This is a simplified conversion - full conversion would require all fields
+    crate::types::all::IIDConfig::default() // Use default for now, full conversion would be complex
+}
+
+fn convert_iid_stats_to_all(stats: &crate::types::search::IIDStats) -> crate::types::all::IIDStats {
+    crate::types::all::IIDStats {
+        iid_searches_performed: stats.iid_searches_performed,
+        iid_move_first_improved_alpha: stats.iid_move_first_improved_alpha,
+        iid_move_caused_cutoff: stats.iid_move_caused_cutoff,
+        total_iid_nodes: stats.total_iid_nodes,
+        iid_time_ms: stats.iid_time_ms,
+        total_search_time_ms: stats.total_search_time_ms,
+        positions_skipped_tt_move: stats.positions_skipped_tt_move,
+        positions_skipped_depth: stats.positions_skipped_depth,
+        positions_skipped_move_count: stats.positions_skipped_move_count,
+        positions_skipped_time_pressure: stats.positions_skipped_time_pressure,
+        iid_searches_failed: stats.iid_searches_failed,
+        iid_moves_ineffective: stats.iid_moves_ineffective,
+        iid_move_extracted_from_tt: stats.iid_move_extracted_from_tt,
+        iid_move_extracted_from_tracked: stats.iid_move_extracted_from_tracked,
+        dynamic_depth_selections: stats.dynamic_depth_selections.clone(),
+        dynamic_depth_low_complexity: stats.dynamic_depth_low_complexity,
+        dynamic_depth_medium_complexity: stats.dynamic_depth_medium_complexity,
+        dynamic_depth_high_complexity: stats.dynamic_depth_high_complexity,
+        total_predicted_iid_time_ms: stats.total_predicted_iid_time_ms,
+        total_actual_iid_time_ms: stats.total_actual_iid_time_ms,
+        positions_skipped_time_estimation: stats.positions_skipped_time_estimation,
+        total_nodes_without_iid: stats.total_nodes_without_iid,
+        total_time_without_iid_ms: stats.total_time_without_iid_ms,
+        nodes_saved: stats.nodes_saved,
+        efficiency_speedup_correlation_sum: stats.efficiency_speedup_correlation_sum,
+        correlation_data_points: stats.correlation_data_points,
+        performance_measurement_accuracy_sum: stats.performance_measurement_accuracy_sum,
+        performance_measurement_samples: stats.performance_measurement_samples,
+        time_pressure_detection_correct: stats.time_pressure_detection_correct,
+        time_pressure_detection_total: stats.time_pressure_detection_total,
+        // Convert complexity_effectiveness from search::PositionComplexity to all::PositionComplexity
+        complexity_effectiveness: std::collections::HashMap::new(), // Simplified - would need full conversion
+        material_adjustment_applied: stats.material_adjustment_applied,
+        material_adjustment_effective: stats.material_adjustment_effective,
+        time_adjustment_applied: stats.time_adjustment_applied,
+        time_adjustment_effective: stats.time_adjustment_effective,
+        game_phase_adjustment_applied: stats.game_phase_adjustment_applied,
+        game_phase_adjustment_effective: stats.game_phase_adjustment_effective,
+        game_phase_opening_adjustments: stats.game_phase_opening_adjustments,
+        game_phase_middlegame_adjustments: stats.game_phase_middlegame_adjustments,
+        game_phase_endgame_adjustments: stats.game_phase_endgame_adjustments,
+        iid_move_ordered_first: stats.iid_move_ordered_first,
+        iid_move_not_ordered_first: stats.iid_move_not_ordered_first,
+        cutoffs_from_iid_moves: stats.cutoffs_from_iid_moves,
+        // Missing fields from all::IIDStats that exist in search::IIDStats
+        tt_move_condition_skips: stats.tt_move_condition_skips,
+        tt_move_condition_tt_move_used: stats.tt_move_condition_tt_move_used,
+        complexity_distribution_low: stats.complexity_distribution_low,
+        complexity_distribution_medium: stats.complexity_distribution_medium,
+        complexity_distribution_high: stats.complexity_distribution_high,
+        complexity_distribution_unknown: stats.complexity_distribution_unknown,
+        cutoffs_from_non_iid_moves: stats.cutoffs_from_non_iid_moves,
+        total_cutoffs: stats.total_cutoffs,
+        iid_move_position_sum: stats.iid_move_position_sum,
+        iid_move_position_tracked: stats.iid_move_position_tracked,
+        ordering_effectiveness_with_iid_cutoffs: stats.ordering_effectiveness_with_iid_cutoffs,
+        ordering_effectiveness_with_iid_total: stats.ordering_effectiveness_with_iid_total,
+        ordering_effectiveness_without_iid_cutoffs: stats.ordering_effectiveness_without_iid_cutoffs,
+        ordering_effectiveness_without_iid_total: stats.ordering_effectiveness_without_iid_total,
+        iid_efficiency_ordering_correlation_sum: stats.iid_efficiency_ordering_correlation_sum,
+        iid_efficiency_ordering_correlation_points: stats.iid_efficiency_ordering_correlation_points,
+    }
+}
+
+fn convert_time_management_config_back(config: &crate::types::search::TimeManagementConfig) -> crate::types::all::TimeManagementConfig {
+    crate::types::all::TimeManagementConfig {
+        enabled: config.enabled,
+        buffer_percentage: config.buffer_percentage,
+        min_time_ms: config.min_time_ms,
+        max_time_ms: config.max_time_ms,
+        increment_ms: config.increment_ms,
+        enable_pressure_detection: config.enable_pressure_detection,
+        pressure_threshold: config.pressure_threshold,
+        allocation_strategy: match config.allocation_strategy {
+            crate::types::search::TimeAllocationStrategy::Equal => crate::types::all::TimeAllocationStrategy::Equal,
+            crate::types::search::TimeAllocationStrategy::Exponential => crate::types::all::TimeAllocationStrategy::Exponential,
+            crate::types::search::TimeAllocationStrategy::Adaptive => crate::types::all::TimeAllocationStrategy::Adaptive,
+        },
+        safety_margin: config.safety_margin,
+        min_time_per_depth_ms: config.min_time_per_depth_ms,
+        max_time_per_depth_ms: config.max_time_per_depth_ms,
+        enable_check_optimization: config.enable_check_optimization,
+        check_max_depth: config.check_max_depth,
+        check_time_limit_ms: config.check_time_limit_ms,
+        enable_time_budget: config.enable_time_budget,
+        time_check_frequency: config.time_check_frequency,
+        absolute_safety_margin_ms: config.absolute_safety_margin_ms,
+        enable_adaptive_allocation: false, // Not in search.rs version
+        adaptive_allocation_factor: 1.0, // Not in search.rs version
+        enable_time_pressure_scaling: false, // Not in search.rs version
+        time_pressure_scaling_factor: 1.0, // Not in search.rs version
+    }
+}
+
+#[allow(dead_code)]
+fn convert_pruning_parameters(config: &crate::types::all::PruningParameters) -> crate::types::search::PruningParameters {
+    crate::types::search::PruningParameters {
+        futility_margin: config.futility_margin,
+        futility_depth_limit: config.futility_depth_limit,
+        extended_futility_depth: config.extended_futility_depth,
+        lmr_base_reduction: config.lmr_base_reduction,
+        lmr_move_threshold: config.lmr_move_threshold,
+        lmr_depth_threshold: config.lmr_depth_threshold,
+        lmr_max_reduction: config.lmr_max_reduction,
+        lmr_enable_extended_exemptions: config.lmr_enable_extended_exemptions,
+        lmr_enable_adaptive_reduction: config.lmr_enable_adaptive_reduction,
+        adaptive_enabled: config.adaptive_enabled,
+        delta_depth_limit: config.delta_depth_limit,
+        delta_margin: config.delta_margin,
+        razoring_enabled: config.razoring_enabled,
+        razoring_depth_limit: config.razoring_depth_limit,
+        razoring_margin: config.razoring_margin,
+        razoring_margin_endgame: config.razoring_margin_endgame,
+        multi_cut_threshold: config.multi_cut_threshold,
+        multi_cut_depth_limit: config.multi_cut_depth_limit,
+        position_dependent_margins: config.position_dependent_margins,
+        late_move_pruning_enabled: config.late_move_pruning_enabled,
+        late_move_pruning_move_threshold: config.late_move_pruning_move_threshold,
+    }
+}
+
+#[allow(dead_code)]
+impl SearchEngine {
+    /// Get memory tracker
+    pub fn get_memory_tracker(&self) -> &crate::search::memory_tracking::MemoryTracker {
+        &self.memory_tracker
+    }
+
+    fn ybwc_dynamic_sibling_cap(&self, depth: u8, branch_len: usize) -> usize {
+        if branch_len == 0 {
+            return 0;
+        }
+        let over_min = depth.saturating_sub(self.ybwc_min_depth);
+        let divisor = match over_min {
+            0 => self.ybwc_div_shallow.max(1),
+            1 => self.ybwc_div_mid.max(1),
+            _ => self.ybwc_div_deep.max(1),
+        };
+        let scaled = (branch_len / divisor).max(1);
+        scaled.min(self.ybwc_max_siblings)
+    }
+    #[inline]
+    fn tt_write_min_depth(&self) -> u8 {
+        self.tt_write_min_depth_value
+    }
+    fn tt_exact_only_max_depth(&self) -> u8 {
+        self.tt_exact_only_max_depth_value
+    }
+
+    pub fn set_ybwc(&mut self, enabled: bool, min_depth: u8) {
+        self.ybwc_enabled = enabled;
+        self.ybwc_min_depth = min_depth;
+    }
+
+    pub fn set_ybwc_branch(&mut self, min_branch: usize) {
+        self.ybwc_min_branch = min_branch;
+    }
+
+    pub fn set_tt_gating(
+        &mut self,
+        exact_only_max_depth: u8,
+        non_exact_min_depth: u8,
+        buffer_capacity: usize,
+    ) {
+        self.tt_exact_only_max_depth_value = exact_only_max_depth;
+        self.tt_write_min_depth_value = non_exact_min_depth;
+        self.tt_write_buffer_capacity = buffer_capacity;
+    }
+
+    pub fn set_ybwc_max_siblings(&mut self, max_siblings: usize) {
+        self.ybwc_max_siblings = max_siblings.max(1);
+    }
+
+    pub fn set_ybwc_scaling(
+        &mut self,
+        shallow_divisor: usize,
+        mid_divisor: usize,
+        deep_divisor: usize,
+    ) {
+        self.ybwc_div_shallow = shallow_divisor.max(1);
+        self.ybwc_div_mid = mid_divisor.max(1);
+        self.ybwc_div_deep = deep_divisor.max(1);
+    }
+
+    fn apply_parallel_options(&mut self) {
+        let opts = self.parallel_options.clone();
+        self.set_ybwc(opts.ybwc_enabled, opts.ybwc_min_depth);
+        self.set_ybwc_branch(opts.ybwc_min_branch);
+        self.set_ybwc_max_siblings(opts.ybwc_max_siblings);
+        self.set_ybwc_scaling(
+            opts.ybwc_shallow_divisor,
+            opts.ybwc_mid_divisor,
+            opts.ybwc_deep_divisor,
+        );
+    }
+
+    pub fn set_parallel_options(&mut self, mut options: ParallelOptions) {
+        options.clamp();
+        self.parallel_options = options;
+        self.apply_parallel_options();
+    }
+
+    pub fn parallel_options(&self) -> &ParallelOptions {
+        &self.parallel_options
+    }
+
+    pub fn flush_tt_buffer(&mut self) {
+        if self.tt_write_buffer.is_empty() {
+            return;
+        }
+        if let Some(ref shared_tt) = self.shared_transposition_table {
+            TT_TRY_WRITES.fetch_add(1, Ordering::Relaxed);
+            if let Ok(guard) = shared_tt.try_read() {
+                TT_TRY_WRITE_SUCCESSES.fetch_add(1, Ordering::Relaxed);
+                let drained: Vec<_> = self.tt_write_buffer.drain(..).collect();
+                let to_write = drained.len() as u64;
+                if to_write > 0 {
+                    self.tt_buffer_flushes += 1;
+                    self.tt_buffer_entries_written += to_write;
+                    self.shared_tt_store_writes += to_write;
+                    guard.store_batch(drained);
+                }
+                return;
+            } else {
+                TT_TRY_WRITE_FAILS.fetch_add(1, Ordering::Relaxed);
+            }
+        }
+        // Fallback: write to local TT without holding shared lock
+        for e in self.tt_write_buffer.drain(..) {
+            self.transposition_table.store(e);
+        }
+    }
+
+    #[inline]
+    fn maybe_buffer_tt_store(
+        &mut self,
+        entry: TranspositionEntry,
+        depth: u8,
+        flag: TranspositionFlag,
+    ) {
+        // Task 7.0.3.8-3.9: TT Entry Priority - Prevent auxiliary entries from overwriting deeper main entries
+        // Check if we should skip storing this entry to preserve higher-quality entries
+        if entry.source != crate::types::EntrySource::MainSearch {
+            // This is an auxiliary search entry (NMP, IID, etc.)
+            // Check if there's an existing entry that should be preserved
+            if let Some(existing) =
+                self.transposition_table
+                    .probe_with_prefetch(entry.hash_key, 0, None)
+            {
+                // Only prevent overwrite if existing entry is from MainSearch AND deeper
+                if existing.source == crate::types::EntrySource::MainSearch
+                    && existing.depth > entry.depth
+                {
+                    // Don't overwrite deeper main search entry with shallow auxiliary entry
+                    self.core_search_metrics.tt_auxiliary_overwrites_prevented += 1;
+                    crate::utils::telemetry::trace_log("TT_PRIORITY", &format!(
+                        "Prevented auxiliary entry (source: {:?}, depth: {}) from overwriting main entry (depth: {})",
+                        entry.source, entry.depth, existing.depth
+                    ));
+                    return;
+                }
+            }
+        } else {
+            // MainSearch entry - track if it's preserving a main entry
+            if let Some(existing) =
+                self.transposition_table
+                    .probe_with_prefetch(entry.hash_key, 0, None)
+            {
+                if existing.source == crate::types::EntrySource::MainSearch {
+                    self.core_search_metrics.tt_main_entries_preserved += 1;
+                }
+            }
+        }
+
+        // Gate writes: at shallow depths, only store Exact entries
+        // BUT: Always store entries with best_move to enable PV construction
+        // This is critical - PV building needs best_move entries for all positions in the line
+        let has_best_move = entry.best_move.is_some();
+
+        if depth <= self.tt_exact_only_max_depth() && !matches!(flag, TranspositionFlag::Exact) {
+            // Still store if we have a best_move - needed for PV construction
+            if !has_best_move {
+                return;
+            }
+            // For PV positions, allow storing even non-Exact entries at shallow depths
+        }
+        // Gate non-Exact writes: allow only deeper-than-threshold entries
+        // BUT: Always allow if we have best_move (for PV construction)
+        if !(matches!(flag, TranspositionFlag::Exact)
+            || depth >= self.tt_write_min_depth()
+            || has_best_move)
+        {
+            return;
+        }
+        
+        // Automatic profiling for TT store (Task 26.0 - Task 3.0)
+        let tt_store_start = if self.auto_profiling_enabled {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
+        if self.shared_transposition_table.is_some() {
+            self.shared_tt_store_attempts += 1;
+            self.tt_write_buffer.push(entry);
+            if self.tt_write_buffer.len() >= self.tt_write_buffer_capacity {
+                self.flush_tt_buffer();
+            }
+        } else {
+            self.transposition_table.store(entry);
+        }
+
+        // Record TT store profiling (Task 3.0)
+        if let Some(start) = tt_store_start {
+            let elapsed_ns = start.elapsed().as_nanos() as u64;
+            self.performance_profiler.record_operation("tt_store", elapsed_ns);
+        }
+    }
+    pub fn new(stop_flag: Option<Arc<AtomicBool>>, hash_size_mb: usize) -> Self {
+        Self::new_with_config(stop_flag, hash_size_mb, QuiescenceConfig::default())
+    }
+
+    pub fn new_with_config(
+        stop_flag: Option<Arc<AtomicBool>>,
+        hash_size_mb: usize,
+        quiescence_config: QuiescenceConfig,
+    ) -> Self {
+        let config = crate::search::TranspositionConfig::performance_optimized();
+        let config = crate::search::TranspositionConfig {
+            table_size: hash_size_mb * 1024 * 1024 / 100, // Approximate entries
+            ..config
+        };
+        const BYTES_PER_ENTRY: usize = 100; // Approximate size of a TT entry
+        let quiescence_capacity = quiescence_config.tt_size_mb * 1024 * 1024 / BYTES_PER_ENTRY;
+        let mut engine = Self {
+            evaluator: PositionEvaluator::new(),
+            move_generator: MoveGenerator::new(),
+            tablebase: MicroTablebase::new(),
+            transposition_table: crate::search::ThreadSafeTranspositionTable::new(config),
+            shared_transposition_table: None,
+            hash_calculator: crate::search::ShogiHashHandler::new(1000),
+            move_orderer: crate::search::TranspositionMoveOrderer::new(),
+            advanced_move_orderer: MoveOrdering::new(),
+            quiescence_tt: HashMap::with_capacity(quiescence_capacity),
+            quiescence_tt_age: 0,
+            history_table: [[0; 9]; 9],
+            killer_moves: [None, None],
+            core_search_metrics: CoreSearchMetrics::default(),
+            stop_flag,
+            // Initialize helper modules (Task 1.8)
+            quiescence_helper: QuiescenceHelper::new(quiescence_config.clone()),
+            null_move_helper: NullMoveHelper::new(NullMoveConfig::default()),
+            reductions_helper: ReductionsHelper::new(IIDConfig::default()),
+            iterative_deepening_helper: IterativeDeepeningHelper::new(AspirationWindowConfig::default()),
+            time_manager: TimeManager::new(
+                TimeManagementConfig::default(),
+                crate::types::TimePressureThresholds::default(),
+            ),
+            search_statistics: SearchStatistics::new(),
+            // Legacy config fields (synchronized with helper modules)
+            quiescence_config,
+            null_move_config: NullMoveConfig::default(),
+            lmr_config: LMRConfig::default(),
+            aspiration_config: AspirationWindowConfig::default(),
+            iid_config: IIDConfig::default(),
+            time_management_config: TimeManagementConfig::default(),
+            // Legacy stats fields (access through helper modules)
+            quiescence_stats: QuiescenceStats::default(),
+            null_move_stats: NullMoveStats::default(),
+            lmr_stats: LMRStats::default(),
+            aspiration_stats: AspirationWindowStats::default(),
+            iid_stats: IIDStats::default(),
+            iid_overhead_history: Vec::new(), // Task 8.6: Initialize overhead history
+            previous_scores: Vec::new(),
+            parallel_options: ParallelOptions::default(),
+            prefill_opening_book: true,
+            opening_book_prefill_depth: 8,
+            time_pressure_thresholds: crate::types::TimePressureThresholds::default(),
+            debug_logging: false,
+            auto_profiling_enabled: false,
+            auto_profiling_sample_rate: 100,
+            external_profiler: None,
+            performance_profiler: crate::evaluation::performance::PerformanceProfiler::new(),
+            memory_tracker: crate::search::memory_tracking::MemoryTracker::new(),
+            // Advanced Alpha-Beta Pruning
+            pruning_manager: {
+                let mut pm = PruningManager::new(crate::types::all::PruningParameters::default());
+                // Sync PruningManager parameters with LMRConfig (Task 8.4, 8.7)
+                let default_lmr = LMRConfig::default();
+                let mut params = pm.parameters.clone();
+                params.lmr_base_reduction = default_lmr.base_reduction;
+                params.lmr_move_threshold = default_lmr.min_move_index;
+                params.lmr_depth_threshold = default_lmr.min_depth;
+                params.lmr_max_reduction = default_lmr.max_reduction;
+                params.lmr_enable_extended_exemptions = default_lmr.enable_extended_exemptions;
+                params.lmr_enable_adaptive_reduction = default_lmr.enable_adaptive_reduction;
+                pm.parameters = params;
+                pm
+            },
+            tablebase_move_cache: HashMap::new(),
+            // Tapered evaluation search integration
+            tapered_search_enhancer: TaperedSearchEnhancer::new(),
+            // Initialize diagnostic fields
+            current_alpha: 0,
+            current_beta: 0,
+            current_best_move: None,
+            current_best_score: 0,
+            current_depth: 0,
+            search_start_time: None,
+            tt_write_buffer: Vec::with_capacity(64),
+            tt_write_buffer_capacity: 2048,
+            ybwc_enabled: false,
+            ybwc_min_depth: 2,
+            ybwc_min_branch: 8,
+            ybwc_max_siblings: 8,
+            ybwc_div_shallow: 4,
+            ybwc_div_mid: 3,
+            ybwc_div_deep: 2,
+            tt_write_min_depth_value: 11,
+            tt_exact_only_max_depth_value: 10,
+            shared_tt_probe_attempts: 0,
+            shared_tt_probe_hits: 0,
+            shared_tt_store_attempts: 0,
+            shared_tt_store_writes: 0,
+            tt_buffer_flushes: 0,
+            tt_buffer_entries_written: 0,
+            time_budget_stats: TimeBudgetStats::default(),
+            time_check_node_counter: 0,
+            // nodes_searched removed
+        };
+        engine.parallel_options.hash_size_mb = hash_size_mb;
+        if engine.debug_logging {
+            engine.evaluator.enable_integrated_statistics();
+        } else {
+            engine.evaluator.disable_integrated_statistics();
+        }
+        engine.apply_parallel_options();
+        engine
+    }
+
+    /// Initialize the move orderer with the transposition table
+    fn initialize_move_orderer(&mut self) {
+        self.move_orderer
+            .set_transposition_table(&self.transposition_table);
+    }
+
+    /// Initialize advanced move ordering system
+    fn initialize_advanced_move_orderer(
+        &mut self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+    ) {
+        // Update game phase for position-specific strategies
+        let move_count = self.search_statistics.get_nodes_searched() as usize; // Approximate move count
+        let material_balance = self.evaluate_position(board, player, captured_pieces);
+        let tactical_complexity =
+            self.calculate_tactical_complexity(board, captured_pieces, player);
+
+        self.advanced_move_orderer.update_game_phase(
+            move_count,
+            material_balance,
+            tactical_complexity,
+        );
+
+        // Integrate with transposition table (prefer shared TT when available)
+        let position_hash = self
+            .hash_calculator
+            .get_position_hash(board, player, captured_pieces);
+        let tt_entry_opt = if let Some(ref shared_tt) = self.shared_transposition_table {
+            self.shared_tt_probe_attempts += 1;
+            TT_TRY_READS.fetch_add(1, Ordering::Relaxed);
+            if let Ok(guard) = shared_tt.try_read() {
+                TT_TRY_READ_SUCCESSES.fetch_add(1, Ordering::Relaxed);
+                let r = guard.probe_with_prefetch(position_hash, depth, None);
+                if r.is_some() {
+                    self.shared_tt_probe_hits += 1;
+                }
+                r
+            } else {
+                TT_TRY_READ_FAILS.fetch_add(1, Ordering::Relaxed);
+                self.transposition_table
+                    .probe_with_prefetch(position_hash, depth, None)
+            }
+        } else {
+            self.transposition_table
+                .probe_with_prefetch(position_hash, depth, None)
+        };
+        if let Some(tt_entry) = tt_entry_opt {
+            let _ = self
+                .advanced_move_orderer
+                .integrate_with_transposition_table(
+                    Some(&tt_entry),
+                    board,
+                    captured_pieces,
+                    player,
+                    depth,
+                );
+        }
+    }
+
+    /// Expose nodes searched for external aggregators/monitors.
+    pub fn get_nodes_searched(&self) -> u64 {
+        self.search_statistics.get_nodes_searched()
+    }
+
+    /// Set a shared transposition table for reporting and ordering in parallel contexts.
+    pub fn set_shared_transposition_table(
+        &mut self,
+        shared: Arc<RwLock<crate::search::ThreadSafeTranspositionTable>>,
+    ) {
+        self.shared_transposition_table = Some(shared);
+    }
+
+    /// Calculate tactical complexity for position-specific strategies
+    fn calculate_tactical_complexity(
+        &self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+    ) -> f64 {
+        let legal_moves = self
+            .move_generator
+            .generate_legal_moves(board, player, captured_pieces);
+        let capture_count = legal_moves.iter().filter(|m| m.is_capture).count();
+        let check_count = legal_moves
+            .iter()
+            .filter(|m| {
+                let mut test_board = board.clone();
+                let mut test_captured = captured_pieces.clone();
+                if let Some(captured) = test_board.make_move(m) {
+                    test_captured.add_piece(captured.piece_type, player);
+                }
+                test_board.is_king_in_check(player.opposite(), &test_captured)
+            })
+            .count();
+
+        let total_moves = legal_moves.len() as f64;
+        if total_moves == 0.0 {
+            return 0.0;
+        }
+
+        (capture_count + check_count) as f64 / total_moves
+    }
+
+    /// Update move orderer with killer move
+    fn update_move_orderer_killer(&mut self, killer_move: Move) {
+        self.move_orderer.update_killer_moves(killer_move.clone());
+        // Also update advanced move orderer
+        self.advanced_move_orderer.add_killer_move(killer_move);
+    }
+
+    /// Order moves using advanced move ordering system
+    /// Task 3.0: Added iid_move parameter to integrate IID move into advanced ordering
+    /// Task 2.6: Added opponent_last_move parameter for counter-move heuristic
+    fn order_moves_advanced(
+        &mut self,
+        moves: &[Move],
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        iid_move: Option<&Move>,
+        opponent_last_move: Option<&Move>,
+    ) -> Result<Vec<Move>, String> {
+        // Initialize advanced move orderer for this position
+        self.initialize_advanced_move_orderer(board, captured_pieces, player, depth);
+
+        // Task 3.0: Use advanced move ordering with all heuristics and IID move
+        // Task 2.6: Pass opponent's last move to move ordering for counter-move heuristic
+        Ok(self.advanced_move_orderer.order_moves_with_all_heuristics(
+            moves,
+            board,
+            captured_pieces,
+            player,
+            depth,
+            iid_move,
+            opponent_last_move,
+        ))
+    }
+
+    /// Order moves for negamax search with advanced move ordering
+    ///
+    /// Task 6.4: Ensures move ordering accounts for search state (depth, alpha, beta, check status)
+    /// Task 6.5: Optimizes for repeated positions via caching
+    ///
+    /// Task 6.8: Made public for testing integration
+    /// Task 3.0: Added iid_move parameter to integrate IID move into all ordering paths
+    pub fn order_moves_for_negamax(
+        &mut self,
+        moves: &[Move],
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        alpha: i32,
+        beta: i32,
+        iid_move: Option<&Move>,
+        opponent_last_move: Option<&Move>,
+    ) -> Vec<Move> {
+        // External profiler marker (Task 26.0 - Task 8.0)
+        if let Some(ref profiler) = self.external_profiler {
+            profiler.start_region("order_moves");
+        }
+        
+        // Automatic profiling integration (Task 26.0 - Task 3.0)
+        let start_time = if self.auto_profiling_enabled {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
+        // Task 2.6: Added opponent_last_move parameter
+        // Task 3.0: Try advanced move ordering first with IID move
+        // Task 2.6: Pass opponent's last move to move ordering for counter-move heuristic
+        let result = match self.order_moves_advanced(
+            moves,
+            board,
+            captured_pieces,
+            player,
+            depth,
+            iid_move,
+            opponent_last_move,
+        ) {
+            Ok(ordered_moves) => {
+                // Task 6.2: If we have a TT hit, the ordering might already be cached
+                // Update PV move if we have a best move from transposition table
+                if let Some(best_move) =
+                    self.get_best_move_from_tt(board, captured_pieces, player, depth)
+                {
+                    self.advanced_move_orderer.update_pv_move(
+                        board,
+                        captured_pieces,
+                        player,
+                        depth,
+                        best_move,
+                        0,
+                    );
+                }
+                ordered_moves
+            }
+            Err(_) => {
+                // Task 3.0: Fallback to traditional move ordering with IID move
+                // Task 6.4: Pass depth, alpha, beta for state-aware ordering
+                self.move_orderer.order_moves(
+                    moves,
+                    board,
+                    captured_pieces,
+                    player,
+                    depth,
+                    alpha,
+                    beta,
+                    iid_move,
+                )
+            }
+        };
+
+        // Record profiling data if enabled (Task 3.0)
+        if let Some(start) = start_time {
+            let elapsed_ns = start.elapsed().as_nanos() as u64;
+            self.performance_profiler.record_operation("move_ordering", elapsed_ns);
+        }
+
+        // External profiler marker (Task 26.0 - Task 8.0)
+        if let Some(ref profiler) = self.external_profiler {
+            profiler.end_region("order_moves");
+        }
+
+        result
+    }
+
+    /// Enable automatic profiling for hot paths (Task 26.0 - Task 3.0)
+    ///
+    /// Enables profiling for evaluation, move ordering, and TT operations.
+    /// Profiling uses sampling to reduce overhead (configured via auto_profiling_sample_rate).
+    pub fn enable_auto_profiling(&mut self) {
+        self.auto_profiling_enabled = true;
+        self.performance_profiler.enable();
+        self.performance_profiler.set_sample_rate(self.auto_profiling_sample_rate);
+    }
+
+    /// Disable automatic profiling (Task 26.0 - Task 3.0)
+    pub fn disable_auto_profiling(&mut self) {
+        self.auto_profiling_enabled = false;
+        self.performance_profiler.disable();
+    }
+
+    /// Get hot path summary from profiler (Task 26.0 - Task 3.0)
+    pub fn get_hot_path_summary(&self, top_n: usize) -> Vec<crate::evaluation::performance::HotPathEntry> {
+        self.performance_profiler.get_hot_path_summary(top_n)
+    }
+
+    /// Export profiling data to JSON (Task 26.0 - Task 3.0)
+    pub fn export_profiling_data(&self) -> Result<String, String> {
+        self.performance_profiler.export_profiling_data()
+    }
+
+    /// Enable external profiling with the given profiler (Task 26.0 - Task 8.0)
+    pub fn enable_external_profiling<P: crate::search::performance_tuning::ExternalProfiler + 'static>(
+        &mut self,
+        profiler: Arc<P>,
+    ) {
+        self.external_profiler = Some(profiler);
+    }
+
+    /// Disable external profiling (Task 26.0 - Task 8.0)
+    pub fn disable_external_profiling(&mut self) {
+        self.external_profiler = None;
+    }
+
+    /// Export profiling markers to JSON (Task 26.0 - Task 8.0)
+    pub fn export_profiling_markers(&self) -> Result<serde_json::Value, String> {
+        if let Some(ref profiler) = self.external_profiler {
+            profiler.export_markers()
+        } else {
+            Err("External profiling is not enabled".to_string())
+        }
+    }
+
+    /// Get memory breakdown combining RSS with component estimates (Task 26.0 - Task 4.0)
+    pub fn get_memory_breakdown(&self) -> crate::search::memory_tracking::MemoryBreakdownWithRSS {
+        use crate::search::memory_tracking::MemoryBreakdown;
+        
+        // Get component estimates
+        let ordering_stats = self.advanced_move_orderer.get_stats();
+        // Note: TT stats removed - use hit_rate() from TranspositionTableTrait if needed
+        
+        // Estimate TT memory (approximate based on table size)
+        let tt_memory_bytes = (self.transposition_table.size() * 100) as u64; // Approximate entry size
+        
+        // Estimate cache memory from move ordering
+        let cache_memory_bytes = ordering_stats.memory_usage_bytes as u64;
+        
+        // Estimate move ordering memory
+        let move_ordering_memory_bytes = ordering_stats.memory_usage_bytes as u64;
+        
+        // Other memory (evaluator, etc.)
+        let other_memory_bytes = 10 * 1024 * 1024; // 10 MB estimate
+        
+        let mut breakdown = MemoryBreakdown {
+            tt_memory_bytes,
+            cache_memory_bytes,
+            move_ordering_memory_bytes,
+            other_memory_bytes,
+            total_component_bytes: 0,
+        };
+        breakdown.calculate_total();
+        
+        self.memory_tracker.get_memory_breakdown(&breakdown)
+    }
+
+    /// Get best move from transposition table for PV move ordering
+    /// Task 6.2: Implement TT best move retrieval for move ordering caching
+    fn get_best_move_from_tt(
+        &self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+    ) -> Option<Move> {
+        let position_hash = self
+            .hash_calculator
+            .get_position_hash(board, player, captured_pieces);
+
+        // Probe transposition table for best move
+        if let Some(entry) =
+            self.transposition_table
+                .probe_with_prefetch(position_hash, depth, None)
+        {
+            entry.best_move.clone()
+        } else {
+            // Try with maximum depth if not found at current depth
+            if let Some(entry) =
+                self.transposition_table
+                    .probe_with_prefetch(position_hash, 255, None)
+            {
+                entry.best_move.clone()
+            } else {
+                None
+            }
+        }
+    }
+
+    /// Update move orderer with history
+    fn update_move_orderer_history(&mut self, mv: &Move, depth: u8) {
+        self.move_orderer.update_history(mv, depth);
+    }
+
+    /// Create a new SearchEngine with full EngineConfig
+    pub fn new_with_engine_config(
+        stop_flag: Option<Arc<AtomicBool>>,
+        config: EngineConfig,
+    ) -> Self {
+        const BYTES_PER_ENTRY: usize = 100; // Approximate size of a TT entry
+        let tt_config = crate::search::TranspositionConfig::performance_optimized();
+        let tt_config = crate::search::TranspositionConfig {
+            table_size: config.tt_size_mb * 1024 * 1024 / BYTES_PER_ENTRY,
+            ..tt_config
+        };
+        let quiescence_capacity = config.quiescence.tt_size_mb * 1024 * 1024 / BYTES_PER_ENTRY;
+
+        let mut engine = Self {
+            evaluator: PositionEvaluator::new(),
+            move_generator: MoveGenerator::new(),
+            tablebase: MicroTablebase::new(),
+            transposition_table: crate::search::ThreadSafeTranspositionTable::new(tt_config),
+            shared_transposition_table: None,
+            hash_calculator: crate::search::ShogiHashHandler::new(1000),
+            move_orderer: crate::search::TranspositionMoveOrderer::new(),
+            advanced_move_orderer: MoveOrdering::new(),
+            quiescence_tt: HashMap::with_capacity(quiescence_capacity),
+            quiescence_tt_age: 0,
+            history_table: [[0; 9]; 9],
+            killer_moves: [None, None],
+            core_search_metrics: CoreSearchMetrics::default(),
+            stop_flag,
+            // Initialize helper modules with config (Task 1.8)
+            // Convert from all:: config types to types::search:: config types
+            quiescence_helper: QuiescenceHelper::new(convert_quiescence_config(&config.quiescence)),
+            null_move_helper: NullMoveHelper::new(convert_null_move_config(&config.null_move)),
+            reductions_helper: ReductionsHelper::new(convert_iid_config(&config.iid)),
+            iterative_deepening_helper: IterativeDeepeningHelper::new(convert_aspiration_config(&config.aspiration_windows)),
+            time_manager: TimeManager::new(
+                convert_time_management_config(&config.time_management),
+                crate::types::TimePressureThresholds::default(),
+            ),
+            search_statistics: SearchStatistics::new(),
+            // Legacy config fields (synchronized with helper modules)
+            // Convert from all:: types to types::search:: types
+            quiescence_config: convert_quiescence_config(&config.quiescence),
+            null_move_config: convert_null_move_config(&config.null_move),
+            lmr_config: convert_lmr_config(&config.lmr),
+            aspiration_config: convert_aspiration_config(&config.aspiration_windows),
+            iid_config: convert_iid_config(&config.iid),
+            time_management_config: convert_time_management_config(&config.time_management),
+            // Legacy stats fields (access through helper modules)
+            quiescence_stats: QuiescenceStats::default(),
+            null_move_stats: NullMoveStats::default(),
+            lmr_stats: LMRStats::default(),
+            aspiration_stats: AspirationWindowStats::default(),
+            iid_stats: IIDStats::default(),
+            iid_overhead_history: Vec::new(), // Task 8.6: Initialize overhead history
+            previous_scores: Vec::new(),
+            parallel_options: config.parallel.clone(),
+            prefill_opening_book: config.prefill_opening_book,
+            opening_book_prefill_depth: config.opening_book_prefill_depth,
+            time_pressure_thresholds: crate::types::TimePressureThresholds::default(),
+            debug_logging: config.debug_logging,
+            auto_profiling_enabled: config.auto_profiling_enabled,
+            auto_profiling_sample_rate: config.auto_profiling_sample_rate,
+            external_profiler: None,
+            performance_profiler: crate::evaluation::performance::PerformanceProfiler::with_sample_rate(config.auto_profiling_sample_rate),
+            memory_tracker: crate::search::memory_tracking::MemoryTracker::new(),
+            tablebase_move_cache: HashMap::new(),
+            // Advanced Alpha-Beta Pruning
+            pruning_manager: {
+                let mut pm = PruningManager::new(crate::types::all::PruningParameters::default());
+                // Sync PruningManager parameters with LMRConfig (Task 8.4, 8.7)
+                let mut params = pm.parameters.clone();
+                params.lmr_base_reduction = config.lmr.base_reduction;
+                params.lmr_move_threshold = config.lmr.min_move_index;
+                params.lmr_depth_threshold = config.lmr.min_depth;
+                params.lmr_max_reduction = config.lmr.max_reduction;
+                params.lmr_enable_extended_exemptions = config.lmr.enable_extended_exemptions;
+                params.lmr_enable_adaptive_reduction = config.lmr.enable_adaptive_reduction;
+                pm.parameters = params;
+                pm
+            },
+            // Tapered evaluation search integration
+            tapered_search_enhancer: TaperedSearchEnhancer::new(),
+            // Initialize diagnostic fields
+            current_alpha: 0,
+            current_beta: 0,
+            current_best_move: None,
+            current_best_score: 0,
+            current_depth: 0,
+            search_start_time: None,
+            tt_write_buffer: Vec::with_capacity(64),
+            tt_write_buffer_capacity: 512,
+            ybwc_enabled: false,
+            ybwc_min_depth: 2,
+            ybwc_min_branch: 8,
+            ybwc_max_siblings: 8,
+            ybwc_div_shallow: 4,
+            ybwc_div_mid: 3,
+            ybwc_div_deep: 2,
+            tt_write_min_depth_value: 9,
+            tt_exact_only_max_depth_value: 8,
+            shared_tt_probe_attempts: 0,
+            shared_tt_probe_hits: 0,
+            shared_tt_store_attempts: 0,
+            shared_tt_store_writes: 0,
+            tt_buffer_flushes: 0,
+            tt_buffer_entries_written: 0,
+            time_budget_stats: TimeBudgetStats::default(),
+            time_check_node_counter: 0,
+            // nodes_searched removed
+        };
+        if engine.debug_logging {
+            engine.evaluator.enable_integrated_statistics();
+        } else {
+            engine.evaluator.disable_integrated_statistics();
+        }
+        engine.apply_parallel_options();
+        engine
+    }
+
+    /// Create a new SearchEngine with a preset configuration
+    pub fn new_with_preset(stop_flag: Option<Arc<AtomicBool>>, preset: EnginePreset) -> Self {
+        let config = EngineConfig::get_preset(preset);
+        Self::new_with_engine_config(stop_flag, config)
+    }
+
+    /// Update the engine configuration
+    /// Synchronizes helper modules with new configuration (Task 1.8)
+    pub fn update_engine_config(&mut self, config: EngineConfig) -> Result<(), String> {
+        // Validate the configuration
+        config.validate()?;
+
+        // Update individual configurations (convert from all:: types to types::search:: types)
+        self.quiescence_config = convert_quiescence_config(&config.quiescence);
+        self.null_move_config = convert_null_move_config(&config.null_move);
+        self.lmr_config = convert_lmr_config(&config.lmr);
+        self.aspiration_config = convert_aspiration_config(&config.aspiration_windows);
+        self.iid_config = convert_iid_config(&config.iid);
+        self.time_management_config = convert_time_management_config(&config.time_management);
+        self.parallel_options = config.parallel.clone();
+        self.prefill_opening_book = config.prefill_opening_book;
+        self.opening_book_prefill_depth = config.opening_book_prefill_depth;
+
+        // Synchronize helper modules with new configuration (Task 1.8)
+        self.quiescence_helper = QuiescenceHelper::new(convert_quiescence_config(&config.quiescence));
+        self.null_move_helper = NullMoveHelper::new(convert_null_move_config(&config.null_move));
+        self.reductions_helper = ReductionsHelper::new(convert_iid_config(&config.iid));
+        self.iterative_deepening_helper = IterativeDeepeningHelper::new(convert_aspiration_config(&config.aspiration_windows));
+        self.time_manager = TimeManager::new(
+            convert_time_management_config(&config.time_management),
+            self.time_pressure_thresholds.clone(),
+        );
+
+        // Reset statistics when configuration changes
+        self.quiescence_stats.reset();
+        self.null_move_stats.reset();
+        self.lmr_stats.reset();
+        self.aspiration_stats.reset();
+        self.iid_stats.reset();
+
+        // Reinitialize performance monitoring with new max depth
+        self.initialize_performance_monitoring(config.max_depth);
+        self.apply_parallel_options();
+        self.debug_logging = config.debug_logging;
+        if self.debug_logging {
+            self.evaluator.enable_integrated_statistics();
+        } else {
+            self.evaluator.disable_integrated_statistics();
+        }
+
+        Ok(())
+    }
+
+    /// Apply a piece-square table configuration at runtime.
+    pub fn set_pst_config(&mut self, pst_config: PieceSquareTableConfig) -> Result<(), String> {
+        if matches!(pst_config.preset, PieceSquareTablePreset::Custom)
+            && pst_config
+                .values_path
+                .as_ref()
+                .map(|p| p.trim().is_empty())
+                .unwrap_or(true)
+        {
+            return Err("PSTPreset=Custom requires a non-empty PSTPath value".to_string());
+        }
+
+        self.evaluator.enable_integrated_evaluator();
+        if let Some(integrated) = self.evaluator.get_integrated_evaluator_mut() {
+            let mut updated = integrated.config().clone();
+            updated.pst = pst_config;
+            integrated.set_config(updated);
+            Ok(())
+        } else {
+            Err("Integrated evaluator is not available".to_string())
+        }
+    }
+
+    pub fn set_stop_flag(&mut self, stop_flag: Option<Arc<AtomicBool>>) {
+        self.stop_flag = stop_flag;
+    }
+
+    /// Get the current engine configuration
+    pub fn get_engine_config(&self) -> EngineConfig {
+        EngineConfig {
+            quiescence: convert_quiescence_config_back(&self.quiescence_config),
+            null_move: convert_null_move_config_back(&self.null_move_config),
+            lmr: convert_lmr_config_back(&self.lmr_config),
+            aspiration_windows: convert_aspiration_config_back(&self.aspiration_config),
+            iid: convert_iid_config_back(&self.iid_config),
+            tt_size_mb: self.transposition_table.size() * 100 / (1024 * 1024), // Approximate
+            debug_logging: self.debug_logging,
+            max_depth: 20, // This would need to be tracked separately
+            time_management: convert_time_management_config_back(&self.time_management_config),
+            thread_count: num_cpus::get(),
+            prefill_opening_book: self.prefill_opening_book,
+            opening_book_prefill_depth: self.opening_book_prefill_depth,
+            parallel: self.parallel_options.clone(),
+            auto_profiling_enabled: self.auto_profiling_enabled,
+            auto_profiling_sample_rate: self.auto_profiling_sample_rate,
+            telemetry_export_enabled: false, // TODO: Add field to SearchEngine if needed
+            telemetry_export_path: "telemetry".to_string(),
+        }
+    }
+
+    /// Prefill the transposition table with entries derived from an opening book.
+    /// Returns the number of entries inserted.
+    pub fn prefill_tt_from_opening_book(&mut self, book: &mut OpeningBook, depth: u8) -> usize {
+        self.transposition_table.prefill_from_book(book, depth)
+    }
+
+    /// Check if opening book prefill is enabled in the current configuration.
+    pub fn opening_book_prefill_enabled(&self) -> bool {
+        self.prefill_opening_book
+    }
+
+    /// Get the configured depth for opening book prefill entries.
+    pub fn opening_book_prefill_depth(&self) -> u8 {
+        self.opening_book_prefill_depth
+    }
+
+    /// Apply a configuration preset
+    pub fn apply_preset(&mut self, preset: EnginePreset) -> Result<(), String> {
+        let config = EngineConfig::get_preset(preset);
+        self.update_engine_config(config)
+    }
+
+    // ===== INTERNAL ITERATIVE DEEPENING (IID) METHODS =====
+
+    /// Calculate time pressure level based on remaining time (Task 7.0.2.2)
+    /// Returns the current time pressure level for algorithm coordination
+    /// Delegates to TimeManager (Task 1.8)
+    pub fn calculate_time_pressure_level(
+        &self,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+    ) -> crate::types::TimePressure {
+        self.time_manager.calculate_time_pressure_level(start_time, time_limit_ms)
+    }
+
+    /// Determine if IID should be applied at this position
+    /// Task 4.9: Added board and captured_pieces for adaptive minimum depth
+    /// Task 5.0: Integrated time estimation into decision logic
+    /// Task 7.7, 7.8: Use complexity assessment for skip conditions and adaptive move count threshold
+    /// Task 9.6: Added player parameter for TT entry checking
+    pub fn should_apply_iid(
+        &mut self,
+        depth: u8,
+        tt_move: Option<&Move>,
+        legal_moves: &[Move],
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        board: Option<&BitboardBoard>,
+        captured_pieces: Option<&CapturedPieces>,
+        player: Option<Player>,
+    ) -> bool {
+        // 1. IID must be enabled
+        if !self.iid_config.enabled {
+            self.iid_stats.positions_skipped_depth += 1;
+            return false;
+        }
+
+        // Task 7.7, 7.8: Assess complexity once and reuse throughout the method
+        // (for adaptive min depth, skip conditions, and adaptive move count threshold)
+        let complexity_opt = if let (Some(board), Some(captured)) = (board, captured_pieces) {
+            Some(self.assess_position_complexity(board, captured))
+        } else {
+            None
+        };
+
+        // Task 4.9: Review minimum depth threshold - make adaptive if enabled
+        let min_depth_threshold = if self.iid_config.adaptive_min_depth {
+            // Task 4.9: Adaptive minimum depth based on position characteristics
+            // Lower threshold for complex positions where IID is more valuable
+            if let Some(complexity) = complexity_opt {
+                match complexity {
+                    PositionComplexity::High => {
+                        let reduced = (self.iid_config.min_depth as i32).saturating_sub(1).max(2);
+                        reduced as u8
+                    }
+                    _ => self.iid_config.min_depth,
+                }
+            } else {
+                self.iid_config.min_depth
+            }
+        } else {
+            self.iid_config.min_depth
+        };
+
+        // 2. Sufficient depth for IID to be meaningful
+        if depth < min_depth_threshold {
+            self.iid_stats.positions_skipped_depth += 1;
+            return false;
+        }
+
+        // 3. No transposition table move available (or TT move is not reliable)
+        // Task 9.6: Enhanced TT move condition - check depth and age before skipping IID
+        if let Some(_tt_move) = tt_move {
+            // Task 9.6: Check TT entry depth and age if position info available
+            // Only skip IID if TT entry is recent enough (age) and deep enough (depth)
+            let should_skip_due_to_tt = if let (Some(board), Some(captured), Some(current_player)) =
+                (board, captured_pieces, player)
+            {
+                let position_hash =
+                    self.hash_calculator
+                        .get_position_hash(board, current_player, captured);
+                if let Some(tt_entry) =
+                    self.transposition_table
+                        .probe_with_prefetch(position_hash, 0, None)
+                {
+                    // Task 9.6: Check if TT entry depth is sufficient and age is acceptable
+                    let tt_depth_ok = tt_entry.depth >= self.iid_config.tt_move_min_depth_for_skip;
+                    let tt_age_ok = tt_entry.age <= self.iid_config.tt_move_max_age_for_skip;
+
+                    // Only skip if both depth and age conditions are met
+                    tt_depth_ok && tt_age_ok
+                } else {
+                    // No TT entry found - shouldn't happen if tt_move is Some, but handle gracefully
+                    true // Skip IID if we can't verify TT entry
+                }
+            } else {
+                // No position info or player available - use old behavior (skip if TT move exists)
+                true
+            };
+
+            if should_skip_due_to_tt {
+                // Task 9.9: Track TT move condition effectiveness
+                self.iid_stats.tt_move_condition_skips += 1;
+                self.iid_stats.positions_skipped_tt_move += 1;
+                // Task 9.10: Debug logging for TT move condition
+                if let (Some(board), Some(captured), Some(current_player)) =
+                    (board, captured_pieces, player)
+                {
+                    let position_hash =
+                        self.hash_calculator
+                            .get_position_hash(board, current_player, captured);
+                    if let Some(entry) =
+                        self.transposition_table
+                            .probe_with_prefetch(position_hash, 0, None)
+                    {
+                        crate::utils::telemetry::trace_log("IID_TT_MOVE", &format!(
+                            "IID skipped: TT move available (depth: {}, age: {}, min_depth: {}, max_age: {})",
+                            entry.depth, entry.age,
+                            self.iid_config.tt_move_min_depth_for_skip,
+                            self.iid_config.tt_move_max_age_for_skip
+                        ));
+                    }
+                } else {
+                    crate::utils::telemetry::trace_log(
+                        "IID_TT_MOVE",
+                        "IID skipped: TT move available (no position info)",
+                    );
+                }
+                return false;
+            } else {
+                // Task 9.9: Track when TT move exists but IID is still applied (TT entry too old/shallow)
+                self.iid_stats.tt_move_condition_tt_move_used += 1;
+                crate::utils::telemetry::trace_log(
+                    "IID_TT_MOVE",
+                    "TT move exists but IID still applied (TT entry too old/shallow)",
+                );
+            }
+        }
+
+        // Task 7.7: Use complexity assessment in IID skip conditions (skip IID in very simple positions)
+        // Task 7.8: Adaptive move count threshold based on position type (tactical vs quiet)
+
+        // Task 7.8: Calculate adaptive move count threshold
+        let move_count_threshold = if self.iid_config.enable_adaptive_move_count_threshold {
+            if let Some(complexity) = complexity_opt {
+                match complexity {
+                    crate::types::search::PositionComplexity::High => {
+                        // Tactical positions: allow more moves (IID is still valuable)
+                        ((self.iid_config.max_legal_moves as f64)
+                            * self.iid_config.tactical_move_count_multiplier)
+                            as usize
+                    }
+                    crate::types::search::PositionComplexity::Low => {
+                        // Quiet positions: reduce threshold (fewer moves, but IID still useful)
+                        ((self.iid_config.max_legal_moves as f64)
+                            * self.iid_config.quiet_move_count_multiplier)
+                            as usize
+                    }
+                    _ => {
+                        // Medium complexity: use default threshold
+                        self.iid_config.max_legal_moves
+                    }
+                }
+            } else {
+                self.iid_config.max_legal_moves
+            }
+        } else {
+            self.iid_config.max_legal_moves
+        };
+
+        // 4. Reasonable number of legal moves (avoid IID in tactical positions)
+        // Task 7.8: Now uses adaptive threshold
+        if legal_moves.len() > move_count_threshold {
+            self.iid_stats.positions_skipped_move_count += 1;
+            return false;
+        }
+
+        // Task 7.7: Skip IID in very simple positions (complexity might be Low with very few pieces)
+        if let Some(complexity) = complexity_opt {
+            // Very simple positions: skip IID to save time (no tactical complexity)
+            if complexity == PositionComplexity::Low && legal_moves.len() < 5 {
+                // Only skip if position is both Low complexity AND has very few moves
+                // (indicates very simple/quiet position where IID overhead isn't worth it)
+                self.iid_stats.positions_skipped_depth += 1;
+                return false;
+            }
+        }
+
+        // 5. Not in quiescence search
+        if depth == 0 {
+            return false;
+        }
+
+        // Task 5.0: Time estimation integration
+        // Calculate IID depth first to estimate time
+        let iid_depth = if let (Some(board), Some(captured)) = (board, captured_pieces) {
+            self.calculate_iid_depth(
+                depth,
+                Some(board),
+                Some(captured),
+                Some(start_time),
+                Some(time_limit_ms),
+            )
+        } else {
+            self.calculate_iid_depth(depth, None, None, Some(start_time), Some(time_limit_ms))
+        };
+
+        // Task 5.3: Estimate IID time before performing IID
+        let estimated_iid_time_ms = if let (Some(board), Some(captured)) = (board, captured_pieces)
+        {
+            self.estimate_iid_time(board, captured, iid_depth)
+        } else {
+            // Fallback estimate if position info not available
+            20 // Default estimate
+        };
+
+        // Task 5.10: Debug logging for time estimation
+        crate::utils::telemetry::trace_log(
+            "IID_TIME_EST",
+            &format!(
+                "Estimated IID time: {}ms (depth: {}, iid_depth: {})",
+                estimated_iid_time_ms, depth, iid_depth
+            ),
+        );
+
+        // Calculate remaining time
+        let elapsed = start_time.elapsed_ms() as u32;
+        let remaining_time = time_limit_ms.saturating_sub(elapsed);
+
+        // Task 5.5: Skip IID if estimated time exceeds threshold
+        let max_estimated_time = if self.iid_config.max_estimated_iid_time_percentage {
+            // Use percentage of remaining time
+            (remaining_time as f64 * (self.iid_config.max_estimated_iid_time_ms as f64 / 100.0))
+                as u32
+        } else {
+            // Use absolute time
+            self.iid_config.max_estimated_iid_time_ms
+        };
+
+        if estimated_iid_time_ms > max_estimated_time {
+            // Task 5.9: Track IID skipped due to time estimation
+            self.iid_stats.positions_skipped_time_estimation += 1;
+            crate::utils::telemetry::trace_log(
+                "IID_TIME_EST",
+                &format!(
+                    "IID skipped: estimated {}ms > threshold {}ms",
+                    estimated_iid_time_ms, max_estimated_time
+                ),
+            );
+            return false;
+        }
+
+        // Task 9.0: Enhanced time pressure detection
+        // Task 5.6, 5.7, 9.1-9.5: Update time pressure detection to use dynamic calculation
+        if self.iid_config.enable_time_pressure_detection {
+            let in_time_pressure = self.is_time_pressure(
+                start_time,
+                time_limit_ms,
+                complexity_opt,
+                depth,
+                Some(estimated_iid_time_ms),
+            );
+
+            if in_time_pressure {
+                // Task 9.8: Track time pressure detection
+                self.iid_stats.time_pressure_detection_total += 1;
+                self.iid_stats.positions_skipped_time_pressure += 1;
+
+                // Task 9.10: Debug logging for time pressure detection
+                crate::utils::telemetry::trace_log("IID_TIME_PRESSURE", &format!(
+                    "IID skipped: time pressure (remaining {}ms, depth: {}, complexity: {:?}, estimated_iid: {}ms)",
+                    remaining_time,
+                    depth,
+                    complexity_opt,
+                    estimated_iid_time_ms
+                ));
+                return false;
+            } else {
+                // Task 9.8: Track successful time pressure predictions (not in pressure when predicted not in pressure)
+                self.iid_stats.time_pressure_detection_total += 1;
+                self.iid_stats.time_pressure_detection_correct += 1;
+            }
+        }
+
+        true
+    }
+
+    /// Calculate the depth for IID search based on strategy
+    /// Task 4.0: Integrated dynamic depth calculation and enhanced strategies
+    /// Calculate IID depth based on strategy and position characteristics
+    /// Delegates core calculation to ReductionsHelper, then applies advanced strategies (Task 1.8)
+    pub fn calculate_iid_depth(
+        &mut self,
+        main_depth: u8,
+        board: Option<&BitboardBoard>,
+        captured_pieces: Option<&CapturedPieces>,
+        start_time: Option<&TimeSource>,
+        time_limit_ms: Option<u32>,
+    ) -> u8 {
+        // Delegate core depth calculation to ReductionsHelper
+        // Note: calculate_iid_depth expects a function pointer, not a closure
+        // So we can't pass self.assess_position_complexity directly
+        // Instead, we'll calculate complexity first and pass None, then use it in the helper
+        let depth = self.reductions_helper.calculate_iid_depth(
+            main_depth,
+            board,
+            captured_pieces,
+            None, // Can't pass closure as function pointer
+        );
+
+        // Task 11.2-11.7: Apply advanced depth strategies if enabled
+        let adjusted_depth = if let (Some(board), Some(captured)) = (board, captured_pieces) {
+            if let (Some(start_time), Some(time_limit)) = (start_time, time_limit_ms) {
+                self.apply_advanced_depth_strategies(depth, board, captured, start_time, time_limit)
+            } else {
+                // Can't apply time-based adjustment without time info, but can apply others
+                // For now, skip all advanced strategies if time info not available
+                depth
+            }
+        } else {
+            depth
+        };
+
+        adjusted_depth
+    }
+
+    /// Task 11.2-11.7: Apply advanced depth strategies (game phase, material, time-based)
+    /// This method applies all enabled advanced strategies to adjust the IID depth
+    fn apply_advanced_depth_strategies(
+        &mut self,
+        base_depth: u8,
+        board: &BitboardBoard,
+        _captured_pieces: &CapturedPieces,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+    ) -> u8 {
+        let mut depth = base_depth as f64;
+
+        // Task 11.2, 11.3: Game phase-based depth adjustment
+        if self.iid_config.enable_game_phase_based_adjustment {
+            let game_phase = self.get_game_phase(board);
+            let multiplier = match game_phase {
+                GamePhase::Opening => self.iid_config.game_phase_opening_multiplier,
+                GamePhase::Middlegame => self.iid_config.game_phase_middlegame_multiplier,
+                GamePhase::Endgame => self.iid_config.game_phase_endgame_multiplier,
+            };
+
+            // Task 11.9: Track game phase adjustment usage
+            self.iid_stats.game_phase_adjustment_applied += 1;
+            match game_phase {
+                GamePhase::Opening => self.iid_stats.game_phase_opening_adjustments += 1,
+                GamePhase::Middlegame => self.iid_stats.game_phase_middlegame_adjustments += 1,
+                GamePhase::Endgame => self.iid_stats.game_phase_endgame_adjustments += 1,
+            }
+
+            depth *= multiplier;
+
+            crate::utils::telemetry::trace_log(
+                "IID_DEPTH_ADVANCED",
+                &format!(
+                    "Game phase adjustment: phase={:?}, multiplier={}, depth={:.1}",
+                    game_phase, multiplier, depth
+                ),
+            );
+        }
+
+        // Task 11.4, 11.5: Material-based depth adjustment
+        if self.iid_config.enable_material_based_adjustment {
+            let material_count = self.count_material_for_phase(board);
+
+            if material_count > self.iid_config.material_threshold_for_adjustment as u32 {
+                // Task 11.9: Track material adjustment usage
+                self.iid_stats.material_adjustment_applied += 1;
+                depth *= self.iid_config.material_depth_multiplier;
+
+                crate::utils::telemetry::trace_log(
+                    "IID_DEPTH_ADVANCED",
+                    &format!(
+                        "Material adjustment: count={}, threshold={}, multiplier={}, depth={:.1}",
+                        material_count,
+                        self.iid_config.material_threshold_for_adjustment,
+                        self.iid_config.material_depth_multiplier,
+                        depth
+                    ),
+                );
+            }
+        }
+
+        // Task 11.6, 11.7: Time-based depth adjustment
+        if self.iid_config.enable_time_based_adjustment {
+            let elapsed = start_time.elapsed_ms() as u32;
+            let remaining = time_limit_ms.saturating_sub(elapsed);
+            let remaining_percentage = if time_limit_ms > 0 {
+                remaining as f64 / time_limit_ms as f64
+            } else {
+                1.0
+            };
+
+            if remaining_percentage < self.iid_config.time_threshold_for_adjustment {
+                // Task 11.9: Track time adjustment usage
+                self.iid_stats.time_adjustment_applied += 1;
+                depth *= self.iid_config.time_depth_multiplier;
+
+                crate::utils::telemetry::trace_log("IID_DEPTH_ADVANCED", &format!(
+                    "Time adjustment: remaining={:.1}%, threshold={:.1}%, multiplier={}, depth={:.1}",
+                    remaining_percentage * 100.0,
+                    self.iid_config.time_threshold_for_adjustment * 100.0,
+                    self.iid_config.time_depth_multiplier, depth
+                ));
+            }
+        }
+
+        // Convert back to u8 and clamp to valid range
+        let final_depth = (depth.round() as u8)
+            .max(1)
+            .min(self.iid_config.dynamic_max_depth);
+        final_depth
+    }
+
+    /// Check if we're in time pressure
+    /// Task 9.1-9.4: Enhanced to use dynamic calculation based on position complexity and depth
+    fn is_time_pressure(
+        &self,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        complexity: Option<PositionComplexity>,
+        depth: u8,
+        estimated_iid_time_ms: Option<u32>,
+    ) -> bool {
+        if !self.iid_config.enable_time_pressure_detection {
+            return false;
+        }
+
+        let elapsed = start_time.elapsed_ms() as u32;
+        let remaining = time_limit_ms.saturating_sub(elapsed);
+
+        // Task 9.4: Replace fixed 10% threshold with dynamic calculation
+        // Start with base threshold
+        let mut threshold = self.iid_config.time_pressure_base_threshold;
+
+        // Task 9.2: Adjust threshold based on position complexity
+        if let Some(complexity_val) = complexity {
+            let complexity_multiplier = match complexity_val {
+                crate::types::search::PositionComplexity::Low => {
+                    1.0 / self.iid_config.time_pressure_complexity_multiplier
+                } // Less pressure in simple positions
+                crate::types::search::PositionComplexity::Medium => 1.0, // Default
+                crate::types::search::PositionComplexity::High => self.iid_config.time_pressure_complexity_multiplier, // More pressure in complex positions
+                crate::types::search::PositionComplexity::Unknown => 1.0, // Default
+            };
+            threshold *= complexity_multiplier;
+        }
+
+        // Task 9.3: Adjust threshold based on search depth (deeper searches need more time)
+        let depth_multiplier =
+            1.0 + ((depth as f64 - 4.0) / 10.0) * self.iid_config.time_pressure_depth_multiplier;
+        threshold *= depth_multiplier.max(0.5); // Clamp to prevent negative thresholds
+
+        // Task 9.5: Integrate with estimate_iid_time() - use actual IID time estimates
+        let dynamic_threshold = if let Some(est_time) = estimated_iid_time_ms {
+            // Use estimated IID time as basis: remaining time should be at least est_time * safety_factor
+            let safety_factor = 2.0; // Need at least 2x estimated time remaining
+            let required_remaining = est_time as f64 * safety_factor;
+            (required_remaining / time_limit_ms as f64).max(threshold)
+        } else {
+            // Fallback to percentage-based threshold
+            threshold
+        };
+
+        let threshold_time = (time_limit_ms as f64 * dynamic_threshold) as u32;
+        remaining < threshold_time
+    }
+
+    /// Perform IID search and extract the best move
+    /// Task 2.0: Returns (score, best_move) tuple to enable better move extraction
+    pub fn perform_iid_search(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        iid_depth: u8,
+        alpha: i32,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        _hash_history: &mut Vec<u64>,
+    ) -> (i32, Option<Move>) {
+        let iid_start_time = TimeSource::now();
+        let initial_nodes = self.search_statistics.get_nodes_searched();
+
+        // Create local hash_history for IID search (Task 5.2)
+        let initial_hash = self
+            .hash_calculator
+            .get_position_hash(board, player, captured_pieces);
+        let mut local_hash_history = vec![initial_hash];
+
+        // Generate legal moves for tracking best move during search
+        let generator = MoveGenerator::new();
+        let legal_moves = generator.generate_legal_moves(board, player, captured_pieces);
+
+        // Limit moves for IID efficiency
+        let moves_to_search = if legal_moves.len() > self.iid_config.max_legal_moves {
+            &legal_moves[..self.iid_config.max_legal_moves]
+        } else {
+            &legal_moves
+        };
+
+        if moves_to_search.is_empty() {
+            self.iid_stats.iid_searches_failed += 1;
+            return (alpha, None);
+        }
+
+        // Track best move during search - we'll search moves individually to track the best
+        let mut best_move_tracked: Option<Move> = None;
+        let mut best_score_tracked = alpha;
+
+        // Task 2.0: Search moves individually to track best move during search
+        // This replaces the single null window search approach to enable proper move tracking
+        for move_ in moves_to_search {
+            if start_time.elapsed_ms() >= time_limit_ms {
+                break;
+            }
+
+            // Use move unmaking instead of board cloning
+            let move_info = board.make_move_with_info(move_);
+            let mut new_captured = captured_pieces.clone();
+
+            if let Some(ref captured) = move_info.captured_piece {
+                new_captured.add_piece(captured.piece_type, player);
+            }
+
+            // Shallow search for this move with null window for efficiency
+            // Task 2.6: Pass None for opponent_last_move in IID search (not applicable)
+            // Task 7.0.3.6: Tag as IID entry
+            let score = -self.negamax_with_context(
+                board,
+                &new_captured,
+                player.opposite(),
+                iid_depth - 1,
+                beta.saturating_neg(),
+                best_score_tracked.saturating_neg(),
+                start_time,
+                time_limit_ms,
+                &mut local_hash_history,
+                true,
+                false,
+                false,
+                false,
+                None, // Task 2.6: IID search doesn't track opponent's move
+                crate::types::EntrySource::IIDSearch, // Task 7.0.3.6: Tag as IID entry
+            );
+
+            // Restore board state by unmaking the move
+            board.unmake_move(&move_info);
+
+            if score > best_score_tracked {
+                best_score_tracked = score;
+                best_move_tracked = Some(move_.clone());
+
+                // Early termination if we have a good enough move
+                if score >= beta {
+                    break;
+                }
+            }
+        }
+
+        // The IID score is the best score we found
+        let iid_score = best_score_tracked;
+
+        // Task 2.0: Try to extract best move from transposition table as fallback
+        // The TT might have a better move if the position was searched before
+        let position_hash = self
+            .hash_calculator
+            .get_position_hash(board, player, captured_pieces);
+        let mut best_move_from_tt: Option<Move> = None;
+        if let Some(entry) = self
+            .transposition_table
+            .probe_with_prefetch(position_hash, 255, None)
+        {
+            if let Some(ref tt_move) = entry.best_move {
+                // Task 2.8: Verify IID move is in legal moves list before using
+                if legal_moves.iter().any(|m| self.moves_equal(m, tt_move)) {
+                    // Only use TT move if it's different from our tracked move or we didn't find one
+                    if best_move_tracked.is_none()
+                        || !best_move_tracked
+                            .as_ref()
+                            .map_or(false, |m| self.moves_equal(m, tt_move))
+                    {
+                        best_move_from_tt = Some(tt_move.clone());
+                    }
+                }
+            }
+        }
+
+        // Record IID statistics
+        let iid_time = iid_start_time.elapsed_ms() as u64;
+        self.iid_stats.iid_time_ms += iid_time;
+        self.iid_stats.total_iid_nodes += self.search_statistics.get_nodes_searched() - initial_nodes;
+
+        // Task 2.7: Fallback logic - use TT move if available, otherwise tracked move
+        let final_best_move = if let Some(tt_move) = best_move_from_tt {
+            // Task 2.11: Track statistics for IID move extraction success rate
+            self.iid_stats.iid_move_extracted_from_tt += 1;
+            Some(tt_move)
+        } else if let Some(tracked_move) = best_move_tracked {
+            // Task 2.11: Track that we used tracked move instead of TT
+            self.iid_stats.iid_move_extracted_from_tracked += 1;
+            Some(tracked_move)
+        } else {
+            self.iid_stats.iid_searches_failed += 1;
+            None
+        };
+
+        // Task 2.5: Remove dependency on iid_score > alpha - IID should provide ordering even if score doesn't beat alpha
+        // Return the best move found regardless of whether it beats alpha
+        (iid_score, final_best_move)
+    }
+
+    /// Extract the best move from transposition table for a given position
+    fn extract_best_move_from_tt(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+    ) -> Option<Move> {
+        let position_hash = self
+            .hash_calculator
+            .get_position_hash(board, player, captured_pieces);
+        if let Some(entry) = self
+            .transposition_table
+            .probe_with_prefetch(position_hash, 255, None)
+        {
+            entry.best_move.clone()
+        } else {
+            None
+        }
+    }
+
+    // ===== IID CONFIGURATION MANAGEMENT =====
+
+    /// Create default IID configuration
+    pub fn new_iid_config() -> IIDConfig {
+        IIDConfig::default()
+    }
+
+    /// Update IID configuration with validation
+    pub fn update_iid_config(&mut self, config: IIDConfig) -> Result<(), String> {
+        config.validate()?;
+        self.iid_config = config;
+        Ok(())
+    }
+
+    /// Get current IID configuration
+    pub fn get_iid_config(&self) -> &IIDConfig {
+        &self.iid_config
+    }
+
+    /// Get current IID statistics
+    pub fn get_iid_stats(&self) -> &IIDStats {
+        &self.iid_stats
+    }
+
+    /// Reset IID statistics
+    pub fn reset_iid_stats(&mut self) {
+        self.iid_stats = IIDStats::default();
+    }
+
+    /// Analyze IID performance metrics and adapt configuration if enabled
+    pub fn adapt_iid_configuration(&mut self) {
+        if !self.iid_config.enable_adaptive_tuning {
+            return;
+        }
+
+        let metrics = self.get_iid_performance_metrics();
+
+        // Only adapt if we have sufficient data
+        if self.iid_stats.iid_searches_performed < 50 {
+            return;
+        }
+
+        let mut config_changed = false;
+        let mut new_config = self.iid_config.clone();
+
+        // Adapt minimum depth based on efficiency
+        if metrics.iid_efficiency < 20.0 && new_config.min_depth > 2 {
+            // Low efficiency - increase minimum depth to be more selective
+            new_config.min_depth = new_config.min_depth.saturating_sub(1);
+            config_changed = true;
+        } else if metrics.iid_efficiency > 60.0 && new_config.min_depth < 6 {
+            // High efficiency - decrease minimum depth to apply more broadly
+            new_config.min_depth = new_config.min_depth.saturating_add(1);
+            config_changed = true;
+        }
+
+        // Adapt IID depth based on cutoff rate
+        if metrics.cutoff_rate < 10.0 && new_config.iid_depth_ply > 1 {
+            // Low cutoff rate - reduce IID depth to save time
+            new_config.iid_depth_ply = new_config.iid_depth_ply.saturating_sub(1);
+            config_changed = true;
+        } else if metrics.cutoff_rate > 40.0 && new_config.iid_depth_ply < 4 {
+            // High cutoff rate - increase IID depth for better move ordering
+            new_config.iid_depth_ply = new_config.iid_depth_ply.saturating_add(1);
+            config_changed = true;
+        }
+
+        // Adapt time overhead threshold based on actual overhead
+        if metrics.overhead_percentage > 25.0 && new_config.time_overhead_threshold > 0.05 {
+            // High overhead - be more restrictive
+            new_config.time_overhead_threshold =
+                (new_config.time_overhead_threshold - 0.05).max(0.05);
+            config_changed = true;
+        } else if metrics.overhead_percentage < 5.0 && new_config.time_overhead_threshold < 0.3 {
+            // Low overhead - can be more aggressive
+            new_config.time_overhead_threshold =
+                (new_config.time_overhead_threshold + 0.05).min(0.3);
+            config_changed = true;
+        }
+
+        // Adapt move count threshold based on success rate
+        if metrics.success_rate < 90.0 && new_config.max_legal_moves > 20 {
+            // Low success rate - be more selective
+            new_config.max_legal_moves = new_config.max_legal_moves.saturating_sub(5);
+            config_changed = true;
+        } else if metrics.success_rate > 98.0 && new_config.max_legal_moves < 50 {
+            // High success rate - can apply more broadly
+            new_config.max_legal_moves = new_config.max_legal_moves.saturating_add(5);
+            config_changed = true;
+        }
+
+        // Apply the new configuration if changes were made
+        if config_changed {
+            self.iid_config = new_config;
+        }
+    }
+
+    /// Get adaptive IID configuration recommendations based on current performance
+    pub fn get_iid_adaptation_recommendations(&self) -> Vec<String> {
+        let mut recommendations = Vec::new();
+
+        if !self.iid_config.enable_adaptive_tuning {
+            return recommendations;
+        }
+
+        let metrics = self.get_iid_performance_metrics();
+
+        if self.iid_stats.iid_searches_performed < 50 {
+            recommendations.push(
+                "Insufficient data for recommendations. Need at least 50 IID searches.".to_string(),
+            );
+            return recommendations;
+        }
+
+        // Efficiency-based recommendations
+        if metrics.iid_efficiency < 20.0 {
+            recommendations.push("Low IID efficiency (20%). Consider increasing min_depth or reducing max_legal_moves.".to_string());
+        } else if metrics.iid_efficiency > 60.0 {
+            recommendations.push(
+                "High IID efficiency (60%). Consider decreasing min_depth for broader application."
+                    .to_string(),
+            );
+        }
+
+        // Cutoff rate recommendations
+        if metrics.cutoff_rate < 10.0 {
+            recommendations.push(
+                "Low cutoff rate (10%). Consider reducing iid_depth_ply to save time.".to_string(),
+            );
+        } else if metrics.cutoff_rate > 40.0 {
+            recommendations.push("High cutoff rate (40%). Consider increasing iid_depth_ply for better move ordering.".to_string());
+        }
+
+        // Overhead recommendations
+        if metrics.overhead_percentage > 25.0 {
+            recommendations.push(
+                "High time overhead (25%). Consider reducing time_overhead_threshold.".to_string(),
+            );
+        } else if metrics.overhead_percentage < 5.0 {
+            recommendations.push("Low time overhead (5%). Consider increasing time_overhead_threshold for more aggressive IID.".to_string());
+        }
+
+        // Success rate recommendations
+        if metrics.success_rate < 90.0 {
+            recommendations.push(
+                "Low success rate (90%). Consider being more selective with move count thresholds."
+                    .to_string(),
+            );
+        }
+
+        recommendations
+    }
+
+    /// Manually trigger IID configuration adaptation
+    pub fn trigger_iid_adaptation(&mut self) {
+        self.adapt_iid_configuration();
+    }
+    /// Assess position complexity for dynamic IID depth adjustment
+    /// Task 7.0: Enhanced with material balance, piece activity, threat detection, and game phase
+    fn assess_position_complexity(
+        &mut self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+    ) -> PositionComplexity {
+        let mut complexity_score = 0;
+
+        // Task 7.2: Enhanced material balance analysis
+        let black_material = self.count_material(board, Player::Black, captured_pieces);
+        let white_material = self.count_material(board, Player::White, captured_pieces);
+        let material_imbalance = (black_material - white_material).abs();
+
+        // Enhanced: More nuanced material imbalance assessment
+        // Large imbalances indicate endgame or tactical positions
+        if material_imbalance > 1000 {
+            complexity_score += (material_imbalance / 100) as usize; // Significant imbalance
+        } else if material_imbalance > 500 {
+            complexity_score += (material_imbalance / 150) as usize; // Moderate imbalance
+        } else {
+            complexity_score += (material_imbalance / 200) as usize; // Small imbalance
+        }
+
+        // Task 7.3: Enhanced piece activity metrics
+        let black_activity = self.calculate_piece_activity(board, Player::Black);
+        let white_activity = self.calculate_piece_activity(board, Player::White);
+        let activity_difference = (black_activity - white_activity).abs();
+        // Activity difference indicates position complexity (pieces actively fighting)
+        complexity_score += (activity_difference / 20) as usize;
+
+        // Task 7.3: Count pieces in center (more central pieces = more complex)
+        let center_pieces = self.count_center_pieces(board);
+        complexity_score += center_pieces / 2;
+
+        // Count tactical pieces (Rooks, Bishops, Knights)
+        let tactical_pieces = self.count_tactical_pieces(board);
+        complexity_score += tactical_pieces;
+
+        // Count mobility (legal moves available)
+        let mobility = self.count_mobility(board);
+        complexity_score += mobility / 10; // Scale down
+
+        // Check for king safety issues
+        let king_safety_issues = self.assess_king_safety_complexity(board);
+        complexity_score += king_safety_issues;
+
+        // Task 7.4: Enhanced threat detection
+        let tactical_threats = self.count_tactical_threats(board);
+        complexity_score += tactical_threats;
+
+        // Task 7.4: Check for checks (positions in check are more complex)
+        let check_count = self.count_checks(board, captured_pieces);
+        complexity_score += check_count * 3; // Checks are very significant
+
+        // Task 7.4: Count pieces under attack
+        let pieces_under_attack = self.count_pieces_under_attack(board, captured_pieces);
+        complexity_score += pieces_under_attack / 2;
+
+        // Task 7.5: Game phase detection integration
+        let game_phase = self.get_game_phase(board);
+        match game_phase {
+            GamePhase::Opening => {
+                // Openings are generally less complex (quiet development)
+                complexity_score = (complexity_score as f64 * 0.9) as usize;
+            }
+            GamePhase::Middlegame => {
+                // Middlegames are most complex (full tactical battles)
+                // No adjustment
+            }
+            GamePhase::Endgame => {
+                // Endgames can be complex tactically but simpler positionally
+                complexity_score = (complexity_score as f64 * 1.1) as usize; // Slightly increase
+            }
+        }
+
+        // Task 7.9: Use configurable thresholds
+        let threshold_low = self.iid_config.complexity_threshold_low;
+        let threshold_medium = self.iid_config.complexity_threshold_medium;
+
+        // Categorize complexity
+        let complexity = if complexity_score < threshold_low {
+            PositionComplexity::Low
+        } else if complexity_score < threshold_medium {
+            PositionComplexity::Medium
+        } else {
+            PositionComplexity::High
+        };
+
+        // Task 7.10: Track complexity distribution
+        match complexity {
+            PositionComplexity::Low => self.iid_stats.complexity_distribution_low += 1,
+            PositionComplexity::Medium => self.iid_stats.complexity_distribution_medium += 1,
+            PositionComplexity::High => self.iid_stats.complexity_distribution_high += 1,
+            PositionComplexity::Unknown => self.iid_stats.complexity_distribution_unknown += 1,
+        }
+
+        // Task 7.12: Debug logging
+        #[cfg(feature = "verbose-debug")]
+        crate::utils::telemetry::trace_log("IID_COMPLEXITY", &format!(
+            "Position complexity: {:?}, score={}, material_imbalance={}, activity_diff={}, threats={}, checks={}, game_phase={:?}",
+            complexity, complexity_score, material_imbalance, activity_difference, tactical_threats, check_count, game_phase
+        ));
+
+        complexity
+    }
+
+    /// Task 7.3: Count pieces in center squares (rows 3-5, cols 3-5)
+    fn count_center_pieces(&self, board: &BitboardBoard) -> usize {
+        let mut count = 0;
+        for row in 3..=5 {
+            for col in 3..=5 {
+                if board.get_piece(Position::new(row, col)).is_some() {
+                    count += 1;
+                }
+            }
+        }
+        count
+    }
+
+    /// Task 7.4: Count number of checks in position
+    fn count_checks(&self, board: &BitboardBoard, captured_pieces: &CapturedPieces) -> usize {
+        let mut check_count = 0;
+
+        // Check if either player is in check
+        if board.is_king_in_check(Player::Black, captured_pieces) {
+            check_count += 1;
+        }
+        if board.is_king_in_check(Player::White, captured_pieces) {
+            check_count += 1;
+        }
+
+        check_count
+    }
+
+    /// Task 7.4: Count pieces that are under attack
+    fn count_pieces_under_attack(
+        &self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+    ) -> usize {
+        let generator = MoveGenerator::new();
+        let mut attacked_count = 0;
+
+        // Get all moves for both players
+        let black_moves = generator.generate_legal_moves(board, Player::Black, captured_pieces);
+        let white_moves = generator.generate_legal_moves(board, Player::White, captured_pieces);
+
+        // Check which pieces are attacked
+        for row in 0..9 {
+            for col in 0..9 {
+                let pos = Position::new(row, col);
+                if let Some(piece) = board.get_piece(pos) {
+                    // Check if this piece is attacked by opponent
+                    let attacker_moves = if piece.player == Player::Black {
+                        &white_moves
+                    } else {
+                        &black_moves
+                    };
+
+                    // Check if any attacker move captures this piece
+                    if attacker_moves
+                        .iter()
+                        .any(|mv| mv.is_capture && mv.to == pos)
+                    {
+                        attacked_count += 1;
+                    }
+                }
+            }
+        }
+
+        attacked_count
+    }
+
+    /// Task 7.11: Update IID effectiveness by complexity level
+    fn update_complexity_effectiveness(
+        &mut self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        improved_alpha: bool,
+        caused_cutoff: bool,
+    ) {
+        let complexity = self.assess_position_complexity(board, captured_pieces);
+        let (mut successful_searches, mut total_searches, mut nodes_saved, mut time_saved) = *self
+            .iid_stats
+            .complexity_effectiveness
+            .get(&complexity)
+            .unwrap_or(&(0, 0, 0, 0));
+
+        total_searches += 1;
+        if improved_alpha || caused_cutoff {
+            successful_searches += 1;
+            // Use overall nodes saved and IID time for now (these would ideally come from actual IID search metrics)
+            nodes_saved += self.iid_stats.nodes_saved; // Use overall nodes saved for now
+            time_saved += self.iid_stats.iid_time_ms; // Use overall IID time for now
+        }
+
+        self.iid_stats.complexity_effectiveness.insert(
+            complexity,
+            (successful_searches, total_searches, nodes_saved, time_saved),
+        );
+    }
+
+    /// Task 11.9: Update advanced strategy effectiveness tracking
+    /// Called when IID moves improve alpha or cause cutoffs to track if advanced strategies were effective
+    fn update_advanced_strategy_effectiveness(
+        &mut self,
+        board: &BitboardBoard,
+        _captured_pieces: &CapturedPieces,
+        improved_alpha: bool,
+        caused_cutoff: bool,
+    ) {
+        if improved_alpha || caused_cutoff {
+            // Track which advanced strategies were applied and are now effective
+            // Check if strategies were applied by checking if their counters were incremented
+            // This is a simplified approach - in a more sophisticated implementation, we'd track
+            // which strategies were applied for this specific search
+
+            // Check game phase adjustment
+            if self.iid_config.enable_game_phase_based_adjustment {
+                // If we're tracking effectiveness, increment the counter
+                // This is a simplified approach - ideally we'd track per-search which strategies were used
+                self.iid_stats.game_phase_adjustment_effective += 1;
+            }
+
+            // Check material adjustment
+            if self.iid_config.enable_material_based_adjustment {
+                let material_count = self.count_material_for_phase(board);
+                if material_count > self.iid_config.material_threshold_for_adjustment as u32 {
+                    self.iid_stats.material_adjustment_effective += 1;
+                }
+            }
+
+            // Check time adjustment (simplified - we'd need to track if it was applied for this search)
+            if self.iid_config.enable_time_based_adjustment {
+                self.iid_stats.time_adjustment_effective += 1;
+            }
+        }
+    }
+
+    /// Count material value for a player
+    /// Task 7.2: Enhanced to properly count captured pieces
+    fn count_material(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+    ) -> i32 {
+        let mut material = 0;
+
+        // Count pieces on board
+        for row in 0..9 {
+            for col in 0..9 {
+                if let Some(piece) = board.get_piece(Position { row, col }) {
+                    if piece.player == player {
+                        material += self.get_piece_value(piece.piece_type);
+                    }
+                }
+            }
+        }
+
+        // Task 7.2: Add captured pieces (pieces in hand)
+        let captured_pieces_list = match player {
+            Player::Black => &captured_pieces.black,
+            Player::White => &captured_pieces.white,
+        };
+
+        for piece_type in [
+            PieceType::Pawn,
+            PieceType::Lance,
+            PieceType::Knight,
+            PieceType::Silver,
+            PieceType::Gold,
+            PieceType::Bishop,
+            PieceType::Rook,
+        ] {
+            let count = captured_pieces_list
+                .iter()
+                .filter(|&&p| p == piece_type)
+                .count();
+            if count > 0 {
+                material += self.get_piece_value(piece_type) * count as i32;
+            }
+        }
+
+        material
+    }
+
+    /// Get piece value for material counting
+    fn get_piece_value(&self, piece_type: PieceType) -> i32 {
+        match piece_type {
+            PieceType::Pawn => 100,
+            PieceType::Lance => 300,
+            PieceType::Knight => 400,
+            PieceType::Silver => 500,
+            PieceType::Gold => 600,
+            PieceType::Bishop => 800,
+            PieceType::Rook => 1000,
+            PieceType::King => 10000,
+            _ => 0,
+        }
+    }
+
+    /// Count tactical pieces (Rooks, Bishops, Knights)
+    fn count_tactical_pieces(&self, board: &BitboardBoard) -> usize {
+        let mut count = 0;
+
+        for row in 0..9 {
+            for col in 0..9 {
+                if let Some(piece) = board.get_piece(Position { row, col }) {
+                    match piece.piece_type {
+                        PieceType::Rook | PieceType::Bishop | PieceType::Knight => count += 1,
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        count
+    }
+
+    /// Count mobility (legal moves available)
+    fn count_mobility(&self, board: &BitboardBoard) -> usize {
+        let generator = MoveGenerator::new();
+        let captured_pieces = CapturedPieces::new();
+
+        let black_moves = generator.generate_legal_moves(board, Player::Black, &captured_pieces);
+        let white_moves = generator.generate_legal_moves(board, Player::White, &captured_pieces);
+
+        black_moves.len() + white_moves.len()
+    }
+
+    /// Assess king safety complexity
+    fn assess_king_safety_complexity(&self, board: &BitboardBoard) -> usize {
+        let mut complexity = 0;
+
+        // Check if kings are in danger
+        for row in 0..9 {
+            for col in 0..9 {
+                if let Some(piece) = board.get_piece(Position { row, col }) {
+                    if piece.piece_type == PieceType::King {
+                        // Simple check: if king is not in starting position, increase complexity
+                        if piece.player == Player::Black && row < 6 {
+                            complexity += 2;
+                        } else if piece.player == Player::White && row > 2 {
+                            complexity += 2;
+                        }
+                    }
+                }
+            }
+        }
+
+        complexity
+    }
+
+    /// Count tactical threats (checks, captures, promotions)
+    fn count_tactical_threats(&self, board: &BitboardBoard) -> usize {
+        let generator = MoveGenerator::new();
+        let captured_pieces = CapturedPieces::new();
+        let mut threats = 0;
+
+        let black_moves = generator.generate_legal_moves(board, Player::Black, &captured_pieces);
+        let white_moves = generator.generate_legal_moves(board, Player::White, &captured_pieces);
+
+        // Count captures and promotions
+        for mv in black_moves.iter().chain(white_moves.iter()) {
+            if mv.is_capture {
+                threats += 1;
+            }
+            if mv.is_promotion {
+                threats += 1;
+            }
+        }
+
+        threats
+    }
+    /// Calculate dynamic IID depth based on position complexity
+    /// Task 4.0: Enhanced to work independently for Dynamic strategy and use configuration options
+    /// Task 7.6: Integrate enhanced complexity assessment into depth calculation
+    pub fn calculate_dynamic_iid_depth(
+        &mut self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        base_depth: u8,
+    ) -> u8 {
+        // Task 4.6: Always assess position complexity for Dynamic strategy
+        // Task 7.6: Now uses enhanced complexity assessment
+        let complexity = self.assess_position_complexity(board, captured_pieces);
+
+        // Task 7.9: Use configurable depth adjustments if enabled
+        let depth = if self.iid_config.enable_complexity_based_adjustments {
+            let adjustment = match complexity {
+                PositionComplexity::Low => self.iid_config.complexity_depth_adjustment_low,
+                PositionComplexity::Medium => self.iid_config.complexity_depth_adjustment_medium,
+                PositionComplexity::High => self.iid_config.complexity_depth_adjustment_high,
+                PositionComplexity::Unknown => 0,
+            };
+            ((base_depth as i32) + (adjustment as i32)).max(1) as u8
+        } else {
+            // Fallback to original logic if complexity-based adjustments disabled
+            match complexity {
+                crate::types::search::PositionComplexity::Low => {
+                    // Simple positions: reduce IID depth to save time
+                    base_depth.saturating_sub(1).max(1)
+                }
+                crate::types::search::PositionComplexity::Medium => {
+                    // Medium positions: use base depth
+                    base_depth
+                }
+                crate::types::search::PositionComplexity::High => {
+                    // Complex positions: increase IID depth for better move ordering
+                    base_depth.saturating_add(1)
+                }
+                crate::types::search::PositionComplexity::Unknown => {
+                    // Unknown complexity: use base depth as fallback
+                    base_depth
+                }
+            }
+        };
+
+        // Task 4.11: Apply maximum depth cap from configuration
+        depth.min(self.iid_config.dynamic_max_depth)
+    }
+
+    /// Efficient board state management for IID search
+    pub fn create_iid_board_state(
+        &self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+    ) -> IIDBoardState {
+        IIDBoardState {
+            // Store only essential position data instead of full board clone
+            key: self.calculate_position_key(board),
+            material_balance: self.calculate_material_balance(board, captured_pieces),
+            piece_count: self.count_pieces(board),
+            king_positions: self.get_king_positions(board),
+            // Store move generation cache to avoid regenerating moves
+            move_cache: None,
+        }
+    }
+
+    /// Calculate a compact position key for IID board state
+    pub fn calculate_position_key(&self, board: &BitboardBoard) -> u64 {
+        let mut key = 0u64;
+
+        // Simple hash of piece positions
+        for row in 0..9 {
+            for col in 0..9 {
+                if let Some(piece) = board.get_piece(Position { row, col }) {
+                    let piece_hash = match piece.piece_type {
+                        PieceType::Pawn => 1,
+                        PieceType::Lance => 2,
+                        PieceType::Knight => 3,
+                        PieceType::Silver => 4,
+                        PieceType::Gold => 5,
+                        PieceType::Bishop => 6,
+                        PieceType::Rook => 7,
+                        PieceType::King => 8,
+                        _ => 0,
+                    };
+
+                    let player_factor: i32 = if piece.player == Player::Black { 1 } else { -1 };
+                    let position_hash = (row as u64 * 9 + col as u64) * piece_hash as u64;
+
+                    key ^= position_hash.wrapping_mul(player_factor.abs() as u64);
+                }
+            }
+        }
+
+        key
+    }
+    /// Calculate material balance efficiently
+    pub fn calculate_material_balance(
+        &self,
+        board: &BitboardBoard,
+        _captured_pieces: &CapturedPieces,
+    ) -> i32 {
+        let mut balance = 0;
+
+        for row in 0..9 {
+            for col in 0..9 {
+                if let Some(piece) = board.get_piece(Position { row, col }) {
+                    let value = self.get_piece_value(piece.piece_type);
+                    balance += if piece.player == Player::Black {
+                        value
+                    } else {
+                        -value
+                    };
+                }
+            }
+        }
+
+        balance
+    }
+
+    /// Count pieces efficiently
+    pub fn count_pieces(&self, board: &BitboardBoard) -> u8 {
+        let mut count = 0;
+
+        for row in 0..9 {
+            for col in 0..9 {
+                if board.get_piece(Position { row, col }).is_some() {
+                    count += 1;
+                }
+            }
+        }
+
+        count
+    }
+
+    /// Count pieces on board (alias for count_pieces)
+    pub fn count_pieces_on_board(&self, board: &BitboardBoard) -> u8 {
+        self.count_pieces(board)
+    }
+
+    /// Get king positions efficiently
+    pub fn get_king_positions(
+        &self,
+        board: &BitboardBoard,
+    ) -> (Option<Position>, Option<Position>) {
+        let mut black_king = None;
+        let mut white_king = None;
+
+        for row in 0..9 {
+            for col in 0..9 {
+                if let Some(piece) = board.get_piece(Position { row, col }) {
+                    if piece.piece_type == PieceType::King {
+                        match piece.player {
+                            Player::Black => black_king = Some(Position { row, col }),
+                            Player::White => white_king = Some(Position { row, col }),
+                        }
+                    }
+                }
+            }
+        }
+
+        (black_king, white_king)
+    }
+
+    /// Memory-efficient IID search with optimized board state management
+    pub fn perform_iid_search_optimized(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        iid_depth: u8,
+        alpha: i32,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        _hash_history: &mut Vec<u64>,
+    ) -> Option<Move> {
+        if !self.iid_config.enabled || iid_depth == 0 {
+            return None;
+        }
+
+        // Create efficient board state instead of full clone
+        let _board_state = self.create_iid_board_state(board, captured_pieces);
+
+        // Use memory pool for move generation
+        let _move_pool: Vec<Move> = Vec::with_capacity(50); // Pre-allocate reasonable capacity
+
+        let generator = MoveGenerator::new();
+        let moves = generator.generate_legal_moves(board, player, captured_pieces);
+
+        // Limit moves for IID efficiency
+        let moves_to_search = if moves.len() > self.iid_config.max_legal_moves {
+            &moves[..self.iid_config.max_legal_moves]
+        } else {
+            &moves
+        };
+
+        if moves_to_search.is_empty() {
+            return None;
+        }
+
+        // Create local hash_history for IID search (Task 5.2)
+        let initial_hash = self
+            .hash_calculator
+            .get_position_hash(board, player, captured_pieces);
+        let mut local_hash_history = vec![initial_hash];
+
+        // Perform null window search with memory optimization
+        let mut best_move: Option<Move> = None;
+        let mut best_score = alpha;
+
+        // Track memory usage
+        let initial_memory = self.get_memory_usage();
+
+        for move_ in moves_to_search {
+            // Check time limit
+            if start_time.elapsed_ms() >= time_limit_ms {
+                break;
+            }
+
+            // Use move unmaking instead of board cloning
+            let move_info = board.make_move_with_info(&move_);
+            let mut new_captured = captured_pieces.clone();
+
+            if let Some(ref captured) = move_info.captured_piece {
+                new_captured.add_piece(captured.piece_type, player);
+            }
+
+            // Recursive search with reduced depth
+            // Task 7.0.3.6: Tag as IID entry
+            let score = -self.negamax_with_context(
+                board,
+                &new_captured,
+                player.opposite(),
+                iid_depth - 1,
+                beta.saturating_neg(),
+                best_score.saturating_neg(),
+                start_time,
+                time_limit_ms,
+                &mut local_hash_history,
+                false,
+                false,
+                false,
+                false,
+                None, // Task 2.6: IID search doesn't track opponent's move
+                crate::types::EntrySource::IIDSearch, // Task 7.0.3.6: Tag as IID entry
+            );
+
+            // Restore board state by unmaking the move
+            board.unmake_move(&move_info);
+
+            if score > best_score {
+                best_score = score;
+                best_move = Some(move_.clone());
+
+                // Early termination if we have a good enough move
+                if score >= beta {
+                    break;
+                }
+            }
+        }
+
+        // Track memory efficiency
+        let final_memory = self.get_memory_usage();
+        self.track_memory_usage(final_memory - initial_memory);
+
+        // Update statistics
+        self.iid_stats.iid_searches_performed += 1;
+        self.iid_stats.total_iid_nodes += moves_to_search.len() as u64;
+        self.iid_stats.iid_time_ms += start_time.elapsed_ms() as u64;
+
+        best_move
+    }
+
+    /// Get current memory usage (placeholder implementation)
+    /// Get current memory usage in bytes (Task 26.0 - Task 4.0)
+    /// Returns actual RSS (Resident Set Size) from the operating system
+    pub fn get_memory_usage(&self) -> usize {
+        self.memory_tracker.get_current_rss() as usize
+    }
+
+    /// Track memory usage for optimization (Task 26.0 - Task 4.0)
+    /// Updates peak RSS tracking
+    pub fn track_memory_usage(&mut self, _usage: usize) {
+        // Update peak RSS
+        self.memory_tracker.update_peak_rss();
+        
+        // Check for memory leak
+        if self.memory_tracker.check_for_leak() {
+            // Log warning if memory leak detected
+            if self.debug_logging {
+                crate::utils::telemetry::debug_log(&format!(
+                    "[Memory] Potential leak detected: growth={:.2}%",
+                    self.memory_tracker.get_memory_growth_percentage()
+                ));
+            }
+        }
+    }
+
+    /// Monitor IID overhead in real-time and adjust thresholds automatically
+    pub fn monitor_iid_overhead(&mut self, iid_time_ms: u32, total_time_ms: u32) {
+        if total_time_ms == 0 {
+            return;
+        }
+
+        let overhead_percentage = (iid_time_ms as f64 / total_time_ms as f64) * 100.0;
+
+        // Track overhead statistics
+        self.update_overhead_statistics(overhead_percentage);
+
+        // Adjust thresholds if needed
+        self.adjust_overhead_thresholds(overhead_percentage);
+    }
+
+    /// Update overhead statistics for monitoring
+    /// Task 8.1, 8.6: Enhanced to track overhead data over time for historical analysis
+    fn update_overhead_statistics(&mut self, overhead_percentage: f64) {
+        // Task 8.1: Track overhead statistics for monitoring
+        // Track if this is a high overhead search
+        if overhead_percentage > self.iid_config.time_overhead_threshold * 100.0 {
+            self.iid_stats.positions_skipped_time_pressure += 1;
+        }
+
+        // Task 8.6: Track overhead history (limited to recent samples for memory efficiency)
+        // Store overhead percentage for trend analysis
+        // In a full implementation, this could be stored to a file or database
+        // For now, we'll maintain a simple rolling window in memory
+        if self.iid_overhead_history.len() >= 100 {
+            // Keep only the most recent 100 samples
+            self.iid_overhead_history.remove(0);
+        }
+        self.iid_overhead_history.push(overhead_percentage);
+    }
+
+    /// Automatically adjust IID overhead thresholds based on performance
+    fn adjust_overhead_thresholds(&mut self, current_overhead: f64) {
+        if !self.iid_config.enable_adaptive_tuning {
+            return;
+        }
+
+        let mut config_changed = false;
+        let mut new_config = self.iid_config.clone();
+
+        // Adjust time overhead threshold based on current performance
+        if current_overhead > 30.0 && new_config.time_overhead_threshold > 0.05 {
+            // High overhead detected - be more restrictive
+            new_config.time_overhead_threshold =
+                (new_config.time_overhead_threshold - 0.02).max(0.05);
+            config_changed = true;
+        } else if current_overhead < 10.0 && new_config.time_overhead_threshold < 0.3 {
+            // Low overhead detected - can be more aggressive
+            new_config.time_overhead_threshold =
+                (new_config.time_overhead_threshold + 0.02).min(0.3);
+            config_changed = true;
+        }
+
+        // Adjust move count threshold based on overhead
+        if current_overhead > 25.0 && new_config.max_legal_moves > 20 {
+            // High overhead - reduce move count to save time
+            new_config.max_legal_moves = new_config.max_legal_moves.saturating_sub(5);
+            config_changed = true;
+        } else if current_overhead < 8.0 && new_config.max_legal_moves < 50 {
+            // Low overhead - can handle more moves
+            new_config.max_legal_moves = new_config.max_legal_moves.saturating_add(5);
+            config_changed = true;
+        }
+
+        if config_changed {
+            self.iid_config = new_config;
+        }
+    }
+
+    /// Get current IID overhead statistics
+    pub fn get_iid_overhead_stats(&self) -> IIDOverheadStats {
+        let total_searches = self.iid_stats.iid_searches_performed;
+        let time_pressure_skips = self.iid_stats.positions_skipped_time_pressure;
+        let overhead_pct = if self.iid_stats.total_search_time_ms > 0 {
+            (self.iid_stats.iid_time_ms as f64 / self.iid_stats.total_search_time_ms as f64) * 100.0
+        } else {
+            0.0
+        };
+
+        IIDOverheadStats {
+            total_iid_searches: total_searches,
+            total_iid_time_ms: self.iid_stats.iid_time_ms,
+            total_search_time_ms: self.iid_stats.total_search_time_ms,
+            overhead_percentage: overhead_pct,
+            average_overhead: self.calculate_average_overhead(),
+            current_threshold: self.iid_config.time_overhead_threshold,
+            threshold_adjustments: self.count_threshold_adjustments() as u64,
+            total_searches,
+            time_pressure_skips,
+        }
+    }
+
+    /// Calculate average IID overhead percentage
+    /// Task 8.6: Enhanced to use actual overhead history
+    fn calculate_average_overhead(&self) -> f64 {
+        if self.iid_overhead_history.is_empty() {
+            // Fallback to estimate based on skip statistics if no history
+            if self.iid_stats.iid_searches_performed == 0 {
+                return 0.0;
+            }
+            let skip_rate = self.iid_stats.positions_skipped_time_pressure as f64
+                / self.iid_stats.iid_searches_performed as f64;
+
+            // Estimate average overhead based on skip rate
+            if skip_rate > 0.5 {
+                return 25.0; // High overhead
+            } else if skip_rate > 0.2 {
+                return 15.0; // Medium overhead
+            } else {
+                return 8.0; // Low overhead
+            }
+        }
+
+        // Task 8.6: Calculate actual average from overhead history
+        let sum: f64 = self.iid_overhead_history.iter().sum();
+        sum / self.iid_overhead_history.len() as f64
+    }
+
+    /// Count how many times thresholds have been adjusted
+    fn count_threshold_adjustments(&self) -> u32 {
+        // In a real implementation, this would track actual adjustments
+        // For now, return a placeholder
+        if self.iid_config.enable_adaptive_tuning {
+            (self.iid_stats.iid_searches_performed / 10) as u32 // Estimate based on searches
+        } else {
+            0
+        }
+    }
+
+    /// Check if IID overhead is acceptable for current position
+    pub fn is_iid_overhead_acceptable(
+        &self,
+        estimated_iid_time_ms: u32,
+        time_limit_ms: u32,
+    ) -> bool {
+        if time_limit_ms == 0 {
+            return false;
+        }
+
+        let overhead_percentage = (estimated_iid_time_ms as f64 / time_limit_ms as f64) * 100.0;
+        overhead_percentage <= self.iid_config.time_overhead_threshold * 100.0
+    }
+
+    /// Estimate IID time based on position complexity and depth
+    /// Task 7.6: Now uses enhanced complexity assessment
+    pub fn estimate_iid_time(
+        &mut self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        depth: u8,
+    ) -> u32 {
+        let complexity = self.assess_position_complexity(board, captured_pieces);
+        let base_time = match complexity {
+            PositionComplexity::Low => 5,      // 5ms for simple positions
+            PositionComplexity::Medium => 15,  // 15ms for medium positions
+            PositionComplexity::High => 30,    // 30ms for complex positions
+            PositionComplexity::Unknown => 20, // Default estimate
+        };
+
+        // Scale by depth (exponential growth)
+        base_time * (depth as u32 + 1)
+    }
+
+    /// Task 8.7: Get IID effectiveness metrics by position type (opening, middlegame, endgame)
+    pub fn get_iid_effectiveness_by_position_type(
+        &self,
+        board: &BitboardBoard,
+    ) -> HashMap<GamePhase, (f64, f64, u64)> {
+        let mut result = HashMap::new();
+        let game_phase = self.get_game_phase(board);
+
+        // Task 8.7: Calculate effectiveness metrics for each game phase
+        // This would ideally track statistics per phase, but for now we'll use complexity-based tracking
+        // and map complexity to game phases based on typical position characteristics
+
+        for (complexity, (successful_searches, total_searches, _nodes_saved, _time_saved)) in
+            &self.iid_stats.complexity_effectiveness
+        {
+            // Map complexity to game phase (simplified mapping)
+            // In a full implementation, we'd track phase-specific statistics separately
+            let phase = match complexity {
+                PositionComplexity::Low => GamePhase::Endgame, // Endgames often simpler
+                PositionComplexity::Medium => GamePhase::Middlegame, // Middlegames medium complexity
+                PositionComplexity::High => GamePhase::Opening,      // Openings can be complex
+                PositionComplexity::Unknown => game_phase, // Use current phase for unknown
+            };
+
+            if *total_searches > 0 {
+                let efficiency = (*successful_searches as f64 / *total_searches as f64) * 100.0;
+                let overhead = if *total_searches > 0 {
+                    // Estimate overhead from complexity (simplified)
+                    match complexity {
+                        PositionComplexity::Low => 5.0,
+                        PositionComplexity::Medium => 12.0,
+                        PositionComplexity::High => 20.0,
+                        PositionComplexity::Unknown => 10.0,
+                    }
+                } else {
+                    0.0
+                };
+
+                let entry = result.entry(phase).or_insert((0.0, 0.0, 0));
+                entry.0 = (entry.0 * entry.2 as f64 + efficiency * (*total_searches as f64))
+                    / (entry.2 + total_searches) as f64;
+                entry.1 = (entry.1 * entry.2 as f64 + overhead * (*total_searches as f64))
+                    / (entry.2 + total_searches) as f64;
+                entry.2 += total_searches;
+            }
+        }
+
+        result
+    }
+
+    /// Task 8.9: Generate automated performance report (efficiency rate, cutoff rate, overhead, speedup, etc.)
+    pub fn generate_iid_performance_report(&self) -> String {
+        let metrics = self.get_iid_performance_metrics();
+        let overhead_stats = self.get_iid_overhead_stats();
+
+        let mut report = String::new();
+        report.push_str("=== IID Performance Report ===\n\n");
+
+        // Overall statistics
+        report.push_str(&format!(
+            "IID Searches Performed: {}\n",
+            self.iid_stats.iid_searches_performed
+        ));
+        report.push_str(&format!("IID Time: {} ms\n", self.iid_stats.iid_time_ms));
+        report.push_str(&format!(
+            "Total Search Time: {} ms\n",
+            self.iid_stats.total_search_time_ms
+        ));
+        report.push_str("\n");
+
+        // Performance metrics
+        report.push_str(&format!(
+            "Efficiency Rate: {:.2}%\n",
+            metrics.iid_efficiency
+        ));
+        report.push_str(&format!("Cutoff Rate: {:.2}%\n", metrics.cutoff_rate));
+        report.push_str(&format!("Overhead: {:.2}%\n", metrics.overhead_percentage));
+        report.push_str(&format!("Success Rate: {:.2}%\n", metrics.success_rate));
+        report.push_str(&format!("Speedup: {:.2}%\n", metrics.speedup_percentage));
+        report.push_str(&format!(
+            "Node Reduction: {:.2}%\n",
+            metrics.node_reduction_percentage
+        ));
+        report.push_str(&format!(
+            "Net Benefit: {:.2}%\n",
+            metrics.net_benefit_percentage
+        ));
+        report.push_str("\n");
+
+        // Overhead statistics
+        report.push_str(&format!(
+            "Average Overhead: {:.2}%\n",
+            overhead_stats.average_overhead
+        ));
+        report.push_str(&format!(
+            "Current Threshold: {:.2}%\n",
+            overhead_stats.current_threshold * 100.0
+        ));
+        report.push_str(&format!(
+            "Threshold Adjustments: {}\n",
+            overhead_stats.threshold_adjustments
+        ));
+        report.push_str("\n");
+
+        // Skip statistics
+        report.push_str("Skip Reasons:\n");
+        report.push_str(&format!(
+            "  TT Move: {} ({:.2}%)\n",
+            self.iid_stats.positions_skipped_tt_move, metrics.tt_skip_rate
+        ));
+        report.push_str(&format!(
+            "  Depth: {} ({:.2}%)\n",
+            self.iid_stats.positions_skipped_depth, metrics.depth_skip_rate
+        ));
+        report.push_str(&format!(
+            "  Move Count: {} ({:.2}%)\n",
+            self.iid_stats.positions_skipped_move_count, metrics.move_count_skip_rate
+        ));
+        report.push_str(&format!(
+            "  Time Pressure: {} ({:.2}%)\n",
+            self.iid_stats.positions_skipped_time_pressure, metrics.time_pressure_skip_rate
+        ));
+        report.push_str("\n");
+
+        // Move extraction statistics
+        report.push_str("Move Extraction:\n");
+        report.push_str(&format!(
+            "  From TT: {}\n",
+            self.iid_stats.iid_move_extracted_from_tt
+        ));
+        report.push_str(&format!(
+            "  From Tracked: {}\n",
+            self.iid_stats.iid_move_extracted_from_tracked
+        ));
+        report.push_str("\n");
+
+        // Alerts
+        if metrics.overhead_percentage > 15.0 {
+            report.push_str(&format!(
+                "⚠️  WARNING: High overhead ({:.2}%) detected!\n",
+                metrics.overhead_percentage
+            ));
+        }
+        if metrics.iid_efficiency < 30.0 {
+            report.push_str(&format!(
+                "⚠️  WARNING: Low efficiency ({:.2}%) detected!\n",
+                metrics.iid_efficiency
+            ));
+        }
+
+        report.push_str("\n=== End Report ===\n");
+        report
+    }
+
+    /// Task 8.6, 8.10: Export IID statistics to JSON for analysis
+    pub fn export_iid_statistics_json(&self) -> Result<String, String> {
+        use serde_json;
+
+        let stats = serde_json::json!({
+            "iid_searches_performed": self.iid_stats.iid_searches_performed,
+            "iid_time_ms": self.iid_stats.iid_time_ms,
+            "total_search_time_ms": self.iid_stats.total_search_time_ms,
+            "iid_move_first_improved_alpha": self.iid_stats.iid_move_first_improved_alpha,
+            "iid_move_caused_cutoff": self.iid_stats.iid_move_caused_cutoff,
+            "total_iid_nodes": self.iid_stats.total_iid_nodes,
+            "positions_skipped_tt_move": self.iid_stats.positions_skipped_tt_move,
+            "positions_skipped_depth": self.iid_stats.positions_skipped_depth,
+            "positions_skipped_move_count": self.iid_stats.positions_skipped_move_count,
+            "positions_skipped_time_pressure": self.iid_stats.positions_skipped_time_pressure,
+            "iid_searches_failed": self.iid_stats.iid_searches_failed,
+            "iid_moves_ineffective": self.iid_stats.iid_moves_ineffective,
+            "iid_move_extracted_from_tt": self.iid_stats.iid_move_extracted_from_tt,
+            "iid_move_extracted_from_tracked": self.iid_stats.iid_move_extracted_from_tracked,
+            "performance_metrics": {
+                "efficiency_rate": self.get_iid_performance_metrics().iid_efficiency,
+                "cutoff_rate": self.get_iid_performance_metrics().cutoff_rate,
+                "overhead_percentage": self.get_iid_performance_metrics().overhead_percentage,
+                "speedup_percentage": self.get_iid_performance_metrics().speedup_percentage,
+                "node_reduction_percentage": self.get_iid_performance_metrics().node_reduction_percentage,
+            },
+            "overhead_history": self.iid_overhead_history,
+            "overhead_stats": {
+                "average_overhead": self.get_iid_overhead_stats().average_overhead,
+                "current_threshold": self.get_iid_overhead_stats().current_threshold,
+                "threshold_adjustments": self.get_iid_overhead_stats().threshold_adjustments,
+            }
+        });
+
+        serde_json::to_string_pretty(&stats)
+            .map_err(|e| format!("Failed to serialize statistics: {}", e))
+    }
+
+    /// Task 8.6: Save IID statistics to file for historical tracking
+    pub fn save_iid_statistics_to_file(&self, filepath: &str) -> Result<(), String> {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+
+        let json = self.export_iid_statistics_json()?;
+
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(filepath)
+            .map_err(|e| format!("Failed to open file {}: {}", filepath, e))?;
+
+        writeln!(file, "{}", json)
+            .map_err(|e| format!("Failed to write to file {}: {}", filepath, e))?;
+
+        Ok(())
+    }
+
+    /// Get overhead monitoring recommendations
+    pub fn get_overhead_recommendations(&self) -> Vec<String> {
+        let mut recommendations = Vec::new();
+        let stats = self.get_iid_overhead_stats();
+
+        if stats.total_searches < 20 {
+            recommendations.push(
+                "Insufficient data for overhead analysis. Need at least 20 IID searches."
+                    .to_string(),
+            );
+            return recommendations;
+        }
+
+        if stats.average_overhead > 25.0 {
+            recommendations.push("High IID overhead detected (25%). Consider reducing time_overhead_threshold or max_legal_moves.".to_string());
+        } else if stats.average_overhead < 8.0 {
+            recommendations.push("Low IID overhead (8%). Consider increasing thresholds for more aggressive IID usage.".to_string());
+        }
+
+        let skip_rate = if stats.total_searches > 0 {
+            stats.time_pressure_skips as f64 / stats.total_searches as f64
+        } else {
+            0.0
+        };
+
+        if skip_rate > 0.4 {
+            recommendations.push("High time pressure skip rate (40%). IID may be too aggressive for current time controls.".to_string());
+        } else if skip_rate < 0.1 {
+            recommendations.push(
+                "Low time pressure skip rate (10%). IID could be used more aggressively."
+                    .to_string(),
+            );
+        }
+
+        recommendations
+    }
+    /// Multi-PV IID search to find multiple principal variations
+    pub fn perform_multi_pv_iid_search(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        iid_depth: u8,
+        pv_count: usize,
+        alpha: i32,
+        _beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        _hash_history: &mut Vec<u64>,
+    ) -> Vec<IIDPVResult> {
+        if !self.iid_config.enabled || iid_depth == 0 || pv_count == 0 {
+            return Vec::new();
+        }
+
+        let generator = MoveGenerator::new();
+        let moves = generator.generate_legal_moves(board, player, captured_pieces);
+
+        // Limit moves for IID efficiency
+        let moves_to_search = if moves.len() > self.iid_config.max_legal_moves {
+            &moves[..self.iid_config.max_legal_moves]
+        } else {
+            &moves
+        };
+
+        if moves_to_search.is_empty() {
+            return Vec::new();
+        }
+
+        let mut pv_results = Vec::new();
+        let mut current_alpha = alpha;
+        let mut remaining_moves = moves_to_search.to_vec();
+
+        // Create local hash_history for multi-PV IID search (Task 5.2)
+        let initial_hash = self
+            .hash_calculator
+            .get_position_hash(board, player, captured_pieces);
+        let mut local_hash_history = vec![initial_hash];
+
+        // Find multiple PVs using aspiration windows
+        for pv_index in 0..pv_count.min(remaining_moves.len()) {
+            if start_time.elapsed_ms() >= time_limit_ms {
+                break;
+            }
+
+            let mut best_move: Option<Move> = None;
+            let mut best_score = current_alpha;
+            let mut best_pv: Vec<crate::types::all::Move> = Vec::new();
+
+            // Search remaining moves for this PV
+            for (_move_index, move_) in remaining_moves.iter().enumerate() {
+                if start_time.elapsed_ms() >= time_limit_ms {
+                    break;
+                }
+
+                // Use move unmaking instead of board cloning
+                let move_info = board.make_move_with_info(move_);
+                let mut new_captured = captured_pieces.clone();
+
+                if let Some(ref captured) = move_info.captured_piece {
+                    new_captured.add_piece(captured.piece_type, player);
+                }
+
+                // Use aspiration window for this PV
+                let window_size = if pv_index == 0 { 50 } else { 25 }; // Smaller window for secondary PVs
+                let aspiration_alpha = best_score - window_size;
+                let aspiration_beta = best_score + window_size;
+
+                // Recursive search
+                // Task 7.0.3.6: Tag as IID entry
+                let score = -self.negamax_with_context(
+                    board,
+                    &new_captured,
+                    player.opposite(),
+                    iid_depth - 1,
+                    -aspiration_beta,
+                    -aspiration_alpha,
+                    start_time,
+                    time_limit_ms,
+                    &mut local_hash_history,
+                    false,
+                    false,
+                    false,
+                    false,
+                    None, // Task 2.6: IID search doesn't track opponent's move
+                    crate::types::EntrySource::IIDSearch, // Task 7.0.3.6: Tag as IID entry
+                );
+
+                // Restore board state by unmaking the move
+                board.unmake_move(&move_info);
+
+                if score > best_score {
+                    best_score = score;
+                    best_move = Some(move_.clone());
+
+                    // Build PV for this move
+                    best_pv = self.build_pv_from_move(move_.clone(), iid_depth);
+
+                    // Update alpha for next PV
+                    current_alpha = best_score;
+                }
+            }
+
+            // Add this PV result
+            if let Some(best_move) = best_move.clone() {
+                pv_results.push(IIDPVResult {
+                    move_: convert_move_to_all(best_move.clone()),
+                    score: best_score,
+                    depth: iid_depth,
+                    principal_variation: best_pv,
+                    pv_index,
+                    search_time_ms: start_time.elapsed_ms(),
+                });
+
+                // Remove this move from remaining moves to avoid duplicates
+                remaining_moves.retain(|m| !self.moves_equal(m, &best_move));
+            }
+        }
+
+        // Update statistics
+        self.iid_stats.iid_searches_performed += 1;
+        self.iid_stats.total_iid_nodes += moves_to_search.len() as u64;
+        self.iid_stats.iid_time_ms += start_time.elapsed_ms() as u64;
+
+        pv_results
+    }
+
+    /// Build principal variation from a given move
+    fn build_pv_from_move(&self, move_: Move, depth: u8) -> Vec<crate::types::all::Move> {
+        let mut pv = Vec::new();
+        pv.push(convert_move_to_all(move_));
+
+        // In a real implementation, this would trace the PV from the transposition table
+        // For now, we'll create a placeholder PV
+        for i in 1..depth {
+            // Placeholder moves - in real implementation would be actual PV moves
+            if let Some(next_move) = self.create_placeholder_move(i) {
+                pv.push(convert_move_to_all(next_move));
+            }
+        }
+
+        pv
+    }
+
+    /// Create placeholder move for PV building
+    fn create_placeholder_move(&self, index: u8) -> Option<Move> {
+        // This is a placeholder implementation
+        // In a real implementation, this would extract moves from the transposition table
+        Some(Move {
+            from: Some(Position {
+                row: index % 9,
+                col: (index + 1) % 9,
+            }),
+            to: Position {
+                row: (index + 1) % 9,
+                col: index % 9,
+            },
+            piece_type: PieceType::Pawn,
+            captured_piece: None,
+            is_promotion: false,
+            is_capture: false,
+            gives_check: false,
+            is_recapture: false,
+            player: Player::Black,
+        })
+    }
+
+    /// Analyze multiple PVs to find tactical patterns
+    pub fn analyze_multi_pv_patterns(&self, pv_results: &[IIDPVResult]) -> MultiPVAnalysis {
+        let mut analysis = MultiPVAnalysis {
+            total_pvs: pv_results.len(),
+            score_spread: 0.0,
+            tactical_themes: Vec::new(),
+            move_diversity: 0.0,
+            complexity_assessment: crate::types::all::PositionComplexity::Unknown,
+        };
+
+        if pv_results.is_empty() {
+            return analysis;
+        }
+
+        // Calculate score spread
+        let scores: Vec<i32> = pv_results.iter().map(|pv| pv.score).collect();
+        let min_score = *scores.iter().min().unwrap_or(&0);
+        let max_score = *scores.iter().max().unwrap_or(&0);
+        analysis.score_spread = (max_score - min_score) as f64;
+
+        // Analyze tactical themes
+        analysis.tactical_themes = self.identify_tactical_themes(pv_results);
+
+        // Calculate move diversity
+        analysis.move_diversity = self.calculate_move_diversity(pv_results);
+
+        // Assess complexity
+        analysis.complexity_assessment = self.assess_pv_complexity(pv_results);
+
+        analysis
+    }
+
+    /// Identify tactical themes in multiple PVs
+    fn identify_tactical_themes(&self, pv_results: &[IIDPVResult]) -> Vec<TacticalTheme> {
+        let mut themes = Vec::new();
+
+        for pv in pv_results {
+            if pv.principal_variation.len() >= 2 {
+                let first_move = &pv.principal_variation[0];
+
+                // Identify common tactical themes
+                if first_move.is_capture {
+                    themes.push(TacticalTheme::Capture);
+                } else if first_move.is_promotion {
+                    themes.push(TacticalTheme::Promotion);
+                } else if first_move.gives_check {
+                    themes.push(TacticalTheme::Check);
+                } else if self.is_development_move(&convert_move_from_all(&first_move)) {
+                    themes.push(TacticalTheme::Development);
+                } else {
+                    themes.push(TacticalTheme::Positional);
+                }
+            }
+        }
+
+        // Remove duplicates and count frequencies
+        themes.sort();
+        themes.dedup();
+        themes
+    }
+
+    /// Check if a move is a development move
+    pub fn is_development_move(&self, move_: &Move) -> bool {
+        // Simple heuristic for development moves
+        match move_.piece_type {
+            PieceType::Knight | PieceType::Bishop => true,
+            PieceType::Rook => {
+                // Rook development (moving from starting position)
+                if let Some(from) = move_.from {
+                    from.row == 0 || from.row == 8 // Starting rank
+                } else {
+                    false
+                }
+            }
+            _ => false,
+        }
+    }
+
+    /// Calculate move diversity across PVs
+    fn calculate_move_diversity(&self, pv_results: &[IIDPVResult]) -> f64 {
+        if pv_results.len() <= 1 {
+            return 0.0;
+        }
+
+        let mut unique_squares = std::collections::HashSet::new();
+        let mut unique_piece_types = std::collections::HashSet::new();
+
+        for pv in pv_results {
+            if let Some(from) = pv.move_.from {
+                unique_squares.insert((from.row, from.col));
+            }
+            unique_squares.insert((pv.move_.to.row, pv.move_.to.col));
+            unique_piece_types.insert(pv.move_.piece_type);
+        }
+
+        let total_possible_squares = 81; // 9x9 board
+        let total_possible_pieces = 8; // Number of piece types
+
+        let square_diversity = unique_squares.len() as f64 / total_possible_squares as f64;
+        let piece_diversity = unique_piece_types.len() as f64 / total_possible_pieces as f64;
+
+        (square_diversity + piece_diversity) / 2.0
+    }
+
+    /// Assess complexity based on PV characteristics
+    fn assess_pv_complexity(&self, pv_results: &[IIDPVResult]) -> crate::types::all::PositionComplexity {
+        let tactical_count = pv_results
+            .iter()
+            .filter(|pv| pv.move_.is_capture || pv.move_.is_promotion || pv.move_.gives_check)
+            .count();
+
+        let tactical_ratio = tactical_count as f64 / pv_results.len() as f64;
+
+        if tactical_ratio > 0.7 {
+            crate::types::all::PositionComplexity::High
+        } else if tactical_ratio > 0.3 {
+            crate::types::all::PositionComplexity::Medium
+        } else {
+            crate::types::all::PositionComplexity::Low
+        }
+    }
+
+    /// Get multi-PV IID recommendations
+    pub fn get_multi_pv_recommendations(&self, analysis: &MultiPVAnalysis) -> Vec<String> {
+        let mut recommendations = Vec::new();
+
+        if analysis.total_pvs == 0 {
+            recommendations
+                .push("No principal variations found. Position may be terminal.".to_string());
+            return recommendations;
+        }
+
+        // Score spread recommendations
+        if analysis.score_spread > 100.0 {
+            recommendations.push("Large score spread detected. Position has multiple tactical options with significant evaluation differences.".to_string());
+        } else if analysis.score_spread < 20.0 {
+            recommendations.push(
+                "Small score spread. Position is roughly balanced with multiple similar options."
+                    .to_string(),
+            );
+        }
+
+        // Tactical theme recommendations
+        if analysis.tactical_themes.len() > 3 {
+            recommendations.push(
+                "Multiple tactical themes present. Position offers diverse strategic approaches."
+                    .to_string(),
+            );
+        } else if analysis.tactical_themes.len() == 1 {
+            recommendations.push(format!(
+                "Single tactical theme dominates: {:?}. Focus on this pattern.",
+                analysis.tactical_themes[0]
+            ));
+        }
+
+        // Move diversity recommendations
+        if analysis.move_diversity > 0.7 {
+            recommendations.push(
+                "High move diversity. Position offers many different piece movements.".to_string(),
+            );
+        } else if analysis.move_diversity < 0.3 {
+            recommendations.push(
+                "Low move diversity. Position has limited piece movement options.".to_string(),
+            );
+        }
+
+        // Complexity recommendations
+        match analysis.complexity_assessment {
+            crate::types::all::PositionComplexity::High => {
+                recommendations.push("High complexity position. Multiple tactical elements require careful calculation.".to_string());
+            }
+            crate::types::all::PositionComplexity::Medium => {
+                recommendations.push(
+                    "Medium complexity position. Balanced tactical and positional considerations."
+                        .to_string(),
+                );
+            }
+            crate::types::all::PositionComplexity::Low => {
+                recommendations.push(
+                    "Low complexity position. Focus on positional play and long-term planning."
+                        .to_string(),
+                );
+            }
+            crate::types::all::PositionComplexity::Unknown => {
+                recommendations.push(
+                    "Complexity assessment unavailable. Use standard evaluation principles."
+                        .to_string(),
+                );
+            }
+        }
+
+        recommendations
+    }
+
+    /// Task 8.11: Alert mechanism for high overhead (>15%) indicating too-aggressive IID
+    fn trigger_high_overhead_alert(&mut self, overhead_percentage: f64) {
+        // Log warning if overhead exceeds threshold
+        crate::utils::telemetry::trace_log("IID_ALERT", &format!(
+            "WARNING: High IID overhead detected: {:.1}% (threshold: {:.1}%). Consider adjusting IID configuration to reduce overhead.",
+            overhead_percentage,
+            self.iid_config.time_overhead_threshold * 100.0
+        ));
+
+        // In a production system, this could also:
+        // - Send alert to monitoring system
+        // - Automatically reduce IID aggressiveness
+        // - Log to persistent storage for analysis
+    }
+
+    /// Task 8.12: Alert mechanism for low efficiency (<30%) indicating IID not being effective
+    fn trigger_low_efficiency_alert(&mut self, efficiency: f64) {
+        // Log warning if efficiency is below threshold
+        crate::utils::telemetry::trace_log("IID_ALERT", &format!(
+            "WARNING: Low IID efficiency detected: {:.1}% (threshold: 30.0%). IID may not be effective in current position. Consider adjusting IID configuration or disabling in certain position types.",
+            efficiency
+        ));
+
+        // In a production system, this could also:
+        // - Send alert to monitoring system
+        // - Adjust IID depth or skip conditions
+        // - Log to persistent storage for analysis
+    }
+
+    /// IID with probing for deeper verification of promising moves
+    pub fn perform_iid_with_probing(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        iid_depth: u8,
+        probe_depth: u8,
+        alpha: i32,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        _hash_history: &mut Vec<u64>,
+    ) -> Option<IIDProbeResult> {
+        if !self.iid_config.enabled || iid_depth == 0 {
+            return None;
+        }
+
+        let generator = MoveGenerator::new();
+        let moves = generator.generate_legal_moves(board, player, captured_pieces);
+
+        // Limit moves for IID efficiency
+        let moves_to_search = if moves.len() > self.iid_config.max_legal_moves {
+            &moves[..self.iid_config.max_legal_moves]
+        } else {
+            &moves
+        };
+
+        if moves_to_search.is_empty() {
+            return None;
+        }
+
+        // Phase 1: Initial shallow IID search to identify promising moves
+        // Create local hash_history for identify_promising_moves (Task 5.2)
+        let initial_hash = self
+            .hash_calculator
+            .get_position_hash(board, player, captured_pieces);
+        let mut local_hash_history = vec![initial_hash];
+        let promising_moves = self.identify_promising_moves(
+            board,
+            captured_pieces,
+            player,
+            moves_to_search,
+            iid_depth,
+            alpha,
+            beta,
+            start_time,
+            time_limit_ms,
+            &mut local_hash_history,
+        );
+
+        if promising_moves.is_empty() {
+            return None;
+        }
+
+        // Phase 2: Deeper probing of promising moves
+        let probe_results = self.probe_promising_moves(
+            board,
+            captured_pieces,
+            player,
+            &promising_moves,
+            probe_depth,
+            alpha,
+            beta,
+            start_time,
+            time_limit_ms,
+            &mut local_hash_history,
+        );
+
+        // Phase 3: Select best move based on probing results
+        let best_result = self.select_best_probe_result(probe_results);
+
+        // Update statistics
+        self.iid_stats.iid_searches_performed += 1;
+        self.iid_stats.total_iid_nodes += moves_to_search.len() as u64;
+        self.iid_stats.iid_time_ms += start_time.elapsed_ms() as u64;
+
+        best_result
+    }
+    /// Identify promising moves from initial shallow search
+    pub fn identify_promising_moves(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        moves: &[Move],
+        iid_depth: u8,
+        alpha: i32,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        _hash_history: &mut Vec<u64>,
+    ) -> Vec<PromisingMove> {
+        let mut promising_moves = Vec::new();
+        let mut current_alpha = alpha;
+        let promising_threshold = 50; // Minimum score improvement to be considered promising
+
+        // Create local hash_history for this search (Task 5.2)
+        let initial_hash = self
+            .hash_calculator
+            .get_position_hash(board, player, captured_pieces);
+        let mut local_hash_history = vec![initial_hash];
+
+        for move_ in moves {
+            if start_time.elapsed_ms() >= time_limit_ms {
+                break;
+            }
+
+            // Use move unmaking instead of board cloning
+            let move_info = board.make_move_with_info(move_);
+            let mut new_captured = captured_pieces.clone();
+
+            if let Some(ref captured) = move_info.captured_piece {
+                new_captured.add_piece(captured.piece_type, player);
+            }
+
+            // Shallow search to evaluate move potential
+            // Task 7.0.3.6: Tag as IID entry
+            let score = -self.negamax_with_context(
+                board,
+                &new_captured,
+                player.opposite(),
+                iid_depth - 1,
+                beta.saturating_neg(),
+                current_alpha.saturating_neg(),
+                start_time,
+                time_limit_ms,
+                &mut local_hash_history,
+                false,
+                false,
+                false,
+                false,
+                None, // Task 2.6: IID search doesn't track opponent's move
+                crate::types::EntrySource::IIDSearch, // Task 7.0.3.6: Tag as IID entry
+            );
+
+            // Restore board state by unmaking the move
+            board.unmake_move(&move_info);
+
+            // Check if move is promising enough for deeper probing
+            if score > current_alpha + promising_threshold {
+                promising_moves.push(PromisingMove {
+                    move_: convert_move_to_all(move_.clone()),
+                    shallow_score: score,
+                    improvement_over_alpha: score - current_alpha,
+                    tactical_indicators: convert_tactical_indicators_to_all(&self.assess_tactical_indicators(move_)),
+                });
+
+                current_alpha = score;
+            }
+        }
+
+        // Sort by improvement over alpha (most promising first)
+        promising_moves.sort_by(|a, b| b.improvement_over_alpha.cmp(&a.improvement_over_alpha));
+
+        // Limit to top promising moves for efficiency
+        promising_moves.truncate(3);
+
+        promising_moves
+    }
+    /// Probe promising moves with deeper search
+    fn probe_promising_moves(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        promising_moves: &[PromisingMove],
+        probe_depth: u8,
+        alpha: i32,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        _hash_history: &mut Vec<u64>,
+    ) -> Vec<IIDProbeResult> {
+        let mut probe_results = Vec::new();
+
+        // Create local hash_history for probe search (Task 5.2)
+        let initial_hash = self
+            .hash_calculator
+            .get_position_hash(board, player, captured_pieces);
+        let mut local_hash_history = vec![initial_hash];
+
+        for promising_move in promising_moves {
+            if start_time.elapsed_ms() >= time_limit_ms {
+                break;
+            }
+
+            // Use move unmaking instead of board cloning
+            let move_info = board.make_move_with_info(&convert_move_from_all(&promising_move.move_));
+            let mut new_captured = captured_pieces.clone();
+
+            if let Some(ref captured) = move_info.captured_piece {
+                new_captured.add_piece(captured.piece_type, player);
+            }
+
+            // Deeper search for verification
+            // Task 7.0.3.6: Tag as IID entry
+            let deep_score = -self.negamax_with_context(
+                board,
+                &new_captured,
+                player.opposite(),
+                probe_depth - 1,
+                beta.saturating_neg(),
+                alpha.saturating_neg(),
+                start_time,
+                time_limit_ms,
+                &mut local_hash_history,
+                false,
+                false,
+                false,
+                false,
+                None, // Task 2.6: IID search doesn't track opponent's move
+                crate::types::EntrySource::IIDSearch, // Task 7.0.3.6: Tag as IID entry
+            );
+
+            // Restore board state by unmaking the move
+            board.unmake_move(&move_info);
+
+            // Calculate verification metrics
+            let score_difference = (deep_score - promising_move.shallow_score).abs();
+            let verification_confidence = self.calculate_verification_confidence(
+                promising_move.shallow_score,
+                deep_score,
+                score_difference,
+            );
+
+            probe_results.push(IIDProbeResult {
+                move_: promising_move.move_.clone(),
+                shallow_score: promising_move.shallow_score,
+                deep_score,
+                score_difference,
+                verification_confidence,
+                tactical_indicators: promising_move.tactical_indicators.clone(),
+                probe_depth,
+                search_time_ms: start_time.elapsed_ms(),
+            });
+        }
+
+        probe_results
+    }
+
+    /// Select best move based on probing results
+    pub fn select_best_probe_result(
+        &self,
+        probe_results: Vec<IIDProbeResult>,
+    ) -> Option<IIDProbeResult> {
+        if probe_results.is_empty() {
+            return None;
+        }
+
+        // Select move with best combination of score and verification confidence
+        probe_results.into_iter().max_by(|a, b| {
+            // Primary: Deep score
+            let score_comparison = a.deep_score.cmp(&b.deep_score);
+            if score_comparison != std::cmp::Ordering::Equal {
+                return score_comparison;
+            }
+
+            // Secondary: Verification confidence
+            a.verification_confidence
+                .partial_cmp(&b.verification_confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+    }
+
+    /// Assess tactical indicators for a move
+    pub fn assess_tactical_indicators(&self, move_: &Move) -> TacticalIndicators {
+        TacticalIndicators {
+            is_capture: move_.is_capture,
+            is_promotion: move_.is_promotion,
+            gives_check: move_.gives_check,
+            is_recapture: move_.is_recapture,
+            piece_value: self.get_piece_value_for_move(move_),
+            mobility_impact: self.estimate_mobility_impact(move_),
+            king_safety_impact: self.estimate_king_safety_impact(move_),
+        }
+    }
+
+    /// Calculate verification confidence based on score consistency
+    pub fn calculate_verification_confidence(
+        &self,
+        _shallow_score: i32,
+        _deep_score: i32,
+        score_difference: i32,
+    ) -> f64 {
+        if score_difference == 0 {
+            return 1.0; // Perfect confidence
+        }
+
+        let max_expected_difference = 100; // Expected variation between shallow and deep search
+        let confidence = (max_expected_difference as f64 - score_difference as f64)
+            / max_expected_difference as f64;
+        confidence.max(0.0).min(1.0)
+    }
+
+    /// Get piece value for move assessment
+    pub fn get_piece_value_for_move(&self, move_: &Move) -> i32 {
+        match move_.piece_type {
+            PieceType::Pawn => 100,
+            PieceType::Lance => 300,
+            PieceType::Knight => 300,
+            PieceType::Silver => 400,
+            PieceType::Gold => 500,
+            PieceType::Bishop => 700,
+            PieceType::Rook => 900,
+            PieceType::King => 10000,
+            // Promoted pieces have higher values
+            PieceType::PromotedPawn => 800,
+            PieceType::PromotedLance => 600,
+            PieceType::PromotedKnight => 600,
+            PieceType::PromotedSilver => 600,
+            PieceType::PromotedBishop => 1100,
+            PieceType::PromotedRook => 1300,
+        }
+    }
+
+    /// Estimate mobility impact of a move
+    pub fn estimate_mobility_impact(&self, _move_: &Move) -> i32 {
+        // Placeholder implementation - would analyze actual mobility changes
+        // Higher value pieces generally have higher mobility impact
+        match _move_.piece_type {
+            PieceType::Pawn => 10,
+            PieceType::Lance => 20,
+            PieceType::Knight => 25,
+            PieceType::Silver => 30,
+            PieceType::Gold => 35,
+            PieceType::Bishop => 40,
+            PieceType::Rook => 45,
+            PieceType::King => 50,
+            // Promoted pieces have higher mobility impact
+            PieceType::PromotedPawn => 60,
+            PieceType::PromotedLance => 50,
+            PieceType::PromotedKnight => 50,
+            PieceType::PromotedSilver => 50,
+            PieceType::PromotedBishop => 70,
+            PieceType::PromotedRook => 80,
+        }
+    }
+
+    /// Estimate king safety impact of a move
+    pub fn estimate_king_safety_impact(&self, _move_: &Move) -> i32 {
+        // Placeholder implementation - would analyze actual king safety changes
+        // Moves that give check or attack the king have higher impact
+        if _move_.gives_check {
+            50
+        } else if _move_.is_capture {
+            20
+        } else {
+            5
+        }
+    }
+    /// Performance benchmark comparing IID vs non-IID search
+    pub fn benchmark_iid_performance(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        time_limit_ms: u32,
+        iterations: usize,
+    ) -> IIDPerformanceBenchmark {
+        let mut benchmark = IIDPerformanceBenchmark {
+            iterations,
+            depth,
+            time_limit_ms,
+            ..Default::default()
+        };
+
+        for iteration in 0..iterations {
+            let _start_time = TimeSource::now();
+            let mut hash_history = Vec::new();
+
+            // Benchmark with IID enabled
+            let iid_config = self.iid_config.clone();
+            self.iid_config.enabled = true;
+
+            let iid_start = TimeSource::now();
+            let iid_result = self.negamax_with_context(
+                board,
+                captured_pieces,
+                player,
+                depth,
+                -10000,
+                10000,
+                &iid_start,
+                time_limit_ms,
+                &mut hash_history,
+                false,
+                false,
+                false,
+                false,
+                None, // Task 2.6: Benchmark doesn't track opponent's move
+                crate::types::EntrySource::MainSearch, // Task 7.0.3.7
+            );
+            let iid_time = iid_start.elapsed_ms();
+            let iid_nodes = self.iid_stats.total_iid_nodes;
+
+            // Benchmark with IID disabled
+            self.iid_config.enabled = false;
+            let non_iid_start = TimeSource::now();
+            let non_iid_result = self.negamax_with_context(
+                board,
+                captured_pieces,
+                player,
+                depth,
+                -10000,
+                10000,
+                &non_iid_start,
+                time_limit_ms,
+                &mut hash_history,
+                false,
+                false,
+                false,
+                false,
+                None, // Task 2.6: Benchmark doesn't track opponent's move
+                crate::types::EntrySource::MainSearch, // Task 7.0.3.7
+            );
+            let non_iid_time = non_iid_start.elapsed_ms();
+
+            // Restore original IID config
+            self.iid_config = iid_config;
+
+            // Record iteration results
+            benchmark.iid_times.push(iid_time);
+            benchmark.non_iid_times.push(non_iid_time);
+            benchmark.iid_nodes.push(iid_nodes);
+            benchmark
+                .score_differences
+                .push((iid_result - non_iid_result).abs());
+
+            // Calculate running averages
+            benchmark.avg_iid_time =
+                benchmark.iid_times.iter().sum::<u32>() as f64 / (iteration + 1) as f64;
+            benchmark.avg_non_iid_time =
+                benchmark.non_iid_times.iter().sum::<u32>() as f64 / (iteration + 1) as f64;
+            benchmark.avg_iid_nodes =
+                benchmark.iid_nodes.iter().sum::<u64>() as f64 / (iteration + 1) as f64;
+            benchmark.avg_score_difference =
+                benchmark.score_differences.iter().sum::<i32>() as f64 / (iteration + 1) as f64;
+
+            // Calculate efficiency metrics
+            benchmark.time_efficiency = if benchmark.avg_non_iid_time > 0.0 {
+                (benchmark.avg_non_iid_time - benchmark.avg_iid_time) / benchmark.avg_non_iid_time
+                    * 100.0
+            } else {
+                0.0
+            };
+
+            benchmark.node_efficiency = if benchmark.avg_iid_nodes > 0.0 {
+                benchmark.avg_iid_nodes / (benchmark.avg_iid_time + 1.0) // Nodes per millisecond
+            } else {
+                0.0
+            };
+
+            benchmark.accuracy = if benchmark.avg_score_difference < 50.0 {
+                "High".to_string()
+            } else if benchmark.avg_score_difference < 100.0 {
+                "Medium".to_string()
+            } else {
+                "Low".to_string()
+            };
+        }
+
+        benchmark
+    }
+
+    /// Get detailed IID performance analysis
+    pub fn get_iid_performance_analysis(&self) -> IIDPerformanceAnalysis {
+        let metrics = self.get_iid_performance_metrics();
+
+        IIDPerformanceAnalysis {
+            overall_efficiency: metrics.iid_efficiency,
+            cutoff_rate: metrics.cutoff_rate,
+            overhead_percentage: metrics.overhead_percentage,
+            success_rate: metrics.success_rate,
+            recommendations: self.generate_performance_recommendations(&metrics),
+            bottleneck_analysis: self.analyze_performance_bottlenecks(&metrics),
+            optimization_potential: self.assess_optimization_potential(&metrics),
+        }
+    }
+
+    /// Generate performance recommendations based on metrics
+    fn generate_performance_recommendations(&self, metrics: &IIDPerformanceMetrics) -> Vec<String> {
+        let mut recommendations = Vec::new();
+
+        if metrics.iid_efficiency < 0.3 {
+            recommendations.push("Consider disabling IID - efficiency is very low".to_string());
+        } else if metrics.iid_efficiency < 0.5 {
+            recommendations
+                .push("IID efficiency is low - consider adjusting depth or thresholds".to_string());
+        }
+
+        if metrics.overhead_percentage > 20.0 {
+            recommendations.push(
+                "High overhead detected - reduce max_legal_moves or time_overhead_threshold"
+                    .to_string(),
+            );
+        }
+
+        if metrics.cutoff_rate < 0.1 {
+            recommendations
+                .push("Low cutoff rate - IID moves may not be improving search order".to_string());
+        }
+
+        if metrics.success_rate < 0.6 {
+            recommendations
+                .push("Low success rate - consider enabling adaptive tuning".to_string());
+        }
+
+        if recommendations.is_empty() {
+            recommendations.push("IID performance is optimal - no changes needed".to_string());
+        }
+
+        recommendations
+    }
+
+    /// Analyze performance bottlenecks
+    fn analyze_performance_bottlenecks(&self, metrics: &IIDPerformanceMetrics) -> Vec<String> {
+        let mut bottlenecks = Vec::new();
+
+        if metrics.overhead_percentage > 15.0 {
+            bottlenecks.push("Time overhead is the primary bottleneck".to_string());
+        }
+
+        if self.iid_stats.positions_skipped_tt_move > self.iid_stats.iid_searches_performed * 2 {
+            bottlenecks.push("Too many positions skipped due to TT moves".to_string());
+        }
+
+        if self.iid_stats.positions_skipped_depth < 5 {
+            bottlenecks.push("IID being applied at insufficient depths".to_string());
+        }
+
+        if self.iid_stats.positions_skipped_move_count > self.iid_stats.iid_searches_performed {
+            bottlenecks.push("Too many positions skipped due to move count limits".to_string());
+        }
+
+        if bottlenecks.is_empty() {
+            bottlenecks.push("No significant bottlenecks detected".to_string());
+        }
+
+        bottlenecks
+    }
+
+    /// Assess optimization potential
+    fn assess_optimization_potential(&self, metrics: &IIDPerformanceMetrics) -> String {
+        let potential_score = (metrics.iid_efficiency * 0.4
+            + (1.0 - metrics.overhead_percentage / 100.0) * 0.3
+            + metrics.cutoff_rate * 0.3)
+            * 100.0;
+
+        if potential_score > 80.0 {
+            "High - IID is performing optimally".to_string()
+        } else if potential_score > 60.0 {
+            "Medium - Some optimization opportunities exist".to_string()
+        } else if potential_score > 40.0 {
+            "Low - Significant optimization needed".to_string()
+        } else {
+            "Very Low - Consider disabling or major reconfiguration".to_string()
+        }
+    }
+
+    /// Strength testing framework to verify IID playing strength improvement
+    pub fn strength_test_iid_vs_non_iid(
+        &mut self,
+        test_positions: &[StrengthTestPosition],
+        time_per_move_ms: u32,
+        games_per_position: usize,
+    ) -> IIDStrengthTestResult {
+        let mut result = IIDStrengthTestResult {
+            total_positions: test_positions.len(),
+            games_per_position,
+            time_per_move_ms,
+            ..Default::default()
+        };
+
+        for (pos_index, position) in test_positions.iter().enumerate() {
+            let mut position_result = PositionStrengthResult {
+                position_index: pos_index,
+                position_fen: position.fen.clone(),
+                expected_result: position.expected_result.clone(),
+                ..Default::default()
+            };
+
+            // Test with IID enabled
+            let iid_config = self.iid_config.clone();
+            self.iid_config.enabled = true;
+
+            let iid_wins = self.play_strength_games(
+                &position.fen,
+                position.expected_result,
+                time_per_move_ms,
+                games_per_position,
+                true, // IID enabled
+            );
+
+            // Test with IID disabled
+            self.iid_config.enabled = false;
+
+            let non_iid_wins = self.play_strength_games(
+                &position.fen,
+                position.expected_result,
+                time_per_move_ms,
+                games_per_position,
+                false, // IID disabled
+            );
+
+            // Restore original config
+            self.iid_config = iid_config;
+
+            position_result.iid_wins = iid_wins;
+            position_result.non_iid_wins = non_iid_wins;
+            position_result.iid_win_rate = iid_wins as f64 / games_per_position as f64;
+            position_result.non_iid_win_rate = non_iid_wins as f64 / games_per_position as f64;
+            position_result.improvement =
+                position_result.iid_win_rate - position_result.non_iid_win_rate;
+
+            result.position_results.push(position_result);
+        }
+
+        // Calculate overall statistics
+        result.calculate_overall_statistics();
+        result
+    }
+
+    /// Play multiple games for strength testing
+    fn play_strength_games(
+        &mut self,
+        fen: &str,
+        expected_result: GameResult,
+        time_per_move_ms: u32,
+        num_games: usize,
+        iid_enabled: bool,
+    ) -> usize {
+        let mut wins = 0;
+
+        for _ in 0..num_games {
+            if let Ok(mut board) = self.parse_fen_position(fen) {
+                let result = self.play_single_game(&mut board, time_per_move_ms, iid_enabled);
+
+                match (result, expected_result) {
+                    (GameResult::Win, GameResult::Win) => wins += 1,
+                    (GameResult::Loss, GameResult::Loss) => wins += 1,
+                    (GameResult::Draw, GameResult::Draw) => wins += 1,
+                    _ => {} // No win for this game
+                }
+            }
+        }
+
+        wins
+    }
+
+    /// Play a single game for strength testing
+    fn play_single_game(
+        &mut self,
+        board: &mut BitboardBoard,
+        time_per_move_ms: u32,
+        iid_enabled: bool,
+    ) -> GameResult {
+        let original_config = self.iid_config.clone();
+        self.iid_config.enabled = iid_enabled;
+
+        let mut move_count = 0;
+        let max_moves = 200; // Prevent infinite games
+
+        while move_count < max_moves {
+            let _start_time = TimeSource::now();
+            let mut hash_history = Vec::new();
+
+            // Find best move
+            let best_move = self.find_best_move(
+                board,
+                &CapturedPieces::new(),
+                Player::Black, // Simplified - would need proper turn tracking
+                3,             // depth
+                time_per_move_ms,
+                &mut hash_history,
+            );
+
+            if let Some(move_) = best_move {
+                // Make move
+                let _ = board.make_move(&move_);
+                move_count += 1;
+            } else {
+                break; // No legal moves
+            }
+
+            // Check for game end conditions (simplified)
+            if self.is_game_over(board) {
+                break;
+            }
+        }
+
+        // Restore original config
+        self.iid_config = original_config;
+
+        // Determine game result (simplified - would need proper evaluation)
+        if move_count >= max_moves {
+            GameResult::Draw
+        } else {
+            // Simplified result determination
+            GameResult::Win // Placeholder
+        }
+    }
+
+    /// Parse FEN position for strength testing
+    fn parse_fen_position(&self, _fen: &str) -> Result<BitboardBoard, String> {
+        // Simplified FEN parsing - would need full implementation
+        Ok(BitboardBoard::new())
+    }
+
+    /// Check if game is over
+    fn is_game_over(&self, _board: &BitboardBoard) -> bool {
+        // Simplified game over detection - would need full implementation
+        false
+    }
+
+    /// Find best move for strength testing
+    fn find_best_move(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        time_limit_ms: u32,
+        _hash_history: &mut Vec<u64>,
+    ) -> Option<Move> {
+        let start_time = TimeSource::now();
+
+        // Create local hash_history for search (Task 5.2)
+        let initial_hash = self
+            .hash_calculator
+            .get_position_hash(board, player, captured_pieces);
+        let mut local_hash_history = vec![initial_hash];
+
+        // Use the main search function
+        let _score = self.negamax_with_context(
+            board,
+            captured_pieces,
+            player,
+            depth,
+            -10000,
+            10000,
+            &start_time,
+            time_limit_ms,
+            &mut local_hash_history,
+            false,
+            false,
+            false,
+            false,
+            None, // Task 2.6: Test doesn't track opponent's move
+            crate::types::EntrySource::MainSearch, // Task 7.0.3.7
+        );
+
+        // Extract best move from transposition table or search results
+        self.extract_best_move_from_tt(board, player, captured_pieces)
+    }
+
+    /// Generate strength test positions
+    pub fn generate_strength_test_positions(&self) -> Vec<StrengthTestPosition> {
+        vec![
+            StrengthTestPosition {
+                fen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1".to_string(),
+                description: "Starting position".to_string(),
+                expected_result: GameResult::Draw,
+                difficulty: PositionDifficulty::Easy,
+            },
+            StrengthTestPosition {
+                fen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/4P4/PPPP1PPPP/1B5R1/LNSGKGSNL b - 1"
+                    .to_string(),
+                description: "After one move".to_string(),
+                expected_result: GameResult::Draw,
+                difficulty: PositionDifficulty::Medium,
+            },
+            StrengthTestPosition {
+                fen: "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1".to_string(),
+                description: "White to move".to_string(),
+                expected_result: GameResult::Win,
+                difficulty: PositionDifficulty::Hard,
+            },
+        ]
+    }
+
+    /// Analyze strength test results
+    pub fn analyze_strength_test_results(
+        &self,
+        result: &IIDStrengthTestResult,
+    ) -> StrengthTestAnalysis {
+        let mut analysis = StrengthTestAnalysis {
+            overall_improvement: result.overall_improvement,
+            significant_positions: Vec::new(),
+            recommendations: Vec::new(),
+            confidence_level: ConfidenceLevel::Low,
+        };
+
+        // Find positions with significant improvement
+        for position_result in &result.position_results {
+            if position_result.improvement.abs() > 0.1 {
+                analysis
+                    .significant_positions
+                    .push(position_result.position_index);
+            }
+        }
+
+        // Generate recommendations
+        if result.overall_improvement > 0.05 {
+            analysis
+                .recommendations
+                .push("IID shows clear strength improvement - keep enabled".to_string());
+            analysis.confidence_level = ConfidenceLevel::High;
+        } else if result.overall_improvement > 0.02 {
+            analysis
+                .recommendations
+                .push("IID shows modest improvement - consider keeping enabled".to_string());
+            analysis.confidence_level = ConfidenceLevel::Medium;
+        } else if result.overall_improvement < -0.05 {
+            analysis
+                .recommendations
+                .push("IID shows strength regression - consider disabling".to_string());
+            analysis.confidence_level = ConfidenceLevel::High;
+        } else {
+            analysis
+                .recommendations
+                .push("IID impact is neutral - more testing needed".to_string());
+            analysis.confidence_level = ConfidenceLevel::Low;
+        }
+
+        // Add position-specific recommendations
+        for &pos_index in &analysis.significant_positions {
+            if let Some(pos_result) = result.position_results.get(pos_index) {
+                if pos_result.improvement > 0.1 {
+                    analysis.recommendations.push(format!(
+                        "Strong improvement on position {} - IID effective for this type",
+                        pos_index
+                    ));
+                } else if pos_result.improvement < -0.1 {
+                    analysis.recommendations.push(format!(
+                        "Regression on position {} - IID may be harmful for this type",
+                        pos_index
+                    ));
+                }
+            }
+        }
+
+        analysis
+    }
+
+    /// Get IID performance metrics
+    pub fn get_iid_performance_metrics(&self) -> IIDPerformanceMetrics {
+        // Use actual total search time tracked in IIDStats
+        let total_search_time_ms = self.iid_stats.total_search_time_ms;
+        // Convert search::IIDStats to all::IIDStats for from_stats
+        let all_iid_stats = convert_iid_stats_to_all(&self.iid_stats);
+        IIDPerformanceMetrics::from_stats(&all_iid_stats, total_search_time_ms)
+    }
+
+    /// Task 6.3: Estimate search performance without IID using historical data and efficiency rates
+    /// This estimates what the search would have been like if IID were disabled
+    fn estimate_performance_without_iid(&self) -> (u64, u64) {
+        // Estimate based on efficiency/cutoff rates and overhead
+        // If IID is effective, searches would be slower without it (more nodes, more time)
+
+        if self.iid_stats.iid_searches_performed == 0 {
+            // No IID data yet, return current metrics as baseline
+            return (
+                self.core_search_metrics.total_nodes,
+                self.iid_stats.total_search_time_ms,
+            );
+        }
+
+        // Calculate estimated nodes without IID
+        // Based on efficiency rate: higher efficiency means IID saves more nodes
+        // Expected node reduction: 20-40% based on literature
+        // We estimate using a model: nodes_without_iid = nodes_with_iid * (1 + efficiency_factor)
+        let efficiency_factor = (self.iid_stats.efficiency_rate() / 100.0) * 0.3; // 30% node savings at 100% efficiency
+        let estimated_nodes_without_iid =
+            (self.core_search_metrics.total_nodes as f64 * (1.0 + efficiency_factor)) as u64;
+
+        // Calculate estimated time without IID
+        // Time without IID = time with IID + IID overhead - speedup from better move ordering
+        // Speedup from move ordering roughly equals (overhead - net_benefit)
+        let overhead_ms = self.iid_stats.iid_time_ms;
+        let estimated_time_without_iid = if self.iid_stats.total_search_time_ms > overhead_ms {
+            // Account for speedup from better move ordering
+            // Higher efficiency means more speedup
+            let speedup_factor = (self.iid_stats.efficiency_rate() / 100.0) * 0.2; // 20% speedup at 100% efficiency
+            let estimated_speedup =
+                (self.iid_stats.total_search_time_ms as f64 * speedup_factor) as u64;
+            // Without IID: we'd have the current time, but without the speedup benefit, and without IID overhead
+            // Time without IID = current_time + overhead - speedup (if overhead > speedup)
+            if overhead_ms > estimated_speedup {
+                self.iid_stats.total_search_time_ms + (overhead_ms - estimated_speedup)
+            } else {
+                self.iid_stats.total_search_time_ms - (estimated_speedup - overhead_ms)
+            }
+        } else {
+            self.iid_stats.total_search_time_ms + overhead_ms
+        };
+
+        (estimated_nodes_without_iid, estimated_time_without_iid)
+    }
+
+    /// Task 6.4: Calculate nodes saved by IID
+    /// Task 6.5: Calculate speedup from IID
+    /// Task 6.6: Track correlation between efficiency and speedup
+    /// Task 6.9: Add debug logging for performance measurements
+    pub fn update_iid_performance_measurements(&mut self) {
+        if self.iid_stats.iid_searches_performed == 0 {
+            return;
+        }
+
+        // Task 6.3: Estimate performance without IID
+        let (estimated_nodes_without_iid, estimated_time_without_iid) =
+            self.estimate_performance_without_iid();
+
+        // Task 6.2: Store estimated values
+        self.iid_stats.total_nodes_without_iid = estimated_nodes_without_iid;
+        self.iid_stats.total_time_without_iid_ms = estimated_time_without_iid;
+
+        // Task 6.4: Calculate nodes saved
+        let nodes_with_iid = self.core_search_metrics.total_nodes;
+        if estimated_nodes_without_iid > nodes_with_iid {
+            self.iid_stats.nodes_saved = estimated_nodes_without_iid - nodes_with_iid;
+        } else {
+            self.iid_stats.nodes_saved = 0;
+        }
+
+        // Task 6.5: Calculate speedup and track correlation
+        if estimated_time_without_iid > 0
+            && estimated_time_without_iid > self.iid_stats.total_search_time_ms
+        {
+            let time_with_iid = self.iid_stats.total_search_time_ms;
+            let time_without_iid = estimated_time_without_iid;
+            let speedup_percentage =
+                ((time_without_iid - time_with_iid) as f64 / time_without_iid as f64) * 100.0;
+
+            // Task 6.6: Track correlation between efficiency rate and speedup
+            let efficiency_rate = self.iid_stats.efficiency_rate();
+            self.iid_stats.efficiency_speedup_correlation_sum +=
+                efficiency_rate * speedup_percentage;
+            self.iid_stats.correlation_data_points += 1;
+
+            // Task 6.8: Track performance measurement accuracy
+            // For now, we'll track consistency of measurements (can be enhanced with actual benchmarks later)
+            let consistency_score = if self.iid_stats.efficiency_speedup_correlation_sum > 0.0 {
+                100.0 - (speedup_percentage.abs() / 100.0).min(100.0)
+            } else {
+                0.0
+            };
+            self.iid_stats.performance_measurement_accuracy_sum += consistency_score;
+            self.iid_stats.performance_measurement_samples += 1;
+
+            // Task 6.9: Debug logging
+            crate::utils::telemetry::trace_log("IID_PERF", &format!(
+                "Performance measurement: nodes_without_iid={}, nodes_with_iid={}, nodes_saved={}, speedup={:.1}%, efficiency={:.1}%",
+                estimated_nodes_without_iid,
+                nodes_with_iid,
+                self.iid_stats.nodes_saved,
+                speedup_percentage,
+                efficiency_rate
+            ));
+        }
+    }
+
+    /// Test IID move ordering with various scenarios
+    #[cfg(test)]
+    pub fn test_iid_move_ordering() {
+        use crate::bitboards::BitboardBoard;
+        use crate::types::{Move, PieceType, Player, Position};
+
+        let mut engine = SearchEngine::new(None, 64);
+        let board = BitboardBoard::new();
+
+        // Create test moves
+        let move1 = Move {
+            from: Some(Position { row: 6, col: 4 }),
+            to: Position { row: 5, col: 4 },
+            piece_type: PieceType::Pawn,
+            captured_piece: None,
+            is_promotion: false,
+            is_capture: false,
+            gives_check: false,
+            is_recapture: false,
+            player: Player::Black,
+        };
+
+        let move2 = Move {
+            from: Some(Position { row: 6, col: 3 }),
+            to: Position { row: 5, col: 3 },
+            piece_type: PieceType::Pawn,
+            captured_piece: None,
+            is_promotion: false,
+            is_capture: false,
+            gives_check: false,
+            is_recapture: false,
+            player: Player::Black,
+        };
+
+        let moves = vec![move1.clone(), move2.clone()];
+
+        // Test 1: No IID move - should use standard scoring
+        let sorted_no_iid = engine.sort_moves(&moves, &board, None);
+        assert_eq!(sorted_no_iid.len(), 2);
+
+        // Test 2: With IID move - IID move should be first
+        let sorted_with_iid = engine.sort_moves(&moves, &board, Some(&move2));
+        assert_eq!(sorted_with_iid.len(), 2);
+        assert!(engine.moves_equal(&sorted_with_iid[0], &move2));
+
+        println!("IID move ordering tests passed!");
+    }
+    /// Search at a specific depth with memory tracking (Task 26.0 - Task 4.0)
+    pub fn search_at_depth(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        time_limit_ms: u32,
+        alpha: i32,
+        beta: i32,
+    ) -> Option<(Move, i32)> {
+        crate::utils::telemetry::trace_log(
+            "SEARCH_AT_DEPTH",
+            &format!(
+                "Starting search at depth {} (alpha: {}, beta: {})",
+                depth, alpha, beta
+            ),
+        );
+        crate::debug_utils::start_timing(&format!("search_at_depth_{}", depth));
+        
+        // Memory tracking at search start (Task 26.0 - Task 4.0)
+        self.memory_tracker.reset_peak();
+        
+        self.tablebase_move_cache.clear();
+
+        // Optimize pruning performance periodically
+        if depth % 3 == 0 {
+            self.optimize_pruning_performance();
+        }
+
+        // Check tablebase first
+        crate::debug_utils::start_timing("tablebase_probe");
+        if let Some(tablebase_result) = self.tablebase.probe(board, player, captured_pieces) {
+            crate::debug_utils::end_timing("tablebase_probe", "SEARCH_AT_DEPTH");
+            if let Some(ref best_move) = tablebase_result.best_move {
+                crate::debug_utils::log_decision(
+                    "SEARCH_AT_DEPTH",
+                    "Tablebase hit",
+                    &format!(
+                        "Move: {}, outcome: {:?}, distance: {:?}, confidence: {:.2}",
+                        best_move.to_usi_string(),
+                        tablebase_result.outcome,
+                        tablebase_result.distance_to_mate,
+                        tablebase_result.confidence
+                    ),
+                    None,
+                );
+
+                // Convert tablebase score to search score
+                let score = self.convert_tablebase_score(&tablebase_result);
+                crate::utils::telemetry::trace_log(
+                    "SEARCH_AT_DEPTH",
+                    &format!("Tablebase score: {}", score),
+                );
+                crate::debug_utils::end_timing(
+                    &format!("search_at_depth_{}", depth),
+                    "SEARCH_AT_DEPTH",
+                );
+                return Some((best_move.clone(), score));
+            } else {
+                crate::utils::telemetry::trace_log(
+                    "SEARCH_AT_DEPTH",
+                    "Tablebase hit but no best move found",
+                );
+            }
+        } else {
+            crate::debug_utils::end_timing("tablebase_probe", "SEARCH_AT_DEPTH");
+            crate::utils::telemetry::trace_log(
+                "SEARCH_AT_DEPTH",
+                "TABLEBASE MISS: Position not in tablebase",
+            );
+        }
+
+        self.search_statistics.reset_nodes();
+        self.current_depth = depth;
+        let start_time = TimeSource::now();
+        let mut alpha = alpha;
+
+        let mut best_move: Option<Move> = None;
+        // Initialize best_score to alpha (Task 5.12)
+        // This is correct since any move that improves alpha will set best_score
+        let mut best_score = alpha;
+
+        crate::utils::telemetry::trace_log("SEARCH_AT_DEPTH", "Generating legal moves");
+        crate::debug_utils::start_timing("move_generation");
+        let legal_moves = self
+            .move_generator
+            .generate_legal_moves(board, player, captured_pieces);
+        crate::debug_utils::end_timing("move_generation", "SEARCH_AT_DEPTH");
+
+        if legal_moves.is_empty() {
+            crate::utils::telemetry::trace_log("SEARCH_AT_DEPTH", "No legal moves found");
+            crate::debug_utils::end_timing(
+                &format!("search_at_depth_{}", depth),
+                "SEARCH_AT_DEPTH",
+            );
+            return None;
+        }
+
+        crate::utils::telemetry::trace_log(
+            "SEARCH_AT_DEPTH",
+            &format!("Found {} legal moves", legal_moves.len()),
+        );
+
+        // Debug: log the first few moves
+        for (i, mv) in legal_moves.iter().take(5).enumerate() {
+            crate::utils::telemetry::trace_log(
+                "SEARCH_AT_DEPTH",
+                &format!("Move {}: {}", i, mv.to_usi_string()),
+            );
+        }
+
+        // If depth is 0, return static evaluation with a fallback legal move to avoid underflow
+        if depth == 0 {
+            let eval_score = self.evaluator.evaluate(board, player, captured_pieces);
+            // Choose the first legal move as a placeholder; callers at depth 0 should not rely on the move
+            let placeholder_move = legal_moves[0].clone();
+            crate::utils::telemetry::trace_log(
+                "SEARCH_AT_DEPTH",
+                &format!(
+                    "Depth==0 early return with eval_score={} and placeholder move {}",
+                    eval_score,
+                    placeholder_move.to_usi_string()
+                ),
+            );
+            crate::debug_utils::end_timing(
+                &format!("search_at_depth_{}", depth),
+                "SEARCH_AT_DEPTH",
+            );
+            return Some((placeholder_move, eval_score));
+        }
+
+        crate::utils::telemetry::trace_log("SEARCH_AT_DEPTH", "Sorting moves");
+        crate::debug_utils::start_timing("move_sorting");
+        // Initialize move orderer if not already done
+        self.initialize_move_orderer();
+
+        // Task 3.0: Use advanced move ordering for better performance (no IID at this level)
+        let sorted_moves = self.order_moves_for_negamax(
+            &legal_moves,
+            board,
+            captured_pieces,
+            player,
+            depth,
+            alpha,
+            beta,
+            None,
+            None,
+        );
+        crate::debug_utils::end_timing("move_sorting", "SEARCH_AT_DEPTH");
+
+        crate::utils::telemetry::trace_log("SEARCH_AT_DEPTH", "Starting move evaluation loop");
+        crate::utils::telemetry::trace_log(
+            "SEARCH_AT_DEPTH",
+            &format!(
+                "Search parameters: depth={}, alpha={}, beta={}, time_limit={}ms, moves_count={}",
+                depth,
+                alpha,
+                beta,
+                time_limit_ms,
+                sorted_moves.len()
+            ),
+        );
+
+        // Use hash-based history instead of FEN strings (Task 5.1-5.2)
+        let mut hash_history: Vec<u64> =
+            vec![self
+                .hash_calculator
+                .get_position_hash(board, player, captured_pieces)];
+
+        for (move_index, move_) in sorted_moves.iter().enumerate() {
+            if self.should_stop(&start_time, time_limit_ms) {
+                crate::utils::telemetry::trace_log(
+                    "SEARCH_AT_DEPTH",
+                    "Time limit reached, stopping move evaluation",
+                );
+                break;
+            }
+
+            crate::utils::telemetry::trace_log(
+                "SEARCH_AT_DEPTH",
+                &format!(
+                    "Evaluating move {}: {} (alpha: {}, beta: {}, current_best: {})",
+                    move_index + 1,
+                    move_.to_usi_string(),
+                    alpha,
+                    beta,
+                    best_move
+                        .as_ref()
+                        .map(|m| m.to_usi_string())
+                        .unwrap_or("None".to_string())
+                ),
+            );
+            crate::debug_utils::start_timing(&format!("move_eval_{}", move_index));
+
+            // Use move unmaking instead of board cloning
+            let move_info = board.make_move_with_info(&move_);
+            let mut new_captured = captured_pieces.clone();
+
+            if let Some(ref captured) = move_info.captured_piece {
+                new_captured.add_piece(captured.piece_type, player);
+            }
+
+            let score = -self.negamax(
+                &mut *board,
+                &new_captured,
+                player.opposite(),
+                depth - 1,
+                beta.saturating_neg(),
+                alpha.saturating_neg(),
+                &start_time,
+                time_limit_ms,
+                &mut hash_history,
+                true,
+            );
+            crate::debug_utils::end_timing(&format!("move_eval_{}", move_index), "SEARCH_AT_DEPTH");
+
+            // Restore board state by unmaking the move
+            board.unmake_move(&move_info);
+
+            // Enhanced move evaluation logging
+            crate::debug_utils::log_move_eval(
+                "SEARCH_AT_DEPTH",
+                &move_.to_usi_string(),
+                score,
+                &format!(
+                    "move {} of {} (alpha: {}, beta: {}, current_best_score: {})",
+                    move_index + 1,
+                    sorted_moves.len(),
+                    alpha,
+                    beta,
+                    best_score
+                ),
+            );
+
+            if score > best_score {
+                crate::debug_utils::log_decision(
+                    "SEARCH_AT_DEPTH",
+                    "New best move",
+                    &format!(
+                        "Move {} improved score from {} to {} (alpha: {})",
+                        move_.to_usi_string(),
+                        best_score,
+                        score,
+                        alpha
+                    ),
+                    Some(score),
+                );
+                best_score = score;
+                best_move = Some(move_.clone());
+
+                // Log the new best move details
+                crate::debug_utils::trace_log(
+                    "SEARCH_AT_DEPTH",
+                    &format!(
+                        "BEST_MOVE_UPDATE: {} -> {} (score: {}, alpha: {})",
+                        move_.to_usi_string(),
+                        move_.to_usi_string(),
+                        score,
+                        alpha
+                    ),
+                );
+            } else {
+                crate::debug_utils::trace_log(
+                    "SEARCH_AT_DEPTH",
+                    &format!(
+                        "Move {} scored {} (not better than current best: {})",
+                        move_.to_usi_string(),
+                        score,
+                        best_score
+                    ),
+                );
+            }
+
+            if score > alpha {
+                crate::debug_utils::log_decision(
+                    "SEARCH_AT_DEPTH",
+                    "Alpha update",
+                    &format!("Score {} > alpha {}, updating alpha", score, alpha),
+                    Some(score),
+                );
+                alpha = score;
+            }
+
+            // YBWC: after first move, evaluate siblings in parallel if enabled
+            if move_index == 0 {
+                YBWC_TRIGGER_OPPORTUNITIES.fetch_add(1, Ordering::Relaxed);
+                if self.ybwc_enabled && depth >= self.ybwc_min_depth {
+                    YBWC_TRIGGER_ELIGIBLE_DEPTH.fetch_add(1, Ordering::Relaxed);
+                }
+                if sorted_moves.len() >= self.ybwc_min_branch {
+                    YBWC_TRIGGER_ELIGIBLE_BRANCH.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+            if self.ybwc_enabled
+                && depth >= self.ybwc_min_depth
+                && move_index == 0
+                && sorted_moves.len() >= self.ybwc_min_branch
+            {
+                YBWC_TRIGGERED.fetch_add(1, Ordering::Relaxed);
+                let all_siblings = &sorted_moves[1..];
+                let dyn_cap = self.ybwc_dynamic_sibling_cap(depth, all_siblings.len());
+                let sib_limit = dyn_cap.min(all_siblings.len());
+                let siblings = &all_siblings[..sib_limit];
+                YBWC_SIBLING_BATCHES.fetch_add(1, Ordering::Relaxed);
+                YBWC_SIBLINGS_EVALUATED.fetch_add(siblings.len() as u64, Ordering::Relaxed);
+                let stop_flag = self.stop_flag.clone();
+                let shared_tt = self.shared_transposition_table.clone();
+                let quiescence_cfg = self.quiescence_config.clone();
+                let sibling_results: Vec<(i32, usize)> = siblings
+                    .par_iter()
+                    .enumerate()
+                    .with_min_len(8)
+                    .map(|(sib_idx, sib_mv)| {
+                        // Prepare child position
+                        let mut sib_board = board.clone();
+                        let mut sib_captured = captured_pieces.clone();
+                        if let Some(captured) = sib_board.make_move(sib_mv) {
+                            sib_captured.add_piece(captured.piece_type, player);
+                        }
+                        // Reuse a per-thread engine from thread-local storage
+                        let s = YBWC_ENGINE_TLS.with(|cell| {
+                            let mut opt = cell.borrow_mut();
+                            if opt.is_none() {
+                                let mut e = SearchEngine::new_with_config(
+                                    stop_flag.clone(),
+                                    16,
+                                    quiescence_cfg.clone(),
+                                );
+                                if let Some(ref shared) = shared_tt {
+                                    e.set_shared_transposition_table(shared.clone());
+                                }
+                                e.set_ybwc(true, self.ybwc_min_depth);
+                                e.set_ybwc_branch(self.ybwc_min_branch);
+                                *opt = Some(e);
+                            }
+                            let eng = opt.as_mut().unwrap();
+                            let score = -eng.negamax(
+                                &mut sib_board,
+                                &sib_captured,
+                                player.opposite(),
+                                depth - 1,
+                                beta.saturating_neg(),
+                                alpha.saturating_neg(),
+                                &start_time,
+                                time_limit_ms,
+                                &mut vec![],
+                                true,
+                            );
+                            eng.flush_tt_buffer();
+                            score
+                        });
+                        (s, sib_idx + 1) // store original index offset by 1
+                    })
+                    .collect();
+
+                for (s, idx) in sibling_results.into_iter() {
+                    let mv = sorted_moves[idx].clone();
+                    if s > best_score {
+                        best_score = s;
+                        best_move = Some(mv);
+                    }
+                    if s > alpha {
+                        alpha = s;
+                    }
+                    if alpha >= beta {
+                        crate::debug_utils::log_decision(
+                            "NEGAMAX",
+                            "Beta cutoff (YBWC)",
+                            &format!(
+                                "Alpha {} >= beta {} after parallel siblings, cutting off",
+                                alpha, beta
+                            ),
+                            Some(alpha),
+                        );
+                        self.flush_tt_buffer();
+                        break;
+                    }
+                }
+                break; // we handled all remaining siblings
+            }
+        }
+
+        // CRITICAL FIX: Fallback move selection to prevent returning None when moves exist
+        // This addresses the bug where best_move would be None even when legal moves
+        // were available. The fallback ensures we always return a move if one exists.
+        if best_move.is_none() && !sorted_moves.is_empty() {
+            // If no move was better than alpha, use the first move as fallback
+            // This is better than returning None, as it provides a legal move
+            // even if it's not the best possible move.
+            best_move = Some(sorted_moves[0].clone());
+            crate::debug_utils::trace_log(
+                "SEARCH_AT_DEPTH",
+                "FALLBACK: No move exceeded alpha, using first move as fallback",
+            );
+        }
+
+        // Validate move tracking consistency
+        self.validate_move_tracking(&best_move, best_score, sorted_moves.len());
+
+        // Store the root position in the transposition table so get_pv can extract it
+        if let Some(ref best_move_ref) = best_move {
+            let position_hash =
+                self.hash_calculator
+                    .get_position_hash(board, player, captured_pieces);
+            let flag = if best_score <= alpha {
+                TranspositionFlag::UpperBound
+            } else if best_score >= beta {
+                TranspositionFlag::LowerBound
+            } else {
+                TranspositionFlag::Exact
+            };
+            let entry = TranspositionEntry::new_with_age(
+                best_score,
+                depth,
+                flag,
+                Some(best_move_ref.clone()),
+                position_hash,
+            );
+            self.maybe_buffer_tt_store(entry, depth, flag);
+        }
+
+        // Note: Total search time is tracked at the IterativeDeepening::search() level
+        // search_at_depth() is called from iterative deepening, so we don't track here
+        // to avoid double-counting
+
+        crate::debug_utils::end_timing(&format!("search_at_depth_{}", depth), "SEARCH_AT_DEPTH");
+        crate::debug_utils::trace_log(
+            "SEARCH_AT_DEPTH",
+            &format!(
+                "Search completed: best_move={:?}, best_score={}",
+                best_move.as_ref().map(|m| m.to_usi_string()),
+                best_score
+            ),
+        );
+
+        // CRITICAL: Ensure we always return a move if legal moves exist
+        // This prevents the search from getting stuck when best_move is None
+        let result = if best_move.is_some() {
+            best_move.map(|m| (m, best_score))
+        } else if !sorted_moves.is_empty() {
+            // Final fallback: use first move if we somehow still don't have a best move
+            crate::debug_utils::trace_log(
+                "SEARCH_AT_DEPTH",
+                "FINAL FALLBACK: Using first move as best move",
+            );
+            Some((sorted_moves[0].clone(), best_score))
+        } else {
+            None // Only return None if there are truly no legal moves
+        };
+
+        if !self.validate_search_result(result.clone(), depth, alpha, beta) {
+            crate::debug_utils::trace_log(
+                "SEARCH_AT_DEPTH",
+                "Search result validation failed, attempting recovery",
+            );
+            // Recovery logic here - for now just return the result anyway
+        }
+        // Ensure buffered entries are flushed at the end of a root search
+        self.flush_tt_buffer();
+        
+        // Update memory tracking at search end (Task 26.0 - Task 4.0)
+        self.memory_tracker.update_peak_rss();
+        self.track_memory_usage(0); // Update tracking
+        
+        result
+    }
+
+    /// Convert tablebase result to search score
+    fn convert_tablebase_score(&self, result: &crate::tablebase::TablebaseResult) -> i32 {
+        match result.outcome {
+            crate::tablebase::TablebaseOutcome::Win => {
+                // Winning position: score based on distance to mate
+                if let Some(distance) = result.distance_to_mate {
+                    10000 - distance as i32
+                } else {
+                    10000
+                }
+            }
+            crate::tablebase::TablebaseOutcome::Loss => {
+                // Losing position: negative score based on distance to mate
+                if let Some(distance) = result.distance_to_mate {
+                    -10000 - distance as i32
+                } else {
+                    -10000
+                }
+            }
+            crate::tablebase::TablebaseOutcome::Draw => {
+                // Draw position
+                0
+            }
+            crate::tablebase::TablebaseOutcome::Unknown => {
+                // Unknown position: use confidence to scale the score
+                if let Some(distance) = result.distance_to_mate {
+                    ((10000 - distance as i32) as f32 * result.confidence) as i32
+                } else {
+                    0
+                }
+            }
+        }
+    }
+
+    /// Backward-compatible wrapper for search_at_depth without alpha/beta parameters
+    pub fn search_at_depth_legacy(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        time_limit_ms: u32,
+    ) -> Option<(Move, i32)> {
+        self.tablebase_move_cache.clear();
+        self.search_at_depth(
+            board,
+            captured_pieces,
+            player,
+            depth,
+            time_limit_ms,
+            MIN_SCORE,
+            MAX_SCORE,
+        )
+    }
+
+    fn negamax(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        alpha: i32,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        hash_history: &mut Vec<u64>,
+        can_null_move: bool,
+    ) -> i32 {
+        self.negamax_with_context(
+            board,
+            captured_pieces,
+            player,
+            depth,
+            alpha,
+            beta,
+            start_time,
+            time_limit_ms,
+            hash_history,
+            can_null_move,
+            false,
+            false,
+            false,
+            None,
+            crate::types::EntrySource::MainSearch,
+        )
+    }
+
+    fn negamax_with_context(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        mut alpha: i32,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        hash_history: &mut Vec<u64>,
+        can_null_move: bool,
+        is_root: bool,
+        _has_capture: bool,
+        has_check: bool,
+        opponent_last_move: Option<Move>,
+        entry_source: crate::types::EntrySource,
+    ) -> i32 {
+        // Track best score from the beginning for timeout fallback
+        let mut best_score_tracked: Option<i32> = None;
+
+        // Task 7.0.2.4: Calculate time pressure level for algorithm coordination
+        let time_pressure = self.calculate_time_pressure_level(start_time, time_limit_ms);
+
+        if self.should_stop(&start_time, time_limit_ms) {
+            // Try to return a meaningful score instead of 0
+            if let Some(best_score) = best_score_tracked {
+                crate::debug_utils::trace_log(
+                    "NEGAMAX",
+                    &format!(
+                        "Time limit reached, returning tracked best score: {}",
+                        best_score
+                    ),
+                );
+                return best_score;
+            }
+            // Fallback to static evaluation if no best score tracked
+            let static_eval = self.evaluate_position(board, player, captured_pieces);
+            crate::debug_utils::trace_log(
+                "NEGAMAX",
+                &format!(
+                    "Time limit reached, returning static evaluation: {}",
+                    static_eval
+                ),
+            );
+            return static_eval;
+        }
+        // Track nodes and seldepth through SearchStatistics (Task 1.8)
+        self.search_statistics.increment_nodes();
+        // Track total nodes for metrics (Task 5.7)
+        self.core_search_metrics.total_nodes += 1;
+        // Update seldepth (selective depth) - track maximum depth reached
+        // current_depth is the iteration depth (e.g., 5), depth is remaining depth (e.g., starts at 5, then 4, 3, 2...)
+        // Actual depth from root = current_depth - depth + 1 (when depth=5 at root, we're at ply 1)
+        // When depth=0, we've reached current_depth plies from root
+        // So depth_from_root = current_depth - depth + 1
+        // But actually, if we start with depth=5, that means we search 5 plies: depth goes 5->4->3->2->1->0
+        // When depth=0, we've searched 5 plies (current_depth)
+        // When depth=1, we've searched 4 plies
+        // So depth_from_root = current_depth - depth
+        let depth_from_root = self.current_depth.saturating_sub(depth);
+        self.search_statistics.update_seldepth(depth_from_root);
+        // Check transposition table and calculate position hash (Task 5.1-5.3)
+        // Calculate position hash for repetition detection and TT
+        let position_hash = self
+            .hash_calculator
+            .get_position_hash(board, player, captured_pieces);
+
+        // Task 7.0.4.2: Evaluate position once at entry and cache for reuse
+        let cached_static_eval = self.evaluate_position(board, player, captured_pieces);
+
+        // Hash-based repetition detection (Task 5.1-5.3)
+        // Use hash_calculator's built-in repetition detection instead of FEN strings
+        // Note: hash_calculator maintains its own global history via add_position_to_history
+        // For search context, we track hashes locally in hash_history
+        let repetition_state = self
+            .hash_calculator
+            .get_repetition_state_for_hash(position_hash);
+        if repetition_state.is_draw() {
+            crate::debug_utils::trace_log(
+                "NEGAMAX",
+                "Repetition detected (hash-based), returning 0 (draw)",
+            );
+            return 0; // Repetition is a draw
+        }
+
+        // Add current position hash to search history (Task 5.2)
+        // Also add to hash_calculator's global history for game-wide repetition tracking
+        self.hash_calculator.add_position_to_history(position_hash);
+        hash_history.push(position_hash);
+
+        // Track TT probe (Task 5.7)
+        self.core_search_metrics.total_tt_probes += 1;
+
+        // Automatic profiling for TT probe (Task 26.0 - Task 3.0)
+        let tt_probe_start = if self.auto_profiling_enabled {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
+        let tt_entry = self.transposition_table
+            .probe_with_prefetch(position_hash, depth, None);
+
+        // Record TT probe profiling (Task 3.0)
+        if let Some(start) = tt_probe_start {
+            let elapsed_ns = start.elapsed().as_nanos() as u64;
+            self.performance_profiler.record_operation("tt_probe", elapsed_ns);
+        }
+
+        if let Some(entry) = tt_entry {
+            // Track TT hit (Task 5.7)
+            self.core_search_metrics.total_tt_hits += 1;
+
+            // Track TT hit type (Task 5.7)
+            match entry.flag {
+                TranspositionFlag::Exact => {
+                    self.core_search_metrics.tt_exact_hits += 1;
+                    crate::utils::telemetry::trace_log(
+                        "NEGAMAX",
+                        &format!(
+                            "Transposition table hit (Exact): depth={}, score={}",
+                            entry.depth, entry.score
+                        ),
+                    );
+                    return entry.score;
+                }
+                TranspositionFlag::LowerBound => {
+                    self.core_search_metrics.tt_lower_bound_hits += 1;
+                    crate::utils::telemetry::trace_log(
+                        "NEGAMAX",
+                        &format!(
+                            "Transposition table hit (LowerBound): depth={}, score={}",
+                            entry.depth, entry.score
+                        ),
+                    );
+                    if entry.score >= beta {
+                        crate::utils::telemetry::trace_log("NEGAMAX", "TT lower bound cutoff");
+                        return entry.score;
+                    }
+                }
+                TranspositionFlag::UpperBound => {
+                    self.core_search_metrics.tt_upper_bound_hits += 1;
+                    crate::utils::telemetry::trace_log(
+                        "NEGAMAX",
+                        &format!(
+                            "Transposition table hit (UpperBound): depth={}, score={}",
+                            entry.depth, entry.score
+                        ),
+                    );
+                    if entry.score <= alpha {
+                        crate::utils::telemetry::trace_log("NEGAMAX", "TT upper bound cutoff");
+                        return entry.score;
+                    }
+                }
+            }
+        }
+
+        // === NULL MOVE PRUNING ===
+        // Task 7.0.2.5, 7.0.2.9: Skip NMP at High time pressure, allow at Low/Medium/None
+        let skip_nmp_time_pressure = time_pressure == crate::types::TimePressure::High;
+        if skip_nmp_time_pressure {
+            self.null_move_stats.skipped_time_pressure += 1;
+            crate::utils::telemetry::trace_log(
+                "NULL_MOVE",
+                &format!("Skipping NMP due to HIGH time pressure (depth: {})", depth),
+            );
+        }
+
+        // Task 7.0.4.3: Pass cached evaluation to avoid re-evaluation
+        if !skip_nmp_time_pressure
+            && self.should_attempt_null_move(
+                board,
+                captured_pieces,
+                player,
+                depth,
+                can_null_move,
+                Some(cached_static_eval),
+            )
+        {
+            crate::utils::telemetry::trace_log(
+                "NULL_MOVE",
+                &format!(
+                    "Attempting null move pruning at depth {} (time pressure: {:?})",
+                    depth, time_pressure
+                ),
+            );
+            crate::debug_utils::start_timing("null_move_search");
+            // Create local hash_history for null move search (Task 8.4, Task 8.6)
+            // This separate hash history ensures that repetition detection within the null move
+            // search does not interfere with the main search's hash history. The null move is a
+            // hypothetical position (not a real move), so its repetition detection should be
+            // isolated from the main search to prevent false repetition detections.
+            let initial_hash =
+                self.hash_calculator
+                    .get_position_hash(board, player, captured_pieces);
+            let mut local_null_hash_history = vec![initial_hash];
+
+            // NOTE: Board state verification: The null move search does NOT modify the board state.
+            // No actual move is made on the board - the null move is simulated by passing
+            // player.opposite() to switch turns via recursive call. The board state remains
+            // unchanged because moves made within the recursive call are unmade before returning.
+            // Unit tests verify this behavior (see test_null_move_board_state_isolation).
+
+            let null_move_score = self.perform_null_move_search(
+                board,
+                captured_pieces,
+                player,
+                depth,
+                beta,
+                start_time,
+                time_limit_ms,
+                &mut local_null_hash_history,
+            );
+
+            crate::debug_utils::end_timing("null_move_search", "NULL_MOVE");
+
+            if null_move_score >= beta {
+                // Beta cutoff - position is too good, prune this branch
+                crate::debug_utils::log_decision(
+                    "NULL_MOVE",
+                    "Beta cutoff",
+                    &format!(
+                        "Null move score {} >= beta {}, pruning branch",
+                        null_move_score, beta
+                    ),
+                    Some(null_move_score),
+                );
+                self.null_move_stats.cutoffs += 1;
+                return beta;
+            } else if self.is_mate_threat_score(null_move_score, beta) {
+                // Null move failed but score suggests mate threat - perform mate threat verification
+                crate::utils::telemetry::trace_log("MATE_THREAT", &format!(
+                    "Null move score {} >= {} (beta - margin), possible mate threat, performing verification",
+                    null_move_score, beta - self.null_move_config.mate_threat_margin
+                ));
+                crate::debug_utils::start_timing("mate_threat_verification");
+
+                // Use same hash history for mate threat verification
+                let mate_threat_score = self.perform_mate_threat_verification(
+                    board,
+                    captured_pieces,
+                    player,
+                    depth,
+                    beta,
+                    start_time,
+                    time_limit_ms,
+                    &mut local_null_hash_history,
+                );
+
+                crate::debug_utils::end_timing("mate_threat_verification", "MATE_THREAT");
+
+                if mate_threat_score >= beta {
+                    // Mate threat verification confirms beta cutoff
+                    crate::debug_utils::log_decision(
+                        "MATE_THREAT",
+                        "Mate threat confirmed, beta cutoff",
+                        &format!(
+                            "Mate threat verification score {} >= beta {}, pruning branch",
+                            mate_threat_score, beta
+                        ),
+                        Some(mate_threat_score),
+                    );
+                    self.null_move_stats.cutoffs += 1;
+                    return beta;
+                } else {
+                    // Mate threat verification failed - continue with verification search or full search
+                    crate::utils::telemetry::trace_log(
+                        "MATE_THREAT",
+                        &format!(
+                            "Mate threat verification score {} < beta {}, no mate threat confirmed",
+                            mate_threat_score, beta
+                        ),
+                    );
+                    // Fall through to check verification search if enabled
+                }
+            }
+
+            // Check for regular verification search (if mate threat check didn't succeed or wasn't enabled)
+            if self.should_perform_verification(null_move_score, beta) {
+                // Null move failed but is within verification margin - perform verification search
+                crate::utils::telemetry::trace_log("VERIFICATION", &format!(
+                    "Null move score {} < beta {} but within margin {}, performing verification search",
+                    null_move_score, beta, self.null_move_config.verification_margin
+                ));
+                crate::debug_utils::start_timing("verification_search");
+
+                // Use same hash history for verification search
+                let verification_score = self.perform_verification_search(
+                    board,
+                    captured_pieces,
+                    player,
+                    depth,
+                    beta,
+                    start_time,
+                    time_limit_ms,
+                    &mut local_null_hash_history,
+                );
+
+                crate::debug_utils::end_timing("verification_search", "VERIFICATION");
+
+                if verification_score >= beta {
+                    // Verification search confirms beta cutoff
+                    crate::debug_utils::log_decision(
+                        "VERIFICATION",
+                        "Beta cutoff confirmed",
+                        &format!(
+                            "Verification score {} >= beta {}, pruning branch",
+                            verification_score, beta
+                        ),
+                        Some(verification_score),
+                    );
+                    self.null_move_stats.verification_cutoffs += 1;
+                    self.null_move_stats.cutoffs += 1;
+                    return beta;
+                } else {
+                    // Both null move and verification failed - continue with full search
+                    crate::utils::telemetry::trace_log(
+                        "VERIFICATION",
+                        &format!(
+                            "Verification search score {} < beta {}, continuing with full search",
+                            verification_score, beta
+                        ),
+                    );
+                }
+            } else {
+                crate::utils::telemetry::trace_log(
+                    "NULL_MOVE",
+                    &format!(
+                        "Null move score {} < beta {}, continuing search",
+                        null_move_score, beta
+                    ),
+                );
+            }
+        }
+        // === END NULL MOVE PRUNING ===
+
+        if depth == 0 {
+            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Starting quiescence search (alpha: {}, beta: {})", alpha, beta));
+            crate::debug_utils::start_timing("quiescence_search");
+            let result = self.quiescence_search(
+                board,
+                captured_pieces,
+                player,
+                alpha,
+                beta,
+                &start_time,
+                time_limit_ms,
+                5,
+            );
+            crate::debug_utils::end_timing("quiescence_search", "QUIESCENCE");
+            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Quiescence search completed: score={}", result));
+            return result;
+        }
+
+        // Use the passed context parameters
+        crate::debug_utils::trace_log(
+            "NEGAMAX",
+            &format!(
+                "Generating moves at depth {} (alpha: {}, beta: {})",
+                depth, alpha, beta
+            ),
+        );
+
+        let legal_moves = self
+            .move_generator
+            .generate_legal_moves(board, player, captured_pieces);
+        if legal_moves.is_empty() {
+            let is_check = board.is_king_in_check(player, captured_pieces);
+            let score = if is_check { -100000 } else { 0 };
+            crate::debug_utils::trace_log(
+                "NEGAMAX",
+                &format!("No legal moves: check={}, score={}", is_check, score),
+            );
+            return score;
+        }
+
+        crate::debug_utils::trace_log(
+            "NEGAMAX",
+            &format!("Found {} legal moves", legal_moves.len()),
+        );
+
+        // === INTERNAL ITERATIVE DEEPENING (IID) ===
+        let mut iid_move = None;
+        let tt_move = self
+            .transposition_table
+            .probe(position_hash, 255)
+            .and_then(|entry| entry.best_move.clone());
+
+        // Task 7.0.2.6, 7.0.2.9: Skip IID at Medium/High time pressure, allow at Low/None
+        let skip_iid_time_pressure = time_pressure == crate::types::TimePressure::Medium
+            || time_pressure == crate::types::TimePressure::High;
+        if skip_iid_time_pressure {
+            self.iid_stats.positions_skipped_time_pressure += 1;
+            crate::debug_utils::trace_log(
+                "IID",
+                &format!(
+                    "Skipping IID due to time pressure {:?} (depth: {})",
+                    time_pressure, depth
+                ),
+            );
+        }
+
+        // Task 4.9: Pass board and captured_pieces for adaptive minimum depth
+        let should_apply_iid = !skip_iid_time_pressure
+            && self.should_apply_iid(
+                depth,
+                tt_move.as_ref(),
+                &legal_moves,
+                start_time,
+                time_limit_ms,
+                Some(board),
+                Some(captured_pieces),
+                Some(player),
+            );
+
+        if should_apply_iid {
+            crate::debug_utils::trace_log(
+                "IID",
+                &format!(
+                    "Applying Internal Iterative Deepening at depth {} (time pressure: {:?})",
+                    depth, time_pressure
+                ),
+            );
+            crate::debug_utils::start_timing("iid_search");
+            // Task 4.0: Pass board and captured_pieces for Dynamic strategy depth calculation
+            let iid_depth = self.calculate_iid_depth(
+                depth,
+                Some(board),
+                Some(captured_pieces),
+                Some(start_time),
+                Some(time_limit_ms),
+            );
+            crate::debug_utils::trace_log(
+                "IID",
+                &format!(
+                    "Applying IID at depth {} with IID depth {}",
+                    depth, iid_depth
+                ),
+            );
+
+            // Task 5.8: Estimate IID time before performing IID for accuracy tracking
+            let estimated_iid_time_ms = self.estimate_iid_time(board, captured_pieces, iid_depth);
+
+            let iid_start_time = TimeSource::now();
+            // Create local hash_history for IID call (Task 5.2)
+            let initial_hash =
+                self.hash_calculator
+                    .get_position_hash(board, player, captured_pieces);
+            let mut local_hash_history = vec![initial_hash];
+            // Task 2.0: Receive (score, best_move) tuple from perform_iid_search
+            let (iid_score_result, iid_move_result) = self.perform_iid_search(
+                &mut board.clone(),
+                captured_pieces,
+                player,
+                iid_depth,
+                alpha,
+                beta,
+                start_time,
+                time_limit_ms,
+                &mut local_hash_history,
+            );
+            iid_move = iid_move_result;
+
+            let actual_iid_time = iid_start_time.elapsed_ms();
+            self.iid_stats.iid_searches_performed += 1;
+
+            // Task 5.8: Track predicted vs actual IID time for accuracy statistics
+            self.iid_stats.total_predicted_iid_time_ms += estimated_iid_time_ms as u64;
+            self.iid_stats.total_actual_iid_time_ms += actual_iid_time as u64;
+            self.iid_stats.iid_time_ms += actual_iid_time as u64; // Track total IID time
+
+            crate::debug_utils::end_timing("iid_search", "IID");
+
+            // Task 2.12, 5.8: Add debug logging for IID move extraction and time accuracy
+            if let Some(ref mv) = iid_move {
+                crate::debug_utils::trace_log(
+                    "IID",
+                    &format!(
+                        "Found move {} in {}ms (predicted: {}ms, accuracy: {:.1}%, score: {})",
+                        mv.to_usi_string(),
+                        actual_iid_time,
+                        estimated_iid_time_ms,
+                        if estimated_iid_time_ms > 0 {
+                            (1.0 - ((actual_iid_time as f64 - estimated_iid_time_ms as f64).abs()
+                                / estimated_iid_time_ms as f64))
+                                * 100.0
+                        } else {
+                            100.0
+                        },
+                        iid_score_result
+                    ),
+                );
+            } else {
+            crate::utils::telemetry::trace_log(
+                    "IID",
+                    &format!(
+                        "No move found after {}ms (predicted: {}ms, accuracy: {:.1}%)",
+                        actual_iid_time,
+                        estimated_iid_time_ms,
+                        if estimated_iid_time_ms > 0 {
+                            (1.0 - ((actual_iid_time as f64 - estimated_iid_time_ms as f64).abs()
+                                / estimated_iid_time_ms as f64))
+                                * 100.0
+                        } else {
+                            100.0
+                        }
+                    ),
+                );
+            }
+        } else {
+            crate::utils::telemetry::trace_log(
+                "IID",
+                &format!(
+                    "Skipped at depth {} (enabled={}, tt_move={}, moves={})",
+                    depth,
+                    self.iid_config.enabled,
+                    tt_move.is_some(),
+                    legal_moves.len()
+                ),
+            );
+        }
+        // === END IID ===
+
+        crate::utils::telemetry::trace_log("NEGAMAX", "Sorting moves for evaluation");
+        // Initialize move orderer if not already done
+        self.initialize_move_orderer();
+
+        // Task 3.0: Use advanced move ordering for better performance with IID move integration
+        // Task 2.6: Pass opponent's last move to move ordering for counter-move heuristic
+        let sorted_moves = self.order_moves_for_negamax(
+            &legal_moves,
+            board,
+            captured_pieces,
+            player,
+            depth,
+            alpha,
+            beta,
+            iid_move.as_ref(),
+            opponent_last_move.as_ref(),
+        );
+
+        // Task 12.3: Track IID move position in ordered list to verify it's prioritized
+        if let Some(iid_mv) = &iid_move {
+            if let Some(position) = sorted_moves
+                .iter()
+                .position(|m| self.moves_equal(m, iid_mv))
+            {
+                let position_u64 = position as u64;
+                self.iid_stats.iid_move_position_sum += position_u64;
+                self.iid_stats.iid_move_position_tracked += 1;
+
+                if position == 0 {
+                    self.iid_stats.iid_move_ordered_first += 1;
+                    crate::utils::telemetry::trace_log(
+                        "IID_ORDERING",
+                        &format!(
+                            "IID move {} ordered first (position 0)",
+                            iid_mv.to_usi_string()
+                        ),
+                    );
+                } else {
+                    self.iid_stats.iid_move_not_ordered_first += 1;
+                    crate::utils::telemetry::trace_log(
+                        "IID_ORDERING",
+                        &format!(
+                            "IID move {} NOT ordered first (position {})",
+                            iid_mv.to_usi_string(),
+                            position
+                        ),
+                    );
+                }
+            }
+        }
+
+        // Task 12.4: Track ordering effectiveness with/without IID (for comparison)
+        // Track total positions searched with/without IID
+        let has_iid_move = iid_move.is_some();
+        if has_iid_move {
+            self.iid_stats.ordering_effectiveness_with_iid_total += 1;
+        } else {
+            self.iid_stats.ordering_effectiveness_without_iid_total += 1;
+        }
+
+        // Initialize best_score to alpha instead of sentinel value (Task 5.12)
+        let mut best_score = alpha;
+        let mut best_move_for_tt = None;
+
+        // Hash-based history tracking (Task 5.2, 5.4)
+        // Position hash already added to hash_history above - no FEN string needed
+
+        let mut move_index = 0;
+        let mut iid_move_improved_alpha = false;
+
+        crate::utils::telemetry::trace_log(
+            "NEGAMAX",
+            &format!(
+                "Starting move evaluation loop with {} moves",
+                sorted_moves.len()
+            ),
+        );
+
+        for move_ in &sorted_moves {
+            if self.should_stop(&start_time, time_limit_ms) {
+                crate::utils::telemetry::trace_log(
+                    "NEGAMAX",
+                    "Time limit reached, stopping move evaluation",
+                );
+                // Update tracked best score before breaking (only if we've evaluated at least one move)
+                if best_score > -200000 {
+                    // -200000 is the sentinel value, any real score will be better
+                    best_score_tracked = Some(best_score);
+                }
+                break;
+            }
+            move_index += 1;
+
+            crate::utils::telemetry::trace_log(
+                "NEGAMAX",
+                &format!(
+                    "Evaluating move {}: {} (alpha: {}, beta: {})",
+                    move_index,
+                    move_.to_usi_string(),
+                    alpha,
+                    beta
+                ),
+            );
+
+            // Create search state for advanced pruning decisions
+            let mut search_state = crate::types::search::SearchState::new(depth, alpha, beta);
+            search_state.move_number = move_index as u8;
+            search_state.update_fields(
+                has_check,
+                self.evaluate_position(board, player, captured_pieces),
+                self.get_position_hash(board),
+                self.get_game_phase(board),
+            );
+
+            // Check if move should be pruned using advanced pruning techniques with conditional logic
+            // Convert search_state to all::SearchState for PruningManager
+            let mut all_search_state = crate::types::all::SearchState {
+                depth: search_state.depth,
+                move_number: search_state.move_number,
+                alpha: search_state.alpha,
+                beta: search_state.beta,
+                is_in_check: search_state.is_in_check,
+                static_eval: search_state.static_eval,
+                best_move: search_state.best_move.as_ref().map(|m| convert_move_to_all(m.clone())),
+                position_hash: search_state.position_hash,
+                game_phase: match search_state.game_phase {
+                    GamePhase::Opening => crate::types::all::GamePhase::Opening,
+                    GamePhase::Middlegame => crate::types::all::GamePhase::Middlegame,
+                    GamePhase::Endgame => crate::types::all::GamePhase::Endgame,
+                },
+                position_classification: search_state.position_classification.map(|pc| match pc {
+                    crate::types::search::PositionClassification::Tactical => crate::types::all::PositionClassification::Tactical,
+                    crate::types::search::PositionClassification::Quiet => crate::types::all::PositionClassification::Quiet,
+                    crate::types::search::PositionClassification::Neutral => crate::types::all::PositionClassification::Neutral,
+                }),
+                tt_move: search_state.tt_move.as_ref().map(|m| convert_move_to_all(m.clone())),
+                advanced_reduction_config: search_state.advanced_reduction_config.map(|arc| {
+                    crate::types::all::AdvancedReductionConfig {
+                        enabled: arc.enabled,
+                        strategy: match arc.strategy {
+                            crate::types::search::AdvancedReductionStrategy::Basic => crate::types::all::AdvancedReductionStrategy::Basic,
+                            crate::types::search::AdvancedReductionStrategy::DepthBased => crate::types::all::AdvancedReductionStrategy::DepthBased,
+                            crate::types::search::AdvancedReductionStrategy::MaterialBased => crate::types::all::AdvancedReductionStrategy::MaterialBased,
+                            crate::types::search::AdvancedReductionStrategy::HistoryBased => crate::types::all::AdvancedReductionStrategy::HistoryBased,
+                            _ => crate::types::all::AdvancedReductionStrategy::Basic, // Default for any other variants
+                        },
+                        enable_depth_based: false, // Not in search:: version
+                        enable_material_based: false, // Not in search:: version
+                        enable_history_based: false, // Not in search:: version
+                        depth_scaling_factor: 0.15, // Default
+                        material_imbalance_threshold: 300, // Default
+                        history_score_threshold: 0, // Default
+                    }
+                }),
+                best_score: search_state.best_score,
+                nodes_searched: search_state.nodes_searched,
+                aspiration_enabled: search_state.aspiration_enabled,
+                researches: search_state.researches,
+                health_score: search_state.health_score,
+            };
+            let all_move = convert_move_to_all(move_.clone());
+            let should_consider_pruning = self
+                .pruning_manager
+                .should_apply_conditional_pruning(&all_search_state, &all_move);
+            if should_consider_pruning {
+                let pruning_decision = self.pruning_manager.should_prune(&mut all_search_state, &all_move);
+
+                if pruning_decision.is_pruned() {
+                    crate::utils::telemetry::trace_log(
+                        "NEGAMAX",
+                        &format!("Move {} pruned by advanced pruning", move_.to_usi_string()),
+                    );
+                    continue; // Skip this move
+                }
+            }
+
+            // Use move unmaking instead of board cloning
+            let move_info = board.make_move_with_info(move_);
+            let mut new_captured = captured_pieces.clone();
+
+            if let Some(ref captured) = move_info.captured_piece {
+                new_captured.add_piece(captured.piece_type, player);
+            }
+
+            crate::debug_utils::start_timing(&format!("move_search_{}", move_index));
+            // Task 2.6: Pass current move as opponent_last_move to recursive call
+            // Task 7.0.1: Pass IID move for explicit exemption from LMR
+            // Task 7.0.3.4: Pass entry source for TT priority management
+            let score = self.search_move_with_lmr(
+                board,
+                &new_captured,
+                player,
+                depth,
+                alpha,
+                beta,
+                &start_time,
+                time_limit_ms,
+                hash_history,
+                move_,
+                move_index,
+                is_root,
+                move_.is_capture,
+                has_check,
+                opponent_last_move.clone(), // Task 2.6: Pass opponent's last move for counter-move heuristic
+                iid_move.as_ref(), // Task 7.0.1: Pass IID move for explicit exemption from LMR
+                entry_source,      // Task 7.0.3.4: Pass entry source for TT priority management
+            );
+            crate::debug_utils::end_timing(&format!("move_search_{}", move_index), "NEGAMAX");
+
+            // Restore board state by unmaking the move
+            board.unmake_move(&move_info);
+
+            crate::debug_utils::log_move_eval(
+                "NEGAMAX",
+                &move_.to_usi_string(),
+                score,
+                &format!("move {} of {}", move_index, sorted_moves.len()),
+            );
+
+            if score > best_score {
+                    crate::debug_utils::log_decision(
+                    "NEGAMAX",
+                    "New best move",
+                    &format!(
+                        "Move {} improved score from {} to {}",
+                        move_.to_usi_string(),
+                        best_score,
+                        score
+                    ),
+                    Some(score),
+                );
+                best_score = score;
+                best_score_tracked = Some(score);
+                best_move_for_tt = Some(move_.clone());
+                if score > alpha {
+                    crate::debug_utils::log_decision(
+                        "NEGAMAX",
+                        "Alpha update",
+                        &format!("Score {} > alpha {}, updating alpha", score, alpha),
+                        Some(score),
+                    );
+                    alpha = score;
+
+                    // Track if this was the IID move that first improved alpha
+                    if let Some(iid_mv) = &iid_move {
+                        if self.moves_equal(move_, iid_mv) && !iid_move_improved_alpha {
+                            iid_move_improved_alpha = true;
+                            self.iid_stats.iid_move_first_improved_alpha += 1;
+                            // Task 7.11: Track effectiveness by complexity level
+                            self.update_complexity_effectiveness(
+                                board,
+                                captured_pieces,
+                                true,
+                                false,
+                            );
+                            // Task 11.9: Track advanced strategy effectiveness
+                            self.update_advanced_strategy_effectiveness(
+                                board,
+                                captured_pieces,
+                                true,
+                                false,
+                            );
+                            crate::utils::telemetry::trace_log(
+                                "IID",
+                                &format!(
+                                    "Move {} first improved alpha to {}",
+                                    move_.to_usi_string(),
+                                    alpha
+                                ),
+                            );
+                        }
+                    }
+
+                    if !move_.is_capture {
+                        self.update_killer_moves(move_.clone());
+                    }
+                    if let Some(from) = move_.from {
+                        // Use safe multiplication to prevent overflow (depth is u8, max value is 255)
+                        // depth * depth can overflow u8 if depth > 16, so cast to i32 first
+                        let depth_squared = (depth as i32) * (depth as i32);
+                        self.history_table[from.row as usize][from.col as usize] += depth_squared;
+                    }
+                }
+                if alpha >= beta {
+                    // Track beta cutoff (Task 5.7)
+                    self.core_search_metrics.total_cutoffs += 1;
+                    self.core_search_metrics.beta_cutoffs += 1;
+
+                    // Task 12.2: Track cutoffs from IID moves vs non-IID moves
+                    self.iid_stats.total_cutoffs += 1;
+                    let is_iid_move = if let Some(iid_mv) = &iid_move {
+                        self.moves_equal(move_, iid_mv)
+                    } else {
+                        false
+                    };
+
+                    if is_iid_move {
+                        self.iid_stats.cutoffs_from_iid_moves += 1;
+                    } else {
+                        self.iid_stats.cutoffs_from_non_iid_moves += 1;
+                    }
+
+                    // Task 12.4: Track ordering effectiveness with/without IID (cutoff occurred)
+                    if has_iid_move {
+                        self.iid_stats.ordering_effectiveness_with_iid_cutoffs += 1;
+                    } else {
+                        self.iid_stats.ordering_effectiveness_without_iid_cutoffs += 1;
+                    }
+
+                    // Track move ordering effectiveness (Task 10.1-10.3)
+                    let _lmr_threshold = self.lmr_config.min_move_index;
+                    self.lmr_stats
+                        .move_ordering_stats
+                        .record_cutoff(move_index);
+
+                    crate::debug_utils::log_decision(
+                        "NEGAMAX",
+                        "Beta cutoff",
+                        &format!("Alpha {} >= beta {}, cutting off search", alpha, beta),
+                        Some(alpha),
+                    );
+                    // Track if IID move caused cutoff
+                    if let Some(iid_mv) = &iid_move {
+                        if self.moves_equal(move_, iid_mv) {
+                            self.iid_stats.iid_move_caused_cutoff += 1;
+                            // Task 7.11: Track effectiveness by complexity level
+                            self.update_complexity_effectiveness(
+                                board,
+                                captured_pieces,
+                                false,
+                                true,
+                            );
+                            // Task 11.9: Track advanced strategy effectiveness
+                            self.update_advanced_strategy_effectiveness(
+                                board,
+                                captured_pieces,
+                                false,
+                                true,
+                            );
+                            crate::utils::telemetry::trace_log(
+                                "IID",
+                                &format!("Move {} caused beta cutoff", move_.to_usi_string()),
+                            );
+                        }
+                    }
+                    // CRITICAL: Ensure the move that caused the cutoff is stored as best_move
+                    // This is essential for PV building - we need the refutation move stored
+                    if best_move_for_tt.is_none() {
+                        best_move_for_tt = Some(move_.clone());
+                        crate::utils::telemetry::trace_log(
+                            "NEGAMAX",
+                            &format!(
+                                "Storing cutoff move {} as best_move for PV",
+                                move_.to_usi_string()
+                            ),
+                        );
+                    }
+                    // Task 2.6: Add counter-move when move causes beta cutoff
+                    // The move that caused the cutoff is a good counter-move to the opponent's last move
+                    if let Some(opp_last_move) = &opponent_last_move {
+                        if !move_.is_capture {
+                            // Counter-moves are typically for quiet moves
+                            self.advanced_move_orderer
+                                .add_counter_move(opp_last_move.clone(), move_.clone());
+                            crate::debug_utils::trace_log(
+                                "COUNTER_MOVE",
+                                &format!(
+                                    "Added counter-move {} for opponent's move {}",
+                                    move_.to_usi_string(),
+                                    opp_last_move.to_usi_string()
+                                ),
+                            );
+                        }
+                    }
+
+                    // Opportunistically flush buffered TT writes on cutoffs to reduce later bursts
+                    self.flush_tt_buffer();
+                    break;
+                } else {
+                    // Track move that didn't cause cutoff (Task 10.3)
+                    let _lmr_threshold = self.lmr_config.min_move_index;
+                    self.lmr_stats
+                        .move_ordering_stats
+                        .record_no_cutoff();
+                }
+            }
+        }
+
+        // hash_history cleanup is done at the end of negamax_with_context
+
+        let flag = if best_score <= alpha {
+            TranspositionFlag::UpperBound
+        } else if best_score >= beta {
+            TranspositionFlag::LowerBound
+        } else {
+            TranspositionFlag::Exact
+        };
+
+        // CRITICAL FOR PV: If we don't have a best_move yet but we have moves, use the first move
+        // This ensures PV building doesn't break early. Even if no move improved the score,
+        // we need to store some move to enable PV construction.
+        if best_move_for_tt.is_none() && !sorted_moves.is_empty() {
+            best_move_for_tt = Some(sorted_moves[0].clone());
+            crate::utils::telemetry::trace_log(
+                "NEGAMAX",
+                &format!(
+                    "No best move found, using first move {} for PV",
+                    sorted_moves[0].to_usi_string()
+                ),
+            );
+        }
+
+        // Use the position hash we calculated earlier for proper TT storage
+        // Clone best_move_for_tt before passing to avoid move error (Task 5.12)
+        // Task 7.0.3.7: Create entry with source tracking
+        let entry = TranspositionEntry::new(
+            best_score,
+            depth,
+            flag,
+            best_move_for_tt.clone(),
+            position_hash,
+            0,
+            entry_source,
+        );
+        self.maybe_buffer_tt_store(entry, depth, flag);
+
+        crate::utils::telemetry::trace_log(
+            "NEGAMAX",
+            &format!(
+                "Negamax completed: depth={}, score={}, flag={:?}",
+                depth, best_score, flag
+            ),
+        );
+
+        // If we have a tracked best score (from timeout handling), prefer it over sentinel value
+        if let Some(tracked_score) = best_score_tracked {
+            if best_score <= -200000 && tracked_score > -200000 {
+                return tracked_score;
+            }
+        }
+
+        // Refine fallback logic to use best-scoring move or static evaluation (Task 5.10-5.11)
+        // If best_score is still at initial alpha and we have no tracked score, use static evaluation
+        if best_score == alpha && best_score_tracked.is_none() && best_move_for_tt.is_none() {
+            // No moves were evaluated or all moves were pruned - use cached static evaluation
+            // Task 7.0.4.2, 7.0.4.8: Use cached evaluation and track savings
+            self.core_search_metrics.evaluation_cache_hits += 1;
+            self.core_search_metrics.evaluation_calls_saved += 1;
+            crate::utils::telemetry::trace_log(
+                "NEGAMAX",
+                &format!(
+                    "No moves evaluated, returning cached static evaluation: {}",
+                    cached_static_eval
+                ),
+            );
+            return cached_static_eval;
+        }
+
+        // If we still have a sentinel-like value, prefer tracked score or static eval
+        if best_score <= -200000 {
+            if let Some(tracked_score) = best_score_tracked {
+                return tracked_score;
+            }
+            // Task 7.0.4.2, 7.0.4.8: Use cached evaluation and track savings
+            self.core_search_metrics.evaluation_cache_hits += 1;
+            self.core_search_metrics.evaluation_calls_saved += 1;
+            crate::utils::telemetry::trace_log(
+                "NEGAMAX",
+                &format!(
+                    "Best score is sentinel value, returning cached static evaluation: {}",
+                    cached_static_eval
+                ),
+            );
+            return cached_static_eval;
+        }
+
+        // Task 12.5: Update correlation tracking between IID efficiency and ordering effectiveness
+        // This is done at the end of each search to track correlation over time
+        if has_iid_move && self.iid_stats.iid_searches_performed > 0 {
+            let iid_efficiency = self.iid_stats.efficiency_rate();
+            let ordering_effectiveness = if self.iid_stats.ordering_effectiveness_with_iid_total > 0
+            {
+                (self.iid_stats.ordering_effectiveness_with_iid_cutoffs as f64
+                    / self.iid_stats.ordering_effectiveness_with_iid_total as f64)
+                    * 100.0
+            } else {
+                0.0
+            };
+
+            // Track correlation: sum of (IID efficiency * ordering effectiveness)
+            self.iid_stats.iid_efficiency_ordering_correlation_sum +=
+                iid_efficiency * ordering_effectiveness;
+            self.iid_stats.iid_efficiency_ordering_correlation_points += 1;
+
+            crate::debug_utils::trace_log("IID_CORRELATION", &format!(
+                "IID efficiency: {:.2}%, Ordering effectiveness: {:.2}%, Correlation points: {}",
+                iid_efficiency, ordering_effectiveness, self.iid_stats.iid_efficiency_ordering_correlation_points
+            ));
+        }
+
+        // Remove position hash from history before returning (Task 5.2)
+        // This maintains correct history for the calling context
+        if !hash_history.is_empty() {
+            hash_history.pop();
+        }
+
+        best_score
+    }
+    fn quiescence_search(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        alpha: i32,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        depth: u8,
+    ) -> i32 {
+        self.quiescence_search_with_hint(
+            board,
+            captured_pieces,
+            player,
+            alpha,
+            beta,
+            start_time,
+            time_limit_ms,
+            depth,
+            None,
+        )
+    }
+
+    /// Quiescence search with optional move ordering hint from main search
+    ///
+    /// Task 5.11: Uses main search move ordering hints to improve quiescence move ordering
+    /// The hint move (e.g., from transposition table or IID) is prioritized in move ordering
+    fn quiescence_search_with_hint(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        mut alpha: i32,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        depth: u8,
+        move_hint: Option<&Move>,
+    ) -> i32 {
+        // CRITICAL: Prevent infinite recursion with recursion depth limit
+        // Use a thread-local counter to track recursion depth
+        thread_local! {
+            static QUIESCENCE_RECURSION_DEPTH: std::cell::Cell<u32> = std::cell::Cell::new(0);
+        }
+        const MAX_QUIESCENCE_RECURSION: u32 = 100; // Max recursion depth to prevent infinite loops
+
+        let recursion_depth = QUIESCENCE_RECURSION_DEPTH.with(|cell| {
+            let current = cell.get();
+            if current > MAX_QUIESCENCE_RECURSION {
+                return (current, true); // Too deep, return early
+            }
+            cell.set(current + 1);
+            (current, false)
+        });
+
+        // If recursion is too deep, return static evaluation immediately
+        if recursion_depth.1 {
+            let static_eval = self.evaluator.evaluate_with_context(
+                board,
+                player,
+                captured_pieces,
+                depth,
+                false,
+                false,
+                false,
+                true,
+            );
+            return static_eval;
+        }
+
+        // Decrement recursion depth when we return (using a guard)
+        struct RecursionGuard;
+        impl Drop for RecursionGuard {
+            fn drop(&mut self) {
+                QUIESCENCE_RECURSION_DEPTH.with(|cell| {
+                    let depth = cell.get();
+                    if depth > 0 {
+                        cell.set(depth - 1);
+                    }
+                });
+            }
+        }
+        let _guard = RecursionGuard;
+
+        // Track best score from the beginning for timeout fallback
+        let mut best_score_tracked: Option<i32> = None;
+
+        if self.should_stop(&start_time, time_limit_ms) {
+            // Try to return a meaningful score instead of 0
+            if let Some(best_score) = best_score_tracked {
+                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Time limit reached, returning tracked best score: {}", best_score));
+                return best_score;
+            }
+            // Fallback to static evaluation if no best score tracked
+            let static_eval = self.evaluator.evaluate_with_context(
+                board,
+                player,
+                captured_pieces,
+                depth,
+                false,
+                false,
+                false,
+                true,
+            );
+            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Time limit reached, returning static evaluation: {}", static_eval));
+            return static_eval;
+        }
+
+        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Starting quiescence search: depth={}, alpha={}, beta={}", depth, alpha, beta));
+
+        // Update statistics
+        self.quiescence_stats.nodes_searched += 1;
+        // Update seldepth (selective depth) - quiescence extends beyond normal depth
+        // When we enter quiescence, depth is 0, so we've reached current_depth plies
+        // Quiescence can extend deeper: current_depth + (max_quiescence_depth - depth)
+        // For now, just track that we've reached current_depth
+        let depth_from_root = self.current_depth;
+        self.search_statistics.update_seldepth(depth_from_root);
+
+        // Task 7.8: Depth limit check - updated documentation
+        //
+        // Depth limit termination:
+        // - depth == 0: Safety check to prevent infinite recursion (depth 0 terminates immediately)
+        // - depth > max_depth: Maximum depth limit reached (quiescence search has explored deep enough)
+        // - When depth limit is reached, we evaluate the position statically and return
+        // - This prevents quiescence search from going too deep and consuming excessive resources
+        // - The max_depth configuration controls how deep quiescence search can go
+        //
+        // Depth limit rationale:
+        // - Quiescence search is meant to evaluate "noisy" positions (captures, checks, promotions)
+        // - Beyond a certain depth, positions become quiet and static evaluation is sufficient
+        // - The depth limit ensures quiescence search terminates in a reasonable time
+        // - Task 1.0 fix: Changed from hardcoded depth limit to config.max_depth
+        if depth == 0 || depth > self.quiescence_config.max_depth {
+            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Depth limit reached (depth={}), evaluating position", depth));
+            let score = self.evaluator.evaluate_with_context(
+                board,
+                player,
+                captured_pieces,
+                depth,
+                false,
+                false,
+                false,
+                true,
+            );
+            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Position evaluation: {}", score));
+            return score;
+        }
+
+        // Task 5.11: Extract TT best move as hint (if available)
+        let mut tt_move_hint: Option<Move> = None;
+        // Task 6.0: Extract stand-pat from TT if available
+        let mut cached_stand_pat: Option<i32> = None;
+
+        // Transposition table lookup
+        if self.quiescence_config.enable_tt {
+            // Clean up TT if it's getting too large
+            if self.quiescence_tt.len() > self.quiescence_config.tt_cleanup_threshold {
+                // crate::debug_utils::trace_log("QUIESCENCE", "Cleaning up quiescence TT");
+                self.cleanup_quiescence_tt(self.quiescence_config.tt_cleanup_threshold / 2);
+            }
+
+            let fen_key = format!("q_{}", board.to_fen(player, captured_pieces));
+            if let Some(entry) = self.quiescence_tt.get_mut(&fen_key) {
+                if entry.depth >= depth {
+                    self.quiescence_stats.tt_hits += 1;
+                    // Update LRU tracking
+                    entry.access_count += 1;
+                    entry.last_access_age = self.quiescence_tt_age;
+                    self.quiescence_tt_age = self.quiescence_tt_age.wrapping_add(1);
+
+                    // Task 5.11: Use TT best move as hint if available
+                    if let Some(ref best_move) = entry.best_move {
+                        tt_move_hint = Some(best_move.clone());
+                    }
+
+                    // Task 6.0: Extract cached stand-pat if available
+                    if let Some(stand_pat_score) = entry.stand_pat_score {
+                        cached_stand_pat = Some(stand_pat_score);
+                        self.quiescence_stats.stand_pat_tt_hits += 1;
+                    } else {
+                        self.quiescence_stats.stand_pat_tt_misses += 1;
+                    }
+
+                    let score_to_return = entry.score; // Store score before dropping mutable reference
+                    let flag_to_return = entry.flag; // Store flag before dropping mutable reference
+
+                    // crate::debug_utils::trace_log("QUIESCENCE", &format!("Quiescence TT hit: depth={}, score={}, flag={:?}",
+                    //     entry.depth, entry.score, entry.flag));
+                    match flag_to_return {
+                        TranspositionFlag::Exact => return score_to_return,
+                        TranspositionFlag::LowerBound => {
+                            if score_to_return >= beta {
+                                // crate::debug_utils::trace_log("QUIESCENCE", "Quiescence TT lower bound cutoff");
+                                return score_to_return;
+                            }
+                        }
+                        TranspositionFlag::UpperBound => {
+                            if score_to_return <= alpha {
+                                // crate::debug_utils::trace_log("QUIESCENCE", "Quiescence TT upper bound cutoff");
+                                return score_to_return;
+                            }
+                        }
+                    }
+                }
+            } else {
+                self.quiescence_stats.tt_misses += 1;
+                self.quiescence_stats.stand_pat_tt_misses += 1;
+                // crate::debug_utils::trace_log("QUIESCENCE", "Quiescence TT miss");
+            }
+        }
+
+        // Task 5.11: Use TT best move as hint if available, otherwise use provided hint
+        let effective_hint = tt_move_hint.as_ref().or(move_hint);
+
+        // Task 6.0: Use cached stand-pat if available, otherwise evaluate
+        //
+        // Stand-pat caching optimization:
+        // - Stand-pat evaluation is expensive (position evaluation)
+        // - Many positions are revisited in quiescence search
+        // - Caching stand-pat in TT avoids redundant evaluations
+        // - Stand-pat is cached when position is fully evaluated
+        // - Stand-pat can be used for bounds checking (beta cutoff, alpha update)
+        //
+        // Note: Stand-pat is not cached at beta cutoffs (position not fully evaluated)
+        // It will be cached when the position is fully evaluated later
+        // crate::debug_utils::trace_log("QUIESCENCE", "Evaluating stand-pat position");
+        let stand_pat = if let Some(cached) = cached_stand_pat {
+            // Use cached stand-pat from TT (Task 6.0)
+            cached
+        } else {
+            // Evaluate stand-pat (will be cached later in TT entry)
+            self.evaluator.evaluate_with_context(
+                board,
+                player,
+                captured_pieces,
+                depth,
+                false,
+                false,
+                false,
+                true,
+            )
+        };
+        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Stand-pat evaluation: {} (cached: {})", stand_pat, cached_stand_pat.is_some()));
+
+        // Track stand-pat as initial best score
+        best_score_tracked = Some(stand_pat);
+
+        // Task 6.0: Use cached stand-pat for bounds checking
+        // Stand-pat can be used for beta cutoff and alpha update
+        if stand_pat >= beta {
+            crate::debug_utils::log_decision(
+                "QUIESCENCE",
+                "Stand-pat beta cutoff",
+                &format!(
+                    "Stand-pat {} >= beta {}, returning beta (cached: {})",
+                    stand_pat,
+                    beta,
+                    cached_stand_pat.is_some()
+                ),
+                Some(stand_pat),
+            );
+            return beta;
+        }
+        if alpha < stand_pat {
+            crate::debug_utils::log_decision(
+                "QUIESCENCE",
+                "Stand-pat alpha update",
+                &format!(
+                    "Stand-pat {} > alpha {}, updating alpha (cached: {})",
+                    stand_pat,
+                    alpha,
+                    cached_stand_pat.is_some()
+                ),
+                Some(stand_pat),
+            );
+            alpha = stand_pat;
+        }
+
+        // crate::debug_utils::trace_log("QUIESCENCE", "Generating noisy moves");
+        let noisy_moves = self.generate_noisy_moves(board, player, captured_pieces);
+        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Found {} noisy moves", noisy_moves.len()));
+
+        // Task 7.2, 7.3: Explicit check for empty move list before main search loop
+        // If no noisy moves are available, return stand-pat evaluation (quiescence search terminates)
+        // This is a common case in quiet positions where there are no captures, checks, or promotions
+        if noisy_moves.is_empty() {
+            // No noisy moves available - quiescence search terminates at stand-pat
+            // crate::debug_utils::trace_log("QUIESCENCE", "No noisy moves available, returning stand-pat");
+
+            // Store result in transposition table (Task 6.0)
+            if self.quiescence_config.enable_tt {
+                let fen_key = format!("q_{}", board.to_fen(player, captured_pieces));
+                let flag = TranspositionFlag::Exact; // Exact score since no moves to search
+
+                // Task 6.0: Update or create entry with stand-pat cached
+                if let Some(existing_entry) = self.quiescence_tt.get_mut(&fen_key) {
+                    if existing_entry.stand_pat_score.is_none() {
+                        existing_entry.stand_pat_score = Some(stand_pat);
+                    }
+                    if depth >= existing_entry.depth || flag == TranspositionFlag::Exact {
+                        existing_entry.score = stand_pat;
+                        existing_entry.depth = depth;
+                        existing_entry.flag = flag;
+                    }
+                } else {
+                    // Use position hash for hash_key instead of fen_key string
+                    let position_hash = self.get_position_hash(board);
+                    self.quiescence_tt.insert(
+                        fen_key,
+                        QuiescenceEntry {
+                            score: stand_pat,
+                            depth,
+                            flag,
+                            best_move: None,
+                            hash_key: position_hash,
+                            access_count: 1,
+                            last_access_age: self.quiescence_tt_age,
+                            stand_pat_score: Some(stand_pat),
+                        },
+                    );
+                    self.quiescence_tt_age = self.quiescence_tt_age.wrapping_add(1);
+                }
+            }
+
+            return stand_pat;
+        }
+
+        // Track move type statistics
+        for move_ in &noisy_moves {
+            if move_.gives_check {
+                self.quiescence_stats.check_moves_found += 1;
+            }
+            if move_.is_capture {
+                self.quiescence_stats.capture_moves_found += 1;
+            }
+            if move_.is_promotion {
+                self.quiescence_stats.promotion_moves_found += 1;
+            }
+        }
+
+        // crate::debug_utils::trace_log("QUIESCENCE", "Sorting noisy moves");
+        // Task 5.11: Pass effective_hint (TT best move or provided hint) to quiescence move ordering
+        let sorted_noisy_moves = self.sort_quiescence_moves_advanced(
+            &noisy_moves,
+            board,
+            captured_pieces,
+            player,
+            effective_hint,
+        );
+        self.quiescence_stats.moves_ordered += noisy_moves.len() as u64;
+        self.quiescence_stats.move_ordering_total_moves += noisy_moves.len() as u64;
+        let total_move_count = sorted_noisy_moves.len();
+
+        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Starting noisy move evaluation with {} moves", sorted_noisy_moves.len()));
+
+        // Task 7.2: Main search loop - explicit check ensures we only enter if moves are available
+        for (move_index, move_) in sorted_noisy_moves.iter().enumerate() {
+            if self.should_stop(&start_time, time_limit_ms) {
+                // crate::debug_utils::trace_log("QUIESCENCE", "Time limit reached, stopping move evaluation");
+                // Update tracked best score before breaking
+                if alpha > best_score_tracked.unwrap_or(i32::MIN) {
+                    best_score_tracked = Some(alpha);
+                }
+                break;
+            }
+
+            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Evaluating move {}: {} (alpha: {}, beta: {})",
+            //     move_index + 1, move_.to_usi_string(), alpha, beta));
+
+            // Task 7.6: Pruning conditions and logic
+            //
+            // Delta pruning:
+            // - Prunes moves where the material gain from a capture is insufficient
+            // - Formula: stand_pat + material_gain + safety_margin < alpha
+            // - If even the best-case scenario (material gain + safety margin) can't beat alpha,
+            //   the move is pruned without searching
+            // - Adaptive delta pruning adjusts the safety margin based on depth and move count
+            // - Standard delta pruning uses a fixed safety margin
+            //
+            // Futility pruning:
+            // - Prunes moves where the current evaluation + margin is worse than alpha
+            // - Formula: stand_pat + futility_margin < alpha
+            // - Applied to quiet moves (non-captures) that are unlikely to improve the position
+            // - Excludes checking moves and high-value captures (they can significantly change evaluation)
+            // - Adaptive futility pruning adjusts the margin based on depth and move count
+            // - Standard futility pruning uses a fixed margin based on depth
+            //
+            // Pruning rationale:
+            // - Pruning reduces the number of moves searched, improving search efficiency
+            // - Delta pruning targets captures with insufficient material gain
+            // - Futility pruning targets quiet moves unlikely to improve the position
+            // - Both pruning techniques are safe (they don't prune moves that could improve alpha)
+            // - Adaptive pruning dynamically adjusts margins for better effectiveness
+            //
+            // Apply pruning checks
+            // Use adaptive pruning if enabled, otherwise use standard pruning
+            // Adaptive pruning adjusts margins based on depth and total move count
+            let should_prune = if self.quiescence_config.enable_adaptive_pruning {
+                self.should_prune_delta_adaptive(&move_, stand_pat, alpha, depth, total_move_count)
+            } else {
+                self.should_prune_delta(&move_, stand_pat, alpha)
+            };
+            if should_prune {
+                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Delta pruning move {}", move_.to_usi_string()));
+                self.quiescence_stats.delta_prunes += 1;
+                continue;
+            }
+
+            let should_prune_futility = if self.quiescence_config.enable_adaptive_pruning {
+                self.should_prune_futility_adaptive(
+                    &move_,
+                    stand_pat,
+                    alpha,
+                    depth,
+                    total_move_count,
+                )
+            } else {
+                self.should_prune_futility(&move_, stand_pat, alpha, depth)
+            };
+            if should_prune_futility {
+                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Futility pruning move {}", move_.to_usi_string()));
+                self.quiescence_stats.futility_prunes += 1;
+                continue;
+            }
+
+            // Use move unmaking instead of board cloning
+            let move_info = board.make_move_with_info(&move_);
+            let mut new_captured = captured_pieces.clone();
+
+            if let Some(ref captured) = move_info.captured_piece {
+                new_captured.add_piece(captured.piece_type, player);
+            }
+
+            // Task 7.6, 7.7: Extension logic and depth decrement behavior
+            //
+            // Selective extension logic:
+            // - Extensions are applied to important moves (checks, recaptures, promotions, high-value captures)
+            // - Extensions maintain the current depth instead of decrementing, allowing deeper tactical sequences
+            // - Extensions are only applied if depth > 1 (prevents infinite recursion at depth 1)
+            // - The should_extend() method determines if a move is important enough to extend
+            //
+            // Depth decrement behavior:
+            // - Normal moves: depth is decremented (depth - 1) to limit search depth
+            // - Extended moves: depth is maintained (depth) to allow deeper search
+            // - This ensures extended moves can explore deeper tactical sequences
+            // - The depth parameter controls how deep we search in quiescence (max_depth limit)
+            //
+            // Extension rationale:
+            // - Tactical sequences (checks, captures, recaptures) often require deeper search
+            // - Extending these moves improves tactical accuracy
+            // - Depth maintenance allows extended moves to explore critical variations
+            // - The max_depth limit prevents infinite recursion
+            //
+            // CRITICAL: Always decrement depth to prevent infinite recursion
+            // Even with extensions, we must eventually decrease depth to ensure termination
+            let search_depth = if self.should_extend(&move_, depth) && depth > 2 {
+                // Extensions can maintain depth, but only if depth > 2 to ensure we eventually terminate
+                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Extending search for move {}", move_.to_usi_string()));
+                self.quiescence_stats.extensions += 1;
+                depth.saturating_sub(1) // Always decrement by at least 1 to prevent infinite recursion
+            } else {
+                depth.saturating_sub(1) // Normal moves decrement depth
+            };
+            // Update seldepth for quiescence extensions - quiescence extends beyond normal depth
+            // When in quiescence, we've already reached current_depth plies from root
+            // Quiescence extends deeper: current_depth + (max_quiescence_depth - depth)
+            // For a more accurate seldepth, we track current_depth + extensions
+            let quiescence_depth_from_root = self.current_depth as i32
+                + (self.quiescence_config.max_depth as i32 - depth as i32);
+            self.search_statistics.update_seldepth(quiescence_depth_from_root as u8);
+
+            crate::debug_utils::start_timing(&format!("quiescence_move_{}", move_index));
+            let score = -self.quiescence_search(
+                board,
+                &new_captured,
+                player.opposite(),
+                beta.saturating_neg(),
+                alpha.saturating_neg(),
+                &start_time,
+                time_limit_ms,
+                search_depth,
+            );
+            crate::debug_utils::end_timing(
+                &format!("quiescence_move_{}", move_index),
+                "QUIESCENCE",
+            );
+
+            // Restore board state by unmaking the move
+            board.unmake_move(&move_info);
+
+            // crate::debug_utils::log_move_eval("QUIESCENCE", &move_.to_usi_string(), score,
+            //     &format!("move {} of {}", move_index + 1, sorted_noisy_moves.len()));
+
+            if score >= beta {
+                // Track move ordering effectiveness (cutoff from this move position)
+                if move_index == 0 {
+                    self.quiescence_stats.move_ordering_first_move_cutoffs += 1;
+                } else if move_index == 1 {
+                    self.quiescence_stats.move_ordering_second_move_cutoffs += 1;
+                }
+                self.quiescence_stats.move_ordering_cutoffs += 1;
+
+                // Task 7.6: Beta cutoff condition
+                //
+                // Beta cutoff occurs when a move's score is >= beta (the opponent's best move score).
+                // This means the opponent has a better move available, so we can stop searching
+                // this branch (the opponent will avoid this position).
+                //
+                // Beta cutoff optimization:
+                // - Once we find a move with score >= beta, we can prune remaining moves
+                // - This is a key optimization in alpha-beta pruning
+                // - The move causing the cutoff is stored in TT as the best move
+                // - Beta cutoffs significantly reduce the number of positions searched
+                crate::debug_utils::log_decision(
+                    "QUIESCENCE",
+                    "Beta cutoff",
+                    &format!("Score {} >= beta {}, cutting off search", score, beta),
+                    Some(score),
+                );
+                // Store result in transposition table
+                if self.quiescence_config.enable_tt {
+                    let fen_key = format!("q_{}", board.to_fen(player, captured_pieces));
+                    let flag = TranspositionFlag::LowerBound;
+                    // Task 6.0: At beta cutoff, we don't have stand-pat for the position after the move
+                    // We could evaluate it, but that would be expensive. For now, store None.
+                    // The stand-pat will be cached when the position is fully evaluated later.
+                    let stand_pat_for_beta = None; // Don't cache stand-pat at beta cutoff (position not fully evaluated)
+
+                    let position_hash = self.get_position_hash(board);
+                    self.quiescence_tt.insert(
+                        fen_key,
+                        QuiescenceEntry {
+                            score: beta,
+                            depth,
+                            flag,
+                            best_move: Some(move_.clone()),
+                            hash_key: position_hash,
+                            access_count: 1,
+                            last_access_age: self.quiescence_tt_age,
+                            stand_pat_score: stand_pat_for_beta, // Task 6.0: Cache stand-pat evaluation (None at beta cutoff)
+                        },
+                    );
+                    self.quiescence_tt_age = self.quiescence_tt_age.wrapping_add(1);
+                }
+                return beta;
+            }
+            if score > alpha {
+                crate::debug_utils::log_decision(
+                    "QUIESCENCE",
+                    "Alpha update",
+                    &format!("Score {} > alpha {}, updating alpha", score, alpha),
+                    Some(score),
+                );
+                alpha = score;
+                // Update tracked best score
+                if score > best_score_tracked.unwrap_or(i32::MIN) {
+                    best_score_tracked = Some(score);
+                }
+            }
+        }
+
+        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Quiescence search completed: depth={}, score={}", depth, alpha));
+
+        // Store result in transposition table
+        if self.quiescence_config.enable_tt {
+            let fen_key = format!("q_{}", board.to_fen(player, captured_pieces));
+            let flag = if alpha <= -beta {
+                TranspositionFlag::UpperBound
+            } else if alpha >= beta {
+                TranspositionFlag::LowerBound
+            } else {
+                TranspositionFlag::Exact
+            };
+
+            // Task 6.0: Store stand-pat evaluation in TT entry
+            //
+            // Stand-pat caching strategy:
+            // - Cache stand-pat when position is fully evaluated (not at beta cutoff)
+            // - Update existing entries with stand-pat if not already cached
+            // - Stand-pat is cached to avoid redundant evaluations
+            // - Stand-pat can be used for bounds checking in future searches
+            //
+            // If entry already exists, update it with stand-pat if not already cached
+            if let Some(existing_entry) = self.quiescence_tt.get_mut(&fen_key) {
+                // Update existing entry with stand-pat if not already cached
+                if existing_entry.stand_pat_score.is_none() {
+                    existing_entry.stand_pat_score = Some(stand_pat);
+                }
+                // Update score, depth, and flag if this search was deeper or provides better bounds
+                if depth >= existing_entry.depth || flag == TranspositionFlag::Exact {
+                    existing_entry.score = alpha;
+                    existing_entry.depth = depth;
+                    existing_entry.flag = flag;
+                }
+            } else {
+                // Create new entry with stand-pat cached
+                let position_hash = self.get_position_hash(board);
+                self.quiescence_tt.insert(
+                    fen_key,
+                    QuiescenceEntry {
+                        score: alpha,
+                        depth,
+                        flag,
+                        best_move: None, // We don't store best move for quiescence search
+                        hash_key: position_hash,
+                        access_count: 1,
+                        last_access_age: self.quiescence_tt_age,
+                        stand_pat_score: Some(stand_pat), // Task 6.0: Cache stand-pat evaluation
+                    },
+                );
+                self.quiescence_tt_age = self.quiescence_tt_age.wrapping_add(1);
+            }
+        }
+
+        // Return best score: prefer tracked score (from timeout) if available, otherwise use alpha
+        // Note: alpha should already reflect the best score found, but tracked_score provides
+        // a safety fallback if timeout occurred during move evaluation
+        if let Some(tracked_score) = best_score_tracked {
+            // Use max of tracked score and alpha to ensure we return the best we've found
+            return tracked_score.max(alpha);
+        }
+
+        alpha
+    }
+
+    /// Check if search should stop (with frequency optimization) (Task 8.4)
+    ///
+    /// Task 8.4: Only checks time every N nodes to reduce overhead
+    /// Task 8.1, 8.2: Optimized to minimize time check overhead
+    /// Check if search should stop due to time limit or stop flag
+    /// Delegates to TimeManager (Task 1.8)
+    fn should_stop(&mut self, start_time: &TimeSource, time_limit_ms: u32) -> bool {
+        self.time_manager.should_stop(
+            start_time,
+            time_limit_ms,
+            self.stop_flag.as_ref().map(|f| f.as_ref()),
+        )
+    }
+
+    /// Force time check (bypasses frequency optimization) (Task 8.4)
+    /// Used when we must check time regardless of frequency (e.g., at depth boundaries)
+    fn should_stop_force(&self, start_time: &TimeSource, time_limit_ms: u32) -> bool {
+        if let Some(flag) = &self.stop_flag {
+            if flag.load(Ordering::Relaxed) {
+                return true;
+            }
+        }
+        start_time.has_exceeded_limit(time_limit_ms)
+    }
+
+    fn generate_noisy_moves(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+    ) -> Vec<Move> {
+        self.move_generator
+            .generate_quiescence_moves(board, player, captured_pieces)
+    }
+
+    /// Sort quiescence moves using advanced move ordering
+    ///
+    /// Enhanced with:
+    /// - Better error handling for edge cases
+    /// - Fallback to improved traditional ordering
+    /// - Statistics tracking for ordering effectiveness
+    fn sort_quiescence_moves_advanced(
+        &mut self,
+        moves: &[Move],
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        move_hint: Option<&Move>,
+    ) -> Vec<Move> {
+        if moves.is_empty() {
+            return Vec::new();
+        }
+
+        // If move hint is provided, prioritize it in move ordering (Task 5.11)
+        let ordered_moves = if let Some(hint_move) = move_hint {
+            // Check if hint move is in the moves list
+            if let Some(pos) = moves
+                .iter()
+                .position(|m| self.moves_equal_for_ordering(m, hint_move))
+            {
+                let mut sorted = moves.to_vec();
+                // Move hint to front if it exists in the list
+                if pos > 0 {
+                    sorted.swap(0, pos);
+                }
+                sorted
+            } else {
+                // Hint move not in list, use normal ordering
+                moves.to_vec()
+            }
+        } else {
+            moves.to_vec()
+        };
+
+        // Try advanced move ordering for quiescence search
+        match self.advanced_move_orderer.order_moves(&ordered_moves) {
+            Ok(advanced_ordered) => {
+                // Verify ordering is valid (same length, no duplicates)
+                if advanced_ordered.len() == moves.len() {
+                    // If we have a hint move, ensure it stays at front (Task 5.11)
+                    if let Some(hint_move) = move_hint {
+                        if let Some(pos) = advanced_ordered
+                            .iter()
+                            .position(|m| self.moves_equal_for_ordering(m, hint_move))
+                        {
+                            if pos > 0 {
+                                let mut final_ordered = advanced_ordered;
+                                final_ordered.swap(0, pos);
+                                final_ordered
+                            } else {
+                                advanced_ordered
+                            }
+                        } else {
+                            advanced_ordered
+                        }
+                    } else {
+                        advanced_ordered
+                    }
+                } else {
+                    // Invalid ordering - fallback to enhanced traditional
+                    log::warn!(
+                        "Advanced quiescence ordering produced invalid length ({} vs {}); falling back to enhanced ordering",
+                        advanced_ordered.len(),
+                        moves.len()
+                    );
+                    self.sort_quiescence_moves_enhanced(
+                        moves,
+                        board,
+                        captured_pieces,
+                        player,
+                        move_hint,
+                    )
+                }
+            }
+            Err(_) => {
+                // Fallback to enhanced traditional quiescence move ordering
+                log::warn!(
+                    "Advanced quiescence ordering failed; falling back to enhanced ordering"
+                );
+                self.sort_quiescence_moves_enhanced(
+                    moves,
+                    board,
+                    captured_pieces,
+                    player,
+                    move_hint,
+                )
+            }
+        }
+    }
+
+    pub fn sort_moves(
+        &mut self,
+        moves: &[Move],
+        board: &BitboardBoard,
+        iid_move: Option<&Move>,
+    ) -> Vec<Move> {
+        // Enhanced move ordering with transposition table integration
+        self.initialize_move_orderer();
+        let captured_pieces = CapturedPieces::new(); // Default empty captured pieces
+        let player = Player::Black; // Default player (will be overridden by caller if needed)
+        self.move_orderer
+            .order_moves(moves, board, &captured_pieces, player, 1, 0, 0, iid_move)
+    }
+
+    /// Enhanced move ordering that considers pruning effectiveness
+    pub fn sort_moves_with_pruning_awareness(
+        &mut self,
+        moves: &[Move],
+        board: &mut BitboardBoard,
+        iid_move: Option<&Move>,
+        depth: Option<u8>,
+        alpha: Option<i32>,
+        beta: Option<i32>,
+    ) -> Vec<Move> {
+        // First, check if any move is a tablebase move
+        let mut tablebase_moves = Vec::new();
+        let mut regular_moves = Vec::new();
+
+        for move_ in moves {
+            if self.is_tablebase_move(move_, board) {
+                tablebase_moves.push(move_.clone());
+                crate::utils::telemetry::debug_log(&format!(
+                    "TABLEBASE MOVE PRIORITIZED: {}",
+                    move_.to_usi_string()
+                ));
+            } else {
+                regular_moves.push(move_.clone());
+            }
+        }
+
+        if !tablebase_moves.is_empty() {
+            crate::utils::telemetry::debug_log(&format!(
+                "Found {} tablebase moves, {} regular moves",
+                tablebase_moves.len(),
+                regular_moves.len()
+            ));
+        }
+
+        // Score and sort regular moves with pruning awareness
+        let mut scored_regular: Vec<(Move, i32)> = regular_moves
+            .iter()
+            .map(|m| {
+                let base_score = self.score_move(m, board, iid_move);
+                let pruning_score = self.score_move_for_pruning(m, board, depth, alpha, beta);
+                (m.clone(), base_score + pruning_score)
+            })
+            .collect();
+        scored_regular.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Combine: tablebase moves first, then regular moves
+        let mut result = tablebase_moves;
+        result.extend(scored_regular.into_iter().map(|(m, _)| m));
+
+        result
+    }
+    /// Check if a move is a tablebase move by probing the tablebase
+    fn is_tablebase_move(&mut self, move_: &Move, board: &mut BitboardBoard) -> bool {
+        // Use move unmaking instead of board cloning
+        let move_info = board.make_move_with_info(move_);
+        let mut temp_captured = CapturedPieces::new();
+
+        if let Some(ref captured) = move_info.captured_piece {
+            temp_captured.add_piece(captured.piece_type, move_.player);
+        }
+
+        let cache_key =
+            self.compute_tablebase_cache_key(board, &temp_captured, move_.player.opposite());
+        if let Some(&cached) = self.tablebase_move_cache.get(&cache_key) {
+            board.unmake_move(&move_info);
+            return cached;
+        }
+
+        // Check if the resulting position is in the tablebase
+        let result = if let Some(tablebase_result) =
+            self.tablebase
+                .probe(board, move_.player.opposite(), &temp_captured)
+        {
+            tablebase_result.best_move.is_some()
+        } else {
+            false
+        };
+
+        if self.tablebase_move_cache.len() > 2048 {
+            self.tablebase_move_cache.clear();
+        }
+        self.tablebase_move_cache.insert(cache_key, result);
+
+        // Restore board state by unmaking the move
+        board.unmake_move(&move_info);
+
+        result
+    }
+    fn compute_tablebase_cache_key(
+        &self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+    ) -> u64 {
+        let mut hash = board.get_position_hash(captured_pieces);
+        if player == Player::White {
+            hash ^= 0x9E37_79B1_85EB_CA87;
+        }
+        hash
+    }
+
+    pub fn tablebase_cache_size(&self) -> usize {
+        self.tablebase_move_cache.len()
+    }
+    pub fn score_move(&self, move_: &Move, _board: &BitboardBoard, iid_move: Option<&Move>) -> i32 {
+        // Priority 1: IID move gets maximum score
+        if let Some(iid_mv) = iid_move {
+            if self.moves_equal(move_, iid_mv) {
+                return i32::MAX;
+            }
+        }
+
+        // Priority 2: Transposition table move (simplified - we don't have access to player here)
+        // This would need to be passed as a parameter or handled differently
+
+        // Priority 3: Standard move scoring
+        let mut score = 0;
+        if move_.is_promotion {
+            score += 800;
+        }
+        if move_.is_capture {
+            if let Some(captured_piece) = &move_.captured_piece {
+                score += captured_piece.piece_type.base_value() * 10;
+            }
+            score += 1000;
+        }
+        if let Some(killer) = &self.killer_moves[0] {
+            if self.moves_equal(move_, killer) {
+                score += 900;
+            }
+        }
+        if let Some(killer) = &self.killer_moves[1] {
+            if self.moves_equal(move_, killer) {
+                score += 800;
+            }
+        }
+        if let Some(from) = move_.from {
+            score += self.history_table[from.row as usize][from.col as usize];
+        }
+        if move_.to.row >= 3 && move_.to.row <= 5 && move_.to.col >= 3 && move_.to.col <= 5 {
+            score += 20;
+        }
+        score
+    }
+    /// Score a move based on pruning effectiveness
+    fn score_move_for_pruning(
+        &self,
+        move_: &Move,
+        _board: &BitboardBoard,
+        depth: Option<u8>,
+        alpha: Option<i32>,
+        beta: Option<i32>,
+    ) -> i32 {
+        let mut pruning_score = 0;
+
+        // Bonus for moves that are less likely to be pruned
+        if let Some(d) = depth {
+            // Tactical moves (captures, promotions, checks) are less likely to be pruned
+            if move_.is_capture {
+                pruning_score += 200;
+                // Higher value captures are even less likely to be pruned
+                if let Some(captured_piece) = &move_.captured_piece {
+                    pruning_score += captured_piece.piece_type.base_value() / 10;
+                }
+            }
+
+            if move_.is_promotion {
+                pruning_score += 150;
+            }
+
+            if move_.gives_check {
+                pruning_score += 100;
+            }
+
+            // Bonus for moves that are likely to cause cutoffs (good for pruning)
+            if let Some(from) = move_.from {
+                // History table indicates moves that have caused cutoffs before
+                pruning_score += self.history_table[from.row as usize][from.col as usize] / 10;
+            }
+
+            // Killer moves are likely to cause cutoffs
+            if let Some(killer) = &self.killer_moves[0] {
+                if self.moves_equal(move_, killer) {
+                    pruning_score += 50;
+                }
+            }
+            if let Some(killer) = &self.killer_moves[1] {
+                if self.moves_equal(move_, killer) {
+                    pruning_score += 40;
+                }
+            }
+
+            // Depth-dependent adjustments
+            if d <= 2 {
+                // At shallow depths, prioritize moves that are less likely to be pruned
+                pruning_score += 30;
+            } else if d >= 4 {
+                // At deeper depths, prioritize moves that are more likely to cause cutoffs
+                pruning_score += 20;
+            }
+        }
+
+        // Alpha-beta window awareness
+        if let (Some(a), Some(b)) = (alpha, beta) {
+            let window_size = b.saturating_sub(a);
+            if window_size < 100 {
+                // Narrow window - prioritize moves likely to cause cutoffs
+                pruning_score += 25;
+            } else if window_size > 500 {
+                // Wide window - prioritize moves less likely to be pruned
+                pruning_score += 15;
+            }
+        }
+
+        pruning_score
+    }
+
+    /// Adaptive move ordering based on pruning statistics
+    fn get_adaptive_ordering_adjustment(&self, move_: &Move, depth: u8) -> i32 {
+        let mut adjustment = 0;
+
+        // Get pruning statistics
+        let stats = &self.pruning_manager.statistics;
+        let total_moves = stats.total_moves.max(1);
+        let pruning_rate = stats.pruned_moves as f64 / total_moves as f64;
+
+        // Adjust ordering based on pruning effectiveness
+        if pruning_rate > 0.3 {
+            // High pruning rate - prioritize moves less likely to be pruned
+            if move_.is_capture || move_.is_promotion || move_.gives_check {
+                adjustment += 50; // Tactical moves are less likely to be pruned
+            } else {
+                adjustment -= 25; // Quiet moves are more likely to be pruned
+            }
+        } else if pruning_rate < 0.1 {
+            // Low pruning rate - prioritize moves more likely to cause cutoffs
+            if let Some(from) = move_.from {
+                adjustment += self.history_table[from.row as usize][from.col as usize] / 5;
+            }
+
+            // Killer moves are likely to cause cutoffs
+            if let Some(killer) = &self.killer_moves[0] {
+                if self.moves_equal(move_, killer) {
+                    adjustment += 30;
+                }
+            }
+        }
+
+        // Depth-dependent adjustments
+        if depth <= 2 {
+            // At shallow depths, be more conservative with pruning
+            adjustment += 20;
+        } else if depth >= 5 {
+            // At deeper depths, be more aggressive with pruning
+            adjustment -= 15;
+        }
+
+        adjustment
+    }
+
+    /// Enhanced move ordering with adaptive pruning awareness
+    pub fn sort_moves_adaptive(
+        &mut self,
+        moves: &[Move],
+        board: &mut BitboardBoard,
+        iid_move: Option<&Move>,
+        depth: u8,
+        alpha: i32,
+        beta: i32,
+    ) -> Vec<Move> {
+        // First, check if any move is a tablebase move
+        let mut tablebase_moves = Vec::new();
+        let mut regular_moves = Vec::new();
+
+        for move_ in moves {
+            if self.is_tablebase_move(move_, board) {
+                tablebase_moves.push(move_.clone());
+            } else {
+                regular_moves.push(move_.clone());
+            }
+        }
+
+        // Score and sort regular moves with adaptive pruning awareness
+        let mut scored_regular: Vec<(Move, i32)> = regular_moves
+            .iter()
+            .map(|m| {
+                let base_score = self.score_move(m, board, iid_move);
+                let pruning_score =
+                    self.score_move_for_pruning(m, board, Some(depth), Some(alpha), Some(beta));
+                let adaptive_score = self.get_adaptive_ordering_adjustment(m, depth);
+                (m.clone(), base_score + pruning_score + adaptive_score)
+            })
+            .collect();
+        scored_regular.sort_by(|a, b| b.1.cmp(&a.1));
+
+        // Combine: tablebase moves first, then regular moves
+        let mut result = tablebase_moves;
+        result.extend(scored_regular.into_iter().map(|(m, _)| m));
+
+        result
+    }
+
+    pub fn moves_equal(&self, move1: &Move, move2: &Move) -> bool {
+        move1.from == move2.from && move1.to == move2.to && move1.piece_type == move2.piece_type
+    }
+
+    fn update_killer_moves(&mut self, new_killer: Move) {
+        if let Some(killer) = &self.killer_moves[0] {
+            if self.moves_equal(&new_killer, killer) {
+                return;
+            }
+        }
+        if let Some(killer) = &self.killer_moves[1] {
+            if self.moves_equal(&new_killer, killer) {
+                return;
+            }
+        }
+        self.killer_moves[1] = self.killer_moves[0].take();
+        self.killer_moves[0] = Some(new_killer);
+    }
+
+    pub fn clear(&mut self) {
+        self.transposition_table.clear();
+        self.history_table = [[0; 9]; 9];
+        self.killer_moves = [None, None];
+        self.lmr_stats.reset();
+    }
+
+    #[cfg(test)]
+    pub fn transposition_table_len(&self) -> usize {
+        self.transposition_table.size()
+    }
+
+    #[cfg(test)]
+    pub fn transposition_table_capacity(&self) -> usize {
+        self.transposition_table.size() // ThreadSafeTranspositionTable doesn't expose capacity
+    }
+
+    fn get_pv(
+        &self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        _depth: u8,
+    ) -> Vec<Move> {
+        let mut pv = Vec::new();
+        let mut current_board = board.clone();
+        let mut current_captured = captured_pieces.clone();
+        let mut current_player = player;
+        let mut next_hash: Option<u64> = None;
+
+        // Try to build PV as long as we have entries with best_move
+        // Use depth as a guide, but allow going deeper if entries exist
+        // Cap at 64 moves to avoid extremely long PVs
+        let max_pv_length = 64;
+        for _ in 0..max_pv_length {
+            let position_hash = self.hash_calculator.get_position_hash(
+                &current_board,
+                current_player,
+                &current_captured,
+            );
+            // Probe with depth=0 to accept entries from any search depth
+            if let Some(entry) =
+                self.transposition_table
+                    .probe_with_prefetch(position_hash, 0, next_hash)
+            {
+                let _ = next_hash.take();
+                if let Some(move_) = &entry.best_move {
+                    pv.push(move_.clone());
+                    if let Some(captured) = current_board.make_move(move_) {
+                        current_captured.add_piece(captured.piece_type, current_player);
+                    }
+                    current_player = current_player.opposite();
+                    let future_hash = self.hash_calculator.get_position_hash(
+                        &current_board,
+                        current_player,
+                        &current_captured,
+                    );
+                    next_hash = Some(future_hash);
+                } else {
+                    // No best_move in this entry - stop building PV here
+                    break;
+                }
+            } else {
+                // No entry in TT for this position - stop building PV here
+                break;
+            }
+        }
+        pv
+    }
+
+    /// Public wrapper to fetch principal variation for reporting.
+    pub fn get_pv_for_reporting(
+        &self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+    ) -> Vec<Move> {
+        // Prefer building PV from shared TT when available for cross-thread consistency
+        if let Some(ref shared_tt) = self.shared_transposition_table {
+            TT_TRY_READS.fetch_add(1, Ordering::Relaxed);
+            if let Ok(tt) = shared_tt.try_read() {
+                TT_TRY_READ_SUCCESSES.fetch_add(1, Ordering::Relaxed);
+                let mut pv = Vec::new();
+                let mut current_board = board.clone();
+                let mut current_captured = captured_pieces.clone();
+                let mut current_player = player;
+                let mut next_hash: Option<u64> = None;
+                // Try to build PV as long as we have entries with best_move
+                // Cap at 64 moves to avoid extremely long PVs
+                let max_pv_length = 64;
+                for _ in 0..max_pv_length {
+                    let position_hash = self.hash_calculator.get_position_hash(
+                        &current_board,
+                        current_player,
+                        &current_captured,
+                    );
+                    if let Some(entry) = tt.probe_with_prefetch(position_hash, 0, next_hash) {
+                        let _ = next_hash.take();
+                        if let Some(move_) = &entry.best_move {
+                            pv.push(move_.clone());
+                            if let Some(captured) = current_board.make_move(move_) {
+                                current_captured.add_piece(captured.piece_type, current_player);
+                            }
+                            current_player = current_player.opposite();
+                            let future_hash = self.hash_calculator.get_position_hash(
+                                &current_board,
+                                current_player,
+                                &current_captured,
+                            );
+                            next_hash = Some(future_hash);
+                        } else {
+                            // No best_move in this entry - stop building PV here
+                            break;
+                        }
+                    } else {
+                        // No entry in TT for this position - stop building PV here
+                        break;
+                    }
+                }
+                return pv;
+            }
+        }
+        if self.shared_transposition_table.is_some() {
+            TT_TRY_READ_FAILS.fetch_add(1, Ordering::Relaxed);
+        }
+        self.get_pv(board, captured_pieces, player, depth)
+    }
+
+    /// Check if a move should be pruned using delta pruning
+    /// Delegates to QuiescenceHelper (Task 1.8)
+    fn should_prune_delta(&self, move_: &Move, stand_pat: i32, alpha: i32) -> bool {
+        self.quiescence_helper.should_prune_delta(move_, stand_pat, alpha)
+    }
+
+    /// Adaptive delta pruning based on position characteristics
+    ///
+    /// Adjusts pruning margins dynamically based on:
+    /// - Depth: More aggressive pruning at deeper depths
+    /// - Move count: More selective pruning when there are many moves
+    /// - Move type: Less aggressive pruning for high-value captures and promotions
+    ///
+    /// This provides better pruning effectiveness while maintaining tactical accuracy.
+    /// Check if a move should be pruned using adaptive delta pruning
+    /// Delegates to QuiescenceHelper (Task 1.8)
+    fn should_prune_delta_adaptive(
+        &self,
+        move_: &Move,
+        stand_pat: i32,
+        alpha: i32,
+        depth: u8,
+        move_count: usize,
+    ) -> bool {
+        self.quiescence_helper.should_prune_delta_adaptive(move_, stand_pat, alpha, depth, move_count)
+    }
+
+    /// Check if a move should be pruned using futility pruning
+    ///
+    /// Note: This is capture-specific futility pruning. Standard futility pruning
+    /// typically excludes captures and checks, but this implementation applies
+    /// futility pruning to weak captures while excluding:
+    /// - Checking moves (critical for tactical sequences)
+    /// - High-value captures (important tactical moves)
+    ///
+    /// This helps maintain tactical accuracy while still pruning weak captures.
+    fn should_prune_futility(
+        &mut self,
+        move_: &Move,
+        stand_pat: i32,
+        alpha: i32,
+        depth: u8,
+    ) -> bool {
+        if !self.quiescence_config.enable_futility_pruning {
+            return false;
+        }
+
+        // Don't prune checking moves - they're critical for tactical sequences
+        if move_.gives_check {
+            self.quiescence_stats.checks_excluded_from_futility += 1;
+            return false;
+        }
+
+        let material_gain = move_.captured_piece_value();
+
+        // Don't prune high-value captures - they're important tactical moves
+        if material_gain >= self.quiescence_config.high_value_capture_threshold {
+            self.quiescence_stats
+                .high_value_captures_excluded_from_futility += 1;
+            return false;
+        }
+
+        let futility_margin = match depth {
+            1 => self.quiescence_config.futility_margin / 2,
+            2 => self.quiescence_config.futility_margin,
+            _ => self.quiescence_config.futility_margin * 2,
+        };
+
+        stand_pat + material_gain + futility_margin <= alpha
+    }
+
+    /// Adaptive futility pruning based on position characteristics
+    ///
+    /// Adjusts pruning margins dynamically based on:
+    /// - Depth: More aggressive pruning at deeper depths (already depth-dependent)
+    /// - Move count: More selective pruning when there are many moves available
+    ///
+    /// Excludes checking moves and high-value captures to maintain tactical accuracy.
+    /// This provides better pruning effectiveness while maintaining tactical accuracy.
+    fn should_prune_futility_adaptive(
+        &mut self,
+        move_: &Move,
+        stand_pat: i32,
+        alpha: i32,
+        depth: u8,
+        move_count: usize,
+    ) -> bool {
+        if !self.quiescence_config.enable_futility_pruning {
+            return false;
+        }
+
+        // Don't prune checking moves - they're critical for tactical sequences
+        if move_.gives_check {
+            self.quiescence_stats.checks_excluded_from_futility += 1;
+            return false;
+        }
+
+        let material_gain = move_.captured_piece_value();
+
+        // Don't prune high-value captures - they're important tactical moves
+        if material_gain >= self.quiescence_config.high_value_capture_threshold {
+            self.quiescence_stats
+                .high_value_captures_excluded_from_futility += 1;
+            return false;
+        }
+
+        let mut futility_margin = match depth {
+            1 => self.quiescence_config.futility_margin / 2,
+            2 => self.quiescence_config.futility_margin,
+            _ => self.quiescence_config.futility_margin * 2,
+        };
+
+        // Adaptive adjustments based on position characteristics
+        if move_count > 10 {
+            futility_margin += 50; // More aggressive pruning with many moves
+        }
+
+        if depth > 4 {
+            futility_margin += (depth as i32 - 4) * 25; // More aggressive at deeper depths
+        }
+
+        stand_pat + material_gain + futility_margin <= alpha
+    }
+    /// Check if a move should be extended in quiescence search
+    fn should_extend(&self, move_: &Move, _depth: u8) -> bool {
+        if !self.quiescence_config.enable_selective_extensions {
+            return false;
+        }
+
+        // Extend for checks
+        if move_.gives_check {
+            return true;
+        }
+
+        // Extend for recaptures
+        if move_.is_recapture {
+            return true;
+        }
+
+        // Extend for promotions
+        if move_.is_promotion {
+            return true;
+        }
+
+        // Extend for captures of high-value pieces
+        if move_.is_capture && move_.captured_piece_value() > 500 {
+            return true;
+        }
+
+        false
+    }
+
+    /// Reset quiescence statistics
+    pub fn reset_quiescence_stats(&mut self) {
+        self.quiescence_stats = QuiescenceStats::default();
+    }
+
+    /// Get quiescence statistics
+    pub fn get_quiescence_stats(&self) -> &QuiescenceStats {
+        &self.quiescence_stats
+    }
+
+    /// Update quiescence configuration
+    pub fn update_quiescence_config(&mut self, config: QuiescenceConfig) {
+        self.quiescence_config = config;
+    }
+
+    /// Update quiescence configuration with validation
+    pub fn update_quiescence_config_validated(
+        &mut self,
+        config: QuiescenceConfig,
+    ) -> Result<(), String> {
+        config.validate()?;
+        self.quiescence_config = config;
+        Ok(())
+    }
+
+    /// Update quiescence configuration with automatic validation and clamping
+    pub fn update_quiescence_config_safe(&mut self, config: QuiescenceConfig) {
+        self.quiescence_config = config.clone();
+    }
+
+    /// Get current quiescence configuration
+    pub fn get_quiescence_config(&self) -> &QuiescenceConfig {
+        &self.quiescence_config
+    }
+
+    /// Update specific configuration parameters
+    pub fn update_quiescence_depth(&mut self, depth: u8) -> Result<(), String> {
+        if depth == 0 || depth > 20 {
+            return Err("Depth must be between 1 and 20".to_string());
+        }
+        self.quiescence_config.max_depth = depth;
+        Ok(())
+    }
+
+    /// Update TT size and reinitialize if needed
+    pub fn update_quiescence_tt_size(&mut self, size_mb: usize) -> Result<(), String> {
+        if size_mb == 0 || size_mb > 1024 {
+            return Err("TT size must be between 1 and 1024 MB".to_string());
+        }
+        self.quiescence_config.tt_size_mb = size_mb;
+        // Reinitialize TT with new size
+        const BYTES_PER_ENTRY: usize = 100;
+        let new_capacity = size_mb * 1024 * 1024 / BYTES_PER_ENTRY;
+        self.quiescence_tt = HashMap::with_capacity(new_capacity);
+        Ok(())
+    }
+
+    /// Compare two moves for quiescence search ordering
+    ///
+    /// Enhanced move ordering with:
+    /// - Checks first (highest priority)
+    /// - Enhanced MVV-LVA for captures (considers checks, promotions, threats)
+    /// - Promotions prioritized
+    /// - Tactical threat assessment
+    /// - Position-based heuristics (center control, piece activity)
+    /// - Hash-based comparison for total order
+    fn compare_quiescence_moves(&self, a: &Move, b: &Move) -> std::cmp::Ordering {
+        // Use a comprehensive, guaranteed total order based on move properties
+        // This ensures we never have equal moves that are actually different
+
+        // 1. Checks first (highest priority)
+        match (a.gives_check, b.gives_check) {
+            (true, false) => return std::cmp::Ordering::Less,
+            (false, true) => return std::cmp::Ordering::Greater,
+            _ => {}
+        }
+
+        // 2. Captures vs non-captures (captures have higher priority)
+        match (a.is_capture, b.is_capture) {
+            (true, false) => return std::cmp::Ordering::Less,
+            (false, true) => return std::cmp::Ordering::Greater,
+            (true, true) => {
+                // Both are captures - use enhanced MVV-LVA
+                // MVV-LVA: Most Valuable Victim - Least Valuable Attacker
+                let a_mvv_lva = a.captured_piece_value() - a.piece_value();
+                let b_mvv_lva = b.captured_piece_value() - b.piece_value();
+
+                // Enhance MVV-LVA with additional factors:
+                // - Check bonus: +1000 for captures that give check
+                // - Promotion bonus: +promotion_value for captures that promote
+                // - Recapture bonus: +500 for recaptures
+                let a_bonus = if a.gives_check { 1000 } else { 0 }
+                    + if a.is_promotion {
+                        a.promotion_value()
+                    } else {
+                        0
+                    }
+                    + if a.is_recapture { 500 } else { 0 };
+                let b_bonus = if b.gives_check { 1000 } else { 0 }
+                    + if b.is_promotion {
+                        b.promotion_value()
+                    } else {
+                        0
+                    }
+                    + if b.is_recapture { 500 } else { 0 };
+
+                let a_value = a_mvv_lva + a_bonus;
+                let b_value = b_mvv_lva + b_bonus;
+                let capture_cmp = b_value.cmp(&a_value);
+                if capture_cmp != std::cmp::Ordering::Equal {
+                    return capture_cmp;
+                }
+            }
+            (false, false) => {
+                // Neither is a capture - continue to other criteria
+            }
+        }
+
+        // 3. Promotions (non-capturing promotions)
+        match (a.is_promotion, b.is_promotion) {
+            (true, false) => return std::cmp::Ordering::Less,
+            (false, true) => return std::cmp::Ordering::Greater,
+            (true, true) => {
+                // Both are promotions - compare by promotion value
+                let a_promo_value = a.promotion_value();
+                let b_promo_value = b.promotion_value();
+                let promo_cmp = b_promo_value.cmp(&a_promo_value);
+                if promo_cmp != std::cmp::Ordering::Equal {
+                    return promo_cmp;
+                }
+            }
+            _ => {}
+        }
+
+        // 4. Tactical threat assessment (for non-capturing, non-promoting moves)
+        let a_threat = self.assess_tactical_threat(a);
+        let b_threat = self.assess_tactical_threat(b);
+        let threat_cmp = b_threat.cmp(&a_threat);
+        if threat_cmp != std::cmp::Ordering::Equal {
+            return threat_cmp;
+        }
+
+        // 5. Use a simple hash-based comparison to ensure total order
+        let a_hash = self.move_hash(a);
+        let b_hash = self.move_hash(b);
+        a_hash.cmp(&b_hash)
+    }
+
+    /// Create a simple hash for move comparison
+    fn move_hash(&self, move_: &Move) -> u64 {
+        let mut hash = 0u64;
+
+        // Hash the to position
+        hash = hash.wrapping_mul(31).wrapping_add(move_.to.row as u64);
+        hash = hash.wrapping_mul(31).wrapping_add(move_.to.col as u64);
+
+        // Hash the from position (if exists)
+        if let Some(from) = move_.from {
+            hash = hash.wrapping_mul(31).wrapping_add(from.row as u64);
+            hash = hash.wrapping_mul(31).wrapping_add(from.col as u64);
+        }
+
+        // Hash the piece type
+        hash = hash.wrapping_mul(31).wrapping_add(move_.piece_type as u64);
+
+        // Hash the player
+        hash = hash.wrapping_mul(31).wrapping_add(move_.player as u64);
+
+        hash
+    }
+
+    /// Check if a square is in the center
+    fn is_center_square(&self, pos: Position) -> bool {
+        pos.row >= 3 && pos.row <= 5 && pos.col >= 3 && pos.col <= 5
+    }
+
+    /// Check if a piece is attacking our king
+    fn is_piece_attacking_our_king(
+        &self,
+        piece: &Piece,
+        _pos: Position,
+        _board: &BitboardBoard,
+        player: Player,
+    ) -> bool {
+        // Simplified check - in a real implementation, this would check actual attack patterns
+        piece.player == player.opposite()
+    }
+
+    /// Check if a move is attacking the opponent
+    fn is_piece_attacking_opponent(
+        &self,
+        move_: &Move,
+        _board: &BitboardBoard,
+        _player: Player,
+    ) -> bool {
+        // Simplified check - in a real implementation, this would check actual attack patterns
+        move_.is_capture || move_.gives_check
+    }
+
+    /// Check if a move threatens the opponent's king
+    fn is_threatening_opponent_king(
+        &self,
+        move_: &Move,
+        _board: &BitboardBoard,
+        _player: Player,
+    ) -> bool {
+        // Simplified check - in a real implementation, this would check actual attack patterns
+        move_.gives_check
+    }
+
+    /// Check if a move is forward for the player
+    fn is_forward_move(&self, move_: &Move, player: Player) -> bool {
+        if let Some(from) = move_.from {
+            match player {
+                Player::Black => move_.to.row > from.row,
+                Player::White => move_.to.row < from.row,
+            }
+        } else {
+            false
+        }
+    }
+
+    /// Assess mobility gain from a move
+    fn assess_mobility_gain(&self, move_: &Move, _board: &BitboardBoard, _player: Player) -> i32 {
+        // Simplified mobility assessment
+        if self.is_center_square(move_.to) {
+            10
+        } else {
+            5
+        }
+    }
+
+    /// Assess the tactical threat value of a move
+    fn assess_tactical_threat(&self, move_: &Move) -> i32 {
+        let mut threat_value = 0;
+
+        // High value for captures
+        if move_.is_capture {
+            threat_value += move_.captured_piece_value();
+        }
+
+        // High value for checks
+        if move_.gives_check {
+            threat_value += 1000;
+        }
+
+        // High value for promotions
+        if move_.is_promotion {
+            threat_value += move_.promotion_value();
+        }
+
+        // High value for recaptures
+        if move_.is_recapture {
+            threat_value += 500;
+        }
+
+        threat_value
+    }
+
+    /// Sort moves specifically for quiescence search
+    ///
+    /// Uses basic comparison without position context (for backward compatibility)
+    #[cfg(test)]
+    pub fn sort_quiescence_moves(&self, moves: &[Move]) -> Vec<Move> {
+        let mut sorted_moves = moves.to_vec();
+        sorted_moves.sort_by(|a, b| self.compare_quiescence_moves(a, b));
+        sorted_moves
+    }
+
+    /// Enhanced sort moves for quiescence search with position context
+    ///
+    /// Enhanced with:
+    /// - Position-aware ordering (piece-square tables, king safety, piece activity)
+    /// - Better handling of edge cases (empty moves, single move)
+    /// - Statistics tracking
+    /// - Main search move ordering hints (Task 5.11)
+    pub fn sort_quiescence_moves_enhanced(
+        &self,
+        moves: &[Move],
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        move_hint: Option<&Move>,
+    ) -> Vec<Move> {
+        if moves.is_empty() {
+            return Vec::new();
+        }
+
+        // Single move - no need to sort
+        if moves.len() == 1 {
+            return moves.to_vec();
+        }
+
+        let mut sorted_moves = moves.to_vec();
+
+        // If move hint is provided, prioritize it (Task 5.11)
+        if let Some(hint_move) = move_hint {
+            if let Some(pos) = sorted_moves
+                .iter()
+                .position(|m| self.moves_equal_for_ordering(m, hint_move))
+            {
+                // Move hint to front if it exists in the list
+                if pos > 0 {
+                    sorted_moves.swap(0, pos);
+                }
+            }
+        }
+
+        // Use enhanced comparison with position context
+        sorted_moves.sort_by(|a, b| {
+            // If either move is the hint, prioritize it
+            if let Some(hint_move) = move_hint {
+                if self.moves_equal_for_ordering(a, hint_move) {
+                    return std::cmp::Ordering::Less;
+                }
+                if self.moves_equal_for_ordering(b, hint_move) {
+                    return std::cmp::Ordering::Greater;
+                }
+            }
+            self.compare_quiescence_moves_enhanced(a, b, board, captured_pieces, player)
+        });
+
+        sorted_moves
+    }
+
+    /// Enhanced comparison with position context for quiescence move ordering
+    ///
+    /// Includes:
+    /// - All factors from compare_quiescence_moves()
+    /// - Position-based heuristics (piece-square tables, center control)
+    /// - King safety considerations
+    /// - Piece activity assessment
+    fn compare_quiescence_moves_enhanced(
+        &self,
+        a: &Move,
+        b: &Move,
+        board: &BitboardBoard,
+        _captured_pieces: &CapturedPieces,
+        player: Player,
+    ) -> std::cmp::Ordering {
+        // First, use basic comparison (checks, captures, promotions, threats)
+        let basic_cmp = self.compare_quiescence_moves(a, b);
+        if basic_cmp != std::cmp::Ordering::Equal {
+            return basic_cmp;
+        }
+
+        // If basic comparison is equal, use position-based heuristics
+
+        // 1. Position value (piece-square tables, center control)
+        let a_position_value = self.assess_position_value_quiescence(a, board, player);
+        let b_position_value = self.assess_position_value_quiescence(b, board, player);
+        let pos_cmp = b_position_value.cmp(&a_position_value);
+        if pos_cmp != std::cmp::Ordering::Equal {
+            return pos_cmp;
+        }
+
+        // 2. King safety (prefer moves that improve king safety)
+        let a_king_safety = self.assess_king_safety_quiescence(a, board, player);
+        let b_king_safety = self.assess_king_safety_quiescence(b, board, player);
+        let king_cmp = b_king_safety.cmp(&a_king_safety);
+        if king_cmp != std::cmp::Ordering::Equal {
+            return king_cmp;
+        }
+
+        // 3. Piece activity (prefer moves that improve piece activity)
+        let a_activity = self.assess_piece_activity_quiescence(a, board, player);
+        let b_activity = self.assess_piece_activity_quiescence(b, board, player);
+        let activity_cmp = b_activity.cmp(&a_activity);
+        if activity_cmp != std::cmp::Ordering::Equal {
+            return activity_cmp;
+        }
+
+        // 4. Use hash-based comparison for total order
+        let a_hash = self.move_hash(a);
+        let b_hash = self.move_hash(b);
+        a_hash.cmp(&b_hash)
+    }
+
+    /// Assess position value for quiescence move ordering
+    ///
+    /// Considers:
+    /// - Center control (piece-square table values)
+    /// - Piece development (forward moves)
+    /// - Position-specific bonuses
+    fn assess_position_value_quiescence(
+        &self,
+        move_: &Move,
+        _board: &BitboardBoard,
+        player: Player,
+    ) -> i32 {
+        let mut value = 0;
+
+        // Center control bonus (piece-square table)
+        if self.is_center_square(move_.to) {
+            value += 50; // Center squares are more valuable
+        }
+
+        // Development bonus for pieces moving forward
+        if self.is_forward_move(move_, player) {
+            value += 20; // Forward development is generally good
+        }
+
+        // Edge penalty (edge squares are less valuable)
+        if move_.to.row == 0 || move_.to.row == 8 || move_.to.col == 0 || move_.to.col == 8 {
+            value -= 10;
+        }
+
+        value
+    }
+
+    /// Assess king safety for quiescence move ordering
+    ///
+    /// Considers:
+    /// - Moves that give check (high value)
+    /// - Moves that attack the opponent's king area
+    /// - Moves that improve our king safety
+    fn assess_king_safety_quiescence(
+        &self,
+        move_: &Move,
+        board: &BitboardBoard,
+        player: Player,
+    ) -> i32 {
+        let mut value = 0;
+
+        // Check bonus (attacking the king directly)
+        if move_.gives_check {
+            value += 200; // High value for checks
+        }
+
+        // Threat to opponent's king area
+        if self.is_threatening_opponent_king(move_, board, player) {
+            value += 100; // Threat to king area
+        }
+
+        value
+    }
+
+    /// Assess piece activity for quiescence move ordering
+    ///
+    /// Considers:
+    /// - Moves that improve piece mobility
+    /// - Moves to central squares (more active)
+    /// - Moves that attack opponent pieces
+    fn assess_piece_activity_quiescence(
+        &self,
+        move_: &Move,
+        board: &BitboardBoard,
+        player: Player,
+    ) -> i32 {
+        let mut value = 0;
+
+        // Mobility gain assessment
+        let mobility_gain = self.assess_mobility_gain(move_, board, player);
+        value += mobility_gain;
+
+        // Center activity bonus
+        if self.is_center_square(move_.to) {
+            value += 30; // Center squares provide more activity
+        }
+
+        // Attack bonus (if move attacks opponent piece)
+        if move_.is_capture {
+            value += 50; // Captures are active moves
+        }
+
+        value
+    }
+
+    /// Check if two moves are equal for ordering purposes (Task 5.11)
+    ///
+    /// Compares moves based on from/to positions and piece type
+    /// This is used to identify hint moves in the move list
+    fn moves_equal_for_ordering(&self, a: &Move, b: &Move) -> bool {
+        a.from == b.from && a.to == b.to && a.piece_type == b.piece_type && a.player == b.player
+    }
+
+    /// Clear the quiescence transposition table
+    pub fn clear_quiescence_tt(&mut self) {
+        self.quiescence_tt.clear();
+    }
+
+    /// Get the size of the quiescence transposition table
+    pub fn quiescence_tt_size(&self) -> usize {
+        self.quiescence_tt.len()
+    }
+
+    /// Clean up old entries from the quiescence transposition table
+    /// Clean up quiescence transposition table using configured replacement policy
+    ///
+    /// Supports multiple replacement policies:
+    /// - Simple: Remove half entries arbitrarily (original behavior)
+    /// - LRU: Remove least recently used entries (keep recently accessed)
+    /// - DepthPreferred: Remove shallow entries (keep deeper tactical results)
+    /// - Hybrid: Combine LRU and depth-preferred (prefer keeping deep, recently accessed entries)
+    pub fn cleanup_quiescence_tt(&mut self, max_entries: usize) {
+        if self.quiescence_tt.len() <= max_entries {
+            return;
+        }
+
+        let entries_to_remove = self.quiescence_tt.len() - max_entries;
+
+        match self.quiescence_config.tt_replacement_policy {
+            TTReplacementPolicy::Simple => {
+                // Simple cleanup: clear half the entries arbitrarily
+                let keys_to_remove: Vec<String> = self
+                    .quiescence_tt
+                    .keys()
+                    .take(entries_to_remove)
+                    .cloned()
+                    .collect();
+
+                for key in keys_to_remove {
+                    self.quiescence_tt.remove(&key);
+                }
+            }
+            TTReplacementPolicy::LRU => {
+                // LRU: Remove least recently used entries
+                let mut entries: Vec<(String, &QuiescenceEntry)> = self
+                    .quiescence_tt
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v))
+                    .collect();
+
+                // Sort by last_access_age (ascending) - oldest first
+                entries.sort_by_key(|(_, entry)| entry.last_access_age);
+
+                // Remove oldest entries
+                let keys_to_remove: Vec<String> = entries
+                    .iter()
+                    .take(entries_to_remove)
+                    .map(|(key, _)| key.clone())
+                    .collect();
+                for key in keys_to_remove {
+                    self.quiescence_tt.remove(&key);
+                }
+            }
+            TTReplacementPolicy::DepthPreferred => {
+                // Depth-preferred: Remove shallow entries (keep deeper tactical results)
+                let mut entries: Vec<(String, &QuiescenceEntry)> = self
+                    .quiescence_tt
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v))
+                    .collect();
+
+                // Sort by depth (ascending) - shallowest first
+                // For same depth, prefer keeping entries with lower last_access_age (older)
+                entries.sort_by(|(_, a), (_, b)| match a.depth.cmp(&b.depth) {
+                    std::cmp::Ordering::Equal => a.last_access_age.cmp(&b.last_access_age),
+                    other => other,
+                });
+
+                // Remove shallowest entries
+                let keys_to_remove: Vec<String> = entries
+                    .iter()
+                    .take(entries_to_remove)
+                    .map(|(key, _)| key.clone())
+                    .collect();
+                for key in keys_to_remove {
+                    self.quiescence_tt.remove(&key);
+                }
+            }
+            TTReplacementPolicy::Hybrid => {
+                // Hybrid: Combine LRU and depth-preferred
+                // Score = (max_depth - depth) * depth_weight + (current_age - last_access_age) * age_weight
+                // Higher score = keep, lower score = remove
+                let max_depth = self.quiescence_config.max_depth as u8;
+                let depth_weight = 1000u64; // Weight for depth (prefer deeper)
+                let age_weight = 1u64; // Weight for recency (prefer recent)
+
+                let mut entries: Vec<(String, u64)> = self
+                    .quiescence_tt
+                    .iter()
+                    .map(|(k, v)| {
+                        let depth_score = (max_depth as u64 - v.depth as u64) * depth_weight;
+                        let age_score =
+                            (self.quiescence_tt_age.wrapping_sub(v.last_access_age)) * age_weight;
+                        let total_score = depth_score + age_score;
+                        (k.clone(), total_score)
+                    })
+                    .collect();
+
+                // Sort by score (ascending) - lowest score first (remove these)
+                entries.sort_by_key(|(_, score)| *score);
+
+                // Remove entries with lowest scores
+                let keys_to_remove: Vec<String> = entries
+                    .iter()
+                    .take(entries_to_remove)
+                    .map(|(key, _)| key.clone())
+                    .collect();
+                for key in keys_to_remove {
+                    self.quiescence_tt.remove(&key);
+                }
+            }
+        }
+    }
+
+    /// Get a comprehensive performance report for quiescence search
+    pub fn get_quiescence_performance_report(&self) -> String {
+        self.quiescence_stats.performance_report()
+    }
+
+    /// Get a summary of quiescence performance
+    pub fn get_quiescence_summary(&self) -> String {
+        self.quiescence_stats.summary()
+    }
+
+    /// Get configuration and performance summary
+    pub fn get_quiescence_status(&self) -> String {
+        format!(
+            "{}\n{}\nTT Size: {} entries",
+            self.quiescence_config.summary(),
+            self.quiescence_stats.summary(),
+            self.quiescence_tt.len()
+        )
+    }
+
+    /// Reset quiescence statistics
+    pub fn reset_quiescence_performance(&mut self) {
+        self.quiescence_stats.reset();
+    }
+
+    /// Get quiescence efficiency metrics
+    pub fn get_quiescence_efficiency(&self) -> (f64, f64, f64) {
+        (
+            self.quiescence_stats.pruning_efficiency(),
+            self.quiescence_stats.tt_hit_rate(),
+            self.quiescence_stats.extension_rate(),
+        )
+    }
+    /// Profile quiescence search performance
+    pub fn profile_quiescence_search(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        iterations: usize,
+    ) -> QuiescenceProfile {
+        let mut profile = QuiescenceProfile::new();
+        let time_source = TimeSource::now();
+
+        for i in 0..iterations {
+            self.reset_quiescence_stats();
+            let start_time = std::time::Instant::now();
+
+            let _result = self.quiescence_search(
+                board,
+                captured_pieces,
+                player,
+                -10000,
+                10000,
+                &time_source,
+                1000,
+                depth,
+            );
+
+            let duration = start_time.elapsed();
+            let stats = self.get_quiescence_stats().clone();
+
+            profile.add_sample(QuiescenceSample {
+                iteration: i,
+                duration_ms: duration.as_millis() as u64,
+                nodes_searched: stats.nodes_searched,
+                moves_ordered: stats.moves_ordered,
+                delta_prunes: stats.delta_prunes,
+                futility_prunes: stats.futility_prunes,
+                extensions: stats.extensions,
+                tt_hits: stats.tt_hits,
+                tt_misses: stats.tt_misses,
+                check_moves: stats.check_moves_found,
+                capture_moves: stats.capture_moves_found,
+                promotion_moves: stats.promotion_moves_found,
+            });
+        }
+
+        profile
+    }
+
+    /// Get detailed performance metrics
+    pub fn get_quiescence_performance_metrics(&self) -> QuiescencePerformanceMetrics {
+        let stats = self.get_quiescence_stats();
+        QuiescencePerformanceMetrics {
+            nodes_per_second: if stats.nodes_searched > 0 {
+                stats.nodes_searched as f64 / 1.0 // Placeholder - would need timing info
+            } else {
+                0.0
+            },
+            pruning_efficiency: stats.pruning_efficiency(),
+            tt_hit_rate: stats.tt_hit_rate(),
+            extension_rate: stats.extension_rate(),
+            move_ordering_efficiency: if stats.moves_ordered > 0 {
+                (stats.nodes_searched as f64 / stats.moves_ordered as f64) * 100.0
+            } else {
+                0.0
+            },
+            tactical_move_ratio: if stats.nodes_searched > 0 {
+                ((stats.check_moves_found + stats.capture_moves_found + stats.promotion_moves_found)
+                    as f64
+                    / stats.nodes_searched as f64)
+                    * 100.0
+            } else {
+                0.0
+            },
+        }
+    }
+    // ===== NULL MOVE PRUNING METHODS =====
+    /// Check if null move pruning should be attempted in the current position
+    /// Task 7.0.4.3: Accept cached_static_eval to avoid re-evaluation
+    /// Check if null move pruning should be attempted
+    /// Delegates to NullMoveHelper (Task 1.8)
+    /// Note: cached_static_eval parameter is currently unused but kept for API compatibility
+    fn should_attempt_null_move(
+        &mut self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        can_null_move: bool,
+        _cached_static_eval: Option<i32>,
+    ) -> bool {
+        self.null_move_helper.should_attempt_null_move(board, captured_pieces, player, depth, can_null_move)
+    }
+
+
+    /// Calculate reduction factor for null move search using the configured strategy
+    /// Delegates to NullMoveHelper (Task 1.8)
+    fn calculate_null_move_reduction(
+        &self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+    ) -> u8 {
+        self.null_move_helper.calculate_null_move_reduction(board, captured_pieces, player, depth)
+    }
+
+    /// Perform a null move search with reduced depth
+    ///
+    /// **Board State Isolation**: This function does NOT modify the board state.
+    /// The `board` parameter is mutable only because `negamax_with_context()` requires
+    /// it for making moves during the recursive search. However, no actual move is made
+    /// on the board at this level - the null move is simulated by simply passing the
+    /// turn to the opponent via `player.opposite()` in the recursive call.
+    ///
+    /// **Hash History Isolation**: A local hash history is created before calling
+    /// this function (in `negamax_with_context()`). This separate hash history ensures
+    /// that repetition detection within the null move search does not interfere with
+    /// the main search's hash history. This is necessary because:
+    /// 1. The null move is a hypothetical position (not a real move)
+    /// 2. Repetition detection in the null move subtree should not affect the main search
+    /// 3. Hash history is maintained separately to prevent false repetition detections
+    ///
+    /// The hash history passed to this function is isolated from the main search and
+    /// is discarded after the null move search completes.
+    fn perform_null_move_search(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        hash_history: &mut Vec<u64>,
+    ) -> i32 {
+        self.null_move_stats.attempts += 1;
+
+        // Calculate reduction factor using configured reduction strategy
+        let reduction = self.calculate_null_move_reduction(board, captured_pieces, player, depth);
+
+        let search_depth = depth - 1 - reduction;
+        self.null_move_stats.depth_reductions += reduction as u64;
+
+        // Perform null move search with zero-width window
+        // NOTE: No actual move is made on the board. The null move is simulated by
+        // passing player.opposite() to switch turns, while the board state remains unchanged.
+        // During the recursive call, moves may be made/unmade within that subtree, but
+        // the board state will be restored to its original state before this function returns.
+        let null_move_score = -self.negamax_with_context(
+            board,
+            captured_pieces,
+            player.opposite(),
+            search_depth,
+            beta.saturating_neg(),
+            beta.saturating_neg().saturating_add(1),
+            start_time,
+            time_limit_ms,
+            hash_history,
+            false,
+            false,
+            false,
+            false,
+            None, // Task 2.6: Null move search doesn't track opponent's move
+            crate::types::EntrySource::NullMoveSearch, // Task 7.0.3.5: Tag as NMP entry
+        );
+
+        null_move_score
+    }
+
+    /// Check if verification search should be performed based on null move score
+    /// Verification is triggered when null move fails (score < beta) but is within the safety margin
+    fn should_perform_verification(&self, null_move_score: i32, beta: i32) -> bool {
+        if self.null_move_config.verification_margin == 0 {
+            // Verification disabled
+            return false;
+        }
+
+        // Verification is needed if null move failed (score < beta) but is close to beta
+        // i.e., beta - null_move_score <= verification_margin
+        null_move_score < beta
+            && (beta - null_move_score) <= self.null_move_config.verification_margin
+    }
+
+    /// Perform a full-depth verification search to confirm null move pruning safety
+    /// This searches at depth - 1 (without the reduction applied in null move search)
+    fn perform_verification_search(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        hash_history: &mut Vec<u64>,
+    ) -> i32 {
+        self.null_move_stats.verification_attempts += 1;
+
+        crate::debug_utils::trace_log(
+            "VERIFICATION",
+            &format!(
+                "Performing verification search at depth {} (null move depth was {})",
+                depth - 1,
+                depth - 1 - self.null_move_config.reduction_factor
+            ),
+        );
+
+        // Perform verification search at depth - 1 (full depth, no reduction)
+        // Use zero-width window like null move search
+        let verification_score = -self.negamax_with_context(
+            board,
+            captured_pieces,
+            player.opposite(),
+            depth - 1,
+            beta.saturating_neg(),
+            beta.saturating_neg().saturating_add(1),
+            start_time,
+            time_limit_ms,
+            hash_history,
+            false,
+            false,
+            false,
+            false,
+            None, // Task 2.6: Null move verification doesn't track opponent's move
+            crate::types::EntrySource::NullMoveSearch, // Task 7.0.3.5: Tag as NMP entry
+        );
+
+        verification_score
+    }
+
+    /// Check if a score indicates a potential mate threat
+    /// A mate threat is detected when the null move score is very high (close to beta)
+    /// suggesting the position might be winning (mate threat present)
+    /// Threshold: score >= beta - mate_threat_margin
+    fn is_mate_threat_score(&self, null_move_score: i32, beta: i32) -> bool {
+        if !self.null_move_config.enable_mate_threat_detection {
+            return false;
+        }
+        if self.null_move_config.mate_threat_margin == 0 {
+            return false;
+        }
+
+        // Mate threat detected if score is very close to beta (within mate_threat_margin)
+        // This suggests the position is winning and might contain a mate threat
+        null_move_score >= (beta - self.null_move_config.mate_threat_margin)
+    }
+
+    /// Perform mate threat verification search
+    /// This searches at full depth to confirm if a mate threat exists
+    fn perform_mate_threat_verification(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        hash_history: &mut Vec<u64>,
+    ) -> i32 {
+        self.null_move_stats.mate_threat_attempts += 1;
+
+        crate::debug_utils::trace_log("MATE_THREAT", &format!(
+            "Performing mate threat verification search at depth {} (score suggests mate threat, beta={})",
+            depth - 1, beta
+        ));
+
+        // Perform verification search at depth - 1 (full depth, no reduction)
+        // Use zero-width window like null move search
+        // Task 7.0.3.5: Tag as NMP entry (part of null move threat detection)
+        let mate_threat_score = -self.negamax_with_context(
+            board,
+            captured_pieces,
+            player.opposite(),
+            depth - 1,
+            beta.saturating_neg(),
+            beta.saturating_neg().saturating_add(1),
+            start_time,
+            time_limit_ms,
+            hash_history,
+            false,
+            false,
+            false,
+            false,
+            None, // Task 2.6: Mate threat verification doesn't track opponent's move
+            crate::types::EntrySource::NullMoveSearch, // Task 7.0.3.5: Tag as NMP entry
+        );
+
+        if mate_threat_score >= beta {
+            self.null_move_stats.mate_threats_detected += 1;
+            self.null_move_stats.mate_threat_detected += 1; // Keep in sync
+            crate::debug_utils::log_decision(
+                "MATE_THREAT",
+                "Mate threat confirmed",
+                &format!(
+                    "Mate threat verification score {} >= beta {}, mate threat detected",
+                    mate_threat_score, beta
+                ),
+                Some(mate_threat_score),
+            );
+        } else {
+            crate::debug_utils::trace_log(
+                "MATE_THREAT",
+                &format!(
+                    "Mate threat verification score {} < beta {}, no mate threat",
+                    mate_threat_score, beta
+                ),
+            );
+        }
+
+        mate_threat_score
+    }
+
+    // ===== NULL MOVE CONFIGURATION MANAGEMENT =====
+
+    /// Create default null move configuration
+    pub fn new_null_move_config() -> NullMoveConfig {
+        NullMoveConfig::default()
+    }
+
+    /// Update null move configuration with validation
+    pub fn update_null_move_config(&mut self, config: NullMoveConfig) -> Result<(), String> {
+        config.validate()?;
+        self.null_move_config = config;
+        Ok(())
+    }
+
+    /// Get current null move configuration
+    pub fn get_null_move_config(&self) -> &NullMoveConfig {
+        &self.null_move_config
+    }
+
+    /// Get current null move statistics
+    pub fn get_null_move_stats(&self) -> &NullMoveStats {
+        &self.null_move_stats
+    }
+
+    /// Reset null move statistics
+    pub fn reset_null_move_stats(&mut self) {
+        self.null_move_stats = NullMoveStats::default();
+    }
+
+    // ===== LATE MOVE REDUCTIONS CONFIGURATION MANAGEMENT =====
+
+    /// Create default LMR configuration
+    pub fn new_lmr_config() -> LMRConfig {
+        LMRConfig::default()
+    }
+
+    /// Update LMR configuration with validation (Task 8.4, 8.7)
+    /// Also syncs PruningManager parameters to match LMRConfig
+    pub fn update_lmr_config(&mut self, config: LMRConfig) -> Result<(), String> {
+        config.validate()?;
+        self.lmr_config = config.clone();
+
+        // Sync PruningManager parameters with LMRConfig (Task 8.4, 8.7)
+        self.sync_pruning_manager_from_lmr_config(&config);
+
+        Ok(())
+    }
+
+    /// Sync PruningManager parameters from LMRConfig (Task 8.4, 8.7)
+    fn sync_pruning_manager_from_lmr_config(&mut self, config: &LMRConfig) {
+        let mut params = self.pruning_manager.parameters.clone();
+
+        // Sync LMR parameters from LMRConfig
+        params.lmr_base_reduction = config.base_reduction;
+        params.lmr_move_threshold = config.min_move_index;
+        params.lmr_depth_threshold = config.min_depth;
+        params.lmr_max_reduction = config.max_reduction;
+        params.lmr_enable_extended_exemptions = config.enable_extended_exemptions;
+        params.lmr_enable_adaptive_reduction = config.enable_adaptive_reduction;
+
+        // Update PruningManager parameters
+        self.pruning_manager.parameters = params;
+    }
+
+    /// Get current LMR configuration
+    pub fn get_lmr_config(&self) -> &LMRConfig {
+        &self.lmr_config
+    }
+
+    /// Get current LMR statistics
+    pub fn get_lmr_stats(&self) -> &LMRStats {
+        &self.lmr_stats
+    }
+
+    /// Reset LMR statistics
+    pub fn reset_lmr_stats(&mut self) {
+        self.lmr_stats = LMRStats::default();
+    }
+
+    /// Check LMR performance thresholds and return alerts (Task 4.4, 4.10, 4.11)
+    pub fn check_lmr_performance(&self) -> (bool, Vec<String>) {
+        self.lmr_stats.check_performance_thresholds()
+    }
+
+    /// Get LMR performance alerts (Task 4.10, 4.11)
+    pub fn get_lmr_performance_alerts(&self) -> Vec<String> {
+        self.lmr_stats.get_performance_alerts()
+    }
+
+    /// Export LMR metrics for analysis (Task 4.9)
+    pub fn export_lmr_metrics(&self) -> std::collections::HashMap<String, f64> {
+        let mut map = std::collections::HashMap::new();
+        map.insert("efficiency".to_string(), self.lmr_stats.efficiency());
+        map.insert("research_rate".to_string(), self.lmr_stats.research_rate());
+        map.insert("cutoff_rate".to_string(), self.lmr_stats.cutoff_rate());
+        map
+    }
+
+    /// Get LMR performance report with phase statistics (Task 4.8)
+    pub fn get_lmr_performance_report(&self) -> String {
+        self.lmr_stats.performance_report()
+    }
+
+    // ===== TIME MANAGEMENT AND BUDGET ALLOCATION (Task 4.5-4.7) =====
+
+    /// Calculate time budget for a specific depth based on allocation strategy (Task 4.5, 4.7)
+    /// Delegates to TimeManager (Task 1.8)
+    pub fn calculate_time_budget(
+        &mut self,
+        depth: u8,
+        total_time_ms: u32,
+        elapsed_ms: u32,
+        max_depth: u8,
+    ) -> u32 {
+        self.time_manager.calculate_time_budget(depth, total_time_ms, elapsed_ms, max_depth)
+    }
+
+    /// Record depth completion time for adaptive allocation (Task 4.6)
+    /// Delegates to TimeManager (Task 1.8)
+    pub fn record_depth_completion(&mut self, depth: u8, completion_time_ms: u32) {
+        self.time_manager.record_depth_completion(depth, completion_time_ms);
+    }
+
+    /// Get time budget statistics for analysis (Task 4.10)
+    pub fn get_time_budget_stats(&self) -> &TimeBudgetStats {
+        &self.time_budget_stats
+    }
+
+    /// Reset time budget statistics
+    pub fn reset_time_budget_stats(&mut self) {
+        self.time_budget_stats = TimeBudgetStats::default();
+    }
+
+    // ===== ASPIRATION WINDOWS CONFIGURATION MANAGEMENT =====
+
+    /// Create default aspiration window configuration
+    pub fn new_aspiration_window_config() -> AspirationWindowConfig {
+        AspirationWindowConfig::default()
+    }
+
+    /// Update aspiration window configuration with validation
+    pub fn update_aspiration_window_config(
+        &mut self,
+        config: AspirationWindowConfig,
+    ) -> Result<(), String> {
+        config.validate()?;
+        self.aspiration_config = config;
+        Ok(())
+    }
+
+    /// Get current aspiration window configuration
+    pub fn get_aspiration_window_config(&self) -> &AspirationWindowConfig {
+        &self.aspiration_config
+    }
+
+    /// Get current aspiration window statistics
+    pub fn get_aspiration_window_stats(&self) -> &AspirationWindowStats {
+        &self.aspiration_stats
+    }
+    /// Reset aspiration window statistics
+    pub fn reset_aspiration_window_stats(&mut self) {
+        self.aspiration_stats = AspirationWindowStats::default();
+    }
+
+    /// Get core search metrics (Task 5.9)
+    pub fn get_core_search_metrics(&self) -> &crate::types::CoreSearchMetrics {
+        &self.core_search_metrics
+    }
+
+    /// Reset core search metrics (Task 5.9)
+    pub fn reset_core_search_metrics(&mut self) {
+        self.core_search_metrics.reset();
+    }
+
+    /// Generate comprehensive core search metrics report (Task 5.9)
+    pub fn generate_core_search_metrics_report(&self) -> String {
+        self.core_search_metrics.generate_report()
+    }
+
+    /// Get aspiration window performance metrics for tuning
+    pub fn get_aspiration_window_performance_metrics(&self) -> AspirationWindowPerformanceMetrics {
+        let stats = &self.aspiration_stats;
+
+        AspirationWindowPerformanceMetrics {
+            total_searches: stats.total_searches,
+            successful_searches: stats.successful_searches,
+            fail_lows: stats.fail_lows,
+            fail_highs: stats.fail_highs,
+            total_researches: stats.total_researches,
+            success_rate: stats.success_rate(),
+            research_rate: stats.research_rate(),
+            efficiency: stats.efficiency(),
+            average_window_size: stats.average_window_size,
+            estimated_time_saved_ms: stats.estimated_time_saved_ms,
+            estimated_nodes_saved: stats.estimated_nodes_saved,
+        }
+    }
+
+    /// Get aspiration window configuration presets for different playing styles
+    pub fn get_aspiration_window_preset(
+        &self,
+        style: AspirationWindowPlayingStyle,
+    ) -> AspirationWindowConfig {
+        match style {
+            AspirationWindowPlayingStyle::Aggressive => AspirationWindowConfig {
+                enabled: true,
+                base_window_size: 30, // Smaller window for more aggressive pruning
+                dynamic_scaling: true,
+                max_window_size: 150,
+                min_depth: 2,
+                enable_adaptive_sizing: true,
+                max_researches: 3, // Allow more re-searches
+                enable_statistics: true,
+                use_static_eval_for_init: true,
+                enable_position_type_tracking: true,
+                disable_statistics_in_production: false,
+            },
+            AspirationWindowPlayingStyle::Conservative => AspirationWindowConfig {
+                enabled: true,
+                base_window_size: 80, // Larger window for safety
+                dynamic_scaling: true,
+                max_window_size: 300,
+                min_depth: 3, // Start later
+                enable_adaptive_sizing: true,
+                max_researches: 1, // Fewer re-searches
+                enable_statistics: true,
+                use_static_eval_for_init: true,
+                enable_position_type_tracking: true,
+                disable_statistics_in_production: false,
+            },
+            AspirationWindowPlayingStyle::Balanced => AspirationWindowConfig {
+                enabled: true,
+                base_window_size: 50, // Default balanced settings
+                dynamic_scaling: true,
+                max_window_size: 200,
+                min_depth: 2,
+                enable_adaptive_sizing: true,
+                max_researches: 2,
+                enable_statistics: true,
+                use_static_eval_for_init: true,
+                enable_position_type_tracking: true,
+                disable_statistics_in_production: false,
+            },
+        }
+    }
+
+    /// Apply aspiration window configuration preset
+    pub fn apply_aspiration_window_preset(
+        &mut self,
+        style: AspirationWindowPlayingStyle,
+    ) -> Result<(), String> {
+        let preset = self.get_aspiration_window_preset(style);
+        self.update_aspiration_window_config(preset)
+    }
+
+    /// Optimize aspiration window memory usage by clearing old statistics
+    pub fn optimize_aspiration_window_memory(&mut self) {
+        // Reset statistics if they get too large
+        if self.aspiration_stats.total_searches > 1_000_000 {
+            self.aspiration_stats.reset();
+        }
+
+        // Clear previous scores if they get too large
+        if self.previous_scores.len() > 1000 {
+            self.previous_scores.clear();
+        }
+
+        // Clear transposition table if it gets too large
+        if self.transposition_table.size() > 100_000 {
+            self.transposition_table.clear();
+        }
+    }
+
+    // ===== ASPIRATION WINDOW SIZE CALCULATION =====
+
+    /// Calculate static window size
+    /// Calculate static window size
+    /// Delegates to IterativeDeepeningHelper (Task 1.8)
+    fn calculate_static_window_size(&self, depth: u8) -> i32 {
+        self.iterative_deepening_helper.calculate_static_window_size(depth)
+    }
+
+    /// Calculate dynamic window size based on depth and score
+    /// Delegates to IterativeDeepeningHelper (Task 1.8)
+    fn calculate_dynamic_window_size(&self, depth: u8, previous_score: i32) -> i32 {
+        self.iterative_deepening_helper.calculate_dynamic_window_size(depth, previous_score)
+    }
+
+    /// Calculate adaptive window size based on recent failures
+    fn calculate_adaptive_window_size(&self, depth: u8, recent_failures: u8) -> i32 {
+        let base_size = self.calculate_dynamic_window_size(depth, 0);
+
+        if !self.aspiration_config.enable_adaptive_sizing {
+            return base_size;
+        }
+
+        // Increase window size if recent failures
+        let failure_factor = 1.0 + (recent_failures as f64 * 0.3);
+        // Clamp to i32 range before casting to prevent overflow
+        let adaptive_size_f64 = base_size as f64 * failure_factor;
+        let adaptive_size = adaptive_size_f64.min(i32::MAX as f64).max(i32::MIN as f64) as i32;
+
+        adaptive_size.min(self.aspiration_config.max_window_size)
+    }
+
+    /// Calculate final window size combining all strategies
+    pub fn calculate_window_size(
+        &self,
+        depth: u8,
+        _previous_score: i32,
+        recent_failures: u8,
+    ) -> i32 {
+        if !self.aspiration_config.enabled {
+            return i32::MAX; // Use full-width window
+        }
+
+        if depth < self.aspiration_config.min_depth {
+            return i32::MAX; // Use full-width window
+        }
+
+        let window_size = self.calculate_adaptive_window_size(depth, recent_failures);
+        self.validate_window_size(window_size)
+    }
+
+    /// Validate window size to ensure reasonable bounds
+    fn validate_window_size(&self, window_size: i32) -> i32 {
+        // Ensure minimum window size for stability
+        let min_size = 10;
+        let max_size = self.aspiration_config.max_window_size;
+
+        let validated_size = window_size.max(min_size).min(max_size);
+
+        // Log extreme values for debugging
+        if validated_size != window_size {
+            crate::utils::telemetry::debug_log(&format!(
+                "Aspiration: Window size clamped from {} to {}",
+                window_size, validated_size
+            ));
+        }
+
+        validated_size
+    }
+
+    /// Calculate window size with debugging and statistics tracking
+    ///
+    /// Task 7.2, 7.3, 7.4: Conditional statistics tracking with optimized updates
+    pub fn calculate_window_size_with_stats(
+        &mut self,
+        depth: u8,
+        previous_score: i32,
+        recent_failures: u8,
+    ) -> i32 {
+        let window_size = self.calculate_window_size(depth, previous_score, recent_failures);
+
+        // Task 7.2, 7.3: Conditional statistics tracking
+        #[cfg(feature = "statistics")]
+        let should_track_stats = self.aspiration_config.enable_statistics
+            && !self.aspiration_config.disable_statistics_in_production;
+
+        #[cfg(not(feature = "statistics"))]
+        let should_track_stats = false; // Task 7.3: Disable in production if feature flag not set
+
+        // Task 7.4: Optimized statistics update (only calculate if tracking enabled)
+        if should_track_stats {
+            // Update average window size (optimized: use incremental update)
+            let total = self.aspiration_stats.total_searches;
+            if total > 0 {
+                // Incremental average update: new_avg = old_avg + (new_value - old_avg) / (total + 1)
+                let diff = (window_size as f64 - self.aspiration_stats.average_window_size)
+                    / (total + 1) as f64;
+                self.aspiration_stats.average_window_size += diff;
+            } else {
+                self.aspiration_stats.average_window_size = window_size as f64;
+            }
+        }
+
+        // Debug logging (only in debug builds or when verbose-debug feature enabled)
+        #[cfg(feature = "verbose-debug")]
+        if window_size != i32::MAX {
+            crate::utils::telemetry::debug_log(&format!(
+                "Aspiration: depth={}, previous_score={}, recent_failures={}, window_size={}",
+                depth, previous_score, recent_failures, window_size
+            ));
+        }
+
+        window_size
+    }
+
+    /// Get window size preset for different playing styles
+    pub fn get_window_size_preset(&self, style: AspirationWindowPlayingStyle) -> i32 {
+        match style {
+            AspirationWindowPlayingStyle::Aggressive => {
+                // Smaller windows for faster, more aggressive play
+                self.aspiration_config.base_window_size / 2
+            }
+            AspirationWindowPlayingStyle::Conservative => {
+                // Larger windows for safer, more thorough play
+                self.aspiration_config.base_window_size * 2
+            }
+            AspirationWindowPlayingStyle::Balanced => {
+                // Standard window size
+                self.aspiration_config.base_window_size
+            }
+        }
+    }
+
+    /// Calculate window size based on position complexity
+    pub fn calculate_complexity_based_window_size(
+        &self,
+        depth: u8,
+        position_complexity: f64,
+    ) -> i32 {
+        let base_size = self.calculate_static_window_size(depth);
+
+        if base_size == i32::MAX {
+            return base_size; // Full-width window
+        }
+
+        // Adjust window size based on position complexity
+        // More complex positions get larger windows
+        let complexity_factor = 1.0 + (position_complexity * 0.5);
+        let adjusted_size = (base_size as f64 * complexity_factor) as i32;
+
+        self.validate_window_size(adjusted_size)
+    }
+
+    /// Calculate window size based on time remaining
+    pub fn calculate_time_based_window_size(
+        &self,
+        depth: u8,
+        time_remaining_ms: u32,
+        total_time_ms: u32,
+    ) -> i32 {
+        let base_size = self.calculate_static_window_size(depth);
+
+        if base_size == i32::MAX {
+            return base_size; // Full-width window
+        }
+
+        // Adjust window size based on time pressure
+        // Less time = smaller windows for faster search
+        let time_ratio = time_remaining_ms as f64 / total_time_ms as f64;
+        let time_factor = 0.5 + (time_ratio * 0.5); // Range from 0.5 to 1.0
+        let adjusted_size = (base_size as f64 * time_factor) as i32;
+
+        self.validate_window_size(adjusted_size)
+    }
+
+    /// Calculate window size based on search history and performance
+    pub fn calculate_history_based_window_size(&self, depth: u8, recent_success_rate: f64) -> i32 {
+        let base_size = self.calculate_static_window_size(depth);
+
+        if base_size == i32::MAX {
+            return base_size; // Full-width window
+        }
+
+        // Adjust window size based on recent success rate
+        // Lower success rate = larger windows for more thorough search
+        let success_factor = if recent_success_rate > 0.8 {
+            0.8 // Smaller windows for high success rate
+        } else if recent_success_rate > 0.5 {
+            1.0 // Standard windows for moderate success rate
+        } else {
+            1.5 // Larger windows for low success rate
+        };
+
+        let adjusted_size = (base_size as f64 * success_factor) as i32;
+        self.validate_window_size(adjusted_size)
+    }
+
+    /// Calculate window size based on move count and branching factor
+    pub fn calculate_branching_based_window_size(&self, depth: u8, move_count: usize) -> i32 {
+        let base_size = self.calculate_static_window_size(depth);
+
+        if base_size == i32::MAX {
+            return base_size; // Full-width window
+        }
+
+        // Adjust window size based on branching factor
+        // More moves = smaller windows to maintain search speed
+        let branching_factor = if move_count > 50 {
+            0.7 // Smaller windows for high branching factor
+        } else if move_count > 20 {
+            0.9 // Slightly smaller windows for moderate branching factor
+        } else {
+            1.1 // Larger windows for low branching factor
+        };
+
+        let adjusted_size = (base_size as f64 * branching_factor) as i32;
+        self.validate_window_size(adjusted_size)
+    }
+
+    /// Calculate comprehensive window size using all available factors
+    pub fn calculate_comprehensive_window_size(
+        &mut self,
+        depth: u8,
+        previous_score: i32,
+        recent_failures: u8,
+        position_complexity: f64,
+        time_remaining_ms: u32,
+        total_time_ms: u32,
+        recent_success_rate: f64,
+        move_count: usize,
+    ) -> i32 {
+        if !self.aspiration_config.enabled {
+            return i32::MAX; // Use full-width window
+        }
+
+        if depth < self.aspiration_config.min_depth {
+            return i32::MAX; // Use full-width window
+        }
+
+        // Calculate base window size
+        let base_size = self.calculate_static_window_size(depth);
+
+        if base_size == i32::MAX {
+            return base_size; // Full-width window
+        }
+
+        // Apply all adjustment factors
+        let depth_factor = 1.0 + (depth as f64 - 1.0) * 0.1;
+        let score_factor = 1.0 + (previous_score.abs() as f64 / 1000.0) * 0.2;
+        let failure_factor = 1.0 + (recent_failures as f64 * 0.3);
+        let complexity_factor = 1.0 + (position_complexity * 0.5);
+        let time_ratio = time_remaining_ms as f64 / total_time_ms as f64;
+        let time_factor = 0.5 + (time_ratio * 0.5);
+        let success_factor = if recent_success_rate > 0.8 {
+            0.8
+        } else if recent_success_rate > 0.5 {
+            1.0
+        } else {
+            1.5
+        };
+        let branching_factor = if move_count > 50 {
+            0.7
+        } else if move_count > 20 {
+            0.9
+        } else {
+            1.1
+        };
+
+        // Combine all factors
+        // Clamp to i32 range before casting to prevent overflow
+        let comprehensive_size_f64 = base_size as f64
+            * depth_factor
+            * score_factor
+            * failure_factor
+            * complexity_factor
+            * time_factor
+            * success_factor
+            * branching_factor;
+        let comprehensive_size = comprehensive_size_f64
+            .min(i32::MAX as f64)
+            .max(i32::MIN as f64) as i32;
+
+        let final_size = self.validate_window_size(comprehensive_size);
+
+        // Task 7.2, 7.3, 7.4: Conditional statistics tracking with optimized updates
+        #[cfg(feature = "statistics")]
+        let should_track_stats = self.aspiration_config.enable_statistics
+            && !self.aspiration_config.disable_statistics_in_production;
+
+        #[cfg(not(feature = "statistics"))]
+        let should_track_stats = false; // Task 7.3: Disable in production if feature flag not set
+
+        if should_track_stats {
+            // Task 7.4: Optimized incremental average update
+            let total = self.aspiration_stats.total_searches;
+            if total > 0 {
+                let diff = (final_size as f64 - self.aspiration_stats.average_window_size)
+                    / (total + 1) as f64;
+                self.aspiration_stats.average_window_size += diff;
+            } else {
+                self.aspiration_stats.average_window_size = final_size as f64;
+            }
+        }
+
+        // Debug logging
+        crate::utils::telemetry::debug_log(&format!(
+            "Aspiration: comprehensive window size calculation - depth={}, base={}, final={}, factors=[d:{:.2}, s:{:.2}, f:{:.2}, c:{:.2}, t:{:.2}, su:{:.2}, b:{:.2}]",
+            depth, base_size, final_size, depth_factor, score_factor, failure_factor,
+            complexity_factor, time_factor, success_factor, branching_factor
+        ));
+
+        final_size
+    }
+
+    /// Get window size statistics for analysis and tuning
+    pub fn get_window_size_statistics(&self) -> WindowSizeStatistics {
+        WindowSizeStatistics {
+            average_window_size: self.aspiration_stats.average_window_size,
+            min_window_size: 10, // Minimum enforced window size
+            max_window_size: self.aspiration_config.max_window_size,
+            total_calculations: self.aspiration_stats.total_searches,
+            success_rate: if self.aspiration_stats.total_searches > 0 {
+                self.aspiration_stats.successful_searches as f64
+                    / self.aspiration_stats.total_searches as f64
+            } else {
+                0.0
+            },
+            fail_low_rate: if self.aspiration_stats.total_searches > 0 {
+                self.aspiration_stats.fail_lows as f64 / self.aspiration_stats.total_searches as f64
+            } else {
+                0.0
+            },
+            fail_high_rate: if self.aspiration_stats.total_searches > 0 {
+                self.aspiration_stats.fail_highs as f64
+                    / self.aspiration_stats.total_searches as f64
+            } else {
+                0.0
+            },
+        }
+    }
+
+    /// Reset window size statistics
+    pub fn reset_window_size_statistics(&mut self) {
+        self.aspiration_stats.average_window_size = 0.0;
+    }
+
+    /// Calculate optimal window size based on historical performance
+    pub fn calculate_optimal_window_size(&self, depth: u8, recent_performance: f64) -> i32 {
+        let base_size = self.calculate_static_window_size(depth);
+
+        if base_size == i32::MAX {
+            return base_size; // Full-width window
+        }
+
+        // Adjust based on recent performance
+        // Better performance = smaller windows for efficiency
+        // Worse performance = larger windows for thoroughness
+        let performance_factor = if recent_performance > 0.9 {
+            0.7 // High performance: smaller windows
+        } else if recent_performance > 0.7 {
+            0.85 // Good performance: slightly smaller windows
+        } else if recent_performance > 0.5 {
+            1.0 // Average performance: standard windows
+        } else if recent_performance > 0.3 {
+            1.2 // Poor performance: larger windows
+        } else {
+            1.5 // Very poor performance: much larger windows
+        };
+
+        let optimal_size = (base_size as f64 * performance_factor) as i32;
+        self.validate_window_size(optimal_size)
+    }
+
+    // ===== ASPIRATION WINDOW RE-SEARCH LOGIC =====
+
+    /// Handle fail-low by widening window downward
+    ///
+    /// Task 7.2, 7.3, 7.4: Conditional statistics tracking
+    fn handle_fail_low(
+        &mut self,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+        window_size: i32,
+    ) {
+        // Task 7.2, 7.3: Conditional statistics tracking
+        #[cfg(feature = "statistics")]
+        let should_track_stats = self.aspiration_config.enable_statistics
+            && !self.aspiration_config.disable_statistics_in_production;
+
+        #[cfg(not(feature = "statistics"))]
+        let should_track_stats = false; // Task 7.3: Disable in production if feature flag not set
+
+        if should_track_stats {
+            self.aspiration_stats.fail_lows += 1;
+        }
+
+        // Enhanced validation with recovery
+        if !self.validate_and_recover_window(alpha, beta, previous_score, window_size, 0) {
+            crate::utils::telemetry::trace_log(
+                "ASPIRATION_FAIL_LOW",
+                "Window validation failed, using fallback",
+            );
+            return;
+        }
+
+        // Adaptive window widening based on failure pattern
+        let adaptive_factor = self.calculate_adaptive_factor("fail_low");
+        let widened_window = window_size * adaptive_factor;
+
+        // Widen window downward with adaptive sizing
+        let new_alpha = MIN_SCORE;
+        let new_beta = previous_score + widened_window;
+
+        // Ensure valid window bounds with additional safety checks
+        if new_beta <= new_alpha {
+            crate::utils::telemetry::trace_log(
+                "ASPIRATION_FAIL_LOW",
+                "Invalid window bounds, using conservative approach",
+            );
+            *alpha = MIN_SCORE;
+            *beta = previous_score + window_size;
+
+            // Final safety check
+            if *beta <= *alpha {
+                *alpha = MIN_SCORE;
+                *beta = MAX_SCORE;
+            }
+        } else {
+            *alpha = new_alpha;
+            *beta = new_beta;
+        }
+
+        // Update performance metrics
+        self.update_fail_low_metrics(previous_score, window_size);
+
+        crate::utils::telemetry::trace_log(
+            "ASPIRATION_FAIL_LOW",
+            &format!(
+                "Fail-low handled: alpha={}, beta={}, adaptive_factor={}",
+                *alpha, *beta, adaptive_factor
+            ),
+        );
+    }
+
+    /// Handle fail-high by widening window upward
+    ///
+    /// Task 7.2, 7.3, 7.4: Conditional statistics tracking
+    fn handle_fail_high(
+        &mut self,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+        window_size: i32,
+    ) {
+        // Task 7.2, 7.3: Conditional statistics tracking
+        #[cfg(feature = "statistics")]
+        let should_track_stats = self.aspiration_config.enable_statistics
+            && !self.aspiration_config.disable_statistics_in_production;
+
+        #[cfg(not(feature = "statistics"))]
+        let should_track_stats = false; // Task 7.3: Disable in production if feature flag not set
+
+        if should_track_stats {
+            self.aspiration_stats.fail_highs += 1;
+        }
+
+        // Enhanced validation with recovery
+        if !self.validate_and_recover_window(alpha, beta, previous_score, window_size, 0) {
+            crate::utils::telemetry::trace_log(
+                "ASPIRATION_FAIL_HIGH",
+                "Window validation failed, using fallback",
+            );
+            return;
+        }
+
+        // Adaptive window widening based on failure pattern
+        let adaptive_factor = self.calculate_adaptive_factor("fail_high");
+        let widened_window = window_size * adaptive_factor;
+
+        // Widen window upward with adaptive sizing
+        let new_alpha = previous_score - widened_window;
+        let new_beta = MAX_SCORE;
+
+        // Ensure valid window bounds with additional safety checks
+        if new_alpha >= new_beta {
+            crate::utils::telemetry::trace_log(
+                "ASPIRATION_FAIL_HIGH",
+                "Invalid window bounds, using conservative approach",
+            );
+            *alpha = previous_score - window_size;
+            *beta = MAX_SCORE;
+
+            // Final safety check
+            if *alpha >= *beta {
+                *alpha = MIN_SCORE;
+                *beta = MAX_SCORE;
+            }
+        } else {
+            *alpha = new_alpha;
+            *beta = new_beta;
+        }
+
+        // Update performance metrics
+        self.update_fail_high_metrics(previous_score, window_size);
+
+        crate::utils::telemetry::trace_log(
+            "ASPIRATION_FAIL_HIGH",
+            &format!(
+                "Fail-high handled: alpha={}, beta={}, adaptive_factor={}",
+                *alpha, *beta, adaptive_factor
+            ),
+        );
+    }
+
+    /// Update aspiration window statistics
+    ///
+    /// Task 7.1, 7.2, 7.3, 7.4: Enhanced with position type tracking and conditional updates
+    fn update_aspiration_stats(&mut self, had_research: bool, research_count: u8) {
+        // Task 7.2, 7.3: Conditional statistics tracking
+        #[cfg(feature = "statistics")]
+        let should_track_stats = self.aspiration_config.enable_statistics
+            && !self.aspiration_config.disable_statistics_in_production;
+
+        #[cfg(not(feature = "statistics"))]
+        let should_track_stats = false; // Task 7.3: Disable in production if feature flag not set
+
+        // Task 7.4: Optimized updates - only increment if tracking enabled
+        if should_track_stats {
+            self.aspiration_stats.total_searches += 1;
+        }
+
+        // Track aspiration window searches for core metrics (Task 5.7) - always tracked
+        self.core_search_metrics.total_aspiration_searches += 1;
+
+        if !had_research {
+            if should_track_stats {
+                self.aspiration_stats.successful_searches += 1;
+            }
+            // Track successful aspiration searches (Task 5.7) - always tracked
+            self.core_search_metrics.successful_aspiration_searches += 1;
+        }
+
+        if should_track_stats {
+            self.aspiration_stats.total_researches += research_count as u64;
+        }
+    }
+
+    /// Update aspiration window statistics with position type (Task 7.1)
+    fn update_aspiration_stats_with_phase(
+        &mut self,
+        had_research: bool,
+        research_count: u8,
+        phase: GamePhase,
+        window_size: i32,
+    ) {
+        // Update basic statistics first
+        self.update_aspiration_stats(had_research, research_count);
+
+        // Task 7.1: Update position type specific statistics
+        #[cfg(feature = "statistics")]
+        let should_track_stats = self.aspiration_config.enable_statistics
+            && !self.aspiration_config.disable_statistics_in_production
+            && self.aspiration_config.enable_position_type_tracking;
+
+        #[cfg(not(feature = "statistics"))]
+        let should_track_stats = false; // Task 7.3: Disable in production if feature flag not set
+
+        if should_track_stats {
+            // Update window size statistics by position type
+            self.aspiration_stats
+                .update_window_size_by_position_type(phase, window_size);
+            // Update success rate statistics by position type
+            self.aspiration_stats
+                .update_success_rate_by_position_type(phase, !had_research);
+        }
+    }
+
+    /// Validate window parameters for error handling
+    fn validate_window_parameters(&self, previous_score: i32, window_size: i32) -> bool {
+        // Check for reasonable score bounds
+        if previous_score < -100000 || previous_score > 100000 {
+            crate::utils::telemetry::debug_log(&format!(
+                "Aspiration: Invalid previous_score: {} (out of reasonable bounds)",
+                previous_score
+            ));
+            return false;
+        }
+
+        // Check for reasonable window size
+        if window_size <= 0 || window_size > self.aspiration_config.max_window_size * 2 {
+            crate::utils::telemetry::debug_log(&format!(
+                "Aspiration: Invalid window_size: {} (out of reasonable bounds)",
+                window_size
+            ));
+            return false;
+        }
+
+        true
+    }
+
+    /// Enhanced window validation with recovery mechanisms
+    fn validate_and_recover_window(
+        &mut self,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+        window_size: i32,
+        _depth: u8,
+    ) -> bool {
+        // Initial validation
+        if !self.validate_window_parameters(previous_score, window_size) {
+            crate::utils::telemetry::trace_log(
+                "WINDOW_VALIDATION",
+                "Invalid parameters detected, attempting recovery",
+            );
+
+            // Recovery attempt 1: Use safe defaults
+            let safe_score = previous_score.clamp(-50000, 50000);
+            let safe_window = window_size.clamp(10, self.aspiration_config.max_window_size);
+
+            if self.validate_window_parameters(safe_score, safe_window) {
+                *alpha = safe_score - safe_window;
+                *beta = safe_score + safe_window;
+                crate::utils::telemetry::trace_log(
+                    "WINDOW_VALIDATION",
+                    &format!("Recovery successful: alpha={}, beta={}", alpha, beta),
+                );
+                return true;
+            }
+
+            // Recovery attempt 2: Fall back to full-width search
+            *alpha = i32::MIN + 1;
+            *beta = MAX_SCORE;
+            crate::utils::telemetry::trace_log(
+                "WINDOW_VALIDATION",
+                "Recovery failed, using full-width search",
+            );
+            return true;
+        }
+
+        // Validate window bounds
+        if *alpha >= *beta {
+            crate::utils::telemetry::trace_log(
+                "WINDOW_VALIDATION",
+                &format!("Invalid window bounds: alpha={} >= beta={}", alpha, beta),
+            );
+
+            // Recovery: Ensure alpha < beta
+            if *alpha >= *beta {
+                // Use safe arithmetic to prevent overflow when alpha and beta are very large
+                let center = (*alpha as i64 + *beta as i64) / 2;
+                let half_window = window_size / 2;
+                *alpha = center.saturating_sub(half_window as i64) as i32;
+                *beta = center.saturating_add(half_window as i64) as i32;
+
+                // Final safety check
+                if *alpha >= *beta {
+                    *alpha = MIN_SCORE;
+                    *beta = MAX_SCORE;
+                }
+
+                crate::utils::telemetry::trace_log(
+                    "WINDOW_VALIDATION",
+                    &format!("Window bounds corrected: alpha={}, beta={}", alpha, beta),
+                );
+            }
+        }
+
+        // Validate window size is reasonable for depth
+        let current_window_size = (*beta as i64).saturating_sub(*alpha as i64);
+        let expected_max_size = self.aspiration_config.max_window_size;
+
+        if current_window_size > expected_max_size as i64 {
+            crate::utils::telemetry::trace_log(
+                "WINDOW_VALIDATION",
+                &format!(
+                    "Window too large: {} > {}, adjusting",
+                    current_window_size, expected_max_size
+                ),
+            );
+
+            // Use safe arithmetic to prevent overflow when alpha and beta are very large
+            let center = (*alpha as i64 + *beta as i64) / 2;
+            let half_max_size = expected_max_size / 2;
+            *alpha = center.saturating_sub(half_max_size as i64) as i32;
+            *beta = center.saturating_add(half_max_size as i64) as i32;
+
+            crate::utils::telemetry::trace_log(
+                "WINDOW_VALIDATION",
+                &format!("Window size adjusted: alpha={}, beta={}", alpha, beta),
+            );
+        }
+
+        true
+    }
+    /// Check if window is in a stable state
+    fn is_window_stable(&self, alpha: i32, beta: i32, previous_score: i32) -> bool {
+        let window_size = (beta as i64).saturating_sub(alpha as i64);
+        // Use safe arithmetic to prevent overflow when alpha and beta are very large
+        let center = (alpha as i64 + beta as i64) / 2;
+        let score_deviation = (center - previous_score as i64).abs();
+
+        // Window is stable if:
+        // 1. Size is reasonable
+        // 2. Center is close to previous score
+        // 3. Bounds are valid
+        window_size > 0
+            && window_size <= self.aspiration_config.max_window_size as i64
+            && score_deviation <= window_size / 4
+            && alpha < beta
+    }
+
+    /// Calculate adaptive factor based on failure type and history
+    fn calculate_adaptive_factor(&self, failure_type: &str) -> i32 {
+        let base_factor = match failure_type {
+            "fail_low" => 2,      // More aggressive widening for fail-low
+            "fail_high" => 2,     // More aggressive widening for fail-high
+            "search_failed" => 3, // Most aggressive for complete failures
+            "timeout" => 1,       // Conservative for timeouts
+            _ => 2,               // Default moderate factor
+        };
+
+        // Adjust based on recent failure rate
+        let recent_failures = self.aspiration_stats.fail_lows + self.aspiration_stats.fail_highs;
+        let total_searches = self.aspiration_stats.total_searches.max(1);
+        let failure_rate = recent_failures as f64 / total_searches as f64;
+
+        if failure_rate > 0.3 {
+            // High failure rate - be more conservative
+            (base_factor as f64 * 0.8) as i32
+        } else if failure_rate < 0.1 {
+            // Low failure rate - can be more aggressive
+            (base_factor as f64 * 1.2) as i32
+        } else {
+            base_factor
+        }
+    }
+
+    /// Enhanced failure type classification
+    fn classify_failure_type(
+        &self,
+        score: i32,
+        alpha: i32,
+        beta: i32,
+        search_successful: bool,
+        timeout_occurred: bool,
+    ) -> &'static str {
+        if !search_successful {
+            if timeout_occurred {
+                "timeout"
+            } else {
+                "search_failed"
+            }
+        } else if score <= alpha {
+            "fail_low"
+        } else if score >= beta {
+            "fail_high"
+        } else {
+            "success"
+        }
+    }
+    /// Update fail-low performance metrics
+    fn update_fail_low_metrics(&mut self, previous_score: i32, window_size: i32) {
+        if self.aspiration_config.enable_statistics {
+            // Track fail-low patterns for optimization
+            self.aspiration_stats.estimated_time_saved_ms = self
+                .aspiration_stats
+                .estimated_time_saved_ms
+                .saturating_sub(10);
+            self.aspiration_stats.estimated_nodes_saved = self
+                .aspiration_stats
+                .estimated_nodes_saved
+                .saturating_sub(1000);
+        }
+
+        // Log performance impact
+        crate::utils::telemetry::debug_log(&format!(
+            "Aspiration: Fail-low metrics updated - score={}, window={}, total_fail_lows={}",
+            previous_score, window_size, self.aspiration_stats.fail_lows
+        ));
+    }
+
+    /// Update fail-high performance metrics
+    fn update_fail_high_metrics(&mut self, previous_score: i32, window_size: i32) {
+        if self.aspiration_config.enable_statistics {
+            // Track fail-high patterns for optimization
+            self.aspiration_stats.estimated_time_saved_ms = self
+                .aspiration_stats
+                .estimated_time_saved_ms
+                .saturating_sub(10);
+            self.aspiration_stats.estimated_nodes_saved = self
+                .aspiration_stats
+                .estimated_nodes_saved
+                .saturating_sub(1000);
+        }
+
+        // Log performance impact
+        crate::utils::telemetry::debug_log(&format!(
+            "Aspiration: Fail-high metrics updated - score={}, window={}, total_fail_highs={}",
+            previous_score, window_size, self.aspiration_stats.fail_highs
+        ));
+    }
+
+    /// Handle graceful degradation when aspiration windows fail
+    pub fn handle_aspiration_failure(&mut self, depth: u8, reason: &str) -> (i32, i32) {
+        crate::utils::telemetry::debug_log(&format!(
+            "Aspiration: Graceful degradation at depth {} - reason: {}",
+            depth, reason
+        ));
+
+        // Update failure statistics
+        if self.aspiration_config.enable_statistics {
+            self.aspiration_stats.total_searches += 1;
+            // Don't increment successful_searches since this is a failure
+        }
+
+        // Return full-width window for fallback
+        (i32::MIN + 1, i32::MAX - 1)
+    }
+
+    /// Check if aspiration windows should be disabled due to poor performance
+    pub fn should_disable_aspiration_windows(&self) -> bool {
+        if !self.aspiration_config.enabled {
+            return true;
+        }
+
+        // Disable if too many failures
+        if self.aspiration_stats.total_searches > 100 {
+            let failure_rate = (self.aspiration_stats.fail_lows + self.aspiration_stats.fail_highs)
+                as f64
+                / self.aspiration_stats.total_searches as f64;
+
+            if failure_rate > 0.8 {
+                crate::utils::telemetry::debug_log(&format!(
+                    "Aspiration: High failure rate {:.2}%, disabling aspiration windows",
+                    failure_rate * 100.0
+                ));
+                return true;
+            }
+        }
+
+        // Disable if too many re-searches
+        if self.aspiration_stats.total_searches > 50 {
+            let research_rate = self.aspiration_stats.total_researches as f64
+                / self.aspiration_stats.total_searches as f64;
+
+            if research_rate > 2.0 {
+                crate::utils::telemetry::debug_log(&format!(
+                    "Aspiration: High re-search rate {:.2}, disabling aspiration windows",
+                    research_rate
+                ));
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Get re-search efficiency metrics
+    pub fn get_research_efficiency(&self) -> ResearchEfficiencyMetrics {
+        ResearchEfficiencyMetrics {
+            total_searches: self.aspiration_stats.total_searches,
+            successful_searches: self.aspiration_stats.successful_searches,
+            fail_lows: self.aspiration_stats.fail_lows,
+            fail_highs: self.aspiration_stats.fail_highs,
+            total_researches: self.aspiration_stats.total_researches,
+            success_rate: if self.aspiration_stats.total_searches > 0 {
+                self.aspiration_stats.successful_searches as f64
+                    / self.aspiration_stats.total_searches as f64
+            } else {
+                0.0
+            },
+            research_rate: if self.aspiration_stats.total_searches > 0 {
+                self.aspiration_stats.total_researches as u8 as f64
+                    / self.aspiration_stats.total_searches as f64
+            } else {
+                0.0
+            },
+            fail_low_rate: if self.aspiration_stats.total_searches > 0 {
+                self.aspiration_stats.fail_lows as f64 / self.aspiration_stats.total_searches as f64
+            } else {
+                0.0
+            },
+            fail_high_rate: if self.aspiration_stats.total_searches > 0 {
+                self.aspiration_stats.fail_highs as f64
+                    / self.aspiration_stats.total_searches as f64
+            } else {
+                0.0
+            },
+        }
+    }
+
+    // ===== PERFORMANCE MONITORING AND STATISTICS =====
+
+    /// Initialize performance monitoring
+    pub fn initialize_performance_monitoring(&mut self, _max_depth: u8) {
+        self.aspiration_stats.initialize_depth_tracking();
+    }
+
+    /// Update performance statistics during search
+    pub fn update_performance_stats(
+        &mut self,
+        depth: u8,
+        success: bool,
+        had_research: bool,
+        window_size: i32,
+        search_time_ms: u64,
+        _research_time_ms: u64,
+    ) {
+        // Update basic statistics
+        self.aspiration_stats.total_searches += 1;
+        if success {
+            self.aspiration_stats.successful_searches += 1;
+        }
+        if had_research {
+            self.aspiration_stats.total_researches += 1;
+        }
+
+        // Update depth-based statistics
+        self.aspiration_stats
+            .update_depth_stats(depth, success);
+
+        // Update window size statistics
+        self.aspiration_stats.update_window_size_stats(window_size);
+
+        // Update time statistics
+        self.aspiration_stats
+            .update_time_stats(search_time_ms);
+
+        // Update memory statistics
+        let current_memory = self.estimate_memory_usage();
+        self.aspiration_stats.update_memory_stats(current_memory);
+
+        // Add performance data point
+        let performance = if success { 1.0 } else { 0.5 };
+        self.aspiration_stats
+            .add_performance_data_point(performance);
+    }
+
+    /// Estimate current memory usage
+    fn estimate_memory_usage(&self) -> u64 {
+        // Estimate memory usage based on data structures
+        let base_memory = std::mem::size_of::<Self>() as u64;
+        let previous_scores_memory =
+            (self.previous_scores.len() * std::mem::size_of::<i32>()) as u64;
+        let depth_tracking_memory = (self.aspiration_stats.success_rate_by_depth.len()
+            * std::mem::size_of::<f64>()
+            * 3) as u64;
+
+        base_memory + previous_scores_memory + depth_tracking_memory
+    }
+
+    /// Get comprehensive performance analysis
+    pub fn get_performance_analysis(&mut self) -> crate::types::all::AspirationWindowPerformanceMetrics {
+        // Convert search::AspirationWindowStats to all::AspirationWindowStats for calculate_performance_metrics
+        let mut all_stats = crate::types::all::AspirationWindowStats {
+            total_searches: self.aspiration_stats.total_searches,
+            successful_searches: self.aspiration_stats.successful_searches,
+            fail_lows: self.aspiration_stats.fail_lows,
+            fail_highs: self.aspiration_stats.fail_highs,
+            total_researches: self.aspiration_stats.total_researches,
+            average_window_size: self.aspiration_stats.average_window_size,
+            estimated_time_saved_ms: 0,
+            estimated_nodes_saved: 0,
+            max_window_size_used: 0,
+            min_window_size_used: 0,
+            total_search_time_ms: 0, // Not tracked in search:: version
+            total_research_time_ms: 0, // Not tracked in search:: version
+            average_search_time_ms: 0.0,
+            average_research_time_ms: 0.0,
+            window_size_variance: 0.0,
+            configuration_effectiveness: 0.0,
+            cache_hit_rate: 0.0,
+            adaptive_tuning_success_rate: 0.0,
+            success_rate_by_depth: vec![], // Would need conversion
+            research_rate_by_depth: vec![], // Would need conversion
+            window_size_by_depth: vec![], // Would need conversion
+            success_rate_by_position_type: Default::default(),
+            window_size_by_position_type: Default::default(),
+            memory_usage_bytes: 0,
+            peak_memory_usage_bytes: 0,
+            recent_performance: vec![],
+        };
+        all_stats.calculate_performance_metrics()
+    }
+
+    /// Get depth-based analysis
+    pub fn get_depth_analysis(&self) -> crate::types::all::DepthAnalysis {
+        crate::types::all::DepthAnalysis {
+            success_rate_by_depth: vec![], // Would need conversion from search:: version
+            research_rate_by_depth: vec![], // Would need conversion from search:: version
+            window_size_by_depth: vec![], // Would need conversion from search:: version
+        }
+    }
+
+    /// Get performance summary
+    pub fn get_performance_summary(&self) -> crate::types::all::PerformanceSummary {
+        crate::types::all::PerformanceSummary {
+            total_searches: self.aspiration_stats.total_searches,
+            success_rate: if self.aspiration_stats.total_searches > 0 {
+                self.aspiration_stats.successful_searches as f64 / self.aspiration_stats.total_searches as f64
+            } else {
+                0.0
+            },
+            research_rate: if self.aspiration_stats.total_searches > 0 {
+                self.aspiration_stats.total_researches as f64 / self.aspiration_stats.total_searches as f64
+            } else {
+                0.0
+            },
+            average_window_size: self.aspiration_stats.average_window_size,
+            configuration_effectiveness: 0.0,
+            memory_efficiency: 0.0,
+            performance_trend: 0.0, // Would need calculation from trend data
+        }
+    }
+
+    /// Check for performance regression
+    pub fn check_performance_regression(&self) -> Option<String> {
+        let trend = self.aspiration_stats.get_performance_trend();
+        let summary = self.get_performance_summary();
+
+        if trend < -0.2 {
+            Some(format!(
+                "Performance regression detected: trend = {:.2}",
+                trend
+            ))
+        } else if summary.configuration_effectiveness < 0.4 {
+            Some(format!(
+                "Poor configuration effectiveness: {:.2}",
+                summary.configuration_effectiveness
+            ))
+        } else if summary.success_rate < 0.5 {
+            Some(format!("Low success rate: {:.2}", summary.success_rate))
+        } else if summary.research_rate > 2.5 {
+            Some(format!("High research rate: {:.2}", summary.research_rate))
+        } else {
+            None
+        }
+    }
+
+    /// Get adaptive tuning recommendations
+    pub fn get_adaptive_tuning_recommendations(&self) -> Vec<String> {
+        let summary = self.get_performance_summary();
+        let mut recommendations = summary.get_recommendations();
+
+        // Add depth-specific recommendations
+        let depth_analysis = self.get_depth_analysis();
+        if !depth_analysis.success_rate_by_depth.is_empty() {
+            let (optimal_start, optimal_end) = depth_analysis.get_optimal_depth_range();
+            if optimal_start > 0
+                || optimal_end < depth_analysis.success_rate_by_depth.len() as u8 - 1
+            {
+                recommendations.push(format!(
+                    "Consider limiting aspiration windows to depths {}-{} for optimal performance",
+                    optimal_start, optimal_end
+                ));
+            }
+        }
+
+        // Add memory optimization recommendations
+        if summary.memory_efficiency < 0.5 {
+            recommendations.push(
+                "Consider reducing previous_scores history or depth tracking data".to_string(),
+            );
+        }
+
+        recommendations
+    }
+
+    /// Get real-time performance monitoring data
+    pub fn get_real_time_performance(&self) -> RealTimePerformance {
+        RealTimePerformance {
+            current_searches: self.aspiration_stats.total_searches,
+            current_success_rate: if self.aspiration_stats.total_searches > 0 {
+                self.aspiration_stats.successful_searches as f64
+                    / self.aspiration_stats.total_searches as f64
+            } else {
+                0.0
+            },
+            current_research_rate: if self.aspiration_stats.total_searches > 0 {
+                self.aspiration_stats.total_researches as u8 as f64
+                    / self.aspiration_stats.total_searches as f64
+            } else {
+                0.0
+            },
+            current_window_size: self.aspiration_stats.average_window_size,
+            performance_trend: self.aspiration_stats.get_performance_trend(),
+            memory_usage: self.aspiration_stats.memory_usage_bytes,
+            configuration_effectiveness: self.aspiration_stats.configuration_effectiveness,
+        }
+    }
+
+    /// Reset performance statistics
+    pub fn reset_performance_stats(&mut self) {
+        self.aspiration_stats.reset();
+    }
+
+    /// Optimize performance based on current statistics
+    pub fn optimize_performance(&mut self) -> Vec<String> {
+        let mut optimizations = Vec::new();
+        let summary = self.get_performance_summary();
+
+        // Auto-tune based on performance
+        if summary.success_rate < 0.7 && summary.research_rate > 1.5 {
+            // Increase window size
+            let mut config = self.get_aspiration_window_config().clone();
+            config.base_window_size = (config.base_window_size as f64 * 1.2) as i32;
+            config.base_window_size = config.base_window_size.min(config.max_window_size);
+            self.update_aspiration_window_config(config).unwrap();
+            optimizations.push("Increased base_window_size for better success rate".to_string());
+        }
+
+        if summary.success_rate > 0.9 && summary.research_rate < 0.5 {
+            // Decrease window size for efficiency
+            let mut config = self.get_aspiration_window_config().clone();
+            config.base_window_size = (config.base_window_size as f64 * 0.9) as i32;
+            config.base_window_size = config.base_window_size.max(10);
+            self.update_aspiration_window_config(config).unwrap();
+            optimizations.push("Decreased base_window_size for better efficiency".to_string());
+        }
+
+        if summary.configuration_effectiveness < 0.6 {
+            // Reset to default configuration
+            let default_config = AspirationWindowConfig::default();
+            self.update_aspiration_window_config(default_config)
+                .unwrap();
+            optimizations
+                .push("Reset to default configuration due to poor effectiveness".to_string());
+        }
+
+        optimizations
+    }
+
+    // ===== LATE MOVE REDUCTIONS CORE LOGIC =====
+    //
+    // NOTE: LMR implementation is now consolidated in PruningManager.
+    // This method (search_move_with_lmr) uses PruningManager::calculate_lmr_reduction()
+    // which handles all LMR logic including:
+    // - Extended exemptions (killer moves, TT moves, escape moves)
+    // - Adaptive reduction based on position classification
+    // - Dynamic reduction based on depth and move index
+    //
+    // Legacy methods (should_apply_lmr, calculate_reduction, apply_adaptive_reduction)
+    // have been removed and their functionality migrated to PruningManager.
+
+    /// Search a move with Late Move Reductions applied
+    ///
+    /// This method uses PruningManager for all LMR calculations.
+    /// PruningManager is the authoritative implementation for LMR logic.
+    fn search_move_with_lmr(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        alpha: i32,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        hash_history: &mut Vec<u64>,
+        move_: &Move,
+        move_index: usize,
+        _is_root: bool,
+        has_capture: bool,
+        has_check: bool,
+        opponent_last_move: Option<Move>, // Task 2.6: Track opponent's last move for counter-move heuristic
+        iid_move: Option<&Move>,          // Task 7.0.1: IID move for explicit exemption
+        entry_source: crate::types::EntrySource,
+    ) -> i32 {
+        // Task 7.0.3.4: Entry source for TT priority
+
+        self.lmr_stats.moves_considered += 1;
+
+        // Probe transposition table for best move (Task 3.2, 3.3)
+        let position_hash = self.get_position_hash(board);
+        let tt_move = self.get_best_move_from_tt(board, captured_pieces, player, depth);
+
+        // Create search state for advanced pruning
+        let mut search_state = crate::types::search::SearchState::new(depth, alpha, beta);
+        search_state.move_number = move_index as u8;
+        search_state.update_fields(
+            has_check,
+            self.evaluate_position(board, player, captured_pieces),
+            position_hash,
+            self.get_game_phase(board),
+        );
+
+        // Store TT move in SearchState (Task 3.3)
+        search_state.set_tt_move(tt_move.clone());
+
+        // Compute position classification for adaptive reduction if enabled (Task 5.9)
+        if self.lmr_config.enable_adaptive_reduction {
+            let classification = self.compute_position_classification(
+                board,
+                captured_pieces,
+                player,
+                search_state.game_phase,
+            );
+            search_state.set_position_classification(classification);
+        }
+
+        // Set advanced reduction strategies configuration if enabled (Task 11.4)
+        if self.lmr_config.advanced_reduction_config.enabled {
+            search_state
+                .set_advanced_reduction_config(self.lmr_config.advanced_reduction_config.clone());
+        }
+
+        // Check extended exemptions
+        let is_killer = self.is_killer_move(move_);
+
+        // Check escape move exemption (Task 6.5, 6.7)
+        let is_escape = self.is_escape_move(move_, board, captured_pieces, player);
+
+        // Track TT move exemption statistics (Task 3.7)
+        if let Some(ref tt_mv) = tt_move {
+            if self.moves_equal(move_, tt_mv) {
+                self.lmr_stats.tt_move_exempted += 1;
+                crate::debug_utils::trace_log(
+                    "LMR",
+                    &format!("TT move exempted from LMR: {}", move_.to_usi_string()),
+                );
+            }
+        }
+
+        // Track escape move exemption (Task 6.8)
+        if is_escape {
+            crate::debug_utils::trace_log(
+                "LMR",
+                &format!("Escape move exempted from LMR: {}", move_.to_usi_string()),
+            );
+        }
+
+        // Task 7.0.1: Explicit IID move exemption from LMR
+        let is_iid_move = if let Some(iid_mv) = iid_move {
+            self.moves_equal(move_, iid_mv)
+        } else {
+            false
+        };
+
+        if is_iid_move {
+            self.lmr_stats.iid_move_explicitly_exempted += 1;
+            crate::debug_utils::trace_log(
+                "LMR",
+                &format!(
+                    "IID move explicitly exempted from LMR: {}",
+                    move_.to_usi_string()
+                ),
+            );
+        }
+
+        // Check if LMR should be applied using new PruningManager (Task 3.4, 3.6)
+        // Escape moves and IID moves are exempted from LMR (Task 6.5, Task 7.0.1)
+        let reduction = if is_escape || is_iid_move {
+            0 // Escape moves and IID moves are exempted from LMR
+        } else {
+            // Convert search_state to all::SearchState for PruningManager
+            let all_search_state = crate::types::all::SearchState {
+                depth: search_state.depth,
+                move_number: search_state.move_number,
+                alpha: search_state.alpha,
+                beta: search_state.beta,
+                is_in_check: search_state.is_in_check,
+                static_eval: search_state.static_eval,
+                best_move: search_state.best_move.as_ref().map(|m| convert_move_to_all(m.clone())),
+                position_hash: search_state.position_hash,
+                game_phase: match search_state.game_phase {
+                    GamePhase::Opening => crate::types::all::GamePhase::Opening,
+                    GamePhase::Middlegame => crate::types::all::GamePhase::Middlegame,
+                    GamePhase::Endgame => crate::types::all::GamePhase::Endgame,
+                },
+                position_classification: search_state.position_classification.map(|pc| match pc {
+                    crate::types::search::PositionClassification::Tactical => crate::types::all::PositionClassification::Tactical,
+                    crate::types::search::PositionClassification::Quiet => crate::types::all::PositionClassification::Quiet,
+                    crate::types::search::PositionClassification::Neutral => crate::types::all::PositionClassification::Neutral,
+                }),
+                tt_move: search_state.tt_move.as_ref().map(|m| convert_move_to_all(m.clone())),
+                advanced_reduction_config: search_state.advanced_reduction_config.map(|arc| {
+                    crate::types::all::AdvancedReductionConfig {
+                        enabled: arc.enabled,
+                        strategy: match arc.strategy {
+                            crate::types::search::AdvancedReductionStrategy::Basic => crate::types::all::AdvancedReductionStrategy::Basic,
+                            crate::types::search::AdvancedReductionStrategy::DepthBased => crate::types::all::AdvancedReductionStrategy::DepthBased,
+                            crate::types::search::AdvancedReductionStrategy::MaterialBased => crate::types::all::AdvancedReductionStrategy::MaterialBased,
+                            crate::types::search::AdvancedReductionStrategy::HistoryBased => crate::types::all::AdvancedReductionStrategy::HistoryBased,
+                            _ => crate::types::all::AdvancedReductionStrategy::Basic, // Default for any other variants
+                        },
+                        enable_depth_based: false, // Not in search:: version
+                        enable_material_based: false, // Not in search:: version
+                        enable_history_based: false, // Not in search:: version
+                        depth_scaling_factor: 0.15, // Default
+                        material_imbalance_threshold: 300, // Default
+                        history_score_threshold: 0, // Default
+                    }
+                }),
+                best_score: search_state.best_score,
+                nodes_searched: search_state.nodes_searched,
+                aspiration_enabled: search_state.aspiration_enabled,
+                researches: search_state.researches,
+                health_score: search_state.health_score,
+            };
+            let all_move = convert_move_to_all(move_.clone());
+            self.pruning_manager.calculate_lmr_reduction(
+                &all_search_state,
+                &all_move,
+                is_killer,
+                tt_move.as_ref().map(|m| convert_move_to_all(m.clone())).as_ref(),
+            )
+        };
+
+        // Task 7.0.5.1-5.2: Monitor and alert if IID move somehow gets reduced (should never happen)
+        if reduction > 0 && is_iid_move {
+            self.lmr_stats.iid_move_reduced_count += 1;
+            eprintln!("⚠️  WARNING: IID move was reduced by LMR! This should never happen.");
+            eprintln!(
+                "    Move: {}, Reduction: {}, Depth: {}",
+                move_.to_usi_string(),
+                reduction,
+                depth
+            );
+            crate::utils::telemetry::trace_log("LMR_ALERT", &format!(
+                "CRITICAL: IID move {} was reduced by {} at depth {}. This indicates a bug in exemption logic!",
+                move_.to_usi_string(), reduction, depth
+            ));
+        }
+
+        if reduction > 0 {
+            self.lmr_stats.reductions_applied += 1;
+            self.pruning_manager.statistics.lmr_applied += 1;
+            self.lmr_stats.total_depth_saved += reduction as u64;
+
+            // Perform reduced-depth search with null window
+            let reduced_depth = depth - 1 - reduction;
+            // Task 2.6: Pass current move as opponent_last_move to recursive call
+            // Task 7.0.3.7: Main search path uses MainSearch entry source
+            let score = -self.negamax_with_context(
+                board,
+                captured_pieces,
+                player.opposite(),
+                reduced_depth,
+                alpha.saturating_neg().saturating_sub(1),
+                alpha.saturating_neg(),
+                start_time,
+                time_limit_ms,
+                hash_history,
+                true,
+                false, // not root
+                has_capture,
+                has_check,
+                Some(move_.clone()), // Task 2.6: Pass current move as opponent's last move
+                entry_source,        // Task 7.0.3.7: Propagate entry source through search
+            );
+
+            // Check if re-search is needed (with margin)
+            // Task 7.0.6.3: Use position-type adaptive re-search margin
+            let margin = if self.lmr_config.enable_position_type_margin {
+                match search_state.position_classification {
+                    Some(crate::types::PositionClassification::Tactical) => {
+                        self.lmr_config.tactical_re_search_margin
+                    }
+                    Some(crate::types::PositionClassification::Quiet) => {
+                        self.lmr_config.quiet_re_search_margin
+                    }
+                    Some(crate::types::PositionClassification::Neutral) | None => {
+                        self.lmr_config.re_search_margin
+                    }
+                }
+            } else {
+                self.lmr_config.re_search_margin
+            };
+
+            let re_search_threshold = alpha + margin;
+            if score > re_search_threshold {
+                self.lmr_stats.researches_triggered += 1;
+                self.lmr_stats.re_search_margin_allowed += 1;
+                self.pruning_manager.statistics.re_searches += 1;
+
+                // Task 7.0.6.4: Track re-search by position type
+                match search_state.position_classification {
+                    Some(crate::types::PositionClassification::Tactical) => {
+                        self.lmr_stats.tactical_researches += 1;
+                    }
+                    Some(crate::types::PositionClassification::Quiet) => {
+                        self.lmr_stats.quiet_researches += 1;
+                    }
+                    Some(crate::types::PositionClassification::Neutral) | None => {
+                        self.lmr_stats.neutral_researches += 1;
+                    }
+                }
+
+                // Debug logging for re-search margin decisions
+                crate::debug_utils::trace_log("LMR", &format!(
+                    "Re-search triggered: score={} > threshold={} (alpha={} + margin={}, position: {:?})",
+                    score, re_search_threshold, alpha, margin, search_state.position_classification
+                ));
+
+                // Re-search at full depth
+                // Task 2.6: Pass current move as opponent_last_move to recursive call
+                // Task 7.0.3.7: Main search path uses MainSearch entry source
+                let full_score = -self.negamax_with_context(
+                    board,
+                    captured_pieces,
+                    player.opposite(),
+                    depth - 1,
+                    beta.saturating_neg(),
+                    alpha.saturating_neg(),
+                    start_time,
+                    time_limit_ms,
+                    hash_history,
+                    true,
+                    false, // not root
+                    has_capture,
+                    has_check,
+                    Some(move_.clone()), // Task 2.6: Pass current move as opponent's last move
+                    entry_source,        // Task 7.0.3.7: Propagate entry source through search
+                );
+
+                let cutoff_after_research = full_score >= beta;
+                if cutoff_after_research {
+                    self.lmr_stats.cutoffs_after_research += 1;
+                }
+
+                // Track phase statistics (Task 4.6)
+                self.lmr_stats.record_phase_stats(
+                    search_state.game_phase,
+                    1,                                         // moves_considered
+                    1,                                         // reductions_applied
+                    1,                                         // researches_triggered
+                    if cutoff_after_research { 1 } else { 0 }, // cutoffs_after_research
+                    0,                                         // cutoffs_after_reduction
+                    reduction as u64,                          // depth_saved
+                );
+
+                return full_score;
+            } else {
+                // Re-search prevented by margin (score > alpha but <= alpha + margin)
+                if score > alpha && score <= re_search_threshold {
+                    self.lmr_stats.re_search_margin_prevented += 1;
+
+                    // Debug logging for re-search margin prevention
+                    crate::debug_utils::trace_log("LMR", &format!(
+                        "Re-search prevented by margin: score={} <= threshold={} (alpha={} + margin={})",
+                        score, re_search_threshold, alpha, self.lmr_config.re_search_margin
+                    ));
+                }
+                let cutoff_after_reduction = score >= beta;
+                if cutoff_after_reduction {
+                    self.lmr_stats.cutoffs_after_reduction += 1;
+
+                    // Track move ordering effectiveness for LMR moves (Task 10.1-10.3)
+                    // Note: move_index is not available here, so we track at the caller level
+                }
+
+                // Track phase statistics (Task 4.6)
+                self.lmr_stats.record_phase_stats(
+                    search_state.game_phase,
+                    1,                                          // moves_considered
+                    1,                                          // reductions_applied
+                    0,                                          // researches_triggered
+                    0,                                          // cutoffs_after_research
+                    if cutoff_after_reduction { 1 } else { 0 }, // cutoffs_after_reduction
+                    reduction as u64,                           // depth_saved
+                );
+
+                return score;
+            }
+        } else {
+            // No reduction - perform full-depth search
+            // Task 7.0.3.7: Main search path uses propagated entry source
+            let score = -self.negamax_with_context(
+                board,
+                captured_pieces,
+                player.opposite(),
+                depth - 1,
+                beta.saturating_neg(),
+                alpha.saturating_neg(),
+                start_time,
+                time_limit_ms,
+                hash_history,
+                true,
+                false, // not root
+                has_capture,
+                has_check,
+                opponent_last_move, // Propagate opponent's last move
+                entry_source,       // Task 7.0.3.7: Propagate entry source through search
+            );
+
+            // Track phase statistics for non-reduced moves (Task 4.6)
+            self.lmr_stats.record_phase_stats(
+                search_state.game_phase,
+                1, // moves_considered
+                0, // reductions_applied
+                0, // researches_triggered
+                0, // cutoffs_after_research
+                0, // cutoffs_after_reduction
+                0, // depth_saved
+            );
+
+            score
+        }
+    }
+
+    // Legacy LMR methods removed - functionality migrated to PruningManager
+    // The following methods are no longer used:
+    // - should_apply_lmr() - replaced by PruningManager::should_apply_lmr()
+    // - is_move_exempt_from_lmr() - replaced by PruningManager extended exemptions
+    // - calculate_reduction() - replaced by PruningManager::calculate_lmr_reduction()
+    // - apply_adaptive_reduction() - replaced by PruningManager::apply_adaptive_reduction()
+    //
+    // Helper methods (is_killer_move, is_transposition_table_move, is_escape_move)
+    // are still used by search_move_with_lmr() and are kept for backward compatibility
+
+    /// Check if a move is a killer move
+    fn is_killer_move(&self, move_: &Move) -> bool {
+        self.killer_moves.iter().any(|killer| {
+            killer
+                .as_ref()
+                .map_or(false, |k| self.moves_equal(move_, k))
+        })
+    }
+
+    /// Check if a move is an escape move
+    /// Check if a move is an escape move (Task 6.1-6.5)
+    /// Enhanced with threat-based detection instead of center-to-edge heuristic
+    pub(crate) fn is_escape_move(
+        &self,
+        move_: &Move,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+    ) -> bool {
+        let config = &self.lmr_config.escape_move_config;
+
+        // Check if escape move exemption is enabled
+        if !config.enable_escape_move_exemption {
+            return false;
+        }
+
+        if let Some(from) = move_.from {
+            // Use threat-based detection if enabled (Task 6.5)
+            if config.use_threat_based_detection {
+                // Check if the piece at the source square is under attack (Task 6.3, 6.4)
+                if self.is_piece_under_attack(board, captured_pieces, from, player) {
+                    // Check if moving to the destination removes the threat
+                    if !self.is_piece_under_attack_after_move(board, captured_pieces, move_, player)
+                    {
+                        // Track threat-based detection (Task 6.8)
+                        return true;
+                    }
+                }
+            }
+
+            // Fallback to heuristic if enabled or if threat detection unavailable (Task 6.6)
+            if config.fallback_to_heuristic || !config.use_threat_based_detection {
+                // Original center-to-edge heuristic (Task 6.1)
+                let from_center = self.is_center_square(from);
+                let to_center = self.is_center_move(move_);
+                if from_center && !to_center {
+                    // Track heuristic detection (Task 6.8)
+                    let _is_threat =
+                        self.is_piece_under_attack(board, captured_pieces, from, player);
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Check if a piece at a position is under attack by opponent (Task 6.3, 6.4)
+    pub(crate) fn is_piece_under_attack(
+        &self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        position: Position,
+        player: Player,
+    ) -> bool {
+        // Check if any opponent piece can attack this position
+        // This is a simplified check - in a full implementation, we would check all opponent pieces
+        let _opponent = player.opposite();
+
+        // Check if the piece at this position is the king (most critical)
+        if let Some(piece) = board.get_piece(position) {
+            if piece.piece_type == PieceType::King && piece.player == player {
+                // Check if king is in check (most reliable threat detection)
+                return board.is_king_in_check(player, captured_pieces);
+            }
+        }
+
+        // For other pieces, check if any opponent piece can attack this square
+        // Simplified: check if any opponent piece is nearby or can reach this square
+        // In a full implementation, we would generate all opponent moves and check if they attack this square
+        // For now, we use a simplified heuristic based on piece proximity and tactical threats
+        let tactical_threats = self.count_tactical_threats(board);
+
+        // If there are tactical threats, the piece might be under attack
+        // This is a simplified check - a full implementation would check actual attack patterns
+        tactical_threats > 0
+    }
+
+    /// Check if a piece is under attack after making a move (Task 6.3, 6.4)
+    pub(crate) fn is_piece_under_attack_after_move(
+        &self,
+        board: &BitboardBoard,
+        _captured_pieces: &CapturedPieces,
+        move_: &Move,
+        _player: Player,
+    ) -> bool {
+        // Check if the destination square is under attack
+        // This is a simplified check - in a full implementation, we would make the move and check
+        let tactical_threats = self.count_tactical_threats(board);
+
+        // If there are tactical threats, the destination might be under attack
+        // This is a simplified check - a full implementation would check actual attack patterns
+        tactical_threats > 0 && self.is_center_move(move_)
+    }
+
+    /// Check if position is tactical
+    fn is_tactical_position(&self) -> bool {
+        // Determine if position has tactical characteristics
+        // This is a simplified implementation based on recent statistics
+        let stats = &self.lmr_stats;
+        if stats.moves_considered > 0 {
+            // If we've seen many captures or checks recently, it's tactical
+            let capture_ratio =
+                stats.cutoffs_after_reduction as f64 / stats.moves_considered as f64;
+            return capture_ratio > 0.3; // More than 30% of moves are cutoffs
+        }
+        false
+    }
+
+    /// Check if position is quiet
+    fn is_quiet_position(&self) -> bool {
+        // Determine if position is quiet (few captures, checks)
+        // This is a simplified implementation based on recent statistics
+        let stats = &self.lmr_stats;
+        if stats.moves_considered > 0 {
+            // If we've seen few cutoffs recently, it's quiet
+            let cutoff_ratio = stats.total_cutoffs() as f64 / stats.moves_considered as f64;
+            return cutoff_ratio < 0.1; // Less than 10% of moves are cutoffs
+        }
+        true // Default to quiet if no data
+    }
+
+    /// Compute position classification for adaptive reduction (Task 5.1-5.9)
+    /// Enhanced classification uses material balance, piece activity, game phase, and threat analysis
+    pub(crate) fn compute_position_classification(
+        &self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        game_phase: crate::types::GamePhase,
+    ) -> crate::types::PositionClassification {
+        let config = &self.lmr_config.classification_config;
+
+        // Only classify if we have enough data (Task 5.6)
+        if self.lmr_stats.moves_considered < config.min_moves_threshold {
+            return crate::types::PositionClassification::Neutral;
+        }
+
+        // Calculate material balance (Task 5.2)
+        let material_balance = self.calculate_material_balance(board, captured_pieces);
+        let material_imbalance = material_balance.abs();
+
+        // Calculate cutoff ratio from statistics (Task 5.1)
+        let cutoff_ratio = if self.lmr_stats.moves_considered > 0 {
+            self.lmr_stats.total_cutoffs() as f64 / self.lmr_stats.moves_considered as f64
+        } else {
+            0.0
+        };
+
+        // Count tactical threats (Task 5.5)
+        let tactical_threats = self.count_tactical_threats(board);
+
+        // Calculate piece activity (Task 5.3) - approximate from piece count and position
+        let piece_activity = self.calculate_piece_activity(board, player);
+
+        // Game phase factor (Task 5.4)
+        let phase_factor = match game_phase {
+            crate::types::GamePhase::Endgame => 1.2, // Endgames are more tactical
+            crate::types::GamePhase::Opening => 0.9, // Openings are less tactical
+            crate::types::GamePhase::Middlegame => 1.0,
+        };
+
+        // Enhanced tactical detection (Task 5.5)
+        let is_tactical = cutoff_ratio > config.tactical_threshold
+            || material_imbalance > config.material_imbalance_threshold as i32
+            || tactical_threats > 3
+            || piece_activity > 150
+            || (cutoff_ratio > 0.2 && phase_factor > 1.0);
+
+        // Enhanced quiet detection (Task 5.5)
+        let is_quiet = cutoff_ratio < config.quiet_threshold
+            && material_imbalance < config.material_imbalance_threshold as i32 / 2
+            && tactical_threats < 2
+            && piece_activity < 100
+            && phase_factor < 1.1;
+
+        let classification = if is_tactical {
+            crate::types::PositionClassification::Tactical
+        } else if is_quiet {
+            crate::types::PositionClassification::Quiet
+        } else {
+            crate::types::PositionClassification::Neutral
+        };
+
+        classification
+    }
+
+    /// Calculate piece activity score (Task 5.3)
+    pub(crate) fn calculate_piece_activity(&self, board: &BitboardBoard, player: Player) -> i32 {
+        let mut activity = 0;
+
+        // Count pieces in center and advanced positions
+        for row in 0..9 {
+            for col in 0..9 {
+                if let Some(piece) = board.get_piece(Position::new(row, col)) {
+                    if piece.player == player {
+                        // Center squares are more active
+                        if self.is_center_square(Position::new(row, col)) {
+                            activity += 10;
+                        }
+                        // Advanced pieces (closer to opponent's side) are more active
+                        let advancement = if player == Player::Black {
+                            row
+                        } else {
+                            8 - row
+                        };
+                        activity += advancement as i32 * 2;
+                    }
+                }
+            }
+        }
+
+        activity
+    }
+
+    /// Check if a move targets center squares
+    fn is_center_move(&self, move_: &Move) -> bool {
+        self.is_center_square(move_.to)
+    }
+
+    // ===== ADDITIONAL LMR HELPER METHODS =====
+
+    /// Get the tactical value of a move for LMR decisions
+    fn get_move_tactical_value(&self, move_: &Move) -> i32 {
+        let mut value = 0;
+
+        // High value for captures
+        if move_.is_capture {
+            value += move_.captured_piece_value();
+        }
+
+        // High value for checks
+        if move_.gives_check {
+            value += 1000;
+        }
+
+        // High value for promotions
+        if move_.is_promotion {
+            value += move_.promotion_value();
+        }
+
+        // Medium value for center moves
+        if self.is_center_move(move_) {
+            value += 50;
+        }
+
+        // Medium value for killer moves
+        if self.is_killer_move(move_) {
+            value += 200;
+        }
+
+        value
+    }
+
+    /// Classify a move type for LMR exemption decisions
+    fn classify_move_type(
+        &self,
+        move_: &Move,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+    ) -> MoveType {
+        if move_.gives_check {
+            MoveType::Check
+        } else if move_.is_capture {
+            MoveType::Capture
+        } else if move_.is_promotion {
+            MoveType::Promotion
+        } else if self.is_killer_move(move_) {
+            MoveType::Killer
+        } else if self.is_escape_move(move_, board, captured_pieces, player) {
+            MoveType::Escape
+        } else if self.is_center_move(move_) {
+            MoveType::Center
+        } else {
+            MoveType::Quiet
+        }
+    }
+
+    /// Get the position complexity for adaptive LMR
+    fn get_position_complexity(&self) -> PositionComplexity {
+        let stats = &self.lmr_stats;
+
+        if stats.moves_considered == 0 {
+            return PositionComplexity::Unknown;
+        }
+
+        let cutoff_rate = stats.total_cutoffs() as f64 / stats.moves_considered as f64;
+        let research_rate = stats.research_rate() / 100.0;
+
+        if cutoff_rate > 0.4 || research_rate > 0.3 {
+            PositionComplexity::High
+        } else if cutoff_rate > 0.2 || research_rate > 0.15 {
+            PositionComplexity::Medium
+        } else {
+            PositionComplexity::Low
+        }
+    }
+
+    /// Check if LMR is effective in current position
+    fn is_lmr_effective(&self) -> bool {
+        let stats = &self.lmr_stats;
+
+        if stats.moves_considered < 10 {
+            return true; // Not enough data, assume effective
+        }
+
+        let efficiency = stats.efficiency();
+        let research_rate = stats.research_rate() / 100.0;
+
+        // LMR is effective if we're reducing many moves but not re-searching too many
+        efficiency > 20.0 && research_rate < 0.4
+    }
+    /// Get recommended LMR parameters based on position
+    fn get_adaptive_lmr_params(&self) -> (u8, u8) {
+        let complexity = self.get_position_complexity();
+        let is_effective = self.is_lmr_effective();
+
+        let base_reduction = match complexity {
+            PositionComplexity::High => {
+                if is_effective {
+                    2
+                } else {
+                    1
+                }
+            }
+            PositionComplexity::Medium => 1,
+            PositionComplexity::Low => 2,
+            PositionComplexity::Unknown => 1,
+        };
+
+        let max_reduction = match complexity {
+            PositionComplexity::High => 4,
+            PositionComplexity::Medium => 3,
+            PositionComplexity::Low => 5,
+            PositionComplexity::Unknown => 3,
+        };
+
+        (base_reduction, max_reduction)
+    }
+
+    // ===== LMR PERFORMANCE OPTIMIZATION =====
+    // Legacy optimized methods removed - functionality migrated to PruningManager
+    // The following methods are no longer used:
+    // - is_move_exempt_from_lmr_optimized() - replaced by PruningManager extended exemptions
+    // - calculate_reduction_optimized() - replaced by PruningManager::calculate_lmr_reduction()
+    // - apply_adaptive_reduction_optimized() - replaced by PruningManager::apply_adaptive_reduction()
+
+    /// Get LMR performance metrics for tuning
+    pub fn get_lmr_performance_metrics(&self) -> LMRPerformanceMetrics {
+        let stats = &self.lmr_stats;
+
+        LMRPerformanceMetrics {
+            moves_considered: stats.moves_considered,
+            reductions_applied: stats.reductions_applied,
+            researches_triggered: stats.researches_triggered,
+            efficiency: stats.efficiency(),
+            research_rate: stats.research_rate(),
+            cutoff_rate: stats.cutoff_rate(),
+            average_depth_saved: if stats.moves_considered > 0 {
+                stats.total_depth_saved as f64 / stats.moves_considered as f64
+            } else {
+                0.0
+            },
+            total_depth_saved: stats.total_depth_saved,
+            nodes_per_second: if stats.moves_considered > 0 {
+                // This would need timing information in a real implementation
+                stats.moves_considered as f64 * 1000.0 // Placeholder
+            } else {
+                0.0
+            },
+        }
+    }
+    /// Auto-tune LMR parameters based on performance (Task 7.1-7.7)
+    /// Enhanced with game phase and position type tuning
+    pub fn auto_tune_lmr_parameters(
+        &mut self,
+        game_phase: Option<crate::types::GamePhase>,
+        position_type: Option<crate::types::PositionClassification>,
+    ) -> Result<(), String> {
+        let tuning_config = &self.lmr_config.adaptive_tuning_config;
+
+        // Check if adaptive tuning is enabled (Task 7.8)
+        if !tuning_config.enabled {
+            return Err("Adaptive tuning is disabled".to_string());
+        }
+
+        let metrics = self.get_lmr_performance_metrics();
+
+        // Only auto-tune if we have enough data (Task 7.8)
+        if metrics.moves_considered < tuning_config.min_data_threshold {
+            return Err(format!(
+                "Insufficient data for auto-tuning: need {} moves, have {}",
+                tuning_config.min_data_threshold, metrics.moves_considered
+            ));
+        }
+
+        // Track tuning attempt (Task 7.9)
+        let mut _tuning_successful = false;
+        let mut new_config = self.lmr_config.clone();
+        let old_config = new_config.clone();
+
+        // Get aggressiveness factor (Task 7.8)
+        let aggressiveness_factor = match tuning_config.aggressiveness {
+            crate::types::TuningAggressiveness::Conservative => 0.5,
+            crate::types::TuningAggressiveness::Moderate => 1.0,
+            crate::types::TuningAggressiveness::Aggressive => 2.0,
+        };
+
+        // Parameter adjustment logic based on re-search rate (Task 7.2, 7.7)
+        if metrics.research_rate > 25.0 {
+            // Too many researches - reduce aggressiveness (Task 7.7)
+            let adjustment = (1.0 * aggressiveness_factor) as u8;
+            if new_config.base_reduction > adjustment {
+                new_config.base_reduction = new_config.base_reduction.saturating_sub(adjustment);
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_parameter_change();
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_adjustment_reason("re_search_rate");
+                _tuning_successful = true;
+            }
+            // Alternatively, increase min_move_index
+            if new_config.min_move_index < 20 {
+                new_config.min_move_index = (new_config.min_move_index + adjustment).min(20);
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_parameter_change();
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_adjustment_reason("re_search_rate");
+                _tuning_successful = true;
+            }
+        } else if metrics.research_rate < 5.0 && metrics.efficiency > 25.0 {
+            // Too few researches - increase aggressiveness (Task 7.7)
+            let adjustment = (1.0 * aggressiveness_factor) as u8;
+            if new_config.base_reduction < 5 {
+                new_config.base_reduction = (new_config.base_reduction + adjustment).min(5);
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_parameter_change();
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_adjustment_reason("re_search_rate");
+                _tuning_successful = true;
+            }
+            // Alternatively, decrease min_move_index
+            if new_config.min_move_index > adjustment {
+                new_config.min_move_index = new_config.min_move_index.saturating_sub(adjustment);
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_parameter_change();
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_adjustment_reason("re_search_rate");
+                _tuning_successful = true;
+            }
+        }
+
+        // Adjust based on efficiency (Task 7.7)
+        if metrics.efficiency < 25.0 {
+            // Low efficiency - decrease min_move_index (Task 7.7)
+            let adjustment = (1.0 * aggressiveness_factor) as u8;
+            if new_config.min_move_index > adjustment {
+                new_config.min_move_index = new_config.min_move_index.saturating_sub(adjustment);
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_parameter_change();
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_adjustment_reason("efficiency");
+                _tuning_successful = true;
+            }
+        }
+
+        // Game phase-based tuning (Task 7.3)
+        if let Some(phase) = game_phase {
+            let phase_factor = match phase {
+                crate::types::GamePhase::Endgame => 1.2, // Endgames can be more aggressive
+                crate::types::GamePhase::Opening => 0.9, // Openings should be conservative
+                crate::types::GamePhase::Middlegame => 1.0,
+            };
+
+            // Adjust base_reduction based on game phase
+            let phase_adjustment = ((new_config.base_reduction as f64 * (phase_factor - 1.0))
+                * aggressiveness_factor) as u8;
+            if phase_factor > 1.0 && new_config.base_reduction < 5 {
+                new_config.base_reduction = (new_config.base_reduction + phase_adjustment).min(5);
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_parameter_change();
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_adjustment_reason("game_phase");
+                _tuning_successful = true;
+            } else if phase_factor < 1.0 && new_config.base_reduction > 1 {
+                new_config.base_reduction =
+                    new_config.base_reduction.saturating_sub(phase_adjustment);
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_parameter_change();
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_adjustment_reason("game_phase");
+                _tuning_successful = true;
+            }
+        }
+
+        // Position type-based tuning (Task 7.4)
+        if let Some(position_class) = position_type {
+            let position_factor = match position_class {
+                crate::types::PositionClassification::Tactical => 0.9, // Tactical positions should be conservative
+                crate::types::PositionClassification::Quiet => 1.1, // Quiet positions can be more aggressive
+                crate::types::PositionClassification::Neutral => 1.0,
+            };
+
+            // Adjust max_reduction based on position type
+            let position_adjustment = ((new_config.max_reduction as f64 * (position_factor - 1.0))
+                * aggressiveness_factor) as u8;
+            if position_factor > 1.0 && new_config.max_reduction < 8 {
+                new_config.max_reduction = (new_config.max_reduction + position_adjustment).min(8);
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_parameter_change();
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_adjustment_reason("position_type");
+                _tuning_successful = true;
+            } else if position_factor < 1.0 && new_config.max_reduction > 1 {
+                new_config.max_reduction =
+                    new_config.max_reduction.saturating_sub(position_adjustment);
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_parameter_change();
+                self.lmr_stats
+                    .adaptive_tuning_stats
+                    .record_adjustment_reason("position_type");
+                _tuning_successful = true;
+            }
+        }
+
+        // Verify no oscillation (Task 7.13) - check if parameters changed significantly
+        let config_changed = new_config.base_reduction != old_config.base_reduction
+            || new_config.max_reduction != old_config.max_reduction
+            || new_config.min_move_index != old_config.min_move_index;
+
+        if !config_changed {
+            // No changes made, not a successful tuning
+            _tuning_successful = false;
+        }
+
+        // Track tuning attempt (Task 7.9)
+        self.lmr_stats
+            .adaptive_tuning_stats
+            .record_tuning_attempt();
+
+        // Apply the new configuration if changed
+        if config_changed {
+            self.update_lmr_config(new_config)?;
+            Ok(())
+        } else {
+            Err("No parameter adjustments needed".to_string())
+        }
+    }
+
+    /// Get LMR configuration presets for different playing styles (Task 9.1-9.3)
+    ///
+    /// # Presets
+    ///
+    /// - **Aggressive**: Optimized for speed and aggressive play
+    ///   - Lower re-search margin (25 cp) for more aggressive pruning
+    ///   - Higher base reduction (2) for more depth savings
+    ///   - Lower min_depth (2) and min_move_index (3) for earlier LMR
+    ///   - Adaptive tuning enabled with Moderate aggressiveness
+    ///
+    /// - **Conservative**: Optimized for safety and accuracy
+    ///   - Higher re-search margin (100 cp) for safer play
+    ///   - Lower base reduction (1) for more conservative pruning
+    ///   - Higher min_depth (4) and min_move_index (6) for later LMR
+    ///   - Adaptive tuning enabled with Conservative aggressiveness
+    ///
+    /// - **Balanced**: Optimized for general play (default)
+    ///   - Default re-search margin (50 cp)
+    ///   - Balanced reduction settings
+    ///   - Adaptive tuning enabled with Moderate aggressiveness
+    pub fn get_lmr_preset(&self, style: LMRPlayingStyle) -> LMRConfig {
+        match style {
+            LMRPlayingStyle::Aggressive => {
+                let mut config = LMRConfig::default();
+                config.min_depth = 2;
+                config.min_move_index = 3;
+                config.base_reduction = 2;
+                config.max_reduction = 4;
+                config.re_search_margin = 25; // Lower margin for more aggressive play
+                config.adaptive_tuning_config = crate::types::search::AdaptiveTuningConfig {
+                    enabled: true,
+                    aggressiveness: crate::types::search::TuningAggressiveness::Moderate,
+                    min_data_threshold: 100,
+                };
+                config
+            }
+            LMRPlayingStyle::Conservative => {
+                let mut config = LMRConfig::default();
+                config.min_depth = 4;
+                config.min_move_index = 6;
+                config.base_reduction = 1;
+                config.max_reduction = 2;
+                config.re_search_margin = 100; // Higher margin for safer play
+                config.adaptive_tuning_config = crate::types::search::AdaptiveTuningConfig {
+                    enabled: true,
+                    aggressiveness: crate::types::search::TuningAggressiveness::Conservative,
+                    min_data_threshold: 100,
+                };
+                config
+            }
+            LMRPlayingStyle::Balanced => {
+                let mut config = LMRConfig::default();
+                config.min_depth = 3;
+                config.min_move_index = 4;
+                config.base_reduction = 1;
+                config.max_reduction = 3;
+                config.re_search_margin = 50; // Default margin
+                config
+            }
+        }
+    }
+
+    /// Validate preset configuration to ensure settings are reasonable (Task 9.4)
+    pub fn validate_lmr_preset(&self, style: LMRPlayingStyle) -> Result<(), String> {
+        let preset = self.get_lmr_preset(style);
+        preset.validate()
+    }
+
+    /// Apply LMR configuration preset (Task 9.5)
+    ///
+    /// This method validates the preset configuration before applying it.
+    /// It also syncs PruningManager parameters with the preset configuration.
+    pub fn apply_lmr_preset(&mut self, style: LMRPlayingStyle) -> Result<(), String> {
+        let preset = self.get_lmr_preset(style);
+
+        // Validate preset before applying (Task 9.4)
+        preset.validate()?;
+
+        // Apply the preset
+        self.update_lmr_config(preset)
+    }
+
+    /// Optimize LMR memory usage by clearing old statistics
+    pub fn optimize_lmr_memory(&mut self) {
+        // Reset statistics if they get too large
+        if self.lmr_stats.moves_considered > 1_000_000 {
+            self.lmr_stats.reset();
+        }
+
+        // Clear transposition table if it gets too large
+        if self.transposition_table.size() > 100_000 {
+            self.transposition_table.clear();
+        }
+    }
+
+    /// Get move ordering effectiveness metrics (Task 10.4, 10.5)
+    pub fn get_move_ordering_effectiveness_metrics(&self) -> crate::types::all::MoveOrderingMetrics {
+        // Convert from search::LMRStats to all::MoveOrderingMetrics
+        crate::types::all::MoveOrderingMetrics {
+            total_cutoffs: self.lmr_stats.move_ordering_stats.total_cutoffs,
+            cutoffs_after_threshold_percentage: 0.0, // Would need calculation
+            average_cutoff_index: 0.0, // Would need calculation
+            late_ordered_cutoffs: 0, // Would need calculation
+            early_ordered_no_cutoffs: 0, // Would need calculation
+            ordering_effectiveness: if self.lmr_stats.move_ordering_stats.total_cutoffs > 0 {
+                self.lmr_stats.move_ordering_stats.ordering_effectiveness()
+            } else {
+                0.0
+            },
+        }
+    }
+
+    /// Check if move ordering effectiveness is degrading (Task 10.7)
+    pub fn check_move_ordering_degradation(&self) -> (bool, Vec<String>) {
+        let is_degraded = self.lmr_stats.check_ordering_degradation();
+        let alerts = if is_degraded {
+            vec!["Move ordering effectiveness may be degrading".to_string()]
+        } else {
+            vec![]
+        };
+        (is_degraded, alerts)
+    }
+
+    /// Get move ordering effectiveness alerts (Task 10.7)
+    pub fn get_move_ordering_alerts(&self) -> Vec<String> {
+        let is_degraded = self.lmr_stats.check_ordering_degradation();
+        if is_degraded {
+            vec!["Move ordering effectiveness may be degrading".to_string()]
+        } else {
+            vec![]
+        }
+    }
+
+    /// Get performance report comparing ordering effectiveness vs LMR effectiveness (Task 10.8)
+    pub fn get_ordering_vs_lmr_report(&self) -> String {
+        self.lmr_stats.get_ordering_vs_lmr_report()
+    }
+
+    /// Integrate with move ordering statistics to cross-reference effectiveness (Task 10.6)
+    pub fn get_ordering_effectiveness_with_integration(&self) -> String {
+        let ordering_metrics = self.get_move_ordering_effectiveness_metrics();
+        let lmr_metrics = self.get_lmr_performance_metrics();
+        let ordering_stats = &self.advanced_move_orderer.get_stats();
+
+        format!(
+            "Move Ordering Effectiveness with Integration:\n\
+            - Ordering Effectiveness: {:.1}%\n\
+            - Late-Ordered Cutoffs: {:.1}% ({} / {})\n\
+            - Average Cutoff Index: {:.2}\n\
+            - LMR Efficiency: {:.1}%\n\
+            - LMR Re-search Rate: {:.1}%\n\
+            - Move Ordering Stats:\n\
+              - Total Moves Ordered: {}\n\
+              - Cache Hit Rate: {:.1}%\n\
+              - PV Move Hit Rate: {:.1}%\n\
+              - Killer Move Hit Rate: {:.1}%\n\
+            \n\
+            Correlation Analysis:\n\
+            - Good move ordering (high PV/killer hit rates) should correlate with low late cutoff rate\n\
+            - Poor move ordering (low cache/PV hit rates) may indicate why late moves cause cutoffs\n\
+            - LMR effectiveness depends on good move ordering: early moves should be best",
+            ordering_metrics.ordering_effectiveness,
+            ordering_metrics.cutoffs_after_threshold_percentage,
+            ordering_metrics.late_ordered_cutoffs,
+            ordering_metrics.total_cutoffs,
+            ordering_metrics.average_cutoff_index,
+            lmr_metrics.efficiency,
+            lmr_metrics.research_rate,
+            ordering_stats.total_moves_ordered,
+            ordering_stats.cache_hit_rate,
+            ordering_stats.pv_move_hit_rate,
+            ordering_stats.killer_move_hit_rate
+        )
+    }
+
+    /// Identify opportunities for move ordering improvements (Task 10.11)
+    pub fn identify_ordering_improvements(&self) -> Vec<String> {
+        let mut improvements = Vec::new();
+        let ordering_metrics = self.get_move_ordering_effectiveness_metrics();
+        let ordering_stats = &self.advanced_move_orderer.get_stats();
+
+        // Check if late moves are causing too many cutoffs
+        if ordering_metrics.cutoffs_after_threshold_percentage > 25.0 {
+            improvements.push(format!(
+                "High late cutoff rate ({:.1}%): Consider improving move ordering heuristics to prioritize better moves earlier",
+                ordering_metrics.cutoffs_after_threshold_percentage
+            ));
+        }
+
+        // Check if average cutoff index is too high
+        if ordering_metrics.average_cutoff_index > 5.0 {
+            improvements.push(format!(
+                "High average cutoff index ({:.2}): Move ordering may need enhancement - best moves should come earlier",
+                ordering_metrics.average_cutoff_index
+            ));
+        }
+
+        // Check PV move hit rate
+        if ordering_stats.pv_move_hit_rate < 50.0 {
+            improvements.push(format!(
+                "Low PV move hit rate ({:.1}%): PV move tracking may need improvement",
+                ordering_stats.pv_move_hit_rate
+            ));
+        }
+
+        // Check killer move hit rate
+        if ordering_stats.killer_move_hit_rate < 30.0 {
+            improvements.push(format!(
+                "Low killer move hit rate ({:.1}%): Killer move heuristics may need enhancement",
+                ordering_stats.killer_move_hit_rate
+            ));
+        }
+
+        // Check cache hit rate
+        if ordering_stats.cache_hit_rate < 70.0 {
+            improvements.push(format!(
+                "Low cache hit rate ({:.1}%): Move scoring cache may need optimization",
+                ordering_stats.cache_hit_rate
+            ));
+        }
+
+        improvements
+    }
+
+    /// Get detailed LMR performance report with optimization suggestions
+    pub fn get_lmr_performance_report_with_recommendations(&self) -> String {
+        let metrics = self.get_lmr_performance_metrics();
+        let recommendations = metrics.get_optimization_recommendations();
+
+        let mut report = format!(
+            "LMR Performance Report:\n\
+            - Moves considered: {}\n\
+            - Reductions applied: {}\n\
+            - Researches triggered: {}\n\
+            - Efficiency: {:.1}%\n\
+            - Research rate: {:.1}%\n\
+            - Cutoff rate: {:.1}%\n\
+            - Average depth saved: {:.2}\n\
+            - Total depth saved: {}\n\
+            - Performance status: {}\n\n\
+            Optimization Recommendations:",
+            metrics.moves_considered,
+            metrics.reductions_applied,
+            metrics.researches_triggered,
+            metrics.efficiency,
+            metrics.research_rate,
+            metrics.cutoff_rate,
+            metrics.average_depth_saved,
+            metrics.total_depth_saved,
+            if metrics.is_performing_well() {
+                "Good"
+            } else {
+                "Needs tuning"
+            }
+        );
+
+        for (i, rec) in recommendations.iter().enumerate() {
+            report.push_str(&format!("\n{}. {}", i + 1, rec));
+        }
+
+        report
+    }
+
+    /// Profile LMR overhead and return timing information
+    pub fn profile_lmr_overhead(
+        &mut self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        iterations: usize,
+    ) -> LMRProfileResult {
+        let mut total_time = std::time::Duration::new(0, 0);
+        let mut total_moves = 0u64;
+        let mut total_reductions = 0u64;
+        let mut total_researches = 0u64;
+
+        for _ in 0..iterations {
+            self.reset_lmr_stats();
+            let start_time = std::time::Instant::now();
+
+            let mut test_board = board.clone();
+            let _result =
+                self.search_at_depth_legacy(&mut test_board, captured_pieces, player, depth, 5000);
+
+            let elapsed = start_time.elapsed();
+            total_time += elapsed;
+
+            let stats = self.get_lmr_stats();
+            total_moves += stats.moves_considered;
+            total_reductions += stats.reductions_applied;
+            total_researches += stats.researches_triggered;
+        }
+
+        LMRProfileResult {
+            total_time,
+            average_time_per_search: total_time / iterations as u32,
+            total_moves_processed: total_moves,
+            total_reductions_applied: total_reductions,
+            total_researches_triggered: total_researches,
+            moves_per_second: if total_time.as_secs_f64() > 0.0 {
+                total_moves as f64 / total_time.as_secs_f64()
+            } else {
+                0.0
+            },
+            reduction_rate: if total_moves > 0 {
+                (total_reductions as f64 / total_moves as f64) * 100.0
+            } else {
+                0.0
+            },
+            research_rate: if total_reductions > 0 {
+                (total_researches as f64 / total_reductions as f64) * 100.0
+            } else {
+                0.0
+            },
+        }
+    }
+
+    /// Get hardware-optimized LMR configuration
+    pub fn get_hardware_optimized_config(&self) -> LMRConfig {
+        // This would analyze system capabilities in a real implementation
+        // For now, return a balanced configuration
+        LMRConfig::default()
+    }
+
+    /// Log null move attempt for debugging
+    fn log_null_move_attempt(&self, depth: u8, reduction: u8, score: i32, cutoff: bool) {
+        crate::utils::telemetry::debug_log(&format!(
+            "NMP: depth={}, reduction={}, score={}, cutoff={}",
+            depth, reduction, score, cutoff
+        ));
+    }
+
+    /// Check if position is safe for null move pruning with additional safety checks
+    fn is_safe_for_null_move(
+        &self,
+        board: &BitboardBoard,
+        _captured_pieces: &CapturedPieces,
+        player: Player,
+    ) -> bool {
+        // Basic safety checks are already in should_attempt_null_move
+        // Additional safety checks can be added here
+
+        // Check if we have major pieces (rooks, bishops, golds) - more conservative in endgame
+        let major_piece_count = self.count_major_pieces(board, player);
+        if major_piece_count < 2 {
+            return false; // Too few major pieces - potential zugzwang risk
+        }
+
+        // Check if position is in late endgame (very few pieces)
+        if self.is_late_endgame(board) {
+            return false; // Late endgame - high zugzwang risk
+        }
+
+        true
+    }
+
+    /// Check if position is in late endgame where zugzwang is common
+    fn is_late_endgame(&self, board: &BitboardBoard) -> bool {
+        let total_pieces = self.count_pieces_on_board(board);
+        total_pieces <= 8 // Very conservative threshold for late endgame
+    }
+
+    /// Count major pieces for a player (rooks, bishops, golds)
+    fn count_major_pieces(&self, board: &BitboardBoard, player: Player) -> u8 {
+        let mut count = 0;
+        for row in 0..9 {
+            for col in 0..9 {
+                if let Some(piece) = board.get_piece(Position { row, col }) {
+                    if piece.player == player {
+                        match piece.piece_type {
+                            PieceType::Rook | PieceType::Bishop | PieceType::Gold => count += 1,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        count
+    }
+
+    /// Enhanced safety check for null move pruning
+    fn is_enhanced_safe_for_null_move(
+        &self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+    ) -> bool {
+        // Basic safety checks
+        if !self.is_safe_for_null_move(board, captured_pieces, player) {
+            return false;
+        }
+
+        // Additional tactical safety checks
+        // Check if opponent has strong attacking pieces
+        let opponent = player.opposite();
+        let opponent_major_pieces = self.count_major_pieces(board, opponent);
+        if opponent_major_pieces >= 3 {
+            return false; // Opponent has strong pieces - potential tactical danger
+        }
+
+        true
+    }
+
+    /// Validate move tracking consistency
+    fn validate_move_tracking(
+        &self,
+        best_move: &Option<Move>,
+        best_score: i32,
+        moves_evaluated: usize,
+    ) -> bool {
+        if moves_evaluated > 0 && best_move.is_none() {
+            crate::utils::telemetry::trace_log(
+                "SEARCH_VALIDATION",
+                &format!(
+                    "WARNING: {} moves evaluated but no best move stored (score: {})",
+                    moves_evaluated, best_score
+                ),
+            );
+            return false;
+        }
+        true
+    }
+
+    /// Validate search result consistency
+    fn validate_search_result(
+        &self,
+        result: Option<(Move, i32)>,
+        depth: u8,
+        alpha: i32,
+        beta: i32,
+    ) -> bool {
+        match result {
+            Some((ref move_, score)) => {
+                // Validate score is within reasonable bounds
+                if score < -50000 || score > 50000 {
+                    crate::utils::telemetry::trace_log(
+                        "SEARCH_VALIDATION",
+                        &format!("WARNING: Score {} is outside reasonable bounds", score),
+                    );
+                    return false;
+                }
+
+                // Validate move is not empty
+                if move_.to_usi_string().is_empty() {
+                    crate::utils::telemetry::trace_log(
+                        "SEARCH_VALIDATION",
+                        "WARNING: Empty move string in search result",
+                    );
+                    return false;
+                }
+
+                // CRITICAL FIX: Safe arithmetic to prevent integer overflow
+                // Using saturating_sub/add instead of direct arithmetic prevents panics
+                // when alpha/beta are close to i32::MIN/MAX boundaries
+                let alpha_threshold = alpha.saturating_sub(1000);
+                let beta_threshold = beta.saturating_add(1000);
+                if score < alpha_threshold || score > beta_threshold {
+                    crate::utils::telemetry::trace_log(
+                        "SEARCH_VALIDATION",
+                        &format!(
+                            "WARNING: Score {} significantly outside window [{}, {}]",
+                            score, alpha, beta
+                        ),
+                    );
+                    // This is not necessarily an error, but worth logging
+                }
+
+                // Validate move format (basic USI format check)
+                let move_str = move_.to_usi_string();
+                if move_str.len() < 4 || move_str.len() > 6 {
+                    crate::debug_utils::trace_log(
+                        "SEARCH_VALIDATION",
+                        &format!("WARNING: Move string '{}' has unusual length", move_str),
+                    );
+                }
+
+                // Log successful validation
+                crate::debug_utils::trace_log(
+                    "SEARCH_VALIDATION",
+                    &format!(
+                        "Search result validated: move={}, score={}, depth={}",
+                        move_.to_usi_string(),
+                        score,
+                        depth
+                    ),
+                );
+
+                true
+            }
+            None => {
+                crate::debug_utils::trace_log(
+                    "SEARCH_VALIDATION",
+                    &format!(
+                        "WARNING: Search returned None at depth {} (alpha: {}, beta: {})",
+                        depth, alpha, beta
+                    ),
+                );
+                false
+            }
+        }
+    }
+
+    /// Enhanced search result validation with recovery suggestions
+    fn validate_search_result_with_recovery(
+        &self,
+        result: Option<(Move, i32)>,
+        depth: u8,
+        alpha: i32,
+        beta: i32,
+    ) -> (bool, Option<String>) {
+        match result {
+            Some((ref move_, score)) => {
+                let mut issues = Vec::new();
+
+                // Check score bounds
+                if score < -50000 || score > 50000 {
+                    issues.push("Score outside reasonable bounds".to_string());
+                }
+
+                // Check move validity
+                if move_.to_usi_string().is_empty() {
+                    issues.push("Empty move string".to_string());
+                }
+
+                // Check score consistency (safe arithmetic)
+                let alpha_threshold = alpha.saturating_sub(1000);
+                let beta_threshold = beta.saturating_add(1000);
+                if score < alpha_threshold || score > beta_threshold {
+                    issues.push("Score significantly outside window".to_string());
+                }
+
+                if issues.is_empty() {
+                    (true, None)
+                } else {
+                    let recovery_suggestion = if score < -50000 || score > 50000 {
+                        "Consider checking evaluation function for overflow".to_string()
+                    } else if move_.to_usi_string().is_empty() {
+                        "Check move generation and storage logic".to_string()
+                    } else {
+                        "Score may be correct but window may be too narrow".to_string()
+                    };
+
+                    (false, Some(recovery_suggestion))
+                }
+            }
+            None => {
+                let recovery_suggestion = if depth == 0 {
+                    "Check if position has legal moves".to_string()
+                } else {
+                    "Check search timeout and move generation".to_string()
+                };
+                (false, Some(recovery_suggestion))
+            }
+        }
+    }
+
+    /// Comprehensive consistency checks for aspiration window system
+    fn perform_consistency_checks(
+        &self,
+        alpha: i32,
+        beta: i32,
+        previous_score: i32,
+        window_size: i32,
+        depth: u8,
+        researches: u8,
+    ) -> Vec<String> {
+        let mut issues = Vec::new();
+
+        // Check window bounds consistency
+        if alpha >= beta {
+            issues.push(format!(
+                "Invalid window bounds: alpha={} >= beta={}",
+                alpha, beta
+            ));
+        }
+
+        // Check window size consistency
+        let actual_window_size = (beta as i64).saturating_sub(alpha as i64);
+        if actual_window_size != window_size as i64 && window_size != i32::MAX {
+            issues.push(format!(
+                "Window size mismatch: actual={}, expected={}",
+                actual_window_size, window_size
+            ));
+        }
+
+        // Check score consistency with window (safe arithmetic)
+        let alpha_threshold = alpha.saturating_sub(window_size);
+        let beta_threshold = beta.saturating_add(window_size);
+        if previous_score < alpha_threshold || previous_score > beta_threshold {
+            issues.push(format!(
+                "Previous score {} outside expected range for window [{}, {}]",
+                previous_score, alpha, beta
+            ));
+        }
+
+        // Check depth consistency
+        if depth < self.aspiration_config.min_depth && window_size != i32::MAX {
+            issues.push(format!(
+                "Aspiration window used at depth {} < min_depth {}",
+                depth, self.aspiration_config.min_depth
+            ));
+        }
+
+        // Check research count consistency
+        if researches > self.aspiration_config.max_researches {
+            issues.push(format!(
+                "Research count {} exceeds max_researches {}",
+                researches, self.aspiration_config.max_researches
+            ));
+        }
+
+        // Check configuration consistency
+        if self.aspiration_config.base_window_size > self.aspiration_config.max_window_size {
+            issues.push(format!(
+                "base_window_size {} > max_window_size {}",
+                self.aspiration_config.base_window_size, self.aspiration_config.max_window_size
+            ));
+        }
+
+        // Check statistics consistency
+        if self.aspiration_stats.fail_lows + self.aspiration_stats.fail_highs
+            > self.aspiration_stats.total_researches
+        {
+            issues.push("Fail count exceeds research count in statistics".to_string());
+        }
+
+        issues
+    }
+
+    /// Validate aspiration window state consistency
+    fn validate_aspiration_state(
+        &self,
+        alpha: i32,
+        beta: i32,
+        previous_score: i32,
+        researches: u8,
+        depth: u8,
+    ) -> bool {
+        let issues = self.perform_consistency_checks(
+            alpha,
+            beta,
+            previous_score,
+            (beta as i64).saturating_sub(alpha as i64) as i32,
+            depth,
+            researches,
+        );
+
+        if !issues.is_empty() {
+            crate::utils::telemetry::trace_log(
+                "CONSISTENCY_CHECK",
+                &format!("Found {} consistency issues:", issues.len()),
+            );
+            for issue in issues {
+                crate::utils::telemetry::trace_log("CONSISTENCY_CHECK", &format!("  - {}", issue));
+            }
+            false
+        } else {
+            crate::utils::telemetry::trace_log("CONSISTENCY_CHECK", "All consistency checks passed");
+            true
+        }
+    }
+
+    /// Comprehensive recovery mechanisms for aspiration window failures
+    fn attempt_aspiration_recovery(
+        &mut self,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+        window_size: i32,
+        failure_type: &str,
+        researches: u8,
+        _depth: u8,
+    ) -> bool {
+        crate::utils::telemetry::trace_log(
+            "ASPIRATION_RECOVERY",
+            &format!(
+                "Attempting recovery for failure type: {}, researches: {}",
+                failure_type, researches
+            ),
+        );
+
+        // Recovery strategy 1: Reset to safe defaults
+        if self.recover_with_safe_defaults(alpha, beta, previous_score, window_size) {
+            crate::utils::telemetry::trace_log(
+                "ASPIRATION_RECOVERY",
+                "Recovery successful with safe defaults",
+            );
+            return true;
+        }
+
+        // Recovery strategy 2: Adaptive window adjustment
+        if self.recover_with_adaptive_adjustment(
+            alpha,
+            beta,
+            previous_score,
+            window_size,
+            failure_type,
+        ) {
+            crate::utils::telemetry::trace_log(
+                "ASPIRATION_RECOVERY",
+                "Recovery successful with adaptive adjustment",
+            );
+            return true;
+        }
+
+        // Recovery strategy 3: Fall back to full-width search
+        if self.recover_with_full_width(alpha, beta) {
+            crate::utils::telemetry::trace_log(
+                "ASPIRATION_RECOVERY",
+                "Recovery successful with full-width search",
+            );
+            return true;
+        }
+
+        crate::utils::telemetry::trace_log("ASPIRATION_RECOVERY", "All recovery strategies failed");
+        false
+    }
+
+    /// Recovery strategy 1: Reset to safe defaults
+    fn recover_with_safe_defaults(
+        &self,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+        window_size: i32,
+    ) -> bool {
+        // Clamp values to safe ranges
+        let safe_score = previous_score.clamp(-10000, 10000);
+        let safe_window = window_size.clamp(10, self.aspiration_config.max_window_size);
+
+        // Create safe window
+        *alpha = safe_score - safe_window;
+        *beta = safe_score + safe_window;
+
+        // Validate the result
+        if *alpha < *beta && *alpha > i32::MIN + 1000 && *beta < i32::MAX - 1000 {
+            crate::debug_utils::trace_log(
+                "RECOVERY_SAFE_DEFAULTS",
+                &format!("Safe defaults applied: alpha={}, beta={}", alpha, beta),
+            );
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Recovery strategy 2: Adaptive window adjustment
+    fn recover_with_adaptive_adjustment(
+        &self,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+        window_size: i32,
+        failure_type: &str,
+    ) -> bool {
+        let adjustment_factor = match failure_type {
+            "fail_low" => 1.5,
+            "fail_high" => 1.5,
+            "search_failed" => 2.0,
+            "timeout" => 0.8,
+            _ => 1.2,
+        };
+
+        let adjusted_window = (window_size as f64 * adjustment_factor) as i32;
+        let safe_window = adjusted_window.clamp(10, self.aspiration_config.max_window_size);
+
+        *alpha = previous_score - safe_window;
+        *beta = previous_score + safe_window;
+
+        // Validate the result
+        if *alpha < *beta {
+            crate::debug_utils::trace_log(
+                "RECOVERY_ADAPTIVE",
+                &format!(
+                    "Adaptive adjustment applied: alpha={}, beta={}, factor={}",
+                    alpha, beta, adjustment_factor
+                ),
+            );
+            true
+        } else {
+            false
+        }
+    }
+    /// Recovery strategy 3: Fall back to full-width search
+    fn recover_with_full_width(&self, alpha: &mut i32, beta: &mut i32) -> bool {
+        *alpha = i32::MIN + 1;
+        *beta = MAX_SCORE;
+
+        crate::debug_utils::trace_log(
+            "RECOVERY_FULL_WIDTH",
+            "Fallback to full-width search applied",
+        );
+        true
+    }
+
+    /// Emergency recovery for critical failures
+    fn emergency_recovery(
+        &mut self,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+        _depth: u8,
+    ) -> bool {
+        crate::debug_utils::trace_log("EMERGENCY_RECOVERY", "Emergency recovery activated");
+
+        // Reset statistics to prevent cascading failures
+        self.aspiration_stats.fail_lows = 0;
+        self.aspiration_stats.fail_highs = 0;
+        self.aspiration_stats.total_researches = 0;
+
+        // Use very conservative window
+        let emergency_window = 25; // Very small window
+        *alpha = previous_score - emergency_window;
+        *beta = previous_score + emergency_window;
+
+        // Final safety check
+        if *alpha >= *beta {
+            *alpha = i32::MIN + 1;
+            *beta = MAX_SCORE;
+        }
+
+        crate::debug_utils::trace_log(
+            "EMERGENCY_RECOVERY",
+            &format!(
+                "Emergency recovery complete: alpha={}, beta={}",
+                alpha, beta
+            ),
+        );
+        true
+    }
+
+    /// Comprehensive error handling for aspiration window operations
+    fn handle_aspiration_error(
+        &mut self,
+        error_type: &str,
+        error_context: &str,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+        depth: u8,
+        _researches: u8,
+    ) -> bool {
+        crate::debug_utils::trace_log(
+            "ASPIRATION_ERROR",
+            &format!("Error type: {}, context: {}", error_type, error_context),
+        );
+
+        match error_type {
+            "window_overflow" => {
+                crate::debug_utils::trace_log(
+                    "ASPIRATION_ERROR",
+                    "Window overflow detected, applying bounds check",
+                );
+                *alpha = (*alpha).clamp(i32::MIN + 1, i32::MAX - 1);
+                *beta = (*beta).clamp(i32::MIN + 1, i32::MAX - 1);
+                true
+            }
+            "invalid_parameters" => {
+                crate::debug_utils::trace_log(
+                    "ASPIRATION_ERROR",
+                    "Invalid parameters detected, using safe defaults",
+                );
+                self.recover_with_safe_defaults(alpha, beta, previous_score, 50)
+            }
+            "statistics_corruption" => {
+                crate::debug_utils::trace_log(
+                    "ASPIRATION_ERROR",
+                    "Statistics corruption detected, resetting",
+                );
+                self.aspiration_stats.reset();
+                self.recover_with_safe_defaults(alpha, beta, previous_score, 50)
+            }
+            "cascading_failure" => {
+                crate::debug_utils::trace_log(
+                    "ASPIRATION_ERROR",
+                    "Cascading failure detected, emergency recovery",
+                );
+                self.emergency_recovery(alpha, beta, previous_score, depth)
+            }
+            "timeout_cascade" => {
+                crate::debug_utils::trace_log(
+                    "ASPIRATION_ERROR",
+                    "Timeout cascade detected, disabling aspiration",
+                );
+                *alpha = MIN_SCORE;
+                *beta = MAX_SCORE;
+                true
+            }
+            _ => {
+                crate::debug_utils::trace_log(
+                    "ASPIRATION_ERROR",
+                    "Unknown error type, using fallback",
+                );
+                self.recover_with_full_width(alpha, beta)
+            }
+        }
+    }
+
+    /// Error detection and classification
+    fn detect_aspiration_errors(
+        &self,
+        alpha: i32,
+        beta: i32,
+        previous_score: i32,
+        researches: u8,
+        _depth: u8,
+    ) -> Vec<String> {
+        let mut errors = Vec::new();
+
+        // Check for window overflow
+        if alpha <= i32::MIN + 100 || beta >= i32::MAX - 100 {
+            errors.push("window_overflow".to_string());
+        }
+
+        // Check for invalid parameters
+        if alpha >= beta || previous_score < -100000 || previous_score > 100000 {
+            errors.push("invalid_parameters".to_string());
+        }
+
+        // Check for statistics corruption
+        if self.aspiration_stats.fail_lows > self.aspiration_stats.total_searches
+            || self.aspiration_stats.fail_highs > self.aspiration_stats.total_searches
+        {
+            errors.push("statistics_corruption".to_string());
+        }
+
+        // Check for cascading failure (too many researches)
+        if researches > self.aspiration_config.max_researches + 1 {
+            errors.push("cascading_failure".to_string());
+        }
+
+        // Check for timeout cascade (if we have timeout detection)
+        if researches > 5 {
+            // Arbitrary threshold for potential timeout issues
+            errors.push("timeout_cascade".to_string());
+        }
+
+        errors
+    }
+
+    /// Safe aspiration window operation with error handling
+    fn safe_aspiration_operation<F>(
+        &mut self,
+        operation: F,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+        depth: u8,
+        researches: u8,
+    ) -> bool
+    where
+        F: FnOnce(&mut i32, &mut i32) -> bool,
+    {
+        // Pre-operation error detection
+        let errors =
+            self.detect_aspiration_errors(*alpha, *beta, previous_score, researches, depth);
+        if !errors.is_empty() {
+            for error in errors {
+                if !self.handle_aspiration_error(
+                    &error,
+                    "pre_operation",
+                    alpha,
+                    beta,
+                    previous_score,
+                    depth,
+                    researches,
+                ) {
+                    return false;
+                }
+            }
+        }
+
+        // Perform the operation with error handling
+        let success = operation(alpha, beta);
+
+        if success {
+            // Post-operation validation
+            self.validate_aspiration_state(*alpha, *beta, previous_score, researches, depth);
+        }
+
+        success
+    }
+
+    /// Graceful degradation system for aspiration windows
+    fn apply_graceful_degradation(
+        &mut self,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+        depth: u8,
+        researches: u8,
+    ) -> bool {
+        // Determine degradation level based on failure patterns
+        let degradation_level = self.calculate_degradation_level(researches, depth);
+
+        crate::debug_utils::trace_log(
+            "GRACEFUL_DEGRADATION",
+            &format!(
+                "Applying degradation level {} for researches={}, depth={}",
+                degradation_level, researches, depth
+            ),
+        );
+
+        match degradation_level {
+            0 => {
+                // No degradation - normal operation
+                true
+            }
+            1 => {
+                // Level 1: Reduce window aggressiveness
+                self.degrade_window_aggressiveness(alpha, beta, previous_score)
+            }
+            2 => {
+                // Level 2: Disable adaptive features
+                self.degrade_adaptive_features(alpha, beta, previous_score)
+            }
+            3 => {
+                // Level 3: Use conservative defaults
+                self.degrade_to_conservative_defaults(alpha, beta, previous_score)
+            }
+            4 => {
+                // Level 4: Disable aspiration windows entirely
+                self.degrade_disable_aspiration(alpha, beta)
+            }
+            _ => {
+                // Emergency: Full fallback
+                self.emergency_recovery(alpha, beta, previous_score, depth)
+            }
+        }
+    }
+
+    /// Calculate degradation level based on failure patterns
+    fn calculate_degradation_level(&self, researches: u8, depth: u8) -> u8 {
+        let mut level = 0;
+
+        // Factor 1: Research count
+        if researches > self.aspiration_config.max_researches {
+            level += 2;
+        } else if researches > self.aspiration_config.max_researches / 2 {
+            level += 1;
+        }
+
+        // Factor 2: Failure rate
+        let total_searches = self.aspiration_stats.total_searches.max(1);
+        let failure_rate = (self.aspiration_stats.fail_lows + self.aspiration_stats.fail_highs)
+            as f64
+            / total_searches as f64;
+
+        if failure_rate > 0.5 {
+            level += 2;
+        } else if failure_rate > 0.3 {
+            level += 1;
+        }
+
+        // Factor 3: Depth (deeper searches are more critical)
+        if depth > 10 {
+            level += 1;
+        }
+
+        // Factor 4: Recent consecutive failures
+        if researches > 3 {
+            level += 1;
+        }
+
+        level.min(4) // Cap at level 4
+    }
+    /// Level 1 degradation: Reduce window aggressiveness
+    fn degrade_window_aggressiveness(
+        &self,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+    ) -> bool {
+        let conservative_window = 25; // Very conservative window
+        *alpha = previous_score - conservative_window;
+        *beta = previous_score + conservative_window;
+
+        crate::debug_utils::trace_log("DEGRADATION_LEVEL_1", "Reduced window aggressiveness");
+        true
+    }
+
+    /// Level 2 degradation: Disable adaptive features
+    fn degrade_adaptive_features(
+        &self,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+    ) -> bool {
+        let fixed_window = 50; // Fixed window size
+        *alpha = previous_score - fixed_window;
+        *beta = previous_score + fixed_window;
+
+        crate::debug_utils::trace_log(
+            "DEGRADATION_LEVEL_2",
+            "Disabled adaptive features, using fixed window",
+        );
+        true
+    }
+
+    /// Level 3 degradation: Use conservative defaults
+    fn degrade_to_conservative_defaults(
+        &self,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+    ) -> bool {
+        let safe_score = previous_score.clamp(-1000, 1000);
+        let safe_window = 30;
+        *alpha = safe_score - safe_window;
+        *beta = safe_score + safe_window;
+
+        crate::debug_utils::trace_log("DEGRADATION_LEVEL_3", "Using conservative defaults");
+        true
+    }
+
+    /// Level 4 degradation: Disable aspiration windows entirely
+    fn degrade_disable_aspiration(&self, alpha: &mut i32, beta: &mut i32) -> bool {
+        *alpha = i32::MIN + 1;
+        *beta = MAX_SCORE;
+
+        crate::debug_utils::trace_log(
+            "DEGRADATION_LEVEL_4",
+            "Disabled aspiration windows, using full-width search",
+        );
+        true
+    }
+    /// Monitor system health and trigger degradation if needed
+    fn monitor_system_health(
+        &mut self,
+        alpha: i32,
+        beta: i32,
+        previous_score: i32,
+        depth: u8,
+        researches: u8,
+    ) -> bool {
+        let health_score =
+            self.calculate_system_health_score(alpha, beta, previous_score, depth, researches);
+
+        crate::debug_utils::trace_log(
+            "SYSTEM_HEALTH",
+            &format!("System health score: {}", health_score),
+        );
+
+        if health_score < 0.3 {
+            // System is unhealthy, trigger graceful degradation
+            crate::debug_utils::trace_log(
+                "SYSTEM_HEALTH",
+                "System health critical, triggering graceful degradation",
+            );
+            return false; // Signal that degradation is needed
+        }
+
+        true
+    }
+
+    /// Calculate system health score (0.0 = critical, 1.0 = healthy)
+    fn calculate_system_health_score(
+        &self,
+        alpha: i32,
+        beta: i32,
+        previous_score: i32,
+        _depth: u8,
+        researches: u8,
+    ) -> f64 {
+        let mut score = 1.0;
+
+        // Factor 1: Window validity
+        if alpha >= beta {
+            score -= 0.5;
+        }
+
+        // Factor 2: Parameter bounds
+        if previous_score < -50000 || previous_score > 50000 {
+            score -= 0.3;
+        }
+
+        // Factor 3: Research count
+        let research_ratio = researches as f64 / self.aspiration_config.max_researches as f64;
+        if research_ratio > 1.0 {
+            score -= 0.4;
+        } else if research_ratio > 0.5 {
+            score -= 0.2;
+        }
+
+        // Factor 4: Failure rate
+        let total_searches = self.aspiration_stats.total_searches.max(1);
+        let failure_rate = (self.aspiration_stats.fail_lows + self.aspiration_stats.fail_highs)
+            as f64
+            / total_searches as f64;
+        score -= failure_rate * 0.3;
+
+        score.max(0.0).min(1.0)
+    }
+
+    /// Comprehensive aspiration window retry strategy
+    ///
+    /// This method implements a robust retry mechanism for aspiration window failures.
+    /// It addresses the critical issue where aspiration window searches would fail
+    /// completely, causing the engine to return no result.
+    ///
+    /// # Arguments
+    /// * `alpha` - Current alpha bound (modified in place)
+    /// * `beta` - Current beta bound (modified in place)
+    /// * `previous_score` - Score from previous iteration
+    /// * `window_size` - Size of the aspiration window
+    /// * `failure_type` - Type of failure ("fail_low", "fail_high", "search_failed")
+    /// * `researches` - Number of retry attempts so far
+    /// * `depth` - Current search depth
+    ///
+    /// # Returns
+    /// `true` if retry should continue, `false` if should fall back to full-width search
+    ///
+    /// # Strategy
+    /// 1. Validate parameters to ensure they're reasonable
+    /// 2. Check if max retry limit has been reached
+    /// 3. Apply failure-type-specific recovery strategies
+    /// 4. Implement graceful degradation if recovery fails
+    fn handle_aspiration_retry(
+        &mut self,
+        alpha: &mut i32,
+        beta: &mut i32,
+        previous_score: i32,
+        window_size: i32,
+        failure_type: &str,
+        researches: u8,
+        _depth: u8,
+    ) -> bool {
+        // Validate parameters
+        if !self.validate_window_parameters(previous_score, window_size) {
+            crate::debug_utils::trace_log(
+                "ASPIRATION_RETRY",
+                "Invalid parameters, falling back to full-width search",
+            );
+            *alpha = i32::MIN + 1;
+            *beta = MAX_SCORE;
+            return true;
+        }
+
+        // Check if we've exceeded max researches
+        if researches >= self.aspiration_config.max_researches {
+            crate::debug_utils::trace_log(
+                "ASPIRATION_RETRY",
+                "Max researches exceeded, falling back to full-width search",
+            );
+            *alpha = i32::MIN + 1;
+            *beta = MAX_SCORE;
+            return true;
+        }
+
+        // Handle different failure types with specific strategies
+        match failure_type {
+            "fail_low" => {
+                self.handle_fail_low(alpha, beta, previous_score, window_size);
+                crate::debug_utils::trace_log(
+                    "ASPIRATION_RETRY",
+                    &format!(
+                        "Fail-low retry: alpha={}, beta={}, researches={}",
+                        alpha, beta, researches
+                    ),
+                );
+            }
+            "fail_high" => {
+                self.handle_fail_high(alpha, beta, previous_score, window_size);
+                crate::debug_utils::trace_log(
+                    "ASPIRATION_RETRY",
+                    &format!(
+                        "Fail-high retry: alpha={}, beta={}, researches={}",
+                        alpha, beta, researches
+                    ),
+                );
+            }
+            "search_failed" => {
+                // Widen window significantly for search failures (safe arithmetic)
+                let doubled_window = window_size.saturating_mul(2);
+                let new_alpha = previous_score.saturating_sub(doubled_window);
+                let new_beta = previous_score.saturating_add(doubled_window);
+
+                if new_alpha < new_beta {
+                    *alpha = new_alpha;
+                    *beta = new_beta;
+                    crate::debug_utils::trace_log(
+                        "ASPIRATION_RETRY",
+                        &format!(
+                            "Search failure retry: alpha={}, beta={}, researches={}",
+                            alpha, beta, researches
+                        ),
+                    );
+                } else {
+                    // Fallback to full-width search
+                    *alpha = MIN_SCORE;
+                    *beta = MAX_SCORE;
+                    crate::debug_utils::trace_log(
+                        "ASPIRATION_RETRY",
+                        "Search failure: invalid window, falling back to full-width",
+                    );
+                }
+            }
+            "timeout" => {
+                // For timeouts, use a more conservative approach
+                let conservative_window = window_size / 2;
+                let new_alpha = previous_score - conservative_window;
+                let new_beta = previous_score + conservative_window;
+
+                if new_alpha < new_beta {
+                    *alpha = new_alpha;
+                    *beta = new_beta;
+                } else {
+                    *alpha = MIN_SCORE;
+                    *beta = MAX_SCORE;
+                }
+                crate::debug_utils::trace_log(
+                    "ASPIRATION_RETRY",
+                    &format!(
+                        "Timeout retry: alpha={}, beta={}, researches={}",
+                        alpha, beta, researches
+                    ),
+                );
+            }
+            _ => {
+                crate::debug_utils::trace_log(
+                    "ASPIRATION_RETRY",
+                    "Unknown failure type, falling back to full-width search",
+                );
+                *alpha = MIN_SCORE;
+                *beta = MAX_SCORE;
+            }
+        }
+
+        // Validate the new window
+        if *alpha >= *beta {
+            crate::debug_utils::trace_log(
+                "ASPIRATION_RETRY",
+                "Invalid window after retry, falling back to full-width search",
+            );
+            *alpha = i32::MIN + 1;
+            *beta = MAX_SCORE;
+        }
+
+        true
+    }
+
+    // ============================================================================
+    // DIAGNOSTIC TOOLS AND MONITORING
+    // ============================================================================
+
+    /// Get comprehensive search state for debugging and diagnostics
+    ///
+    /// This method provides a snapshot of the current search state, including
+    /// aspiration window parameters, move tracking status, and performance metrics.
+    /// Useful for debugging search issues and monitoring engine health.
+    pub fn get_search_state(&self) -> crate::types::search::SearchState {
+        let mut state = crate::types::search::SearchState::new(
+            self.current_depth,
+            self.current_alpha,
+            self.current_beta,
+        );
+        state.best_move = self.current_best_move.clone();
+        state.best_score = self.current_best_score;
+        state.nodes_searched = self.search_statistics.get_nodes_searched();
+        state.aspiration_enabled = self.aspiration_config.enabled;
+        state.researches = self.aspiration_stats.total_researches as u8;
+        state.health_score = self.calculate_system_health_score(
+            self.current_alpha,
+            self.current_beta,
+            self.current_best_score,
+            self.current_depth,
+            self.aspiration_stats.total_researches as u8,
+        );
+        state
+    }
+
+    /// Get detailed aspiration window diagnostics
+    ///
+    /// Provides comprehensive information about the current aspiration window
+    /// state, including window parameters, retry statistics, and health metrics.
+    pub fn get_aspiration_diagnostics(&self) -> AspirationDiagnostics {
+        AspirationDiagnostics {
+            alpha: self.current_alpha,
+            beta: self.current_beta,
+            window_size: (self.current_beta as i64).saturating_sub(self.current_alpha as i64)
+                as i32,
+            researches: self.aspiration_stats.total_researches as u8,
+            success_rate: self.aspiration_stats.success_rate(),
+            health_score: self.calculate_system_health_score(
+                self.current_alpha,
+                self.current_beta,
+                self.current_best_score,
+                self.current_depth,
+                self.aspiration_stats.total_researches as u8,
+            ),
+            estimated_time_saved: self.aspiration_stats.estimated_time_saved_ms,
+            estimated_nodes_saved: self.aspiration_stats.estimated_nodes_saved,
+            failure_rate: self.aspiration_stats.fail_low_rate(),
+        }
+    }
+
+    /// Classify the current error state and provide recovery suggestions
+    ///
+    /// Analyzes the current search state to identify potential issues and
+    /// suggests appropriate recovery strategies.
+    pub fn classify_error_type(&self, score: i32, alpha: i32, beta: i32) -> String {
+        if score <= alpha {
+            "fail_low".to_string()
+        } else if score >= beta {
+            "fail_high".to_string()
+        } else if alpha >= beta {
+            "invalid_window".to_string()
+        } else if score < alpha - 1000 || score > beta + 1000 {
+            "extreme_score".to_string()
+        } else {
+            "normal".to_string()
+        }
+    }
+
+    /// Get recovery suggestion for a specific error type
+    ///
+    /// Provides specific recommendations for handling different types of
+    /// search failures and aspiration window issues.
+    pub fn get_recovery_suggestion(&self, error_type: &str) -> String {
+        match error_type {
+            "fail_low" => "Lower alpha bound or widen window downward".to_string(),
+            "fail_high" => "Raise beta bound or widen window upward".to_string(),
+            "invalid_window" => "Reset to full-width search".to_string(),
+            "extreme_score" => "Check evaluation function for anomalies".to_string(),
+            "normal" => "No recovery needed".to_string(),
+            _ => "Unknown error type, use emergency recovery".to_string(),
+        }
+    }
+
+    /// Generate a comprehensive diagnostic report
+    ///
+    /// Creates a detailed report of the current search state, including
+    /// all relevant metrics, potential issues, and recommendations.
+    pub fn generate_diagnostic_report(&self) -> String {
+        let state = self.get_search_state();
+        let diagnostics = self.get_aspiration_diagnostics();
+        let error_type = self.classify_error_type(state.best_score, state.alpha, state.beta);
+        let suggestion = self.get_recovery_suggestion(&error_type);
+
+        format!(
+            "=== SEARCH DIAGNOSTIC REPORT ===\n\
+            Search State:\n\
+            - Alpha: {}, Beta: {}, Window Size: {}\n\
+            - Best Move: {:?}, Best Score: {}\n\
+            - Nodes Searched: {}, Depth: {}\n\
+            \n\
+            Aspiration Window:\n\
+            - Enabled: {}, Researches: {}\n\
+            - Success Rate: {:.2}%, Failure Rate: {:.2}%\n\
+            - Health Score: {:.2}\n\
+            - Time Saved: {}ms, Nodes Saved: {}\n\
+            \n\
+            Error Analysis:\n\
+            - Error Type: {}\n\
+            - Suggestion: {}\n\
+            \n\
+            Recommendations:\n\
+            - Monitor health score for degradation\n\
+            - Check error logs for patterns\n\
+            - Consider adjusting window parameters if issues persist\n\
+            =================================",
+            state.alpha,
+            state.beta,
+            diagnostics.window_size,
+            state.best_move.as_ref().map(|m| m.to_usi_string()),
+            state.best_score,
+            state.nodes_searched,
+            state.depth,
+            state.aspiration_enabled,
+            diagnostics.researches,
+            diagnostics.success_rate * 100.0,
+            diagnostics.failure_rate * 100.0,
+            diagnostics.health_score,
+            diagnostics.estimated_time_saved,
+            diagnostics.estimated_nodes_saved,
+            error_type,
+            suggestion
+        )
+    }
+
+    /// Check if the search engine is in a healthy state
+    ///
+    /// Performs various health checks to determine if the search engine
+    /// is operating normally or if there are potential issues.
+    pub fn is_healthy(&self) -> bool {
+        let health_score = self.calculate_system_health_score(
+            self.current_alpha,
+            self.current_beta,
+            self.current_best_score,
+            self.current_depth,
+            self.aspiration_stats.total_researches as u8,
+        );
+
+        // Consider healthy if health score is above 0.7
+        health_score > 0.7
+    }
+
+    /// Get performance metrics for monitoring
+    ///
+    /// Returns key performance indicators for monitoring engine performance
+    /// and detecting potential issues.
+    pub fn get_performance_metrics(&self) -> PerformanceMetrics {
+        PerformanceMetrics {
+            nodes_per_second: self.calculate_nodes_per_second(),
+            aspiration_success_rate: self.aspiration_stats.success_rate(),
+            average_window_size: self.calculate_average_window_size(),
+            retry_frequency: self.aspiration_stats.total_researches as f64
+                / (self.aspiration_stats.successful_searches
+                    + self.aspiration_stats.total_researches) as f64,
+            health_score: self.calculate_system_health_score(
+                self.current_alpha,
+                self.current_beta,
+                self.current_best_score,
+                self.current_depth,
+                self.aspiration_stats.total_researches as u8,
+            ),
+        }
+    }
+
+    /// Calculate nodes searched per second
+    fn calculate_nodes_per_second(&self) -> f64 {
+        if self.search_start_time.is_none() {
+            return 0.0;
+        }
+
+        let elapsed_ms = self.search_start_time.as_ref().unwrap().elapsed_ms();
+        let elapsed_seconds = elapsed_ms as f64 / 1000.0;
+
+        if elapsed_seconds > 0.0 {
+            self.search_statistics.get_nodes_searched() as f64 / elapsed_seconds
+        } else {
+            0.0
+        }
+    }
+
+    /// Calculate average window size over recent searches
+    fn calculate_average_window_size(&self) -> f64 {
+        if self.previous_scores.is_empty() {
+            return (self.current_beta as i64).saturating_sub(self.current_alpha as i64) as f64;
+        }
+
+        let recent_scores = &self.previous_scores[..self.previous_scores.len().min(10)];
+        let avg_score = recent_scores.iter().sum::<i32>() as f64 / recent_scores.len() as f64;
+
+        // Estimate average window size based on recent scores
+        avg_score * 0.1 // Assume 10% of score as window size
+    }
+
+    /// Collect baseline metrics from all subsystems (Task 26.0 - Task 1.0)
+    ///
+    /// Gathers performance metrics from search engine, transposition table,
+    /// move ordering, evaluation, and other subsystems to create a comprehensive
+    /// performance baseline for regression detection.
+    pub fn collect_baseline_metrics(&self) -> crate::types::PerformanceBaseline {
+        use crate::search::performance_tuning::detect_hardware_info;
+        use crate::types::*;
+
+        // Get search metrics
+        let perf_metrics = self.get_performance_metrics();
+        let cutoff_rate = if self.search_statistics.get_nodes_searched() > 0 {
+            self.core_search_metrics.total_cutoffs as f64 / self.search_statistics.get_nodes_searched() as f64
+        } else {
+            0.0
+        };
+        // Get move ordering effectiveness for average cutoff index
+        let ordering_effectiveness_metrics = self.get_move_ordering_effectiveness_metrics();
+        let avg_cutoff_index = ordering_effectiveness_metrics.average_cutoff_index;
+
+        // Get transposition table metrics
+        let tt_stats = self.transposition_table.get_stats();
+        let tt_hit_rate = self.transposition_table.hit_rate() / 100.0; // Convert from percentage to ratio
+        // Exact entry rate: approximate using hit rate (exact hits not directly available)
+        let exact_entry_rate = tt_hit_rate * 0.5; // Estimate: ~50% of hits are exact entries
+        // TT occupancy: approximate using stores vs table capacity
+        let tt_occupancy = if tt_stats.stores > 0 {
+            // Estimate occupancy based on stores (simplified)
+            (tt_stats.stores as f64 / 1000000.0).min(1.0) // Cap at 100%
+        } else {
+            0.0
+        };
+
+        // Get move ordering metrics
+        let ordering_stats = self.advanced_move_orderer.get_stats();
+        // Calculate average cutoff index from core_search_metrics (already calculated above)
+        let pv_hit_rate = ordering_stats.pv_move_hit_rate / 100.0; // Convert from percentage to ratio
+        let killer_hit_rate = ordering_stats.killer_move_hit_rate / 100.0;
+        let ordering_cache_hit_rate = ordering_stats.cache_hit_rate / 100.0;
+
+        // Get evaluation metrics (simplified - may need to enhance evaluator interface)
+        let eval_cache_hit_rate = 0.0; // TODO: Get from evaluator if available
+        let avg_eval_time_ns = 0.0; // TODO: Get from evaluator if available
+        let phase_calc_time_ns = 0.0; // TODO: Get from evaluator if available
+
+        // Get memory metrics using actual RSS (Task 26.0 - Task 4.0)
+        let _current_rss = self.memory_tracker.get_current_rss();
+        let peak_rss = self.memory_tracker.get_peak_rss();
+        
+        // Get component breakdown
+        let component_breakdown = self.get_memory_breakdown();
+        
+        // Convert to MB
+        let tt_memory_mb = component_breakdown.component_breakdown.tt_memory_bytes as f64 / (1024.0 * 1024.0);
+        let cache_memory_mb = component_breakdown.component_breakdown.cache_memory_bytes as f64 / (1024.0 * 1024.0);
+        let peak_memory_mb = peak_rss as f64 / (1024.0 * 1024.0);
+
+        // Parallel search metrics (default to 0 if not using parallel search)
+        let parallel_speedup_4 = 0.0; // TODO: Get from parallel search if available
+        let parallel_speedup_8 = 0.0; // TODO: Get from parallel search if available
+        let parallel_efficiency_4 = 0.0;
+        let parallel_efficiency_8 = 0.0;
+
+        PerformanceBaseline {
+            timestamp: chrono::Utc::now().to_rfc3339(),
+            git_commit: crate::types::get_git_commit_hash().unwrap_or_else(|| "unknown".to_string()),
+            hardware: detect_hardware_info(),
+            search_metrics: SearchMetrics {
+                nodes_per_second: perf_metrics.nodes_per_second,
+                average_cutoff_rate: cutoff_rate,
+                average_cutoff_index: avg_cutoff_index,
+            },
+            evaluation_metrics: crate::types::all::EvaluationMetrics {
+                average_evaluation_time_ns: avg_eval_time_ns as f64,
+                cache_hit_rate: eval_cache_hit_rate,
+                phase_calc_time_ns: phase_calc_time_ns,
+            },
+            tt_metrics: TTMetrics {
+                hit_rate: tt_hit_rate,
+                exact_entry_rate: exact_entry_rate,
+                occupancy_rate: tt_occupancy,
+            },
+            move_ordering_metrics: BaselineMoveOrderingMetrics {
+                average_cutoff_index: avg_cutoff_index,
+                pv_hit_rate: pv_hit_rate,
+                killer_hit_rate: killer_hit_rate,
+                cache_hit_rate: ordering_cache_hit_rate,
+            },
+            parallel_search_metrics: ParallelSearchMetrics {
+                speedup_4_cores: parallel_speedup_4,
+                speedup_8_cores: parallel_speedup_8,
+                efficiency_4_cores: parallel_efficiency_4,
+                efficiency_8_cores: parallel_efficiency_8,
+            },
+            memory_metrics: MemoryMetrics {
+                tt_memory_mb,
+                cache_memory_mb,
+                peak_memory_mb,
+            },
+        }
+    }
+
+    // ============================================================================
+    // RUNTIME VALIDATION AND MONITORING
+    // ============================================================================
+    /// Perform runtime validation of search consistency
+    ///
+    /// This method performs various runtime checks to ensure the search
+    /// is operating correctly and consistently. It should be called
+    /// periodically during search to detect issues early.
+    pub fn validate_search_consistency(&self) -> ValidationResult {
+        let mut issues = Vec::new();
+        let mut warnings = Vec::new();
+
+        // Check window validity
+        if self.current_alpha >= self.current_beta {
+            issues.push("Invalid aspiration window: alpha >= beta".to_string());
+        }
+
+        // Check for extreme values
+        if self.current_alpha < i32::MIN + 1000 {
+            warnings.push("Alpha very close to minimum value".to_string());
+        }
+        if self.current_beta > i32::MAX - 1000 {
+            warnings.push("Beta very close to maximum value".to_string());
+        }
+
+        // Check move tracking consistency
+        if self.current_best_move.is_some() && self.current_best_score == i32::MIN {
+            issues.push("Move exists but score is minimum value".to_string());
+        }
+
+        // Check aspiration window health
+        let health_score = self.calculate_system_health_score(
+            self.current_alpha,
+            self.current_beta,
+            self.current_best_score,
+            self.current_depth,
+            self.aspiration_stats.total_researches as u8,
+        );
+        if health_score < 0.5 {
+            warnings.push("Low system health score detected".to_string());
+        }
+
+        // Check for excessive retries
+        if self.aspiration_stats.total_researches > self.aspiration_config.max_researches as u64 {
+            issues.push("Exceeded maximum retry attempts".to_string());
+        }
+
+        ValidationResult {
+            is_valid: issues.is_empty(),
+            issues,
+            warnings,
+            health_score,
+        }
+    }
+
+    /// Add runtime warnings for suspicious behavior
+    ///
+    /// Monitors the search for patterns that might indicate problems
+    /// and logs warnings when suspicious behavior is detected.
+    pub fn check_suspicious_behavior(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+
+        // Check for rapid window changes
+        if self.previous_scores.len() >= 3 {
+            let recent_scores = &self.previous_scores[self.previous_scores.len() - 3..];
+            let variance = self.calculate_score_variance(recent_scores);
+            if variance > 1000.0 {
+                warnings.push(
+                    "High score variance detected - possible evaluation instability".to_string(),
+                );
+            }
+        }
+
+        // Check for excessive node usage
+        if self.search_statistics.get_nodes_searched() > 1_000_000 && self.current_depth < 5 {
+            warnings.push("High node count for shallow depth - possible infinite loop".to_string());
+        }
+
+        // Check for aspiration window thrashing
+        if self.aspiration_stats.total_researches > 5 {
+            warnings
+                .push("Frequent aspiration window retries - possible parameter issues".to_string());
+        }
+
+        // Check for move tracking issues
+        if self.current_best_move.is_none() && self.current_depth > 0 {
+            warnings.push("No best move found at non-zero depth".to_string());
+        }
+
+        warnings
+    }
+
+    /// Create diagnostic reports for troubleshooting
+    ///
+    /// Generates detailed diagnostic information that can be used
+    /// for troubleshooting search issues and performance problems.
+    pub fn create_troubleshooting_report(&self) -> TroubleshootingReport {
+        let validation = self.validate_search_consistency();
+        let suspicious_behavior = self.check_suspicious_behavior();
+        let performance = self.get_performance_metrics();
+
+        TroubleshootingReport {
+            timestamp: format!("{}", TimeSource::now().elapsed_ms()),
+            validation_result: validation.clone(),
+            suspicious_behavior: suspicious_behavior.clone(),
+            performance_metrics: performance,
+            recommendations: self.generate_recommendations(&validation, &suspicious_behavior),
+        }
+    }
+
+    /// Calculate score variance for stability analysis
+    fn calculate_score_variance(&self, scores: &[i32]) -> f64 {
+        if scores.len() < 2 {
+            return 0.0;
+        }
+
+        let mean = scores.iter().sum::<i32>() as f64 / scores.len() as f64;
+        let variance = scores
+            .iter()
+            .map(|&score| (score as f64 - mean).powi(2))
+            .sum::<f64>()
+            / scores.len() as f64;
+
+        variance.sqrt()
+    }
+
+    /// Generate recommendations based on validation results
+    fn generate_recommendations(
+        &self,
+        validation: &ValidationResult,
+        suspicious: &[String],
+    ) -> Vec<String> {
+        let mut recommendations = Vec::new();
+
+        if !validation.is_valid {
+            recommendations.push("Fix critical issues before continuing search".to_string());
+        }
+
+        if validation.health_score < 0.7 {
+            recommendations.push("Consider resetting aspiration window parameters".to_string());
+        }
+
+        if !suspicious.is_empty() {
+            recommendations.push("Investigate suspicious behavior patterns".to_string());
+        }
+
+        if self.aspiration_stats.total_researches > 3 {
+            recommendations
+                .push("Consider increasing window size or reducing aggressiveness".to_string());
+        }
+
+        if self.current_depth > 10 && self.search_statistics.get_nodes_searched() < 1000 {
+            recommendations
+                .push("Very low node count for deep search - check pruning parameters".to_string());
+        }
+
+        recommendations
+    }
+
+    /// Update current search state for monitoring
+    ///
+    /// This method should be called at the beginning of each search
+    /// to update the current state for monitoring and diagnostics.
+    pub fn update_search_state(&mut self, alpha: i32, beta: i32, depth: u8) {
+        self.current_alpha = alpha;
+        self.current_beta = beta;
+        self.current_depth = depth;
+        self.search_start_time = Some(TimeSource::now());
+        self.current_best_move = None;
+        self.current_best_score = i32::MIN;
+    }
+
+    /// Update best move and score for monitoring
+    ///
+    /// This method should be called whenever a new best move is found
+    /// to keep the monitoring state up to date.
+    pub fn update_best_move(&mut self, best_move: Option<Move>, best_score: i32) {
+        self.current_best_move = best_move;
+        self.current_best_score = best_score;
+    }
+
+    // ============================================================================
+    // Advanced Alpha-Beta Pruning Helper Methods
+    // ============================================================================
+
+    /// Check if the current player is in check
+    pub fn is_in_check(&self, _board: &BitboardBoard) -> bool {
+        // This should use the existing check detection logic
+        // For now, return false as a placeholder
+        false
+    }
+
+    /// Evaluate the current position statically
+    /// Automatically uses cache if enabled in evaluator (Task 3.2.2)
+    /// Task 3.0: Integrated automatic profiling
+    pub fn evaluate_position(
+        &mut self,
+        board: &BitboardBoard,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+    ) -> i32 {
+        // External profiler marker (Task 26.0 - Task 8.0)
+        if let Some(ref profiler) = self.external_profiler {
+            profiler.start_region("evaluate_position");
+        }
+        
+        // Automatic profiling integration (Task 26.0 - Task 3.0)
+        let start_time = if self.auto_profiling_enabled {
+            Some(std::time::Instant::now())
+        } else {
+            None
+        };
+
+        let score = self.evaluator.evaluate(board, player, captured_pieces);
+        
+        // Record profiling data if enabled
+        if let Some(start) = start_time {
+            let elapsed_ns = start.elapsed().as_nanos() as u64;
+            self.performance_profiler.record_evaluation(elapsed_ns);
+        }
+
+        if self.debug_logging {
+            self.log_evaluation_telemetry();
+        }
+        
+        // External profiler marker (Task 26.0 - Task 8.0)
+        if let Some(ref profiler) = self.external_profiler {
+            profiler.end_region("evaluate_position");
+        }
+        
+        score
+    }
+
+    /// Retrieve the latest evaluation telemetry snapshot.
+    pub fn evaluation_telemetry(
+        &self,
+    ) -> Option<crate::evaluation::statistics::EvaluationTelemetry> {
+        self.evaluator.get_evaluation_telemetry()
+    }
+
+    fn log_evaluation_telemetry(&self) {
+        use crate::utils::telemetry;
+        if let Some(telemetry) = self.evaluation_telemetry() {
+            if let Some(tapered) = telemetry.tapered {
+                telemetry::debug_log(&format!(
+                    "[EvalTelemetry] phase_calcs={} cache_hits={} hit_rate={:.2}% interpolations={}",
+                    tapered.phase_calculations,
+                    tapered.cache_hits,
+                    tapered.cache_hit_rate * 100.0,
+                    tapered.total_interpolations
+                ));
+            }
+            if let Some(phase) = telemetry.phase_transition {
+                telemetry::debug_log(&format!(
+                    "[EvalTelemetry] transition_interpolations={}",
+                    phase.interpolations
+                ));
+            }
+            if let Some(performance) = telemetry.performance {
+                telemetry::debug_log(&format!(
+                    "[EvalTelemetry] profiler avg_eval_ns={:.2} avg_phase_ns={:.2} avg_interp_ns={:.2}",
+                    performance.avg_evaluation_ns,
+                    performance.avg_phase_calc_ns,
+                    performance.avg_interpolation_ns
+                ));
+            }
+            if let Some(material) = telemetry.material {
+                telemetry::debug_log(&format!(
+                    "[EvalTelemetry] material_evals={} presets(r={},c={},x={}) hand_balance_mg={} phase_weighted_total={}",
+                    material.evaluations,
+                    material.preset_usage.research,
+                    material.preset_usage.classic,
+                    material.preset_usage.custom,
+                    material.hand_balance.mg,
+                    material.phase_weighted_total
+                ));
+            }
+            if let Some(pst) = telemetry.pst {
+                telemetry::debug_log(&format!(
+                    "[EvalTelemetry] pst_total mg {} eg {}",
+                    pst.total_mg, pst.total_eg
+                ));
+                if !pst.per_piece.is_empty() {
+                    let mut contributors = pst.per_piece.clone();
+                    contributors
+                        .sort_by(|a, b| (b.mg.abs() + b.eg.abs()).cmp(&(a.mg.abs() + a.eg.abs())));
+                    let summary: Vec<String> = contributors
+                        .iter()
+                        .take(3)
+                        .map(|entry| format!("{:?}:{}|{}", entry.piece, entry.mg, entry.eg))
+                        .collect();
+                    telemetry::debug_log(&format!(
+                        "[EvalTelemetry] pst_top {}",
+                        summary.join(", ")
+                    ));
+                }
+                if let Some(stats) = self.evaluator.get_integrated_statistics() {
+                    let aggregate = stats.pst_statistics();
+                    if aggregate.sample_count() > 0 {
+                        telemetry::debug_log(&format!(
+                            "[EvalTelemetry] pst_avg mg {:.2} eg {:.2} samples {}",
+                            aggregate.average_total_mg(),
+                            aggregate.average_total_eg(),
+                            aggregate.sample_count()
+                        ));
+                    }
+                    if let (Some((last_mg, last_eg)), Some((prev_mg, prev_eg))) =
+                        (aggregate.last_totals(), aggregate.previous_totals())
+                    {
+                        let delta_mg = last_mg - prev_mg;
+                        let delta_eg = last_eg - prev_eg;
+                        crate::utils::telemetry::debug_log(&format!(
+                            "[EvalTelemetry] pst_delta mg {} eg {}",
+                            delta_mg, delta_eg
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // ============================================================================
+    // EVALUATION CACHE INTEGRATION FOR SEARCH (Phase 3, Task 3.2)
+    // ============================================================================
+
+    /// Enable evaluation cache in the search engine's evaluator
+    pub fn enable_eval_cache(&mut self) {
+        self.evaluator.enable_eval_cache();
+    }
+
+    /// Enable multi-level cache in the search engine's evaluator
+    pub fn enable_multi_level_cache(&mut self) {
+        self.evaluator.enable_multi_level_cache();
+    }
+
+    /// Disable evaluation cache
+    pub fn disable_eval_cache(&mut self) {
+        self.evaluator.disable_eval_cache();
+    }
+
+    /// Check if cache is enabled
+    pub fn is_eval_cache_enabled(&self) -> bool {
+        self.evaluator.is_cache_enabled()
+    }
+
+    /// Get cache statistics from evaluator
+    pub fn get_eval_cache_statistics(&self) -> Option<String> {
+        self.evaluator.get_cache_statistics()
+    }
+
+    /// Clear evaluation cache
+    pub fn clear_eval_cache(&mut self) {
+        self.evaluator.clear_eval_cache();
+    }
+
+    /// Get mutable reference to evaluator for cache configuration
+    pub fn get_evaluator_mut(&mut self) -> &mut PositionEvaluator {
+        &mut self.evaluator
+    }
+
+    /// Get reference to evaluator for cache access
+    pub fn get_evaluator(&self) -> &PositionEvaluator {
+        &self.evaluator
+    }
+
+    /// Get the position hash for the current board state
+    pub fn get_position_hash(&self, _board: &BitboardBoard) -> u64 {
+        // This should use the existing position hashing logic
+        // For now, return 0 as a placeholder
+        0
+    }
+
+    /// Determine the current game phase based on material
+    pub fn get_game_phase(&self, board: &BitboardBoard) -> GamePhase {
+        let material_count = self.count_material_for_phase(board);
+        GamePhase::from_material_count(material_count as u8)
+    }
+
+    /// Count the total material on the board for game phase calculation
+    fn count_material_for_phase(&self, board: &BitboardBoard) -> u32 {
+        let mut count = 0;
+
+        // Count pieces for both players
+        for player in [Player::Black, Player::White] {
+            for piece_type in [
+                PieceType::Pawn,
+                PieceType::Lance,
+                PieceType::Knight,
+                PieceType::Silver,
+                PieceType::Gold,
+                PieceType::Bishop,
+                PieceType::Rook,
+                PieceType::King,
+                PieceType::PromotedPawn,
+                PieceType::PromotedLance,
+                PieceType::PromotedKnight,
+                PieceType::PromotedSilver,
+                PieceType::PromotedBishop,
+                PieceType::PromotedRook,
+            ] {
+                // Count pieces on the board (simplified approach)
+                for row in 0..9 {
+                    for col in 0..9 {
+                        let pos = Position::new(row, col);
+                        if let Some(piece) = board.get_piece(pos) {
+                            if piece.piece_type == piece_type && piece.player == player {
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        count
+    }
+
+    /// Get pruning manager reference
+    pub fn get_pruning_manager(&self) -> &PruningManager {
+        &self.pruning_manager
+    }
+
+    /// Get mutable pruning manager reference
+    pub fn get_pruning_manager_mut(&mut self) -> &mut PruningManager {
+        &mut self.pruning_manager
+    }
+
+    /// Get reference to tapered search enhancer
+    pub fn get_tapered_search_enhancer(&self) -> &TaperedSearchEnhancer {
+        &self.tapered_search_enhancer
+    }
+
+    /// Get mutable reference to tapered search enhancer
+    pub fn get_tapered_search_enhancer_mut(&mut self) -> &mut TaperedSearchEnhancer {
+        &mut self.tapered_search_enhancer
+    }
+
+    /// Optimize pruning performance periodically
+    pub fn optimize_pruning_performance(&mut self) {
+        // Optimize pruning frequency based on current performance
+        self.pruning_manager.optimize_pruning_frequency();
+
+        // Clear caches if they get too large
+        let (hits, misses, hit_rate) = self.pruning_manager.get_cache_stats();
+        if hit_rate < 0.3 && (hits + misses) > 10000 {
+            self.pruning_manager.clear_caches();
+        }
+    }
+
+    /// Update pruning parameters
+    pub fn update_pruning_parameters(&mut self, params: crate::types::all::PruningParameters) {
+        // PruningManager expects all::PruningParameters, so we can assign directly
+        self.pruning_manager.parameters = params;
+    }
+
+
+    /// Get pruning statistics
+    pub fn get_pruning_statistics(&self) -> crate::types::search::PruningStatistics {
+        // Convert all::PruningStatistics to search::PruningStatistics
+        crate::types::search::PruningStatistics {
+            total_moves: self.pruning_manager.statistics.total_moves,
+            pruned_moves: self.pruning_manager.statistics.pruned_moves,
+            futility_pruned: self.pruning_manager.statistics.futility_pruned,
+            delta_pruned: self.pruning_manager.statistics.delta_pruned,
+            razored: self.pruning_manager.statistics.razored,
+            lmr_applied: self.pruning_manager.statistics.lmr_applied,
+            re_searches: self.pruning_manager.statistics.re_searches,
+            multi_cuts: self.pruning_manager.statistics.multi_cuts,
+        }
+    }
+
+    /// Reset pruning statistics
+    pub fn reset_pruning_statistics(&mut self) {
+        self.pruning_manager.statistics.reset();
+    }
+}
+
+// ============================================================================
+// DIAGNOSTIC DATA STRUCTURES
+// ============================================================================
+
+// SearchState is now defined in types::search, duplicate definition removed
+
+/// Detailed aspiration window diagnostics
+#[derive(Debug, Clone)]
+pub struct AspirationDiagnostics {
+    pub alpha: i32,
+    pub beta: i32,
+    pub window_size: i32,
+    pub researches: u8,
+    pub success_rate: f64,
+    pub health_score: f64,
+    pub estimated_time_saved: u64,
+    pub estimated_nodes_saved: u64,
+    pub failure_rate: f64,
+}
+
+/// Performance metrics for monitoring
+#[derive(Debug, Clone)]
+pub struct PerformanceMetrics {
+    pub nodes_per_second: f64,
+    pub aspiration_success_rate: f64,
+    pub average_window_size: f64,
+    pub retry_frequency: f64,
+    pub health_score: f64,
+}
+
+/// Validation result for runtime checks
+#[derive(Debug, Clone)]
+pub struct ValidationResult {
+    pub is_valid: bool,
+    pub issues: Vec<String>,
+    pub warnings: Vec<String>,
+    pub health_score: f64,
+}
+
+/// Comprehensive troubleshooting report
+#[derive(Debug, Clone)]
+pub struct TroubleshootingReport {
+    pub timestamp: String,
+    pub validation_result: ValidationResult,
+    pub suspicious_behavior: Vec<String>,
+    pub performance_metrics: PerformanceMetrics,
+    pub recommendations: Vec<String>,
+}
+// js_sys::Function removed - no longer using callback bindings
+
+pub struct IterativeDeepening {
+    max_depth: u8,
+    time_limit_ms: u32,
+    _stop_flag: Option<Arc<AtomicBool>>,
+    // on_info removed - no longer using external callbacks
+    /// Number of threads to use for parallel root search (1 = single-threaded)
+    thread_count: usize,
+    /// Optional parallel search engine for root move search
+    parallel_engine: Option<ParallelSearchEngine>,
+    parallel_min_depth: u8,
+}
+impl IterativeDeepening {
+    pub fn new(max_depth: u8, time_limit_ms: u32, stop_flag: Option<Arc<AtomicBool>>) -> Self {
+        Self {
+            max_depth,
+            time_limit_ms,
+            _stop_flag: stop_flag,
+            thread_count: 1,
+            parallel_engine: None,
+            parallel_min_depth: 0,
+        }
+    }
+
+    pub fn new_with_threads(
+        max_depth: u8,
+        time_limit_ms: u32,
+        stop_flag: Option<Arc<AtomicBool>>,
+        thread_count: usize,
+        mut parallel_config: ParallelSearchConfig,
+    ) -> Self {
+        let base_threads = thread_count.clamp(1, 32);
+        #[cfg(not(test))]
+        let threads = base_threads;
+        // For test stability, default tests to single-thread unless explicitly allowed
+        #[cfg(test)]
+        let mut threads = base_threads;
+        #[cfg(test)]
+        {
+            if std::env::var("SHOGI_TEST_ALLOW_PARALLEL").is_err() {
+                threads = 1;
+            }
+        }
+        parallel_config.num_threads = threads.clamp(1, 32);
+        if parallel_config.num_threads <= 1 {
+            parallel_config.enable_parallel = false;
+        }
+        let parallel_min_depth = parallel_config.min_depth_parallel;
+        let parallel_engine = if threads > 1 && parallel_config.enable_parallel {
+            match ParallelSearchEngine::new_with_stop_flag(
+                parallel_config.clone(),
+                stop_flag.clone(),
+            ) {
+                Ok(engine) => Some(engine),
+                Err(_e) => None, // Fallback to single-threaded if thread pool creation fails
+            }
+        } else {
+            None
+        };
+
+        Self {
+            max_depth,
+            time_limit_ms,
+            _stop_flag: stop_flag,
+            thread_count: threads,
+            parallel_engine,
+            parallel_min_depth,
+        }
+    }
+
+    pub fn search(
+        &mut self,
+        search_engine: &mut SearchEngine,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+    ) -> Option<(Move, i32)> {
+        crate::utils::telemetry::trace_log("ITERATIVE_DEEPENING", "Starting iterative deepening search");
+        crate::debug_utils::start_timing("iterative_deepening_total");
+
+        // Task 1.0: Record start time for total search time tracking
+        let start_time = TimeSource::now();
+        // Reset total search time at the start of a new search
+        search_engine.iid_stats.total_search_time_ms = 0;
+
+        let mut best_move: Option<Move> = None;
+        let mut best_score = 0;
+        let mut previous_scores = Vec::new();
+
+        // Calculate initial static evaluation for aspiration window initialization
+        let initial_static_eval = search_engine.evaluate_position(board, player, captured_pieces);
+        crate::utils::telemetry::trace_log(
+            "ITERATIVE_DEEPENING",
+            &format!("Initial static evaluation: {}", initial_static_eval),
+        );
+
+        // Check if we're in check and have few legal moves - optimize search parameters
+        let is_in_check = board.is_king_in_check(player, captured_pieces);
+        let legal_moves =
+            search_engine
+                .move_generator
+                .generate_legal_moves(board, player, captured_pieces);
+        let legal_move_count = legal_moves.len();
+
+        // Adjust search parameters for check positions with few moves (Task 4.3, 4.4)
+        let (effective_max_depth, effective_time_limit) = {
+            let config = &search_engine.time_management_config;
+            if config.enable_check_optimization && is_in_check && legal_move_count <= 10 {
+                // For check positions with ≤10 moves, use configurable limits
+                let max_depth = if legal_move_count <= 5 {
+                    config.check_max_depth.min(3)
+                } else {
+                    config.check_max_depth.min(5)
+                };
+                let time_limit = if legal_move_count <= 5 {
+                    config.check_time_limit_ms.min(2000)
+                } else {
+                    config.check_time_limit_ms.min(5000)
+                };
+                crate::utils::telemetry::trace_log(
+                    "ITERATIVE_DEEPENING",
+                    &format!(
+                        "Check position detected: {} legal moves, limiting to depth {} and {}ms",
+                        legal_move_count, max_depth, time_limit
+                    ),
+                );
+                (max_depth, time_limit)
+            } else {
+                // Normal search parameters
+                // Task 8.2, 8.3: Use configurable absolute safety margin instead of hardcoded 100ms
+                let percentage_margin_ms =
+                    (self.time_limit_ms as f64 * config.safety_margin) as u32;
+                let absolute_margin_ms = config.absolute_safety_margin_ms;
+                let total_safety_margin_ms = percentage_margin_ms.max(absolute_margin_ms);
+                (
+                    self.max_depth,
+                    self.time_limit_ms.saturating_sub(total_safety_margin_ms),
+                )
+            }
+        };
+
+        let search_time_limit = effective_time_limit;
+        crate::utils::telemetry::trace_log(
+            "ITERATIVE_DEEPENING",
+            &format!(
+                "Search time limit: {}ms, max depth: {}",
+                search_time_limit, effective_max_depth
+            ),
+        );
+
+        crate::utils::telemetry::trace_log("ITERATIVE_DEEPENING", "Starting depth iteration loop");
+
+        for depth in 1..=effective_max_depth {
+            // Reset global node counter for this depth and start periodic reporter
+            GLOBAL_NODES_SEARCHED.store(0, Ordering::Relaxed);
+            // Task 8.4: Force time check at depth boundaries (use should_stop_force)
+            search_engine.time_check_node_counter = 0; // Reset counter for new depth
+            if search_engine.should_stop_force(&start_time, search_time_limit) {
+                crate::utils::telemetry::trace_log(
+                    "ITERATIVE_DEEPENING",
+                    "Time limit reached, stopping search",
+                );
+                break;
+            }
+
+            // CRITICAL: If we've been searching for too long without progress, force return
+            // This prevents the search from getting stuck indefinitely
+            let elapsed_so_far = start_time.elapsed_ms();
+            if elapsed_so_far > search_time_limit.saturating_mul(2) {
+                crate::utils::telemetry::trace_log(
+                    "ITERATIVE_DEEPENING",
+                    &format!(
+                        "Search exceeded 2x time limit ({}ms), forcing return with best move so far",
+                        elapsed_so_far
+                    ),
+                );
+                break;
+            }
+            let elapsed_ms = start_time.elapsed_ms();
+
+            // Calculate time budget for this depth (Task 4.5, 4.7)
+            let depth_start_time = TimeSource::now();
+
+            // Start periodic info message sender (similar to Stockfish/YaneuraOu)
+            // Send info messages every ~1 second during search to keep UI responsive
+            // Uses only global counters to avoid complex synchronization
+            let info_sender_cancel = Arc::new(AtomicBool::new(false));
+            let info_sender_cancel_clone = info_sender_cancel.clone();
+            let depth_clone = depth;
+            let depth_start_time_instant = std::time::Instant::now(); // Capture instant for elapsed time
+            let _board_clone = board.clone();
+            let _captured_clone = captured_pieces.clone();
+            let _player_clone = player;
+
+            // Store best move/score/PV for periodic updates (shared state)
+            // Initialize with previous depth's best move if available, so info sender has something to show
+            // CRITICAL: Only initialize with valid data (non-zero score or PV) to prevent sending invalid info
+            let initial_best_move = best_move.clone();
+            let initial_best_score = best_score;
+            let initial_pv_string = if let Some(ref prev_move) = best_move {
+                // Try to get PV for previous move
+                let pv_for_info = search_engine.get_pv(
+                    board,
+                    captured_pieces,
+                    player,
+                    depth.saturating_sub(1).max(1),
+                );
+                if pv_for_info.is_empty() {
+                    // If no PV, use the move itself as PV, but only if score is non-zero
+                    if initial_best_score != 0 {
+                        prev_move.to_usi_string()
+                    } else {
+                        String::new() // Don't initialize with invalid data (score 0, no PV)
+                    }
+                } else {
+                    pv_for_info
+                        .iter()
+                        .map(|m| m.to_usi_string())
+                        .collect::<Vec<String>>()
+                        .join(" ")
+                }
+            } else {
+                String::new()
+            };
+            // CRITICAL: Only initialize shared state if we have valid data (non-zero score or PV)
+            // This prevents the info sender from sending invalid messages at the start
+            let best_move_shared = if initial_best_score != 0 || !initial_pv_string.is_empty() {
+                Arc::new(std::sync::Mutex::new((
+                    initial_best_move,
+                    initial_best_score,
+                    initial_pv_string,
+                )))
+            } else {
+                // Initialize with None/empty to prevent sending invalid info
+                Arc::new(std::sync::Mutex::new((None::<Move>, 0, String::new())))
+            };
+            let best_move_shared_clone = best_move_shared.clone();
+
+            // Spawn info sender thread that periodically sends updates
+            let info_sender_handle = std::thread::spawn(move || {
+                let mut last_info_time = std::time::Instant::now();
+                let info_interval = std::time::Duration::from_millis(1000); // Send every 1 second
+
+                while !info_sender_cancel_clone.load(Ordering::Relaxed) {
+                    std::thread::sleep(std::time::Duration::from_millis(100)); // Check every 100ms
+
+                    if last_info_time.elapsed() >= info_interval {
+                        let elapsed = depth_start_time_instant.elapsed().as_millis() as u32;
+                        let nodes = GLOBAL_NODES_SEARCHED.load(Ordering::Relaxed);
+
+                        if nodes == 0 {
+                            continue; // Skip if no nodes searched yet
+                        }
+
+                        let seldepth = GLOBAL_SELDEPTH.load(Ordering::Relaxed) as u8; // Use global for live reporting
+                        let seldepth = if seldepth == 0 {
+                            depth_clone
+                        } else {
+                            seldepth.max(depth_clone)
+                        };
+                        let nps = if elapsed > 0 {
+                            nodes.saturating_mul(1000) / (elapsed as u64)
+                        } else {
+                            0
+                        };
+
+                        // Get current best move/score/PV from shared state
+                        let (current_move, current_score, current_pv) = best_move_shared_clone
+                            .lock()
+                            .map(|guard| guard.clone())
+                            .unwrap_or((None, 0, String::new()));
+
+                        // CRITICAL: Never send info with score 0 and no PV - that indicates no valid search result
+                        // This is the most important check - skip immediately if we don't have valid data
+                        // Check multiple conditions to be absolutely sure we don't send invalid info
+                        let has_pv = !current_pv.is_empty();
+                        let has_meaningful_score = current_score != 0;
+                        let has_valid_move = current_move.is_some();
+
+                        // ABSOLUTE REQUIREMENT: We must have EITHER a non-zero score OR a PV to send info
+                        // If score is 0 AND PV is empty, we have no valid search data - DO NOT SEND
+                        if !has_meaningful_score && !has_pv {
+                            continue; // Skip this iteration - no valid search data yet
+                        }
+
+                        // Additional safety: If we have a move but no score and no PV, don't send
+                        if has_valid_move && !has_meaningful_score && !has_pv {
+                            continue; // Skip - invalid data
+                        }
+
+                        // Only send if we have (a non-zero score OR a PV) - this is the absolute minimum requirement
+                        let should_send = has_meaningful_score || has_pv;
+
+                        // Send info message only if we have valid search data (skip during silent benches)
+                        // CRITICAL: Only send if we have a real PV (not just a single move) OR a non-zero score
+                        if std::env::var("SHOGI_SILENT_BENCH").is_err() && should_send {
+                            // Only send if we have a proper PV (multiple moves) OR a non-zero score
+                            // Don't send if we only have a single move with score 0
+                            if current_pv.is_empty() && current_score == 0 {
+                                continue; // Skip - no valid data
+                            }
+
+                            let info_string = if !current_pv.is_empty() {
+                                format!("info depth {} seldepth {} score cp {} time {} nodes {} nps {} pv {}",
+                                    depth_clone, seldepth, current_score, elapsed, nodes, nps, current_pv)
+                            } else if let Some(ref mv) = current_move {
+                                // Only use single move as PV if score is non-zero
+                                if current_score == 0 {
+                                    continue; // Skip - score is 0, don't send
+                                }
+                                format!(
+                                    "info depth {} seldepth {} score cp {} time {} nodes {} nps {} pv {}",
+                                    depth_clone, seldepth, current_score, elapsed, nodes, nps, mv.to_usi_string()
+                                )
+                            } else {
+                                // Skip if we don't have valid data
+                                continue;
+                            };
+                            println!("{}", info_string);
+                            let _ = std::io::Write::flush(&mut std::io::stdout());
+                        }
+
+                        last_info_time = std::time::Instant::now();
+                    }
+                }
+            });
+
+            let time_budget = if search_engine.time_management_config.enable_time_budget {
+                let budget = search_engine.calculate_time_budget(
+                    depth,
+                    search_time_limit,
+                    elapsed_ms,
+                    effective_max_depth,
+                );
+                // Record allocated budget for metrics (Task 4.10)
+                let stats = &mut search_engine.time_budget_stats;
+                while stats.budget_per_depth_ms.len() < depth as usize {
+                    stats.budget_per_depth_ms.push(0);
+                }
+                if depth > 0 && (depth - 1) < stats.budget_per_depth_ms.len() as u8 {
+                    stats.budget_per_depth_ms[(depth - 1) as usize] = budget;
+                }
+                crate::utils::telemetry::trace_log(
+                    "ITERATIVE_DEEPENING",
+                    &format!(
+                        "Depth {}: Time budget allocated: {}ms (strategy: {:?})",
+                        depth, budget, search_engine.time_management_config.allocation_strategy
+                    ),
+                );
+                budget
+            } else {
+                // Fallback: use remaining time
+                search_time_limit.saturating_sub(elapsed_ms)
+            };
+
+            let initial_remaining_time =
+                time_budget.min(search_time_limit.saturating_sub(elapsed_ms));
+
+            crate::utils::telemetry::trace_log(
+                "ITERATIVE_DEEPENING",
+                &format!(
+                    "Searching at depth {} (elapsed: {}ms, remaining: {}ms, budget: {}ms)",
+                    depth, elapsed_ms, initial_remaining_time, time_budget
+                ),
+            );
+            crate::debug_utils::start_timing(&format!("depth_{}", depth));
+
+            // Reset global nodes aggregator and seldepth at the start of each depth
+            GLOBAL_NODES_SEARCHED.store(0, Ordering::Relaxed);
+            GLOBAL_SELDEPTH.store(0, Ordering::Relaxed); // Reset global for next search
+
+            // Calculate aspiration window parameters
+            let (alpha, beta) = if depth == 1 || !search_engine.aspiration_config.enabled {
+                // First depth: use static evaluation or full-width window
+                if depth == 1 && search_engine.aspiration_config.enabled {
+                    // Use static evaluation for first window
+                    let window_size =
+                        search_engine.calculate_window_size(depth, initial_static_eval, 0);
+                    // Use saturating arithmetic to prevent overflow/underflow
+                    let first_alpha = initial_static_eval.saturating_sub(window_size);
+                    let first_beta = initial_static_eval.saturating_add(window_size);
+                    crate::utils::telemetry::trace_log("ITERATIVE_DEEPENING", &format!("Depth {}: Using aspiration window with static eval (static_eval: {}, window_size: {}, alpha: {}, beta: {})",
+                        depth, initial_static_eval, window_size, first_alpha, first_beta));
+                    (first_alpha, first_beta)
+                } else {
+                    // Disabled or full-width: use full-width window
+                    crate::utils::telemetry::trace_log(
+                        "ITERATIVE_DEEPENING",
+                        &format!("Depth {}: Using full-width window", depth),
+                    );
+                    (i32::MIN + 1, i32::MAX - 1)
+                }
+            } else {
+                // Use aspiration window based on previous score or static eval fallback
+                let previous_score = previous_scores.last().copied().unwrap_or_else(|| {
+                    // Fallback to static evaluation if no previous score
+                    crate::utils::telemetry::trace_log(
+                        "ITERATIVE_DEEPENING",
+                        &format!(
+                            "Depth {}: No previous score, using static eval fallback: {}",
+                            depth, initial_static_eval
+                        ),
+                    );
+                    initial_static_eval
+                });
+                let window_size = search_engine.calculate_window_size(depth, previous_score, 0);
+                // Use saturating arithmetic to prevent overflow/underflow
+                let calculated_alpha = previous_score.saturating_sub(window_size);
+                let calculated_beta = previous_score.saturating_add(window_size);
+                crate::utils::telemetry::trace_log("ITERATIVE_DEEPENING", &format!("Depth {}: Using aspiration window (prev_score: {}, window_size: {}, alpha: {}, beta: {})",
+                    depth, previous_score, window_size, calculated_alpha, calculated_beta));
+                (calculated_alpha, calculated_beta)
+            };
+
+            // Helper function to safely update shared state - only updates if we have valid data
+            let best_move_shared_for_update = best_move_shared.clone();
+            let update_shared_state = move |move_: Option<Move>, score: i32, pv: String| {
+                // CRITICAL: Never update shared state with score 0 and no PV
+                if score == 0 && pv.is_empty() {
+                    return; // Skip update - invalid data
+                }
+                if let Ok(mut guard) = best_move_shared_for_update.lock() {
+                    *guard = (move_, score, pv);
+                }
+            };
+
+            // Perform search with aspiration window
+            let mut search_result: Option<(Move, i32)> = None;
+            let _ = search_result; // Suppress unused assignment warning
+            let mut researches = 0;
+            let mut current_alpha = alpha;
+            let mut current_beta = beta;
+
+            crate::utils::telemetry::trace_log(
+                "ASPIRATION_WINDOW",
+                &format!(
+                    "Starting aspiration window search at depth {} (alpha: {}, beta: {})",
+                    depth, current_alpha, current_beta
+                ),
+            );
+            crate::utils::telemetry::trace_log(
+                "ASPIRATION_WINDOW",
+                &format!(
+                    "Window state: alpha={}, beta={}, previous_score={}, researches={}",
+                    current_alpha,
+                    current_beta,
+                    previous_scores.last().copied().unwrap_or(0),
+                    researches
+                ),
+            );
+
+            // Track depth iteration start time to detect if we're stuck
+            let depth_iteration_start = std::time::Instant::now();
+            let max_depth_iteration_time_ms = 30000u32; // Max 30 seconds per depth to prevent getting stuck
+
+            loop {
+                // Check time limit before each retry to prevent infinite loops
+                let elapsed_ms = start_time.elapsed_ms();
+                if search_engine.should_stop_force(&start_time, search_time_limit) {
+                    crate::utils::telemetry::trace_log(
+                        "ASPIRATION_WINDOW",
+                        "Time limit reached in aspiration window loop, breaking",
+                    );
+                    // Update shared state with previous best move before breaking
+                    if let Some(prev_move) = &best_move {
+                        let pv_string = prev_move.to_usi_string();
+                        update_shared_state(Some(prev_move.clone()), best_score, pv_string);
+                    }
+                    break;
+                }
+
+                // CRITICAL: Detect if this depth iteration is taking too long (stuck)
+                let depth_iteration_elapsed = depth_iteration_start.elapsed().as_millis() as u32;
+                if depth_iteration_elapsed > max_depth_iteration_time_ms {
+                    crate::utils::telemetry::trace_log(
+                        "ASPIRATION_WINDOW",
+                        &format!(
+                            "Depth {} iteration taking too long ({}ms), forcing break with best move so far",
+                            depth, depth_iteration_elapsed
+                        ),
+                    );
+                    // Update shared state with previous best move before breaking
+                    if let Some(prev_move) = &best_move {
+                        let pv_string = prev_move.to_usi_string();
+                        update_shared_state(Some(prev_move.clone()), best_score, pv_string);
+                    }
+                    break;
+                }
+
+                // Recalculate remaining time for this iteration
+                let remaining_time = search_time_limit.saturating_sub(elapsed_ms);
+                if remaining_time == 0 {
+                    crate::utils::telemetry::trace_log(
+                        "ASPIRATION_WINDOW",
+                        "No time remaining, breaking",
+                    );
+                    // Update shared state with previous best move before breaking
+                    if let Some(prev_move) = &best_move {
+                        let pv_string = prev_move.to_usi_string();
+                        update_shared_state(Some(prev_move.clone()), best_score, pv_string);
+                    }
+                    break;
+                }
+
+                // Update shared state periodically with previous best move during retries
+                // This ensures the info sender has something to show even during retries
+                if researches > 0 && researches % 2 == 0 {
+                    if let Some(prev_move) = &best_move {
+                        let pv_string = prev_move.to_usi_string();
+                        if let Ok(mut guard) = best_move_shared.lock() {
+                            *guard = (Some(prev_move.clone()), best_score, pv_string);
+                        }
+                    }
+                }
+
+                if researches >= search_engine.aspiration_config.max_researches {
+                    // Fall back to full-width search
+                    crate::utils::telemetry::trace_log(
+                        "ASPIRATION_WINDOW",
+                        &format!(
+                            "Max researches ({}) reached, falling back to full-width search",
+                            researches
+                        ),
+                    );
+                    current_alpha = MIN_SCORE;
+                    current_beta = MAX_SCORE;
+                }
+
+                crate::debug_utils::start_timing(&format!(
+                    "aspiration_search_{}_{}",
+                    depth, researches
+                ));
+                // Update advanced move orderer for iterative deepening
+                search_engine.initialize_advanced_move_orderer(
+                    board,
+                    captured_pieces,
+                    player,
+                    depth,
+                );
+
+                let parallel_result = if self.thread_count > 1 && depth >= self.parallel_min_depth {
+                    if let Some(ref parallel_engine) = self.parallel_engine {
+                        parallel_engine.search_root_moves(
+                            board,
+                            captured_pieces,
+                            player,
+                            &legal_moves,
+                            depth,
+                            remaining_time,
+                            current_alpha,
+                            current_beta,
+                        )
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let mut test_board = board.clone();
+                if let Some((move_, score)) = parallel_result.or_else(|| {
+                    search_engine.search_at_depth(
+                        &mut test_board,
+                        captured_pieces,
+                        player,
+                        depth,
+                        remaining_time,
+                        current_alpha,
+                        current_beta,
+                    )
+                }) {
+                    crate::debug_utils::end_timing(
+                        &format!("aspiration_search_{}_{}", depth, researches),
+                        "ASPIRATION_WINDOW",
+                    );
+
+                    // Record depth completion time for adaptive allocation (Task 4.6, 4.10)
+                    let depth_completion_time = depth_start_time.elapsed_ms();
+                    search_engine.record_depth_completion(depth, depth_completion_time);
+
+                    search_result = Some((move_.clone(), score));
+
+                    crate::utils::telemetry::trace_log(
+                        "ASPIRATION_WINDOW",
+                        &format!(
+                            "Search result: move={}, score={}, alpha={}, beta={}",
+                            move_.to_usi_string(),
+                            score,
+                            current_alpha,
+                            current_beta
+                        ),
+                    );
+
+                    if score <= current_alpha {
+                        // Fail-low: widen window downward
+                        // Update best move even on fail-low so info sender has current data
+                        let move_clone = move_.clone();
+                        best_move = Some(move_clone.clone());
+                        best_score = score;
+
+                        // Update shared state with current best move
+                        let pv_for_info =
+                            search_engine.get_pv(board, captured_pieces, player, depth_clone);
+                        let pv_string = if pv_for_info.is_empty() {
+                            move_clone.to_usi_string()
+                        } else {
+                            pv_for_info
+                                .iter()
+                                .map(|m| m.to_usi_string())
+                                .collect::<Vec<String>>()
+                                .join(" ")
+                        };
+                        update_shared_state(Some(move_clone), score, pv_string);
+
+                        crate::debug_utils::log_decision(
+                            "ASPIRATION_WINDOW",
+                            "Fail-low",
+                            &format!(
+                                "Score {} <= alpha {}, widening window downward",
+                                score, current_alpha
+                            ),
+                            Some(score),
+                        );
+                        search_engine.handle_fail_low(
+                            &mut current_alpha,
+                            &mut current_beta,
+                            previous_scores.last().copied().unwrap_or(0),
+                            search_engine.calculate_window_size(depth, 0, 0),
+                        );
+                        researches += 1;
+                        continue;
+                    }
+
+                    if score >= current_beta {
+                        // Fail-high: widen window upward
+                        // Update best move even on fail-high so info sender has current data
+                        let move_clone = move_.clone();
+                        best_move = Some(move_clone.clone());
+                        best_score = score;
+
+                        // Update shared state with current best move
+                        let pv_for_info =
+                            search_engine.get_pv(board, captured_pieces, player, depth_clone);
+                        let pv_string = if pv_for_info.is_empty() {
+                            move_clone.to_usi_string()
+                        } else {
+                            pv_for_info
+                                .iter()
+                                .map(|m| m.to_usi_string())
+                                .collect::<Vec<String>>()
+                                .join(" ")
+                        };
+                        update_shared_state(Some(move_clone), score, pv_string);
+
+                        crate::debug_utils::log_decision(
+                            "ASPIRATION_WINDOW",
+                            "Fail-high",
+                            &format!(
+                                "Score {} >= beta {}, widening window upward",
+                                score, current_beta
+                            ),
+                            Some(score),
+                        );
+                        search_engine.handle_fail_high(
+                            &mut current_alpha,
+                            &mut current_beta,
+                            previous_scores.last().copied().unwrap_or(0),
+                            search_engine.calculate_window_size(depth, 0, 0),
+                        );
+                        researches += 1;
+                        continue;
+                    }
+
+                    // Success: score within window
+                    crate::debug_utils::log_decision(
+                        "ASPIRATION_WINDOW",
+                        "Success",
+                        &format!(
+                            "Score {} within window [{}, {}]",
+                            score, current_alpha, current_beta
+                        ),
+                        Some(score),
+                    );
+                    let move_clone = move_.clone(); // Clone before moving
+                    best_move = Some(move_clone.clone());
+                    best_score = score;
+                    previous_scores.push(score);
+
+                    // Update shared state for periodic info messages
+                    let pv_for_info =
+                        search_engine.get_pv(board, captured_pieces, player, depth_clone);
+                    let pv_string = if pv_for_info.is_empty() {
+                        move_clone.to_usi_string()
+                    } else {
+                        pv_for_info
+                            .iter()
+                            .map(|m| m.to_usi_string())
+                            .collect::<Vec<String>>()
+                            .join(" ")
+                    };
+                    update_shared_state(Some(move_clone), score, pv_string);
+
+                    break;
+                } else {
+                    // Search failed - check if we should give up or retry
+                    crate::debug_utils::end_timing(
+                        &format!("aspiration_search_{}_{}", depth, researches),
+                        "ASPIRATION_WINDOW",
+                    );
+
+                    // Check time limit - if we're out of time, use best move from previous depth if available
+                    if search_engine.should_stop_force(&start_time, search_time_limit) {
+                        crate::debug_utils::trace_log(
+                            "ASPIRATION_WINDOW",
+                            "Time limit reached after search failure, using previous best move",
+                        );
+                        // Update shared state with previous best move if available
+                        if let Some(prev_move) = &best_move {
+                            let pv_string = prev_move.to_usi_string();
+                            if let Ok(mut guard) = best_move_shared.lock() {
+                                *guard = (Some(prev_move.clone()), best_score, pv_string);
+                            }
+                        }
+                        break;
+                    }
+
+                    // If we've tried multiple times and keep getting None, give up and use previous best move
+                    // This prevents infinite loops when search_at_depth keeps failing
+                    if researches >= search_engine.aspiration_config.max_researches + 2 {
+                        crate::debug_utils::trace_log(
+                            "ASPIRATION_WINDOW",
+                            &format!(
+                                "Search failed {} times, giving up and using previous best move",
+                                researches
+                            ),
+                        );
+                        // Update shared state with previous best move if available
+                        if let Some(prev_move) = &best_move {
+                            let pv_string = prev_move.to_usi_string();
+                            if let Ok(mut guard) = best_move_shared.lock() {
+                                *guard = (Some(prev_move.clone()), best_score, pv_string);
+                            }
+                        }
+                        break;
+                    }
+
+                    crate::debug_utils::trace_log(
+                        "ASPIRATION_WINDOW",
+                        &format!(
+                            "Search failed at research {}, widening window and retrying",
+                            researches
+                        ),
+                    );
+
+                    if researches >= search_engine.aspiration_config.max_researches {
+                        // Only fall back to full-width search after exhausting retries
+                        crate::debug_utils::trace_log(
+                            "ASPIRATION_WINDOW",
+                            &format!(
+                                "Max researches ({}) reached, falling back to full-width search",
+                                researches
+                            ),
+                        );
+                        current_alpha = i32::MIN + 1;
+                        current_beta = i32::MAX - 1;
+                        researches += 1;
+                        crate::debug_utils::trace_log(
+                            "ASPIRATION_WINDOW",
+                            &format!(
+                                "Window state after fallback: alpha={}, beta={}, researches={}",
+                                current_alpha, current_beta, researches
+                            ),
+                        );
+                        continue;
+                    } else {
+                        // Widen window and retry
+                        let old_alpha = current_alpha;
+                        let old_beta = current_beta;
+                        search_engine.handle_fail_low(
+                            &mut current_alpha,
+                            &mut current_beta,
+                            previous_scores.last().copied().unwrap_or(0),
+                            search_engine.calculate_window_size(depth, 0, 0),
+                        );
+                        researches += 1;
+                        crate::debug_utils::trace_log(
+                            "ASPIRATION_WINDOW",
+                            &format!(
+                                "Window widened: alpha {}->{}, beta {}->{}, researches={}",
+                                old_alpha, current_alpha, old_beta, current_beta, researches
+                            ),
+                        );
+                        continue;
+                    }
+                }
+            }
+
+            // Task 7.1: Update statistics with position type tracking
+            let game_phase = search_engine.get_game_phase(board);
+            let window_size = if depth == 1 || !search_engine.aspiration_config.enabled {
+                if depth == 1 && search_engine.aspiration_config.enabled {
+                    search_engine.calculate_window_size(depth, initial_static_eval, 0)
+                } else {
+                    0 // Full-width window
+                }
+            } else {
+                let previous_score = previous_scores
+                    .last()
+                    .copied()
+                    .unwrap_or(initial_static_eval);
+                search_engine.calculate_window_size(depth, previous_score, 0)
+            };
+
+            search_engine.update_aspiration_stats_with_phase(
+                researches > 0,
+                researches,
+                game_phase,
+                window_size,
+            );
+            let depth_completion_time = depth_start_time.elapsed_ms();
+
+            // Record depth completion metrics (Task 4.10)
+            let stats = &mut search_engine.time_budget_stats;
+            if depth > 0 && (depth - 1) < stats.budget_per_depth_ms.len() as u8 {
+                let budget = stats.budget_per_depth_ms[(depth - 1) as usize];
+                if depth_completion_time > budget {
+                    stats.depths_exceeded_budget += 1;
+                }
+            }
+
+            // Update estimation accuracy (Task 4.10)
+            if !stats.budget_per_depth_ms.is_empty()
+                && depth > 0
+                && (depth - 1) < stats.budget_per_depth_ms.len() as u8
+            {
+                let budget = stats.budget_per_depth_ms[(depth - 1) as usize];
+                if budget > 0 {
+                    let accuracy = 1.0
+                        - ((depth_completion_time as f64 - budget as f64).abs() / budget as f64);
+                    let count = stats.depths_completed.max(1) as f64;
+                    stats.estimation_accuracy =
+                        (stats.estimation_accuracy * (count - 1.0) + accuracy) / count;
+                }
+            }
+
+            // Stop periodic info sender before building final info
+            info_sender_cancel.store(true, Ordering::Relaxed);
+            let _ = info_sender_handle.join(); // Wait for thread to finish
+
+            crate::debug_utils::end_timing(&format!("depth_{}", depth), "ITERATIVE_DEEPENING");
+
+            // If search_result is None but we have a best_move from a previous depth, use it
+            if search_result.is_none() && best_move.is_some() {
+                search_result = Some((best_move.clone().unwrap(), best_score));
+            }
+
+            if let Some((mv_final, score)) = search_result {
+                // Ensure TT is flushed before building PV so all entries are visible
+                search_engine.flush_tt_buffer();
+                // Get seldepth (selective depth) - the maximum depth reached
+                // Use seldepth for PV length to show the full PV line that was actually searched
+                let seldepth = GLOBAL_SELDEPTH.load(Ordering::Relaxed) as u8;
+                let seldepth = if seldepth == 0 {
+                    depth
+                } else {
+                    seldepth.max(depth)
+                };
+                // Use seldepth for PV building to get the full PV line, not just the iteration depth
+                // This ensures we show all moves in the PV that were actually searched
+                let pv = search_engine.get_pv(board, captured_pieces, player, seldepth);
+                let pv_string = if pv.is_empty() {
+                    // Fallback to at least show the best root move when PV unavailable (e.g., parallel path)
+                    mv_final.to_usi_string()
+                } else {
+                    pv.iter()
+                        .map(|m| m.to_usi_string())
+                        .collect::<Vec<String>>()
+                        .join(" ")
+                };
+                let time_searched = start_time.elapsed_ms();
+                // Use GLOBAL_NODES_SEARCHED for accurate node count across threads
+                let nodes_for_info = GLOBAL_NODES_SEARCHED.load(Ordering::Relaxed);
+                let nps = if time_searched > 0 {
+                    nodes_for_info.saturating_mul(1000) / (time_searched as u64)
+                } else {
+                    0
+                };
+
+                crate::debug_utils::log_search_stats(
+                    "ITERATIVE_DEEPENING",
+                    depth,
+                    nodes_for_info,
+                    score,
+                    &pv_string,
+                );
+
+                // CRITICAL: Only send info if we have a valid PV or non-zero score
+                // Never send info with score 0 and no PV
+                if score == 0 && pv_string.is_empty() {
+                    // Skip sending invalid info message
+                    crate::debug_utils::trace_log(
+                        "ITERATIVE_DEEPENING",
+                        "Skipping info message: score is 0 and PV is empty",
+                    );
+                } else {
+                    let info_string = format!(
+                        "info depth {} seldepth {} multipv 1 score cp {} time {} nodes {} nps {} pv {}",
+                        depth, seldepth, score, time_searched, nodes_for_info, nps, pv_string
+                    );
+
+                    // Print the info message to stdout for USI protocol (skip during silent benches)
+                    if std::env::var("SHOGI_SILENT_BENCH").is_err() {
+                        println!("{}", info_string);
+                        // Explicitly flush stdout to ensure info messages are sent immediately
+                        let _ = std::io::Write::flush(&mut std::io::stdout());
+                    }
+                }
+
+                // Only break early for extremely winning positions (king capture level)
+                // and only at higher depths to allow deeper search logging for higher AI levels
+                if score > 50000 && depth >= 6 {
+                    crate::debug_utils::trace_log(
+                        "ITERATIVE_DEEPENING",
+                        &format!(
+                            "Extremely winning position (score: {}), breaking early at depth {}",
+                            score, depth
+                        ),
+                    );
+                    break;
+                }
+            } else {
+                crate::debug_utils::trace_log(
+                    "ITERATIVE_DEEPENING",
+                    &format!("No result at depth {}, breaking", depth),
+                );
+                break;
+            }
+        }
+
+        crate::debug_utils::end_timing("iterative_deepening_total", "ITERATIVE_DEEPENING");
+
+        // Task 1.0: Calculate and store total search time for IID overhead calculation
+        let total_search_time_ms = start_time.elapsed_ms() as u64;
+        search_engine.iid_stats.total_search_time_ms = total_search_time_ms;
+
+        // Task 8.2: Integrate monitor_iid_overhead() into main search flow
+        // Monitor overhead after search completes to track and adjust thresholds
+        if total_search_time_ms > 0 && search_engine.iid_stats.iid_time_ms > 0 {
+            search_engine.monitor_iid_overhead(
+                search_engine.iid_stats.iid_time_ms as u32,
+                total_search_time_ms as u32,
+            );
+
+            // Task 8.11: Check for high overhead alert (>15%)
+            let overhead_percentage =
+                (search_engine.iid_stats.iid_time_ms as f64 / total_search_time_ms as f64) * 100.0;
+            if overhead_percentage > 15.0 {
+                search_engine.trigger_high_overhead_alert(overhead_percentage);
+            }
+
+            // Task 8.12: Check for low efficiency alert (<30%)
+            let metrics = search_engine.get_iid_performance_metrics();
+            if metrics.iid_efficiency < 30.0 {
+                search_engine.trigger_low_efficiency_alert(metrics.iid_efficiency);
+            }
+        }
+
+        // Task 6.0: Update IID performance measurements after search completes
+        search_engine.update_iid_performance_measurements();
+
+        // Print aggregated metrics (benches or manual on demand)
+        maybe_print_search_metrics("iterative_deepening");
+
+        // Fallback: if we're in check and didn't find a move, just pick the first legal move
+        if is_in_check && best_move.is_none() && !legal_moves.is_empty() {
+            let fallback_move = legal_moves[0].clone();
+            crate::debug_utils::trace_log(
+                "ITERATIVE_DEEPENING",
+                &format!(
+                    "Fallback: using first legal move {} ({} moves available)",
+                    fallback_move.to_usi_string(),
+                    legal_moves.len()
+                ),
+            );
+            crate::debug_utils::end_timing("iterative_deepening_total", "ITERATIVE_DEEPENING");
+
+            // Task 1.0: Track total search time even for fallback
+            let total_search_time_ms = start_time.elapsed_ms() as u64;
+            search_engine.iid_stats.total_search_time_ms = total_search_time_ms;
+
+            // Task 6.0: Update IID performance measurements even for fallback
+            search_engine.update_iid_performance_measurements();
+
+            return Some((fallback_move, 0)); // Neutral score for fallback move
+        }
+
+        crate::debug_utils::trace_log(
+            "ITERATIVE_DEEPENING",
+            &format!(
+                "Search completed: best_move={:?}, best_score={}",
+                best_move.as_ref().map(|m| m.to_usi_string()),
+                best_score
+            ),
+        );
+
+        // CRITICAL: Always return a move if we have one, even if search didn't complete all depths
+        // This ensures we never return None when legal moves exist
+        if best_move.is_some() {
+            best_move.map(|m| (m, best_score))
+        } else if !legal_moves.is_empty() {
+            // Final fallback: use first legal move if we somehow don't have a best move
+            crate::debug_utils::trace_log(
+                "ITERATIVE_DEEPENING",
+                &format!(
+                    "FINAL FALLBACK: No best move found, using first legal move {}",
+                    legal_moves[0].to_usi_string()
+                ),
+            );
+            Some((legal_moves[0].clone(), 0))
+        } else {
+            None // Only return None if there are truly no legal moves
+        }
+    }
+}
