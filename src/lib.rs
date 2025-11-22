@@ -105,7 +105,7 @@ impl ShogiEngine {
             tablebase: MicroTablebase::new(),
             stop_flag: stop_flag.clone(),
             search_engine: Arc::new(Mutex::new(SearchEngine::new(Some(stop_flag), 16))),
-            debug_mode: true,
+            debug_mode: false,
             pondering: false,
             depth: 0, // Default to 0 (unlimited/adaptive), like YaneuraOu
             thread_count,

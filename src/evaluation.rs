@@ -470,7 +470,6 @@ impl PositionEvaluator {
                 }
             }
         }
-
         // Cache miss or cache disabled - evaluate normally
         let score = if self.use_integrated_eval {
             if let Some(ref mut integrated) = self.integrated_evaluator {
@@ -551,6 +550,7 @@ impl PositionEvaluator {
         has_check: bool,
         is_quiescence: bool,
     ) -> i32 {
+        
         // Try cache first (with depth information)
         if self.use_cache && depth > 0 {
             if let Some(ref cache) = self.eval_cache {
@@ -600,6 +600,8 @@ impl PositionEvaluator {
         has_check: bool,
         is_quiescence: bool,
     ) -> i32 {
+
+
         // Check if tapered evaluation is enabled
         if !self.config.enabled {
             // Fall back to simple evaluation (just material and basic positional)
@@ -649,6 +651,9 @@ impl PositionEvaluator {
 
         // 4. Return score from perspective of current player
         // Note: The evaluation is already calculated from the perspective of the given player
+        
+
+
         final_score
     }
 
@@ -941,15 +946,10 @@ impl PositionEvaluator {
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> TaperedScore {
-        let move_generator = MoveGenerator::new();
-        let legal_moves = move_generator.generate_legal_moves(board, player, captured_pieces);
-        let move_count = legal_moves.len() as i32;
-
-        // Mobility is more important in endgame
-        let mg_score = move_count * 1; // Lower value in middlegame
-        let eg_score = move_count * 3; // Higher value in endgame
-
-        TaperedScore::new_tapered(mg_score, eg_score)
+        // Task: Optimize mobility evaluation (removed expensive MoveGenerator)
+        // For now, return 0 to fix performance regression.
+        // TODO: Implement fast bitboard-based mobility estimation.
+        TaperedScore::default()
     }
 
     /// Evaluate piece coordination

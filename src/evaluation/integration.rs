@@ -186,7 +186,17 @@
 //! ```
 
 use crate::bitboards::BitboardBoard;
-use crate::utils::telemetry::debug_log;
+// use crate::utils::telemetry::debug_log; // Replaced by macro below
+
+macro_rules! debug_log {
+    ($msg:expr) => {
+        if crate::debug_utils::is_debug_enabled() {
+            crate::utils::telemetry::debug_log($msg);
+        }
+    };
+}
+
+
 use crate::evaluation::{
     castles::CastleRecognizer,
     component_coordinator::{
@@ -316,7 +326,7 @@ impl IntegratedEvaluator {
         if config.auto_resolve_conflicts {
             let warnings = config.validate_component_dependencies();
             if !warnings.is_empty() {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "[IntegratedEvaluator] Auto-resolving {} component dependency conflicts",
                     warnings.len()
                 ));
@@ -326,7 +336,7 @@ impl IntegratedEvaluator {
 
         // Validate configuration (Task 20.0 - Task 5.16)
         if let Err(err) = config.validate() {
-            debug_log(&format!(
+            debug_log!(&format!(
                 "[IntegratedEvaluator] Configuration validation error: {}",
                 err
             ));
@@ -335,7 +345,7 @@ impl IntegratedEvaluator {
         let pst_tables = match PieceSquareTableLoader::load(&config.pst) {
             Ok(pst) => pst,
             Err(err) => {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "[IntegratedEvaluator] Failed to load PST definition: {}. Falling back to built-in tables.",
                     err
                 ));
@@ -566,16 +576,16 @@ impl IntegratedEvaluator {
             // Task 5.0 - Task 5.5a, 5.5b: Validate zero scores from enabled components
             if self.config.enable_component_validation && material_score == TaperedScore::default()
             {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "WARNING: material component is enabled but produced zero score. \
                     This may indicate a configuration issue or bug."
                 ));
             }
 
             total += material_score;
-            component_scores.insert("material".to_string(), material_score);
             // Track contribution for telemetry
             if stats_enabled {
+                component_scores.insert("material".to_string(), material_score);
                 let material_interp = material_score.interpolate(phase);
                 component_contributions.insert("material".to_string(), material_interp as f32);
             }
@@ -587,7 +597,7 @@ impl IntegratedEvaluator {
 
             // Task 5.0 - Task 5.5a, 5.5b: Validate zero scores from enabled components
             if self.config.enable_component_validation && pst_score == TaperedScore::default() {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "WARNING: piece_square_tables component is enabled but produced zero score. \
                     This may indicate a configuration issue or bug."
                 ));
@@ -595,11 +605,10 @@ impl IntegratedEvaluator {
 
             total += pst_score;
             pst_telemetry = Some(telemetry);
-            // Track contribution for telemetry
             if stats_enabled {
+                component_scores.insert("pst".to_string(), pst_score);
                 let pst_interp = pst_score.interpolate(phase);
-                component_contributions
-                    .insert("piece_square_tables".to_string(), pst_interp as f32);
+                component_contributions.insert("pst".to_string(), pst_interp as f32);
             }
         }
 
@@ -629,7 +638,7 @@ impl IntegratedEvaluator {
             let contribution =
                 (king_safety_score.interpolate(phase) as f32) * weights.king_safety_weight;
             if contribution.abs() > self.config.weight_contribution_threshold {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "Large king_safety contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp",
                     king_safety_score.interpolate(phase),
                     weights.king_safety_weight,
@@ -640,7 +649,7 @@ impl IntegratedEvaluator {
             if self.config.enable_component_validation
                 && king_safety_score == TaperedScore::default()
             {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "WARNING: king_safety component is enabled but produced zero score. \
                     This may indicate a configuration issue or bug."
                 ));
@@ -660,7 +669,7 @@ impl IntegratedEvaluator {
             let contribution =
                 (pawn_score.interpolate(phase) as f32) * weights.pawn_structure_weight;
             if contribution.abs() > self.config.weight_contribution_threshold {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "Large pawn_structure contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp",
                     pawn_score.interpolate(phase),
                     weights.pawn_structure_weight,
@@ -676,7 +685,7 @@ impl IntegratedEvaluator {
                 self.position_features.evaluate_mobility(board, player, captured_pieces);
             let contribution = (mobility_score.interpolate(phase) as f32) * weights.mobility_weight;
             if contribution.abs() > self.config.weight_contribution_threshold {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "Large mobility contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp",
                     mobility_score.interpolate(phase),
                     weights.mobility_weight,
@@ -697,7 +706,7 @@ impl IntegratedEvaluator {
             let contribution =
                 (center_score.interpolate(phase) as f32) * weights.center_control_weight;
             if contribution.abs() > self.config.weight_contribution_threshold {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "Large center_control contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp",
                     center_score.interpolate(phase),
                     weights.center_control_weight,
@@ -714,7 +723,7 @@ impl IntegratedEvaluator {
                 self.position_features.evaluate_development(board, player, skip_development_in_features);
             let contribution = (dev_score.interpolate(phase) as f32) * weights.development_weight;
             if contribution.abs() > self.config.weight_contribution_threshold {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "Large development contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp",
                     dev_score.interpolate(phase),
                     weights.development_weight,
@@ -774,7 +783,7 @@ impl IntegratedEvaluator {
         if self.config.components.endgame_patterns {
             let endgame_threshold = self.config.phase_boundaries.endgame_threshold;
             if !coordination.evaluate_endgame_patterns {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "INFO: endgame_patterns is enabled but phase ({}) is not endgame (< {}). \
                     Endgame patterns will not be evaluated.",
                     phase, endgame_threshold
@@ -793,7 +802,7 @@ impl IntegratedEvaluator {
                 if self.config.enable_component_validation
                     && endgame_score == TaperedScore::default()
                 {
-                    debug_log(&format!(
+                    debug_log!(&format!(
                         "WARNING: endgame_patterns is enabled but produced zero score. \
                         This may indicate a configuration issue or bug."
                     ));
@@ -813,7 +822,7 @@ impl IntegratedEvaluator {
             let contribution = (tactical_score.interpolate(phase) as f32) * weights.tactical_weight;
             // Log large contributions (Task 3.0 - Task 3.12)
             if contribution.abs() > self.config.weight_contribution_threshold {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "Large tactical contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp (threshold={:.1})",
                     tactical_score.interpolate(phase),
                     weights.tactical_weight,
@@ -824,7 +833,7 @@ impl IntegratedEvaluator {
             // Task 5.0 - Task 5.5a, 5.5b: Validate zero scores from enabled components
             if self.config.enable_component_validation && tactical_score == TaperedScore::default()
             {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "WARNING: tactical_patterns component is enabled but produced zero score. \
                     This may indicate a configuration issue or bug."
                 ));
@@ -873,7 +882,7 @@ impl IntegratedEvaluator {
                 (positional_score.interpolate(phase) as f32) * weights.positional_weight;
             // Log large contributions (Task 3.0 - Task 3.12)
             if contribution.abs() > self.config.weight_contribution_threshold {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "Large positional contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp (threshold={:.1})",
                     positional_score.interpolate(phase),
                     weights.positional_weight,
@@ -885,7 +894,7 @@ impl IntegratedEvaluator {
             if self.config.enable_component_validation
                 && positional_score == TaperedScore::default()
             {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "WARNING: positional_patterns component is enabled but produced zero score. \
                     This may indicate a configuration issue or bug."
                 ));
@@ -922,7 +931,7 @@ impl IntegratedEvaluator {
             let contribution = (castle_score.interpolate(phase) as f32) * weights.castle_weight;
             // Log large contributions (Task 3.0 - Task 3.12)
             if contribution.abs() > self.config.weight_contribution_threshold {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "Large castle contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp (threshold={:.1})",
                     castle_score.interpolate(phase),
                     weights.castle_weight,
@@ -932,7 +941,7 @@ impl IntegratedEvaluator {
             }
             // Task 5.0 - Task 5.5a, 5.5b: Validate zero scores from enabled components
             if self.config.enable_component_validation && castle_score == TaperedScore::default() {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "WARNING: castle_patterns component is enabled but produced zero score. \
                     This may indicate a configuration issue or bug."
                 ));
@@ -964,7 +973,7 @@ impl IntegratedEvaluator {
             // Task 5.0 - Task 5.11: Log when component contributes >threshold% of total
             for (component, contrib_pct) in &contributions_pct {
                 if contrib_pct > &self.config.large_contribution_threshold {
-                    debug_log(&format!(
+                    debug_log!(&format!(
                         "Large component contribution: {} contributes {:.1}% of total evaluation (threshold: {:.1}%)",
                         component,
                         contrib_pct * 100.0,
@@ -1242,7 +1251,7 @@ impl IntegratedEvaluator {
         let pst_tables = match PieceSquareTableLoader::load(&config.pst) {
             Ok(pst) => pst,
             Err(err) => {
-                debug_log(&format!(
+                debug_log!(&format!(
                     "[IntegratedEvaluator] Failed to load PST definition: {}. Continuing with previous tables.",
                     err
                 ));
