@@ -142,8 +142,8 @@ impl UsiHandler {
         let thread_count = num_cpus::get();
         let parallel_options = self.engine.parallel_search_options();
         vec![
-            "id name Shogi Engine".to_string(),
-            "id author Gemini".to_string(),
+            "id name Yggdrasil".to_string(),
+            "id author fgantt (Gemini & Cursor)".to_string(),
             "option name USI_Hash type spin default 16 min 1 max 1024".to_string(),
             format!(
                 "option name ParallelEnable type check default {}",
