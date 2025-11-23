@@ -28,6 +28,8 @@ pub use simd::SimdBitboard;
 pub use batch_ops::AlignedBitboardArray;
 
 pub mod masks;
+#[cfg(feature = "simd")]
+pub mod memory_optimization;
 pub mod platform_detection;
 pub mod popcount;
 pub mod sliding_moves;
