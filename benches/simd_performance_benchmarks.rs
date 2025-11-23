@@ -144,6 +144,164 @@ fn bench_combined_operations(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_bitwise_operations, bench_count_ones, bench_combined_operations);
+fn bench_trailing_zeros(c: &mut Criterion) {
+    let test_value = 0x0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F;
+    let bb = SimdBitboard::from_u128(test_value);
+
+    let mut group = c.benchmark_group("trailing_zeros");
+    group.sample_size(1000);
+
+    group.bench_function("simd_trailing_zeros", |b| {
+        b.iter(|| {
+            black_box(bb.trailing_zeros())
+        });
+    });
+
+    group.bench_function("scalar_trailing_zeros", |b| {
+        b.iter(|| {
+            black_box(test_value.trailing_zeros())
+        });
+    });
+
+    group.finish();
+}
+
+fn bench_leading_zeros(c: &mut Criterion) {
+    let test_value = 0x0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F;
+    let bb = SimdBitboard::from_u128(test_value);
+
+    let mut group = c.benchmark_group("leading_zeros");
+    group.sample_size(1000);
+
+    group.bench_function("simd_leading_zeros", |b| {
+        b.iter(|| {
+            black_box(bb.leading_zeros())
+        });
+    });
+
+    group.bench_function("scalar_leading_zeros", |b| {
+        b.iter(|| {
+            black_box(test_value.leading_zeros())
+        });
+    });
+
+    group.finish();
+}
+
+fn bench_is_empty(c: &mut Criterion) {
+    let empty_bb = SimdBitboard::empty();
+    let non_empty_bb = SimdBitboard::from_u128(0x1);
+
+    let mut group = c.benchmark_group("is_empty");
+    group.sample_size(1000);
+
+    group.bench_function("simd_is_empty_true", |b| {
+        b.iter(|| {
+            black_box(empty_bb.is_empty())
+        });
+    });
+
+    group.bench_function("simd_is_empty_false", |b| {
+        b.iter(|| {
+            black_box(non_empty_bb.is_empty())
+        });
+    });
+
+    group.finish();
+}
+
+// Batch operations benchmarks (comprehensive coverage)
+fn bench_batch_operations(c: &mut Criterion) {
+    use shogi_engine::bitboards::batch_ops::AlignedBitboardArray;
+    
+    // Test with different array sizes
+    for size in [4, 8, 16] {
+        let mut a_data = [SimdBitboard::empty(); 16];
+        let mut b_data = [SimdBitboard::empty(); 16];
+        
+        for i in 0..16 {
+            a_data[i] = SimdBitboard::from_u128(0x0F0F_0F0F_0F0F_0F0F ^ (i as u128));
+            b_data[i] = SimdBitboard::from_u128(0x3333_3333_3333_3333 ^ (i as u128));
+        }
+        
+        match size {
+            4 => {
+                let a = AlignedBitboardArray::<4>::from_slice(&a_data[0..4]);
+                let b = AlignedBitboardArray::<4>::from_slice(&b_data[0..4]);
+                
+                let mut group = c.benchmark_group(&format!("batch_operations_size_{}", size));
+                group.sample_size(500);
+                
+                group.bench_function("simd_batch_and", |bencher| {
+                    bencher.iter(|| black_box(a.batch_and(&b)));
+                });
+                
+                group.bench_function("simd_batch_or", |bencher| {
+                    bencher.iter(|| black_box(a.batch_or(&b)));
+                });
+                
+                group.bench_function("simd_batch_xor", |bencher| {
+                    bencher.iter(|| black_box(a.batch_xor(&b)));
+                });
+                
+                group.finish();
+            }
+            8 => {
+                let a = AlignedBitboardArray::<8>::from_slice(&a_data[0..8]);
+                let b = AlignedBitboardArray::<8>::from_slice(&b_data[0..8]);
+                
+                let mut group = c.benchmark_group(&format!("batch_operations_size_{}", size));
+                group.sample_size(500);
+                
+                group.bench_function("simd_batch_and", |bencher| {
+                    bencher.iter(|| black_box(a.batch_and(&b)));
+                });
+                
+                group.bench_function("simd_batch_or", |bencher| {
+                    bencher.iter(|| black_box(a.batch_or(&b)));
+                });
+                
+                group.bench_function("simd_batch_xor", |bencher| {
+                    bencher.iter(|| black_box(a.batch_xor(&b)));
+                });
+                
+                group.finish();
+            }
+            16 => {
+                let a = AlignedBitboardArray::<16>::from_slice(&a_data);
+                let b = AlignedBitboardArray::<16>::from_slice(&b_data);
+                
+                let mut group = c.benchmark_group(&format!("batch_operations_size_{}", size));
+                group.sample_size(500);
+                
+                group.bench_function("simd_batch_and", |bencher| {
+                    bencher.iter(|| black_box(a.batch_and(&b)));
+                });
+                
+                group.bench_function("simd_batch_or", |bencher| {
+                    bencher.iter(|| black_box(a.batch_or(&b)));
+                });
+                
+                group.bench_function("simd_batch_xor", |bencher| {
+                    bencher.iter(|| black_box(a.batch_xor(&b)));
+                });
+                
+                group.finish();
+            }
+            _ => {}
+        }
+    }
+}
+
+criterion_group!(
+    benches, 
+    bench_bitwise_operations, 
+    bench_count_ones, 
+    bench_combined_operations,
+    bench_trailing_zeros,
+    bench_leading_zeros,
+    bench_is_empty,
+    bench_batch_operations
+);
 criterion_main!(benches);
 

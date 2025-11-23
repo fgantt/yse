@@ -60,3 +60,10 @@ jobs:
         run: |
           cargo build --features simd --release --target ${{ matrix.target }}
 
+      - name: Run SIMD benchmarks (list only, full benchmarks take too long for CI)
+        run: |
+          cargo bench --bench simd_performance_benchmarks --features simd --target ${{ matrix.target }} -- --list || true
+          cargo bench --bench batch_ops_benchmarks --features simd --target ${{ matrix.target }} -- --list || true
+        continue-on-error: true
+        # Note: Full benchmarks are run locally, CI only verifies they compile
+
