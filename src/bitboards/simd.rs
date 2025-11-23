@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize, Serializer, Deserializer};
+use crate::bitboards::platform_detection;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
@@ -51,6 +52,25 @@ impl SimdBitboard {
     #[inline(always)]
     pub fn leading_zeros(&self) -> u32 {
         self.data.leading_zeros()
+    }
+    
+    /// Get the detected SIMD level for this platform
+    /// This uses runtime platform detection to determine what SIMD features are available
+    #[cfg(feature = "simd")]
+    pub fn get_detected_simd_level() -> platform_detection::SimdLevel {
+        platform_detection::get_simd_level()
+    }
+    
+    /// Check if the current platform has SIMD support
+    #[cfg(feature = "simd")]
+    pub fn has_simd_support() -> bool {
+        platform_detection::has_simd_support()
+    }
+    
+    /// Get platform capabilities summary for debugging
+    #[cfg(feature = "simd")]
+    pub fn get_platform_info() -> String {
+        platform_detection::get_platform_summary()
     }
 }
 
