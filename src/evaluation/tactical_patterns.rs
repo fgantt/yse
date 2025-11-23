@@ -25,6 +25,9 @@ use crate::types::evaluation::TaperedScore;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
 
+#[cfg(feature = "simd")]
+pub use crate::evaluation::tactical_patterns_simd::SimdPatternMatcher;
+
 /// Tactical pattern recognizer
 pub struct TacticalPatternRecognizer {
     config: TacticalConfig,

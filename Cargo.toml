@@ -462,3 +462,8 @@ required-features = ["simd"]
 name = "batch_ops_benchmarks"
 harness = false
 required-features = ["simd"]
+
+[[bench]]
+name = "simd_pattern_matching_benchmarks"
+harness = false
+required-features = ["simd"]
