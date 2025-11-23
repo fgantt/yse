@@ -1051,6 +1051,8 @@ impl IntegratedEvaluator {
         {
             // Check runtime flag before using SIMD
             if self.config.simd.enable_simd_evaluation {
+                // Record SIMD evaluation call
+                crate::utils::telemetry::SIMD_TELEMETRY.record_simd_evaluation();
                 // Use SIMD-optimized evaluation for the total score
                 let simd_evaluator = SimdEvaluator::new();
                 let score = simd_evaluator.evaluate_pst_batch(board, &self.pst, player);
@@ -1084,6 +1086,9 @@ impl IntegratedEvaluator {
         
         // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
         {
+            // Record scalar evaluation call
+            #[cfg(feature = "simd")]
+            crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_evaluation();
             let mut score = TaperedScore::default();
             let mut per_piece = [TaperedScore::default(); PieceType::COUNT];
 
@@ -1258,6 +1263,14 @@ impl IntegratedEvaluator {
     /// Get current configuration
     pub fn config(&self) -> &IntegratedEvaluationConfig {
         &self.config
+    }
+
+    /// Get SIMD telemetry statistics
+    ///
+    /// # Task 4.0 (Task 5.5)
+    #[cfg(feature = "simd")]
+    pub fn get_simd_telemetry(&self) -> crate::utils::telemetry::SimdTelemetry {
+        crate::utils::telemetry::get_simd_telemetry()
     }
 
     /// Update only the material evaluation configuration.

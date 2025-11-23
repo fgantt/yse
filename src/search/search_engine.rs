@@ -13352,6 +13352,14 @@ impl SearchEngine {
         self.evaluator.get_evaluation_telemetry()
     }
 
+    /// Get SIMD telemetry statistics
+    ///
+    /// # Task 4.0 (Task 5.5)
+    #[cfg(feature = "simd")]
+    pub fn get_simd_telemetry(&self) -> crate::utils::telemetry::SimdTelemetry {
+        crate::utils::telemetry::get_simd_telemetry()
+    }
+
     fn log_evaluation_telemetry(&self) {
         use crate::utils::telemetry;
         if let Some(telemetry) = self.evaluation_telemetry() {

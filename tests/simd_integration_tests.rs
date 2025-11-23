@@ -3,10 +3,15 @@
 /// 
 /// These tests verify that SIMD-optimized move generation produces the same results
 /// as scalar implementation and is actually used when the feature is enabled.
+/// 
+/// # Task 4.0 (Task 5.11)
 
 use shogi_engine::bitboards::BitboardBoard;
+use shogi_engine::evaluation::integration::IntegratedEvaluator;
+use shogi_engine::evaluation::tactical_patterns::TacticalPatternRecognizer;
 use shogi_engine::moves::MoveGenerator;
-use shogi_engine::types::{CapturedPieces, Piece, PieceType, Player, Position};
+use shogi_engine::types::board::CapturedPieces;
+use shogi_engine::types::core::{Piece, PieceType, Player, Position};
 
 #[test]
 fn test_simd_move_generation_same_results() {
@@ -188,5 +193,65 @@ fn test_simd_move_generation_correctness() {
     
     assert!(has_horizontal_move || has_vertical_move,
            "Rook should be able to move horizontally or vertically");
+}
+
+#[test]
+fn test_simd_telemetry_collection() {
+    // Reset telemetry before test
+    shogi_engine::utils::telemetry::reset_simd_telemetry();
+    
+    let generator = MoveGenerator::new();
+    let board = BitboardBoard::new();
+    let captured = CapturedPieces::new();
+    
+    // Generate moves (should record telemetry)
+    let _moves = generator.generate_legal_moves(&board, Player::Black, &captured);
+    
+    // Get telemetry
+    let telemetry = shogi_engine::utils::telemetry::get_simd_telemetry();
+    
+    // Should have recorded some calls (either SIMD or scalar)
+    let total_move_calls = telemetry.simd_move_gen_calls + telemetry.scalar_move_gen_calls;
+    assert!(total_move_calls > 0, "Should have recorded move generation calls");
+}
+
+#[test]
+fn test_simd_telemetry_evaluation() {
+    // Reset telemetry before test
+    shogi_engine::utils::telemetry::reset_simd_telemetry();
+    
+    let mut evaluator = IntegratedEvaluator::new();
+    let board = BitboardBoard::new();
+    let captured = CapturedPieces::new();
+    
+    // Evaluate (should record telemetry)
+    let _score = evaluator.evaluate(&board, Player::Black, &captured);
+    
+    // Get telemetry
+    let telemetry = shogi_engine::utils::telemetry::get_simd_telemetry();
+    
+    // Should have recorded some calls (either SIMD or scalar)
+    let total_eval_calls = telemetry.simd_evaluation_calls + telemetry.scalar_evaluation_calls;
+    assert!(total_eval_calls > 0, "Should have recorded evaluation calls");
+}
+
+#[test]
+fn test_simd_telemetry_pattern_matching() {
+    // Reset telemetry before test
+    shogi_engine::utils::telemetry::reset_simd_telemetry();
+    
+    let mut recognizer = TacticalPatternRecognizer::new();
+    let board = BitboardBoard::new();
+    let captured = CapturedPieces::new();
+    
+    // Evaluate tactics (should record telemetry)
+    let _score = recognizer.evaluate_tactics(&board, Player::Black, &captured);
+    
+    // Get telemetry
+    let telemetry = shogi_engine::utils::telemetry::get_simd_telemetry();
+    
+    // Should have recorded some calls (either SIMD or scalar)
+    let total_pattern_calls = telemetry.simd_pattern_calls + telemetry.scalar_pattern_calls;
+    assert!(total_pattern_calls > 0, "Should have recorded pattern matching calls");
 }
 

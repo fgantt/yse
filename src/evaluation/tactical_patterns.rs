@@ -429,6 +429,8 @@ impl TacticalPatternRecognizer {
         {
             // Check runtime flag before using SIMD
             if self.config.enable_simd_pattern_matching {
+                // Record SIMD pattern matching call
+                crate::utils::telemetry::SIMD_TELEMETRY.record_simd_pattern();
                 // Use SIMD batch detection to quickly identify pieces that fork
                 let simd_matcher = SimdPatternMatcher::new();
             let pieces: Vec<_> = ctx.player_pieces.iter()
@@ -474,7 +476,9 @@ impl TacticalPatternRecognizer {
         
         // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
         {
-            // Scalar implementation (fallback when SIMD feature is disabled)
+            // Record scalar pattern matching call
+            #[cfg(feature = "simd")]
+            crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_pattern();
             let mut total_score = 0;
 
             for &(pos, piece) in &ctx.player_pieces {

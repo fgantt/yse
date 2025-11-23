@@ -384,6 +384,8 @@ impl MoveGenerator {
                 let magic_table = board.get_magic_table();
                 
                 if let Some(magic_table) = magic_table {
+                    // Record SIMD move generation call
+                    crate::utils::telemetry::SIMD_TELEMETRY.record_simd_move_gen();
                     let sliding_generator = SlidingMoveGenerator::new(magic_table);
                     let sliding_moves = sliding_generator.generate_sliding_moves_batch_vectorized(
                         board,
@@ -392,11 +394,22 @@ impl MoveGenerator {
                     );
                     moves.extend(sliding_moves);
                 } else {
+                    // Record scalar move generation call
+                    crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_move_gen();
                     // Fallback: use scalar generation if magic table not available
                     for (pos, piece_type) in sliding_pieces {
                         if let Some(piece) = board.get_piece(pos) {
                             moves.extend(self.generate_moves_for_single_piece(board, &piece, pos));
                         }
+                    }
+                }
+            } else {
+                // Record scalar move generation call
+                crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_move_gen();
+                // Fallback: use scalar generation if SIMD disabled or no sliding pieces
+                for (pos, piece_type) in sliding_pieces {
+                    if let Some(piece) = board.get_piece(pos) {
+                        moves.extend(self.generate_moves_for_single_piece(board, &piece, pos));
                     }
                 }
             }
@@ -412,6 +425,7 @@ impl MoveGenerator {
         #[cfg(not(feature = "simd"))]
         {
             // Scalar implementation (fallback when SIMD feature is disabled)
+            // Note: No telemetry tracking when SIMD feature is disabled
             let mut moves = Vec::new();
             for r in 0..9 {
                 for c in 0..9 {
