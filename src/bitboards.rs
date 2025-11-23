@@ -9,6 +9,7 @@ pub const EMPTY_BITBOARD: Bitboard = Bitboard::empty();
 // Include the magic bitboard module
 pub mod api;
 pub mod attack_patterns;
+pub mod batch_ops;
 pub mod bit_iterator;
 pub mod bit_utils;
 pub mod bitscan;
@@ -21,6 +22,10 @@ pub mod magic;
 pub mod simd;
 
 pub use simd::SimdBitboard;
+
+// Re-export batch operations for convenience (only when simd feature is enabled)
+#[cfg(feature = "simd")]
+pub use batch_ops::AlignedBitboardArray;
 
 pub mod masks;
 pub mod platform_detection;
