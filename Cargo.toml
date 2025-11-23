@@ -472,3 +472,13 @@ required-features = ["simd"]
 name = "simd_evaluation_benchmarks"
 harness = false
 required-features = ["simd"]
+
+[[bench]]
+name = "algorithm_vectorization_benchmarks"
+harness = false
+required-features = ["simd"]
+
+[[bench]]
+name = "simd_overall_performance_benchmarks"
+harness = false
+required-features = ["simd"]
