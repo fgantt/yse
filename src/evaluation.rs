@@ -62,6 +62,8 @@ pub mod positional_patterns;
 pub mod tactical_patterns;
 #[cfg(feature = "simd")]
 pub mod tactical_patterns_simd;
+#[cfg(feature = "simd")]
+pub mod evaluation_simd;
 
 // Newly extracted modules (Task 1.0: File Modularization)
 pub mod component_coordinator;

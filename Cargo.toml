@@ -467,3 +467,8 @@ required-features = ["simd"]
 name = "simd_pattern_matching_benchmarks"
 harness = false
 required-features = ["simd"]
+
+[[bench]]
+name = "simd_evaluation_benchmarks"
+harness = false
+required-features = ["simd"]
