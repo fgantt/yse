@@ -384,7 +384,7 @@ impl ShogiEngine {
         self.debug_mode
     }
 
-    // Methods needed for WebAssembly integration
+    // Methods for JSON-based position setting (used for external integrations)
     pub fn set_position(&mut self, board_json: &str) {
         self.board = BitboardBoard::empty(); // Clear the board
         if let Ok(pieces) = serde_json::from_str::<Vec<PieceJson>>(board_json) {

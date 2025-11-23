@@ -1,5 +1,7 @@
 [build]
 rustflags = ["-C", "target-cpu=native"]
 
-[target.wasm32-unknown-unknown]
-rustflags = ["-C", "target-feature=+simd128"]
+# Native platform SIMD optimizations
+# x86_64: AVX2 and SSE are enabled via target-cpu=native
+# ARM64: NEON is enabled via target-cpu=native
+# WebAssembly SIMD support has been removed - focus is on native performance

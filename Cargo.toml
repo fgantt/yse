@@ -21,7 +21,9 @@ legacy-examples = []
 hierarchical-tt = []
 # Enable fast-loop material evaluation optimization (Task 5.0)
 material_fast_loop = []
-# Enable SIMD optimizations (Task 10.0)
+# Enable SIMD optimizations for native platforms (x86_64 with AVX2/SSE, ARM64 with NEON)
+# This feature enables explicit SIMD intrinsics for bitboard operations.
+# Note: WebAssembly support has been removed - this feature is native-only.
 simd = []
 
 [lib]
@@ -445,3 +447,13 @@ required-features = ["legacy-tests"]
 [[example]]
 name = "attack_pattern_demo"
 path = "examples/attack_pattern_demo.rs"
+
+[[bench]]
+name = "simd_performance_benchmarks"
+harness = false
+required-features = ["simd"]
+
+[[bench]]
+name = "simd_instruction_validation"
+harness = false
+required-features = ["simd"]

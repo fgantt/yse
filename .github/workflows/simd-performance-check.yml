@@ -1,0 +1,62 @@
+name: SIMD Performance Regression Check
+
+on:
+  pull_request:
+    paths:
+      - 'src/bitboards/simd.rs'
+      - 'src/bitboards/**'
+      - 'Cargo.toml'
+      - '.cargo/config.toml'
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/bitboards/simd.rs'
+      - 'src/bitboards/**'
+      - 'Cargo.toml'
+      - '.cargo/config.toml'
+
+jobs:
+  simd-performance-check:
+    name: SIMD Performance Regression Check
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: x86_64-apple-darwin
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/
+            ~/.cargo/git/
+            target/
+          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-${{ matrix.target }}-
+
+      - name: Run SIMD performance regression tests
+        run: |
+          cargo test --features simd simd_performance_regression_tests --release --target ${{ matrix.target }}
+        continue-on-error: false
+
+      - name: Check SIMD feature compiles
+        run: |
+          cargo build --features simd --release --target ${{ matrix.target }}
+

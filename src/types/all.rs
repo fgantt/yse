@@ -1273,7 +1273,7 @@ impl TaperedEvaluationConfig {
 // Bitboard representation for efficient operations
 pub type Bitboard = crate::bitboards::SimdBitboard;
 
-// Constants removed due to WASM limitations with v128
+// Constants removed - use Bitboard methods instead
 // Use Bitboard::default() or Bitboard::empty() instead of EMPTY_BITBOARD
 // Use Bitboard::all_squares() instead of ALL_SQUARES
 
