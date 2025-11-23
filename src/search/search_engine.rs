@@ -13716,7 +13716,11 @@ impl IterativeDeepening {
         player: Player,
     ) -> Option<(Move, i32)> {
         println!("DEBUG_ENABLED: {}", crate::debug_utils::is_debug_enabled());
-        trace_log!("ITERATIVE_DEEPENING", "Starting iterative deepening search");
+        trace_log!(
+            "ITERATIVE_DEEPENING",
+            &format!("Starting iterative deepening search with max_depth={}", self.max_depth),
+        );
+        eprintln!("DEBUG: IterativeDeepening::search called with max_depth={}", self.max_depth);
         crate::debug_utils::start_timing("iterative_deepening_total");
 
         // Task 1.0: Record start time for total search time tracking
@@ -13744,15 +13748,37 @@ impl IterativeDeepening {
         let legal_move_count = legal_moves.len();
 
         // Adjust search parameters for check positions with few moves (Task 4.3, 4.4)
+        // Only apply check optimization if the user hasn't requested unlimited depth (depth 0 = 100)
+        // Check optimization should respect user's depth preference
         let (effective_max_depth, effective_time_limit) = {
             let config = &search_engine.time_management_config;
-            if config.enable_check_optimization && is_in_check && legal_move_count <= 10 {
+            
+            // Debug logging to track depth values
+            trace_log!(
+                "ITERATIVE_DEEPENING",
+                &format!(
+                    "Determining effective_max_depth: self.max_depth={}, is_in_check={}, legal_move_count={}, enable_check_optimization={}, check_max_depth={}",
+                    self.max_depth, is_in_check, legal_move_count, config.enable_check_optimization, config.check_max_depth
+                ),
+            );
+            
+            // Only apply check optimization if max_depth is not unlimited (100 represents unlimited from depth 0)
+            // and we're in check with few moves
+            // CRITICAL: Never apply check optimization when depth >= 100 (unlimited)
+            if config.enable_check_optimization 
+                && is_in_check 
+                && legal_move_count <= 10
+                && self.max_depth < 100 // Don't override unlimited depth
+            {
                 // For check positions with ≤10 moves, use configurable limits
-                let max_depth = if legal_move_count <= 5 {
+                // But don't exceed the user's requested max_depth
+                let suggested_max_depth = if legal_move_count <= 5 {
                     config.check_max_depth.min(3)
                 } else {
                     config.check_max_depth.min(5)
                 };
+                // Use the minimum of suggested depth and user's requested depth
+                let max_depth = suggested_max_depth.min(self.max_depth);
                 let time_limit = if legal_move_count <= 5 {
                     config.check_time_limit_ms.min(2000)
                 } else {
@@ -13761,18 +13787,32 @@ impl IterativeDeepening {
                 trace_log!(
                     "ITERATIVE_DEEPENING",
                     &format!(
-                        "Check position detected: {} legal moves, limiting to depth {} and {}ms",
-                        legal_move_count, max_depth, time_limit
+                        "Check position detected: {} legal moves, limiting to depth {} and {}ms (user requested {})",
+                        legal_move_count, max_depth, time_limit, self.max_depth
                     ),
                 );
                 (max_depth, time_limit)
             } else {
-                // Normal search parameters
-                // Task 8.2, 8.3: Use configurable absolute safety margin instead of hardcoded 100ms
-                let percentage_margin_ms =
-                    (self.time_limit_ms as f64 * config.safety_margin) as u32;
-                let absolute_margin_ms = config.absolute_safety_margin_ms;
-                let total_safety_margin_ms = percentage_margin_ms.max(absolute_margin_ms);
+                // Normal search parameters - use the full requested depth
+                // For unlimited depth, minimize safety margin to maximize available time for deeper searches
+                let total_safety_margin_ms = if self.max_depth >= 100 {
+                    // Unlimited depth: use only 50ms safety margin (minimal overhead)
+                    // This maximizes available time for reaching depths 30+
+                    50u32
+                } else {
+                    // Limited depth: use normal safety margins
+                    let percentage_margin_ms =
+                        (self.time_limit_ms as f64 * config.safety_margin) as u32;
+                    let absolute_margin_ms = config.absolute_safety_margin_ms;
+                    percentage_margin_ms.max(absolute_margin_ms)
+                };
+                trace_log!(
+                    "ITERATIVE_DEEPENING",
+                    &format!(
+                        "Using normal search parameters: max_depth={}, time_limit_ms={}, total_safety_margin_ms={} (unlimited={})",
+                        self.max_depth, self.time_limit_ms, total_safety_margin_ms, self.max_depth >= 100
+                    ),
+                );
                 (
                     self.max_depth,
                     self.time_limit_ms.saturating_sub(total_safety_margin_ms),
@@ -13780,29 +13820,74 @@ impl IterativeDeepening {
             }
         };
 
-        let search_time_limit = effective_time_limit;
+        // For unlimited depth, use 60 seconds to allow much deeper searches
+        // This gives enough time to reach depths 30+ and profile what's taking so long
+        let search_time_limit = if effective_max_depth >= 100 {
+            // Unlimited depth: use 60 seconds (60000ms) to allow deep searches and profiling
+            60000u32
+        } else {
+            effective_time_limit
+        };
         trace_log!(
             "ITERATIVE_DEEPENING",
             &format!(
-                "Search time limit: {}ms, max depth: {}",
-                search_time_limit, effective_max_depth
+                "Search time limit: {}ms (original: {}ms), max depth: {} (unlimited={})",
+                search_time_limit, effective_time_limit, effective_max_depth, effective_max_depth >= 100
             ),
+        );
+        eprintln!(
+            "DEBUG: effective_max_depth={}, self.max_depth={}, search_time_limit={}ms (original={}ms), is_in_check={}, legal_move_count={}, check_optimization_enabled={}, unlimited={}",
+            effective_max_depth, self.max_depth, search_time_limit, effective_time_limit, is_in_check, legal_move_count, search_engine.time_management_config.enable_check_optimization, effective_max_depth >= 100
         );
 
         trace_log!("ITERATIVE_DEEPENING", "Starting depth iteration loop");
 
         for depth in 1..=effective_max_depth {
+            eprintln!("DEBUG: Starting depth iteration: depth={}, effective_max_depth={}", depth, effective_max_depth);
             // Reset global node counter for this depth and start periodic reporter
             GLOBAL_NODES_SEARCHED.store(0, Ordering::Relaxed);
             // Task 8.4: Force time check at depth boundaries (use should_stop_force)
             search_engine.time_check_node_counter = 0; // Reset counter for new depth
-            if search_engine.should_stop_force(&start_time, search_time_limit) {
-                trace_log!(
-                    "ITERATIVE_DEEPENING",
-                    "Time limit reached, stopping search",
-                );
+            
+            // Check time at start of each depth iteration
+            // For unlimited depth, use a small buffer. For limited depth, use a larger buffer.
+            let elapsed_ms = start_time.elapsed_ms();
+            let remaining_ms = search_time_limit.saturating_sub(elapsed_ms);
+            
+            // Don't start a new depth if we have 0ms or negative time remaining
+            // This prevents wasteful searches that immediately return with 0 nodes
+            if remaining_ms == 0 {
+                eprintln!("DEBUG: Breaking at depth {} - no time remaining (elapsed: {}ms, limit: {}ms)", 
+                    depth, elapsed_ms, search_time_limit);
                 break;
             }
+            
+            // For unlimited depth, use minimal buffer. For limited depth, use larger buffer.
+            let time_buffer_ms = if self.max_depth >= 100 {
+                // Unlimited depth: only stop if we have less than 500ms remaining
+                // This allows the search to use almost all available time
+                500u32
+            } else {
+                // Limited depth: use 20% or 2 seconds, whichever is larger
+                let percentage_buffer = (search_time_limit as f64 * 0.20) as u32;
+                percentage_buffer.max(2000u32)
+            };
+            
+            eprintln!("DEBUG: Depth {} time check - elapsed: {}ms, limit: {}ms, remaining: {}ms, buffer: {}ms (unlimited={})", 
+                depth, elapsed_ms, search_time_limit, remaining_ms, time_buffer_ms, self.max_depth >= 100);
+            
+            if remaining_ms <= time_buffer_ms {
+                trace_log!(
+                    "ITERATIVE_DEEPENING",
+                    &format!("Time limit approaching (elapsed: {}ms, limit: {}ms, remaining: {}ms, buffer: {}ms), stopping search", 
+                        elapsed_ms, search_time_limit, remaining_ms, time_buffer_ms),
+                );
+                eprintln!("DEBUG: Breaking at depth {} due to time limit (elapsed: {}ms, limit: {}ms, remaining: {}ms, buffer: {}ms)", 
+                    depth, elapsed_ms, search_time_limit, remaining_ms, time_buffer_ms);
+                break;
+            }
+            eprintln!("DEBUG: Starting depth {} with {}ms remaining (limit: {}ms, buffer: {}ms)", 
+                depth, remaining_ms, search_time_limit, time_buffer_ms);
 
             // CRITICAL: If we've been searching for too long without progress, force return
             // This prevents the search from getting stuck indefinitely
@@ -14212,6 +14297,7 @@ impl IterativeDeepening {
                 };
 
                 let mut test_board = board.clone();
+                let search_start_time = std::time::Instant::now();
                 if let Some((move_, score)) = parallel_result.or_else(|| {
                     search_engine.search_at_depth(
                         &mut test_board,
@@ -14230,6 +14316,18 @@ impl IterativeDeepening {
 
                     // Record depth completion time for adaptive allocation (Task 4.6, 4.10)
                     let depth_completion_time = depth_start_time.elapsed_ms();
+                    let search_elapsed_ms = search_start_time.elapsed().as_millis() as u32;
+                    let nodes_searched = GLOBAL_NODES_SEARCHED.load(Ordering::Relaxed);
+                    let nps = if search_elapsed_ms > 0 {
+                        nodes_searched.saturating_mul(1000) / (search_elapsed_ms as u64)
+                    } else {
+                        0
+                    };
+                    
+                    // Profile output: show what took time at this depth
+                    eprintln!("DEBUG: Depth {} completed in {}ms - nodes: {}, nps: {}, depth_completion_time: {}ms", 
+                        depth, search_elapsed_ms, nodes_searched, nps, depth_completion_time);
+                    
                     search_engine.record_depth_completion(depth, depth_completion_time);
 
                     search_result = Some((move_.clone(), score));
@@ -14580,16 +14678,21 @@ impl IterativeDeepening {
                             score, depth
                         ),
                     );
+                    eprintln!("DEBUG: Breaking at depth {} due to extremely winning position (score: {})", depth, score);
                     break;
                 }
+                eprintln!("DEBUG: Completed depth {}, continuing to next depth (effective_max_depth={})", depth, effective_max_depth);
             } else {
                 crate::debug_utils::trace_log(
                     "ITERATIVE_DEEPENING",
                     &format!("No result at depth {}, breaking", depth),
                 );
+                eprintln!("DEBUG: Breaking at depth {} due to no result", depth);
                 break;
             }
         }
+        
+        eprintln!("DEBUG: Iterative deepening loop ended. Final depth reached, effective_max_depth was {}", effective_max_depth);
 
         crate::debug_utils::end_timing("iterative_deepening_total", "ITERATIVE_DEEPENING");
 
