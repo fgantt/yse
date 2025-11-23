@@ -19,6 +19,14 @@ pub struct MoveGenerator {
     raycast_move_count: u64,
     magic_generation_time: std::time::Duration,
     raycast_generation_time: std::time::Duration,
+    /// SIMD optimization configuration
+    /// 
+    /// Controls runtime enabling/disabling of SIMD optimizations for move generation.
+    /// Only effective when the `simd` feature is enabled at compile time.
+    /// 
+    /// # Task 4.0 (Task 4.6)
+    #[cfg(feature = "simd")]
+    simd_config: crate::config::SimdConfig,
 }
 
 impl MoveGenerator {
@@ -29,6 +37,8 @@ impl MoveGenerator {
             cache_misses: 0,
             magic_bitboard_enabled: true,
             batch_processing_enabled: true,
+            #[cfg(feature = "simd")]
+            simd_config: crate::config::SimdConfig::default(),
             magic_move_count: 0,
             raycast_move_count: 0,
             magic_generation_time: std::time::Duration::ZERO,
@@ -48,6 +58,8 @@ impl MoveGenerator {
             raycast_move_count: 0,
             magic_generation_time: std::time::Duration::ZERO,
             raycast_generation_time: std::time::Duration::ZERO,
+            #[cfg(feature = "simd")]
+            simd_config: crate::config::SimdConfig::default(),
         }
     }
 
@@ -59,6 +71,22 @@ impl MoveGenerator {
     /// Check if magic bitboards are enabled
     pub fn is_magic_bitboard_enabled(&self) -> bool {
         self.magic_bitboard_enabled
+    }
+    
+    /// Set SIMD configuration
+    /// 
+    /// # Task 4.0 (Task 4.6)
+    #[cfg(feature = "simd")]
+    pub fn set_simd_config(&mut self, config: crate::config::SimdConfig) {
+        self.simd_config = config;
+    }
+    
+    /// Get SIMD configuration
+    /// 
+    /// # Task 4.0 (Task 4.6)
+    #[cfg(feature = "simd")]
+    pub fn simd_config(&self) -> &crate::config::SimdConfig {
+        &self.simd_config
     }
 
     /// Enable or disable batch processing
@@ -350,8 +378,8 @@ impl MoveGenerator {
             
             let mut moves = Vec::new();
             
-            // Use SIMD batch generation for sliding pieces if magic table is available
-            if !sliding_pieces.is_empty() {
+            // Use SIMD batch generation for sliding pieces if magic table is available and SIMD is enabled
+            if !sliding_pieces.is_empty() && self.simd_config.enable_simd_move_generation {
                 // Try to get magic table from board
                 let magic_table = board.get_magic_table();
                 

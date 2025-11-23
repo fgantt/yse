@@ -1049,38 +1049,41 @@ impl IntegratedEvaluator {
     ) -> (TaperedScore, PieceSquareTelemetry) {
         #[cfg(feature = "simd")]
         {
-            // Use SIMD-optimized evaluation for the total score
-            let simd_evaluator = SimdEvaluator::new();
-            let score = simd_evaluator.evaluate_pst_batch(board, &self.pst, player);
-            
-            // Build per-piece telemetry by iterating once (needed for telemetry format)
-            // This is still efficient as it's a single pass and the score calculation
-            // (the expensive part) was done with SIMD batch operations
-            let mut per_piece = [TaperedScore::default(); PieceType::COUNT];
-            
-            for row in 0..9 {
-                for col in 0..9 {
-                    let pos = Position::new(row, col);
-                    if let Some(piece) = board.get_piece(pos) {
-                        let pst_value = self.pst.get_value(piece.piece_type, pos, piece.player);
-                        let idx = piece.piece_type.as_index();
+            // Check runtime flag before using SIMD
+            if self.config.simd.enable_simd_evaluation {
+                // Use SIMD-optimized evaluation for the total score
+                let simd_evaluator = SimdEvaluator::new();
+                let score = simd_evaluator.evaluate_pst_batch(board, &self.pst, player);
+                
+                // Build per-piece telemetry by iterating once (needed for telemetry format)
+                // This is still efficient as it's a single pass and the score calculation
+                // (the expensive part) was done with SIMD batch operations
+                let mut per_piece = [TaperedScore::default(); PieceType::COUNT];
+                
+                for row in 0..9 {
+                    for col in 0..9 {
+                        let pos = Position::new(row, col);
+                        if let Some(piece) = board.get_piece(pos) {
+                            let pst_value = self.pst.get_value(piece.piece_type, pos, piece.player);
+                            let idx = piece.piece_type.as_index();
 
-                        if piece.player == player {
-                            per_piece[idx] += pst_value;
-                        } else {
-                            per_piece[idx] -= pst_value;
+                            if piece.player == player {
+                                per_piece[idx] += pst_value;
+                            } else {
+                                per_piece[idx] -= pst_value;
+                            }
                         }
                     }
                 }
+                
+                let telemetry = PieceSquareTelemetry::from_contributions(score, &per_piece);
+                return (score, telemetry);
             }
-            
-            let telemetry = PieceSquareTelemetry::from_contributions(score, &per_piece);
-            (score, telemetry)
+            // Fall through to scalar implementation if SIMD disabled at runtime
         }
         
-        #[cfg(not(feature = "simd"))]
+        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
         {
-            // Scalar implementation (fallback when SIMD feature is disabled)
             let mut score = TaperedScore::default();
             let mut per_piece = [TaperedScore::default(); PieceType::COUNT];
 
@@ -1417,6 +1420,14 @@ pub struct IntegratedEvaluationConfig {
     pub dependency_graph: crate::evaluation::config::ComponentDependencyGraph,
     /// Automatically resolve conflicts when detected (Task 20.0 - Task 5.10)
     pub auto_resolve_conflicts: bool,
+    /// SIMD optimization configuration
+    /// 
+    /// Controls runtime enabling/disabling of SIMD optimizations.
+    /// Only effective when the `simd` feature is enabled at compile time.
+    /// 
+    /// # Task 4.0 (Task 4.2)
+    #[cfg(feature = "simd")]
+    pub simd: crate::config::SimdConfig,
 }
 
 impl Default for IntegratedEvaluationConfig {
@@ -1442,6 +1453,8 @@ impl Default for IntegratedEvaluationConfig {
             center_control_precedence: CenterControlPrecedence::PositionalPatterns,
             dependency_graph: crate::evaluation::config::ComponentDependencyGraph::default(), // Task 20.0 - Task 5.4
             auto_resolve_conflicts: false, // Task 20.0 - Task 5.10
+            #[cfg(feature = "simd")]
+            simd: crate::config::SimdConfig::default(),
         }
     }
 }

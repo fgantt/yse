@@ -190,6 +190,14 @@ pub struct EngineConfig {
     ///
     /// # Task 4.0 (Task 4.19)
     pub time_management: TimeManagementConfig,
+
+    /// SIMD optimization configuration
+    ///
+    /// Controls runtime enabling/disabling of SIMD optimizations.
+    /// Only effective when the `simd` feature is enabled at compile time.
+    ///
+    /// # Task 4.0 (Task 4.2)
+    pub simd: SimdConfig,
 }
 
 impl Default for EngineConfig {
@@ -200,6 +208,7 @@ impl Default for EngineConfig {
             transposition: TranspositionTableConfig::default(),
             parallel: ParallelSearchConfig::default(),
             time_management: TimeManagementConfig::default(),
+            simd: SimdConfig::default(),
         }
     }
 }
@@ -245,6 +254,7 @@ impl EngineConfig {
                 enable_time_budget: true,
                 ..TimeManagementConfig::default()
             },
+            simd: SimdConfig::default(),
         }
     }
 
@@ -289,6 +299,7 @@ impl EngineConfig {
                 enable_time_budget: false, // Disable to save memory
                 ..TimeManagementConfig::default()
             },
+            simd: SimdConfig::default(),
         }
     }
 
@@ -414,6 +425,65 @@ impl EngineConfig {
             )));
         }
 
+            // Validate SIMD configuration
+        self.simd.validate()?;
+
+        Ok(())
+    }
+}
+
+/// SIMD optimization configuration
+///
+/// Controls runtime enabling/disabling of SIMD optimizations for different components.
+/// When the `simd` feature is disabled at compile time, these flags have no effect.
+///
+/// # Task 4.0 (Task 4.1)
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SimdConfig {
+    /// Enable SIMD-optimized evaluation (PST evaluation)
+    pub enable_simd_evaluation: bool,
+    
+    /// Enable SIMD-optimized pattern matching (fork detection)
+    pub enable_simd_pattern_matching: bool,
+    
+    /// Enable SIMD-optimized move generation (sliding pieces)
+    pub enable_simd_move_generation: bool,
+}
+
+impl Default for SimdConfig {
+    fn default() -> Self {
+        #[cfg(feature = "simd")]
+        {
+            // When SIMD feature is enabled, all optimizations are enabled by default
+            Self {
+                enable_simd_evaluation: true,
+                enable_simd_pattern_matching: true,
+                enable_simd_move_generation: true,
+            }
+        }
+        
+        #[cfg(not(feature = "simd"))]
+        {
+            // When SIMD feature is disabled, flags are false (no effect anyway)
+            Self {
+                enable_simd_evaluation: false,
+                enable_simd_pattern_matching: false,
+                enable_simd_move_generation: false,
+            }
+        }
+    }
+}
+
+impl SimdConfig {
+    /// Validate SIMD configuration
+    ///
+    /// # Task 4.0 (Task 4.7)
+    ///
+    /// Currently, SIMD config is always valid (boolean flags).
+    /// This method exists for consistency with other config validation.
+    pub fn validate(&self) -> Result<()> {
+        // SIMD config is always valid - boolean flags can be any value
+        // If simd feature is disabled, these flags are ignored anyway
         Ok(())
     }
 }

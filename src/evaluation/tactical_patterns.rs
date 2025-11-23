@@ -427,8 +427,10 @@ impl TacticalPatternRecognizer {
 
         #[cfg(feature = "simd")]
         {
-            // Use SIMD batch detection to quickly identify pieces that fork
-            let simd_matcher = SimdPatternMatcher::new();
+            // Check runtime flag before using SIMD
+            if self.config.enable_simd_pattern_matching {
+                // Use SIMD batch detection to quickly identify pieces that fork
+                let simd_matcher = SimdPatternMatcher::new();
             let pieces: Vec<_> = ctx.player_pieces.iter()
                 .map(|(pos, piece)| (*pos, piece.piece_type))
                 .collect();
@@ -465,10 +467,12 @@ impl TacticalPatternRecognizer {
             // Preserve existing drop fork threats detection (scalar, not yet vectorized)
             total_score += self.detect_drop_fork_threats(ctx);
             
-            self.apply_phase_weights(total_score, &self.config.phase_weights.forks)
+            return self.apply_phase_weights(total_score, &self.config.phase_weights.forks);
+            }
+            // Fall through to scalar implementation if SIMD disabled at runtime
         }
         
-        #[cfg(not(feature = "simd"))]
+        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
         {
             // Scalar implementation (fallback when SIMD feature is disabled)
             let mut total_score = 0;
@@ -1243,6 +1247,14 @@ pub struct TacticalConfig {
     pub back_rank_penalty_cp: i32,
 
     pub phase_weights: TacticalPhaseWeights,
+    
+    /// Enable SIMD-optimized pattern matching
+    /// 
+    /// Only effective when the `simd` feature is enabled at compile time.
+    /// 
+    /// # Task 4.0 (Task 4.5)
+    #[cfg(feature = "simd")]
+    pub enable_simd_pattern_matching: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1271,6 +1283,8 @@ impl Default for TacticalConfig {
             back_rank_penalty_cp: 140,
 
             phase_weights: TacticalPhaseWeights::default(),
+            #[cfg(feature = "simd")]
+            enable_simd_pattern_matching: true, // Default to enabled when SIMD feature is available
         }
     }
 }
