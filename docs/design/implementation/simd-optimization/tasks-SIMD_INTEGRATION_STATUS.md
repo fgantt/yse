@@ -52,18 +52,18 @@ This task list is generated from `SIMD_INTEGRATION_STATUS.md` to fully integrate
   - [x] 2.10 Add integration test to verify SIMD pattern matching is actually used when feature is enabled
   - [x] 2.11 Update documentation comments to indicate SIMD usage
 
-- [ ] 3.0 Integrate Vectorized Move Generation into Search Engine
-  - [ ] 3.1 Identify all locations in `src/search/search_engine.rs` where move generation occurs
-  - [ ] 3.2 Determine if `MoveGenerator` needs to be modified to use `SlidingMoveGenerator` for batch operations
-  - [ ] 3.3 Add conditional compilation for SIMD feature in move generation paths
-  - [ ] 3.4 Modify move generation to collect sliding pieces (rook, bishop, lance) into batches
-  - [ ] 3.5 Integrate `SlidingMoveGenerator::generate_sliding_moves_batch_vectorized()` for batch processing when SIMD is enabled
-  - [ ] 3.6 Ensure non-sliding pieces continue to use existing generation logic
-  - [ ] 3.7 Add fallback to regular batch generation when SIMD feature is disabled
-  - [ ] 3.8 Verify move generation correctness: ensure vectorized generation produces same moves as scalar
-  - [ ] 3.9 Add unit tests in `tests/simd_integration_tests.rs` to verify vectorized move generation correctness
-  - [ ] 3.10 Add integration test to verify vectorized move generation is used in search engine when feature is enabled
-  - [ ] 3.11 Update documentation comments to indicate SIMD usage
+- [x] 3.0 Integrate Vectorized Move Generation into Search Engine
+  - [x] 3.1 Identify all locations in `src/search/search_engine.rs` where move generation occurs
+  - [x] 3.2 Determine if `MoveGenerator` needs to be modified to use `SlidingMoveGenerator` for batch operations
+  - [x] 3.3 Add conditional compilation for SIMD feature in move generation paths
+  - [x] 3.4 Modify move generation to collect sliding pieces (rook, bishop, lance) into batches
+  - [x] 3.5 Integrate `SlidingMoveGenerator::generate_sliding_moves_batch_vectorized()` for batch processing when SIMD is enabled
+  - [x] 3.6 Ensure non-sliding pieces continue to use existing generation logic
+  - [x] 3.7 Add fallback to regular batch generation when SIMD feature is disabled
+  - [x] 3.8 Verify move generation correctness: ensure vectorized generation produces same moves as scalar
+  - [x] 3.9 Add unit tests in `tests/simd_integration_tests.rs` to verify vectorized move generation correctness
+  - [x] 3.10 Add integration test to verify vectorized move generation is used in search engine when feature is enabled
+  - [x] 3.11 Update documentation comments to indicate SIMD usage
   - [ ] 3.12 (Optional) Consider integrating memory optimization utilities (prefetching, alignment) into critical move generation paths for additional performance gains
 
 - [ ] 4.0 Add Runtime Feature Flags for SIMD Control
@@ -237,4 +237,82 @@ Successfully integrated SIMD-optimized pattern matching into `TacticalPatternRec
 ### Next Steps
 
 - Ready to proceed with Task 3.0: Integrate Vectorized Move Generation into Search Engine
+
+---
+
+## Task 3.0 Completion Notes: Integrate Vectorized Move Generation into Search Engine
+
+### Summary
+Successfully integrated SIMD-optimized vectorized move generation into `MoveGenerator::generate_all_piece_moves()`, enabling 2-4x performance improvement for sliding piece move generation when the `simd` feature is enabled.
+
+### Implementation Details
+
+1. **SIMD Integration (`src/moves.rs`)**:
+   - Added conditional compilation for SIMD feature using `#[cfg(feature = "simd")]`
+   - Imported `SlidingMoveGenerator` when SIMD feature is enabled
+   - Modified `generate_all_piece_moves()` to collect sliding pieces (rook, bishop, lance) separately
+   - Integrated `SlidingMoveGenerator::generate_sliding_moves_batch_vectorized()` for batch processing when SIMD is enabled and magic table is available
+   - Non-sliding pieces continue to use existing generation logic
+   - Added comprehensive documentation comments explaining SIMD usage and performance benefits
+
+2. **Implementation Strategy**:
+   - When SIMD is enabled: Collects sliding pieces into batches, uses `SlidingMoveGenerator` with vectorized batch method if magic table is available, falls back to scalar if not
+   - When SIMD is disabled: Falls back to existing scalar implementation
+   - Maintains full backward compatibility - all move generation paths work correctly
+
+3. **Code Changes**:
+   - Refactored `generate_all_piece_moves()` to use conditional compilation with SIMD and scalar paths
+   - SIMD path: Collect sliding pieces → Use vectorized batch generation → Process non-sliding pieces normally
+   - Scalar path: Original implementation unchanged
+   - Enhanced documentation with performance notes
+
+### Testing
+
+1. **Integration Tests (`tests/simd_integration_tests.rs`)**:
+   - Created comprehensive test suite with 7 tests
+   - `test_simd_move_generation_same_results`: Verifies SIMD produces correct results
+   - `test_simd_move_generation_empty_board`: Tests edge case with empty board
+   - `test_simd_move_generation_with_sliding_pieces`: Tests with sliding pieces
+   - `test_simd_move_generation_consistency`: Verifies deterministic results
+   - `test_simd_move_generation_player_switching`: Tests player perspective switching
+   - `test_simd_all_piece_moves_integration`: Tests integration with all piece types
+   - `test_simd_move_generation_correctness`: Verifies move correctness
+   - All 7 tests pass successfully
+
+2. **Test Coverage**:
+   - Verifies SIMD move generation produces correct results
+   - Confirms SIMD is used when feature is enabled
+   - Tests edge cases (empty board, various positions)
+   - Validates integration with full move generation pipeline
+   - Verifies both sliding and non-sliding pieces work correctly
+
+### Performance Impact
+
+- **SIMD Path**: Uses batch operations to process multiple sliding pieces simultaneously when magic table is available
+- **Expected Improvement**: 2-4x speedup over scalar implementation (as documented in `SlidingMoveGenerator`)
+- **Fallback Strategy**: Gracefully falls back to scalar if magic table not available
+- **Backward Compatibility**: Full compatibility maintained - scalar path still available when SIMD disabled
+
+### Files Modified
+
+- `src/moves.rs` - Added SIMD integration to `generate_all_piece_moves()` method
+- `tests/simd_integration_tests.rs` - Created comprehensive test suite (new file)
+
+### Verification
+
+- ✅ All tests pass (`cargo test --features simd --test simd_integration_tests`)
+- ✅ Code compiles without errors
+- ✅ Backward compatibility maintained
+- ✅ Documentation updated
+- ✅ SIMD path verified to be used when feature enabled and magic table available
+- ✅ Non-sliding pieces continue to use existing logic
+
+### Integration with Search Engine
+
+The search engine uses `MoveGenerator::generate_legal_moves()` which internally calls `generate_all_piece_moves()`. Since the integration is in `MoveGenerator`, it automatically benefits the search engine without requiring changes to `search_engine.rs`.
+
+### Next Steps
+
+- Task 3.12 (Optional): Consider integrating memory optimization utilities for additional performance gains
+- Ready to proceed with Task 4.0: Add Runtime Feature Flags for SIMD Control
 
