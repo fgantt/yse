@@ -1,6 +1,69 @@
+//! SIMD-optimized bitboard implementation for Shogi engine
+//!
+//! This module provides `SimdBitboard`, a 128-bit bitboard representation optimized
+//! for native platforms using explicit SIMD intrinsics.
+//!
+//! # Platform Support
+//!
+//! - **x86_64**: SSE (baseline), AVX2 (when available), AVX-512 (when available)
+//! - **ARM64**: NEON (always available on aarch64)
+//! - **WebAssembly**: Not supported (native platforms only)
+//!
+//! # Performance Characteristics
+//!
+//! When the `simd` feature is enabled:
+//! - Bitwise operations use explicit SIMD intrinsics
+//! - Target: 2-4x speedup vs scalar implementation
+//! - Batch operations: 4-8x speedup for processing multiple bitboards
+//!
+//! # Usage
+//!
+//! ```rust
+//! use shogi_engine::bitboards::SimdBitboard;
+//!
+//! let bb1 = SimdBitboard::from_u128(0x0F0F);
+//! let bb2 = SimdBitboard::from_u128(0x3333);
+//!
+//! let result = bb1 & bb2; // Uses SIMD intrinsics when simd feature is enabled
+//! ```
+
 use serde::{Deserialize, Serialize, Serializer, Deserializer};
 use crate::bitboards::platform_detection;
 
+/// SIMD-optimized bitboard for 128-bit operations
+///
+/// This struct provides a 128-bit bitboard representation optimized for native
+/// platforms using explicit SIMD intrinsics when the `simd` feature is enabled.
+///
+/// # Platform Requirements
+///
+/// - **Native platforms only**: x86_64 or ARM64
+/// - **SIMD feature**: Enable with `--features simd` for explicit SIMD intrinsics
+/// - **Fallback**: When `simd` feature is disabled, uses scalar `u128` operations
+///
+/// # Performance
+///
+/// - **Bitwise operations**: 2-4x speedup target with SIMD
+/// - **Hardware popcount**: Uses CPU POPCNT instruction when available
+/// - **Memory**: 16 bytes, aligned for SIMD access
+///
+/// # Example
+///
+/// ```rust
+/// use shogi_engine::bitboards::SimdBitboard;
+///
+/// let bb1 = SimdBitboard::from_u128(0x0F0F_0F0F);
+/// let bb2 = SimdBitboard::from_u128(0x3333_3333);
+///
+/// // Bitwise operations use SIMD when simd feature is enabled
+/// let and_result = bb1 & bb2;
+/// let or_result = bb1 | bb2;
+/// let xor_result = bb1 ^ bb2;
+/// let not_result = !bb1;
+///
+/// // Population count uses hardware instruction
+/// let count = bb1.count_ones();
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct SimdBitboard {
