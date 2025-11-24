@@ -50,7 +50,34 @@ This document defines the performance targets and validation criteria for SIMD o
 - Measure NPS (nodes per second) for various positions
 - Calculate improvement percentage
 
-**Validation**: Run comprehensive search benchmarks and verify NPS improvement.
+**Validation**: 
+- Run `cargo test --features simd simd_nps_validation --release` for validation tests
+- Run `cargo bench --bench simd_nps_benchmarks --features simd` for detailed benchmarks
+- Tests require 20%+ improvement in release builds
+- Debug builds allow up to 50% regression (expected due to function call overhead)
+
+**NPS Validation Tests**: `tests/simd_nps_validation.rs`
+- `test_simd_nps_improvement_end_to_end`: End-to-end search comparison requiring 20%+ improvement
+- `test_simd_nps_regression_detection`: Ensures no significant performance regression
+- `test_simd_realistic_workload_simulation`: Realistic workload with multiple positions
+
+**NPS Benchmarks**: `benches/simd_nps_benchmarks.rs`
+- `bench_simd_vs_scalar_nps_starting_position`: Starting position NPS comparison
+- `bench_simd_vs_scalar_nps_different_depths`: NPS at different search depths
+- `bench_simd_vs_scalar_nps_realistic_workload`: Realistic multi-position workload
+
+**Methodology** (Task 5.12.5):
+1. Create SearchEngine with SIMD enabled/disabled via `EngineConfig`
+2. Run searches at consistent depths (typically 3-4) for fair comparison
+3. Measure total nodes searched and elapsed time
+4. Calculate NPS = nodes / time_seconds
+5. Calculate improvement = ((NPS_simd - NPS_scalar) / NPS_scalar) * 100%
+6. Validate improvement >= 20% in release builds
+
+**Results Interpretation**:
+- **Release builds**: Require 20%+ improvement (strict requirement)
+- **Debug builds**: Allow up to 50% regression (acceptable due to function call overhead)
+- **Regression threshold**: Maximum 5% regression allowed in release builds
 
 ## Performance Regression Thresholds
 
@@ -59,7 +86,8 @@ This document defines the performance targets and validation criteria for SIMD o
 Performance regressions are detected when:
 - Any SIMD operation is slower than scalar implementation
 - Batch operations show less than 2x speedup (below minimum target)
-- Overall NPS decreases by more than 5% compared to baseline
+- Overall NPS decreases by more than 5% compared to baseline (Task 5.12.4)
+- NPS improvement is less than 20% in release builds (Task 5.12.2)
 
 ### Regression Test Suite
 
@@ -105,6 +133,19 @@ Location: `benches/batch_ops_benchmarks.rs`
 - `batch_various_sizes`: Performance across different array sizes
 
 **Running**: `cargo bench --bench batch_ops_benchmarks --features simd`
+
+### NPS (Nodes Per Second) Benchmarks
+
+Location: `benches/simd_nps_benchmarks.rs` (Task 5.12.1)
+
+**Benchmark Groups**:
+- `NPS Starting Position`: SIMD vs scalar NPS for starting position
+- `NPS Different Depths`: NPS comparison at depths 2, 3, 4
+- `NPS Realistic Workload`: Multi-position workload simulation
+
+**Running**: `cargo bench --bench simd_nps_benchmarks --features simd`
+
+**Purpose**: Measure overall engine performance improvement from SIMD optimizations in realistic search scenarios.
 
 ### Instruction Validation Benchmarks
 
@@ -188,6 +229,9 @@ Before merging SIMD changes:
 - [ ] No performance regressions detected
 - [ ] CI performance checks pass
 - [ ] Documentation updated with actual performance metrics
+- [ ] NPS validation tests pass (20%+ improvement in release builds) (Task 5.12.2)
+- [ ] NPS benchmarks show consistent improvement across different depths (Task 5.12.1)
+- [ ] Realistic workload simulation validates improvement (Task 5.12.3)
 
 ## Future Enhancements
 

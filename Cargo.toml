@@ -482,3 +482,8 @@ required-features = ["simd"]
 name = "simd_overall_performance_benchmarks"
 harness = false
 required-features = ["simd"]
+
+[[bench]]
+name = "simd_nps_benchmarks"
+harness = false
+required-features = ["simd"]
