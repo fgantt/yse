@@ -348,3 +348,113 @@ fn test_combine_all_single() {
     assert_eq!(combined.to_u128(), 0xAAAA);
 }
 
+#[test]
+fn test_avx2_correctness() {
+    // Test that AVX2 implementation produces same results as scalar
+    // This test validates that AVX2 batch operations are correct
+    // even when processing 2 bitboards simultaneously
+    
+    use shogi_engine::bitboards::platform_detection;
+    
+    let caps = platform_detection::get_platform_capabilities();
+    
+    // Test with various sizes, including odd sizes to test edge cases
+    for size in [2, 3, 4, 5, 8, 9, 16, 17, 32] {
+        match size {
+            2 => test_avx2_size::<2>(),
+            3 => test_avx2_size::<3>(),
+            4 => test_avx2_size::<4>(),
+            5 => test_avx2_size::<5>(),
+            8 => test_avx2_size::<8>(),
+            9 => test_avx2_size::<9>(),
+            16 => test_avx2_size::<16>(),
+            17 => test_avx2_size::<17>(),
+            32 => test_avx2_size::<32>(),
+            _ => unreachable!(),
+        }
+    }
+    
+    // Test combine_all with AVX2
+    test_avx2_combine_all();
+    
+    if caps.has_avx2 {
+        println!("AVX2 is available - tested AVX2 implementation");
+    } else {
+        println!("AVX2 not available - tested SSE fallback");
+    }
+}
+
+fn test_avx2_size<const N: usize>() {
+    let mut a_data = [SimdBitboard::empty(); N];
+    let mut b_data = [SimdBitboard::empty(); N];
+    
+    // Create diverse test data
+    for i in 0..N {
+        a_data[i] = SimdBitboard::from_u128(0x0F0F_0F0F_0F0F_0F0F ^ ((i * 17) as u128));
+        b_data[i] = SimdBitboard::from_u128(0x3333_3333_3333_3333 ^ ((i * 23) as u128));
+    }
+    
+    let a = AlignedBitboardArray::<N>::from_slice(&a_data);
+    let b = AlignedBitboardArray::<N>::from_slice(&b_data);
+    
+    // Test batch operations (will use AVX2 if available, SSE otherwise)
+    let result_and = a.batch_and(&b);
+    let result_or = a.batch_or(&b);
+    let result_xor = a.batch_xor(&b);
+    
+    // Verify correctness by comparing with scalar operations
+    for i in 0..N {
+        let expected_and = a_data[i] & b_data[i];
+        let expected_or = a_data[i] | b_data[i];
+        let expected_xor = a_data[i] ^ b_data[i];
+        
+        assert_eq!(result_and.get(i).to_u128(), expected_and.to_u128(),
+                   "AVX2/SSE AND mismatch at index {} for size {}", i, N);
+        assert_eq!(result_or.get(i).to_u128(), expected_or.to_u128(),
+                   "AVX2/SSE OR mismatch at index {} for size {}", i, N);
+        assert_eq!(result_xor.get(i).to_u128(), expected_xor.to_u128(),
+                   "AVX2/SSE XOR mismatch at index {} for size {}", i, N);
+    }
+}
+
+fn test_avx2_combine_all() {
+    // Test combine_all with various sizes
+    for size in [2, 3, 4, 5, 8, 16, 32] {
+        match size {
+            2 => test_combine_all_size::<2>(),
+            3 => test_combine_all_size::<3>(),
+            4 => test_combine_all_size::<4>(),
+            5 => test_combine_all_size::<5>(),
+            8 => test_combine_all_size::<8>(),
+            16 => test_combine_all_size::<16>(),
+            32 => test_combine_all_size::<32>(),
+            _ => unreachable!(),
+        }
+    }
+}
+
+fn test_combine_all_size<const N: usize>() {
+    let mut data = [SimdBitboard::empty(); N];
+    
+    // Create diverse attack patterns
+    for i in 0..N {
+        data[i] = SimdBitboard::from_u128(
+            0x0F0F_0F0F_0F0F_0F0F ^ ((i as u128) << (i % 64))
+        );
+    }
+    
+    let arr = AlignedBitboardArray::<N>::from_slice(&data);
+    
+    // Test combine_all (will use AVX2 if available, SSE otherwise)
+    let combined = arr.combine_all();
+    
+    // Verify correctness by comparing with scalar OR reduction
+    let mut expected = SimdBitboard::empty();
+    for i in 0..N {
+        expected = expected | data[i];
+    }
+    
+    assert_eq!(combined.to_u128(), expected.to_u128(),
+               "AVX2/SSE combine_all mismatch for size {}", N);
+}
+

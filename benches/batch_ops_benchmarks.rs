@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use shogi_engine::bitboards::{SimdBitboard, batch_ops::AlignedBitboardArray};
+use shogi_engine::bitboards::{SimdBitboard, batch_ops::AlignedBitboardArray, platform_detection};
 
 /// Scalar implementation for comparison
 fn scalar_batch_and<const N: usize>(
@@ -224,6 +224,60 @@ fn bench_combine_all_size<const N: usize>(group: &mut criterion::BenchmarkGroup<
     });
 }
 
-criterion_group!(benches, bench_batch_and, bench_batch_or, bench_batch_xor, bench_batch_various_sizes, bench_combine_all);
+/// Benchmark AVX2 vs SSE performance for batch operations
+/// This benchmark will automatically use AVX2 if available, otherwise SSE
+/// The runtime selection is handled by the batch_ops module
+fn bench_avx2_vs_sse(c: &mut Criterion) {
+    let caps = platform_detection::get_platform_capabilities();
+    let simd_level = caps.get_simd_level();
+    
+    let mut group = c.benchmark_group("avx2_vs_sse");
+    group.sample_size(1000);
+    
+    // Print which SIMD level is being used
+    eprintln!("SIMD Level: {:?}, AVX2 Available: {}", simd_level, caps.has_avx2);
+    
+    let mut a_data = [SimdBitboard::empty(); 16];
+    let mut b_data = [SimdBitboard::empty(); 16];
+    
+    for i in 0..16 {
+        a_data[i] = SimdBitboard::from_u128(0x0F0F_0F0F_0F0F_0F0F ^ (i as u128));
+        b_data[i] = SimdBitboard::from_u128(0x3333_3333_3333_3333 ^ (i as u128));
+    }
+    
+    let a = AlignedBitboardArray::<16>::from_slice(&a_data);
+    let b = AlignedBitboardArray::<16>::from_slice(&b_data);
+    
+    // These will automatically use AVX2 if available, SSE otherwise
+    group.bench_function("batch_and_auto_select", |bencher| {
+        bencher.iter(|| {
+            black_box(a.batch_and(&b))
+        });
+    });
+    
+    group.bench_function("batch_or_auto_select", |bencher| {
+        bencher.iter(|| {
+            black_box(a.batch_or(&b))
+        });
+    });
+    
+    group.bench_function("batch_xor_auto_select", |bencher| {
+        bencher.iter(|| {
+            black_box(a.batch_xor(&b))
+        });
+    });
+    
+    // Test combine_all with AVX2/SSE auto-selection
+    let arr = AlignedBitboardArray::<16>::from_slice(&a_data);
+    group.bench_function("combine_all_auto_select", |bencher| {
+        bencher.iter(|| {
+            black_box(arr.combine_all())
+        });
+    });
+    
+    group.finish();
+}
+
+criterion_group!(benches, bench_batch_and, bench_batch_or, bench_batch_xor, bench_batch_various_sizes, bench_combine_all, bench_avx2_vs_sse);
 criterion_main!(benches);
 

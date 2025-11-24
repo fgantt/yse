@@ -232,7 +232,7 @@ impl<const N: usize> AlignedBitboardArray<N> {
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 mod x86_64_batch {
     use super::AlignedBitboardArray;
-    use crate::bitboards::SimdBitboard;
+    use crate::bitboards::{SimdBitboard, platform_detection};
     use std::arch::x86_64::*;
 
     /// Process batch AND operation using SSE/AVX2
@@ -243,45 +243,140 @@ mod x86_64_batch {
         a: &AlignedBitboardArray<N>,
         b: &AlignedBitboardArray<N>,
     ) -> AlignedBitboardArray<N> {
+        // Check if AVX2 is available at runtime
+        let caps = platform_detection::get_platform_capabilities();
+        if caps.has_avx2 {
+            batch_and_avx2(a, b)
+        } else {
+            batch_and_sse(a, b)
+        }
+    }
+
+    /// AVX2-optimized batch AND: processes 2 bitboards simultaneously
+    #[target_feature(enable = "avx2")]
+    unsafe fn batch_and_avx2<const N: usize>(
+        a: &AlignedBitboardArray<N>,
+        b: &AlignedBitboardArray<N>,
+    ) -> AlignedBitboardArray<N> {
         let mut result = AlignedBitboardArray::new();
         let a_slice = a.as_slice();
         let b_slice = b.as_slice();
         let result_slice = result.as_mut_slice();
 
-        unsafe {
-            // Use aligned loads when possible for better performance
-            // Process in chunks with prefetching for cache optimization
-            let prefetch_distance = 8; // Prefetch 8 elements ahead
+        let prefetch_distance = 8;
+        
+        // Process 2 bitboards at a time using AVX2 (256-bit registers)
+        let pairs = N / 2;
+        for i in 0..pairs {
+            let idx1 = i * 2;
+            let idx2 = idx1 + 1;
             
-            for i in 0..N {
-                // Prefetch future elements for better cache performance
-                if i + prefetch_distance < N {
-                    _mm_prefetch(
-                        a_slice.as_ptr().add(i + prefetch_distance) as *const i8,
-                        _MM_HINT_T0,
-                    );
-                    _mm_prefetch(
-                        b_slice.as_ptr().add(i + prefetch_distance) as *const i8,
-                        _MM_HINT_T0,
-                    );
-                }
-
-                // Load bitboards as bytes for SIMD processing
-                let a_bytes = a_slice[i].to_u128().to_le_bytes();
-                let b_bytes = b_slice[i].to_u128().to_le_bytes();
-                
-                // Use unaligned load (safe for all cases, still fast)
-                let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
-                let b_vec = _mm_loadu_si128(b_bytes.as_ptr() as *const __m128i);
-                
-                // Perform SIMD AND
-                let result_vec = _mm_and_si128(a_vec, b_vec);
-                
-                // Store result
-                let mut result_bytes = [0u8; 16];
-                _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result_vec);
-                result_slice[i] = SimdBitboard::from_u128(u128::from_le_bytes(result_bytes));
+            // Prefetch future elements
+            if idx1 + prefetch_distance < N {
+                _mm_prefetch(
+                    a_slice.as_ptr().add(idx1 + prefetch_distance) as *const i8,
+                    _MM_HINT_T0,
+                );
+                _mm_prefetch(
+                    b_slice.as_ptr().add(idx1 + prefetch_distance) as *const i8,
+                    _MM_HINT_T0,
+                );
             }
+
+            // Load two bitboards from each array into AVX2 registers
+            let a1_bytes = a_slice[idx1].to_u128().to_le_bytes();
+            let a2_bytes = a_slice[idx2].to_u128().to_le_bytes();
+            let b1_bytes = b_slice[idx1].to_u128().to_le_bytes();
+            let b2_bytes = b_slice[idx2].to_u128().to_le_bytes();
+            
+            // Combine two 128-bit values into one 256-bit AVX2 register
+            // We interleave: [a1_low, a2_low] in low 128 bits, [a1_high, a2_high] in high 128 bits
+            // Actually, simpler: just load them as two separate 128-bit values and pack them
+            let a1_vec = _mm_loadu_si128(a1_bytes.as_ptr() as *const __m128i);
+            let a2_vec = _mm_loadu_si128(a2_bytes.as_ptr() as *const __m128i);
+            let b1_vec = _mm_loadu_si128(b1_bytes.as_ptr() as *const __m128i);
+            let b2_vec = _mm_loadu_si128(b2_bytes.as_ptr() as *const __m128i);
+            
+            // Pack two 128-bit values into 256-bit AVX2 register
+            // _mm256_set_m128i(hi, lo) creates a 256-bit register from two 128-bit values
+            let a_256 = _mm256_set_m128i(a2_vec, a1_vec);
+            let b_256 = _mm256_set_m128i(b2_vec, b1_vec);
+            
+            // Perform AVX2 AND on both bitboards simultaneously
+            let result_256 = _mm256_and_si256(a_256, b_256);
+            
+            // Extract the two 128-bit results
+            let result1 = _mm256_extracti128_si256::<0>(result_256);
+            let result2 = _mm256_extracti128_si256::<1>(result_256);
+            
+            // Store results
+            let mut result1_bytes = [0u8; 16];
+            let mut result2_bytes = [0u8; 16];
+            _mm_storeu_si128(result1_bytes.as_mut_ptr() as *mut __m128i, result1);
+            _mm_storeu_si128(result2_bytes.as_mut_ptr() as *mut __m128i, result2);
+            
+            result_slice[idx1] = SimdBitboard::from_u128(u128::from_le_bytes(result1_bytes));
+            result_slice[idx2] = SimdBitboard::from_u128(u128::from_le_bytes(result2_bytes));
+        }
+        
+        // Handle remaining odd element if N is odd
+        if N % 2 != 0 {
+            let idx = pairs * 2;
+            let a_bytes = a_slice[idx].to_u128().to_le_bytes();
+            let b_bytes = b_slice[idx].to_u128().to_le_bytes();
+            
+            let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
+            let b_vec = _mm_loadu_si128(b_bytes.as_ptr() as *const __m128i);
+            let result_vec = _mm_and_si128(a_vec, b_vec);
+            
+            let mut result_bytes = [0u8; 16];
+            _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result_vec);
+            result_slice[idx] = SimdBitboard::from_u128(u128::from_le_bytes(result_bytes));
+        }
+
+        result
+    }
+
+    /// SSE-optimized batch AND: processes 1 bitboard at a time (fallback)
+    unsafe fn batch_and_sse<const N: usize>(
+        a: &AlignedBitboardArray<N>,
+        b: &AlignedBitboardArray<N>,
+    ) -> AlignedBitboardArray<N> {
+        let mut result = AlignedBitboardArray::new();
+        let a_slice = a.as_slice();
+        let b_slice = b.as_slice();
+        let result_slice = result.as_mut_slice();
+
+        let prefetch_distance = 8;
+        
+        for i in 0..N {
+            // Prefetch future elements for better cache performance
+            if i + prefetch_distance < N {
+                _mm_prefetch(
+                    a_slice.as_ptr().add(i + prefetch_distance) as *const i8,
+                    _MM_HINT_T0,
+                );
+                _mm_prefetch(
+                    b_slice.as_ptr().add(i + prefetch_distance) as *const i8,
+                    _MM_HINT_T0,
+                );
+            }
+
+            // Load bitboards as bytes for SIMD processing
+            let a_bytes = a_slice[i].to_u128().to_le_bytes();
+            let b_bytes = b_slice[i].to_u128().to_le_bytes();
+            
+            // Use unaligned load (safe for all cases, still fast)
+            let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
+            let b_vec = _mm_loadu_si128(b_bytes.as_ptr() as *const __m128i);
+            
+            // Perform SIMD AND
+            let result_vec = _mm_and_si128(a_vec, b_vec);
+            
+            // Store result
+            let mut result_bytes = [0u8; 16];
+            _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result_vec);
+            result_slice[i] = SimdBitboard::from_u128(u128::from_le_bytes(result_bytes));
         }
 
         result
@@ -292,38 +387,131 @@ mod x86_64_batch {
         a: &AlignedBitboardArray<N>,
         b: &AlignedBitboardArray<N>,
     ) -> AlignedBitboardArray<N> {
+        // Check if AVX2 is available at runtime
+        let caps = platform_detection::get_platform_capabilities();
+        if caps.has_avx2 {
+            unsafe { batch_or_avx2(a, b) }
+        } else {
+            unsafe { batch_or_sse(a, b) }
+        }
+    }
+
+    /// AVX2-optimized batch OR: processes 2 bitboards simultaneously
+    #[target_feature(enable = "avx2")]
+    unsafe fn batch_or_avx2<const N: usize>(
+        a: &AlignedBitboardArray<N>,
+        b: &AlignedBitboardArray<N>,
+    ) -> AlignedBitboardArray<N> {
         let mut result = AlignedBitboardArray::new();
         let a_slice = a.as_slice();
         let b_slice = b.as_slice();
         let result_slice = result.as_mut_slice();
 
-        unsafe {
-            let prefetch_distance = 8;
+        let prefetch_distance = 8;
+        
+        // Process 2 bitboards at a time using AVX2 (256-bit registers)
+        let pairs = N / 2;
+        for i in 0..pairs {
+            let idx1 = i * 2;
+            let idx2 = idx1 + 1;
             
-            for i in 0..N {
-                if i + prefetch_distance < N {
-                    _mm_prefetch(
-                        a_slice.as_ptr().add(i + prefetch_distance) as *const i8,
-                        _MM_HINT_T0,
-                    );
-                    _mm_prefetch(
-                        b_slice.as_ptr().add(i + prefetch_distance) as *const i8,
-                        _MM_HINT_T0,
-                    );
-                }
-
-                let a_bytes = a_slice[i].to_u128().to_le_bytes();
-                let b_bytes = b_slice[i].to_u128().to_le_bytes();
-                
-                let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
-                let b_vec = _mm_loadu_si128(b_bytes.as_ptr() as *const __m128i);
-                
-                let result_vec = _mm_or_si128(a_vec, b_vec);
-                
-                let mut result_bytes = [0u8; 16];
-                _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result_vec);
-                result_slice[i] = SimdBitboard::from_u128(u128::from_le_bytes(result_bytes));
+            // Prefetch future elements
+            if idx1 + prefetch_distance < N {
+                _mm_prefetch(
+                    a_slice.as_ptr().add(idx1 + prefetch_distance) as *const i8,
+                    _MM_HINT_T0,
+                );
+                _mm_prefetch(
+                    b_slice.as_ptr().add(idx1 + prefetch_distance) as *const i8,
+                    _MM_HINT_T0,
+                );
             }
+
+            // Load two bitboards from each array into AVX2 registers
+            let a1_bytes = a_slice[idx1].to_u128().to_le_bytes();
+            let a2_bytes = a_slice[idx2].to_u128().to_le_bytes();
+            let b1_bytes = b_slice[idx1].to_u128().to_le_bytes();
+            let b2_bytes = b_slice[idx2].to_u128().to_le_bytes();
+            
+            let a1_vec = _mm_loadu_si128(a1_bytes.as_ptr() as *const __m128i);
+            let a2_vec = _mm_loadu_si128(a2_bytes.as_ptr() as *const __m128i);
+            let b1_vec = _mm_loadu_si128(b1_bytes.as_ptr() as *const __m128i);
+            let b2_vec = _mm_loadu_si128(b2_bytes.as_ptr() as *const __m128i);
+            
+            // Pack two 128-bit values into 256-bit AVX2 register
+            let a_256 = _mm256_set_m128i(a2_vec, a1_vec);
+            let b_256 = _mm256_set_m128i(b2_vec, b1_vec);
+            
+            // Perform AVX2 OR on both bitboards simultaneously
+            let result_256 = _mm256_or_si256(a_256, b_256);
+            
+            // Extract the two 128-bit results
+            let result1 = _mm256_extracti128_si256::<0>(result_256);
+            let result2 = _mm256_extracti128_si256::<1>(result_256);
+            
+            // Store results
+            let mut result1_bytes = [0u8; 16];
+            let mut result2_bytes = [0u8; 16];
+            _mm_storeu_si128(result1_bytes.as_mut_ptr() as *mut __m128i, result1);
+            _mm_storeu_si128(result2_bytes.as_mut_ptr() as *mut __m128i, result2);
+            
+            result_slice[idx1] = SimdBitboard::from_u128(u128::from_le_bytes(result1_bytes));
+            result_slice[idx2] = SimdBitboard::from_u128(u128::from_le_bytes(result2_bytes));
+        }
+        
+        // Handle remaining odd element if N is odd
+        if N % 2 != 0 {
+            let idx = pairs * 2;
+            let a_bytes = a_slice[idx].to_u128().to_le_bytes();
+            let b_bytes = b_slice[idx].to_u128().to_le_bytes();
+            
+            let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
+            let b_vec = _mm_loadu_si128(b_bytes.as_ptr() as *const __m128i);
+            let result_vec = _mm_or_si128(a_vec, b_vec);
+            
+            let mut result_bytes = [0u8; 16];
+            _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result_vec);
+            result_slice[idx] = SimdBitboard::from_u128(u128::from_le_bytes(result_bytes));
+        }
+
+        result
+    }
+
+    /// SSE-optimized batch OR: processes 1 bitboard at a time (fallback)
+    unsafe fn batch_or_sse<const N: usize>(
+        a: &AlignedBitboardArray<N>,
+        b: &AlignedBitboardArray<N>,
+    ) -> AlignedBitboardArray<N> {
+        let mut result = AlignedBitboardArray::new();
+        let a_slice = a.as_slice();
+        let b_slice = b.as_slice();
+        let result_slice = result.as_mut_slice();
+
+        let prefetch_distance = 8;
+        
+        for i in 0..N {
+            if i + prefetch_distance < N {
+                _mm_prefetch(
+                    a_slice.as_ptr().add(i + prefetch_distance) as *const i8,
+                    _MM_HINT_T0,
+                );
+                _mm_prefetch(
+                    b_slice.as_ptr().add(i + prefetch_distance) as *const i8,
+                    _MM_HINT_T0,
+                );
+            }
+
+            let a_bytes = a_slice[i].to_u128().to_le_bytes();
+            let b_bytes = b_slice[i].to_u128().to_le_bytes();
+            
+            let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
+            let b_vec = _mm_loadu_si128(b_bytes.as_ptr() as *const __m128i);
+            
+            let result_vec = _mm_or_si128(a_vec, b_vec);
+            
+            let mut result_bytes = [0u8; 16];
+            _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result_vec);
+            result_slice[i] = SimdBitboard::from_u128(u128::from_le_bytes(result_bytes));
         }
 
         result
@@ -334,38 +522,131 @@ mod x86_64_batch {
         a: &AlignedBitboardArray<N>,
         b: &AlignedBitboardArray<N>,
     ) -> AlignedBitboardArray<N> {
+        // Check if AVX2 is available at runtime
+        let caps = platform_detection::get_platform_capabilities();
+        if caps.has_avx2 {
+            unsafe { batch_xor_avx2(a, b) }
+        } else {
+            unsafe { batch_xor_sse(a, b) }
+        }
+    }
+
+    /// AVX2-optimized batch XOR: processes 2 bitboards simultaneously
+    #[target_feature(enable = "avx2")]
+    unsafe fn batch_xor_avx2<const N: usize>(
+        a: &AlignedBitboardArray<N>,
+        b: &AlignedBitboardArray<N>,
+    ) -> AlignedBitboardArray<N> {
         let mut result = AlignedBitboardArray::new();
         let a_slice = a.as_slice();
         let b_slice = b.as_slice();
         let result_slice = result.as_mut_slice();
 
-        unsafe {
-            let prefetch_distance = 8;
+        let prefetch_distance = 8;
+        
+        // Process 2 bitboards at a time using AVX2 (256-bit registers)
+        let pairs = N / 2;
+        for i in 0..pairs {
+            let idx1 = i * 2;
+            let idx2 = idx1 + 1;
             
-            for i in 0..N {
-                if i + prefetch_distance < N {
-                    _mm_prefetch(
-                        a_slice.as_ptr().add(i + prefetch_distance) as *const i8,
-                        _MM_HINT_T0,
-                    );
-                    _mm_prefetch(
-                        b_slice.as_ptr().add(i + prefetch_distance) as *const i8,
-                        _MM_HINT_T0,
-                    );
-                }
-
-                let a_bytes = a_slice[i].to_u128().to_le_bytes();
-                let b_bytes = b_slice[i].to_u128().to_le_bytes();
-                
-                let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
-                let b_vec = _mm_loadu_si128(b_bytes.as_ptr() as *const __m128i);
-                
-                let result_vec = _mm_xor_si128(a_vec, b_vec);
-                
-                let mut result_bytes = [0u8; 16];
-                _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result_vec);
-                result_slice[i] = SimdBitboard::from_u128(u128::from_le_bytes(result_bytes));
+            // Prefetch future elements
+            if idx1 + prefetch_distance < N {
+                _mm_prefetch(
+                    a_slice.as_ptr().add(idx1 + prefetch_distance) as *const i8,
+                    _MM_HINT_T0,
+                );
+                _mm_prefetch(
+                    b_slice.as_ptr().add(idx1 + prefetch_distance) as *const i8,
+                    _MM_HINT_T0,
+                );
             }
+
+            // Load two bitboards from each array into AVX2 registers
+            let a1_bytes = a_slice[idx1].to_u128().to_le_bytes();
+            let a2_bytes = a_slice[idx2].to_u128().to_le_bytes();
+            let b1_bytes = b_slice[idx1].to_u128().to_le_bytes();
+            let b2_bytes = b_slice[idx2].to_u128().to_le_bytes();
+            
+            let a1_vec = _mm_loadu_si128(a1_bytes.as_ptr() as *const __m128i);
+            let a2_vec = _mm_loadu_si128(a2_bytes.as_ptr() as *const __m128i);
+            let b1_vec = _mm_loadu_si128(b1_bytes.as_ptr() as *const __m128i);
+            let b2_vec = _mm_loadu_si128(b2_bytes.as_ptr() as *const __m128i);
+            
+            // Pack two 128-bit values into 256-bit AVX2 register
+            let a_256 = _mm256_set_m128i(a2_vec, a1_vec);
+            let b_256 = _mm256_set_m128i(b2_vec, b1_vec);
+            
+            // Perform AVX2 XOR on both bitboards simultaneously
+            let result_256 = _mm256_xor_si256(a_256, b_256);
+            
+            // Extract the two 128-bit results
+            let result1 = _mm256_extracti128_si256::<0>(result_256);
+            let result2 = _mm256_extracti128_si256::<1>(result_256);
+            
+            // Store results
+            let mut result1_bytes = [0u8; 16];
+            let mut result2_bytes = [0u8; 16];
+            _mm_storeu_si128(result1_bytes.as_mut_ptr() as *mut __m128i, result1);
+            _mm_storeu_si128(result2_bytes.as_mut_ptr() as *mut __m128i, result2);
+            
+            result_slice[idx1] = SimdBitboard::from_u128(u128::from_le_bytes(result1_bytes));
+            result_slice[idx2] = SimdBitboard::from_u128(u128::from_le_bytes(result2_bytes));
+        }
+        
+        // Handle remaining odd element if N is odd
+        if N % 2 != 0 {
+            let idx = pairs * 2;
+            let a_bytes = a_slice[idx].to_u128().to_le_bytes();
+            let b_bytes = b_slice[idx].to_u128().to_le_bytes();
+            
+            let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
+            let b_vec = _mm_loadu_si128(b_bytes.as_ptr() as *const __m128i);
+            let result_vec = _mm_xor_si128(a_vec, b_vec);
+            
+            let mut result_bytes = [0u8; 16];
+            _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result_vec);
+            result_slice[idx] = SimdBitboard::from_u128(u128::from_le_bytes(result_bytes));
+        }
+
+        result
+    }
+
+    /// SSE-optimized batch XOR: processes 1 bitboard at a time (fallback)
+    unsafe fn batch_xor_sse<const N: usize>(
+        a: &AlignedBitboardArray<N>,
+        b: &AlignedBitboardArray<N>,
+    ) -> AlignedBitboardArray<N> {
+        let mut result = AlignedBitboardArray::new();
+        let a_slice = a.as_slice();
+        let b_slice = b.as_slice();
+        let result_slice = result.as_mut_slice();
+
+        let prefetch_distance = 8;
+        
+        for i in 0..N {
+            if i + prefetch_distance < N {
+                _mm_prefetch(
+                    a_slice.as_ptr().add(i + prefetch_distance) as *const i8,
+                    _MM_HINT_T0,
+                );
+                _mm_prefetch(
+                    b_slice.as_ptr().add(i + prefetch_distance) as *const i8,
+                    _MM_HINT_T0,
+                );
+            }
+
+            let a_bytes = a_slice[i].to_u128().to_le_bytes();
+            let b_bytes = b_slice[i].to_u128().to_le_bytes();
+            
+            let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
+            let b_vec = _mm_loadu_si128(b_bytes.as_ptr() as *const __m128i);
+            
+            let result_vec = _mm_xor_si128(a_vec, b_vec);
+            
+            let mut result_bytes = [0u8; 16];
+            _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result_vec);
+            result_slice[i] = SimdBitboard::from_u128(u128::from_le_bytes(result_bytes));
         }
 
         result
@@ -501,12 +782,11 @@ mod aarch64_batch {
 #[cfg(all(feature = "simd", target_arch = "x86_64"))]
 mod x86_64_combine_all {
     use super::AlignedBitboardArray;
-    use crate::bitboards::SimdBitboard;
+    use crate::bitboards::{SimdBitboard, platform_detection};
     use std::arch::x86_64::*;
 
     /// Combine all bitboards using SIMD-optimized OR operations
-    /// Uses SIMD intrinsics for each OR operation to achieve better performance
-    /// than scalar loops while maintaining simplicity and correctness
+    /// Uses AVX2 when available (processes 2 at a time), otherwise SSE
     pub(super) fn combine_all<const N: usize>(arr: &AlignedBitboardArray<N>) -> SimdBitboard {
         if N == 0 {
             return SimdBitboard::empty();
@@ -515,31 +795,102 @@ mod x86_64_combine_all {
             return *arr.get(0);
         }
 
-        let slice = arr.as_slice();
-        unsafe {
-            let mut result = slice[0];
-            
-            // Use SIMD OR operations for combining bitboards
-            // Each OR operation uses SIMD intrinsics for better performance
-            for i in 1..N {
-                let result_bytes = result.to_u128().to_le_bytes();
-                let other_bytes = slice[i].to_u128().to_le_bytes();
-                
-                // Load into SIMD registers
-                let result_vec = _mm_loadu_si128(result_bytes.as_ptr() as *const __m128i);
-                let other_vec = _mm_loadu_si128(other_bytes.as_ptr() as *const __m128i);
-                
-                // Perform SIMD OR
-                let combined = _mm_or_si128(result_vec, other_vec);
-                
-                // Store result back
-                let mut combined_bytes = [0u8; 16];
-                _mm_storeu_si128(combined_bytes.as_mut_ptr() as *mut __m128i, combined);
-                result = SimdBitboard::from_u128(u128::from_le_bytes(combined_bytes));
-            }
-            
-            result
+        // Check if AVX2 is available at runtime
+        let caps = platform_detection::get_platform_capabilities();
+        if caps.has_avx2 {
+            unsafe { combine_all_avx2(arr) }
+        } else {
+            unsafe { combine_all_sse(arr) }
         }
+    }
+
+    /// AVX2-optimized combine_all: processes 2 bitboards at a time
+    #[target_feature(enable = "avx2")]
+    unsafe fn combine_all_avx2<const N: usize>(arr: &AlignedBitboardArray<N>) -> SimdBitboard {
+        let slice = arr.as_slice();
+        let mut result = slice[0];
+        
+        // Process 2 bitboards at a time using AVX2
+        let pairs = (N - 1) / 2; // Number of pairs after the first element
+        for i in 0..pairs {
+            let idx1 = 1 + i * 2;
+            let idx2 = idx1 + 1;
+            
+            // Load result and next two bitboards
+            let result_bytes = result.to_u128().to_le_bytes();
+            let b1_bytes = slice[idx1].to_u128().to_le_bytes();
+            let b2_bytes = if idx2 < N { slice[idx2].to_u128().to_le_bytes() } else { [0u8; 16] };
+            
+            let result_vec = _mm_loadu_si128(result_bytes.as_ptr() as *const __m128i);
+            let b1_vec = _mm_loadu_si128(b1_bytes.as_ptr() as *const __m128i);
+            let b2_vec = if idx2 < N {
+                _mm_loadu_si128(b2_bytes.as_ptr() as *const __m128i)
+            } else {
+                _mm_setzero_si128()
+            };
+            
+            // Pack into AVX2 register
+            let result_256 = _mm256_set_m128i(result_vec, result_vec); // Duplicate result
+            let b_256 = _mm256_set_m128i(b2_vec, b1_vec);
+            
+            // OR both pairs simultaneously
+            let combined_256 = _mm256_or_si256(result_256, b_256);
+            
+            // Extract results and combine them
+            let combined1 = _mm256_extracti128_si256::<0>(combined_256);
+            let combined2 = _mm256_extracti128_si256::<1>(combined_256);
+            
+            // Combine the two results
+            let final_combined = _mm_or_si128(combined1, combined2);
+            
+            let mut final_bytes = [0u8; 16];
+            _mm_storeu_si128(final_bytes.as_mut_ptr() as *mut __m128i, final_combined);
+            result = SimdBitboard::from_u128(u128::from_le_bytes(final_bytes));
+        }
+        
+        // Handle remaining odd element if any
+        let remaining_start = 1 + pairs * 2;
+        if remaining_start < N {
+            let result_bytes = result.to_u128().to_le_bytes();
+            let other_bytes = slice[remaining_start].to_u128().to_le_bytes();
+            
+            let result_vec = _mm_loadu_si128(result_bytes.as_ptr() as *const __m128i);
+            let other_vec = _mm_loadu_si128(other_bytes.as_ptr() as *const __m128i);
+            let combined = _mm_or_si128(result_vec, other_vec);
+            
+            let mut combined_bytes = [0u8; 16];
+            _mm_storeu_si128(combined_bytes.as_mut_ptr() as *mut __m128i, combined);
+            result = SimdBitboard::from_u128(u128::from_le_bytes(combined_bytes));
+        }
+        
+        result
+    }
+
+    /// SSE-optimized combine_all: processes 1 bitboard at a time (fallback)
+    unsafe fn combine_all_sse<const N: usize>(arr: &AlignedBitboardArray<N>) -> SimdBitboard {
+        let slice = arr.as_slice();
+        let mut result = slice[0];
+        
+        // Use SIMD OR operations for combining bitboards
+        // Each OR operation uses SIMD intrinsics for better performance
+        for i in 1..N {
+            let result_bytes = result.to_u128().to_le_bytes();
+            let other_bytes = slice[i].to_u128().to_le_bytes();
+            
+            // Load into SIMD registers
+            let result_vec = _mm_loadu_si128(result_bytes.as_ptr() as *const __m128i);
+            let other_vec = _mm_loadu_si128(other_bytes.as_ptr() as *const __m128i);
+            
+            // Perform SIMD OR
+            let combined = _mm_or_si128(result_vec, other_vec);
+            
+            // Store result back
+            let mut combined_bytes = [0u8; 16];
+            _mm_storeu_si128(combined_bytes.as_mut_ptr() as *mut __m128i, combined);
+            result = SimdBitboard::from_u128(u128::from_le_bytes(combined_bytes));
+        }
+        
+        result
     }
 }
 
