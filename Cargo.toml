@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [features]
-default = ["hierarchical-tt"]
+default = ["hierarchical-tt", "simd"]
 # Enable verbose debug logging with compile-time checks
 # When disabled, expensive string formatting is completely eliminated
 verbose-debug = []
@@ -24,6 +24,7 @@ material_fast_loop = []
 # Enable SIMD optimizations for native platforms (x86_64 with AVX2/SSE, ARM64 with NEON)
 # This feature enables explicit SIMD intrinsics for bitboard operations.
 # Note: WebAssembly support has been removed - this feature is native-only.
+# SIMD is enabled by default for optimal performance. Disable with --no-default-features.
 simd = []
 
 [lib]
