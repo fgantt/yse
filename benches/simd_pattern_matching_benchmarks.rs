@@ -80,12 +80,80 @@ fn bench_detect_patterns_batch(c: &mut Criterion) {
     });
 }
 
+fn bench_detect_pins_batch(c: &mut Criterion) {
+    let matcher = SimdPatternMatcher::new();
+    let board = BitboardBoard::new();
+    let pieces = vec![
+        (Position::new(4, 4), PieceType::Rook),
+        (Position::new(4, 5), PieceType::Bishop),
+        (Position::new(5, 4), PieceType::Lance),
+        (Position::new(5, 5), PieceType::PromotedRook),
+    ];
+
+    c.bench_function("simd_detect_pins_batch", |b| {
+        b.iter(|| {
+            black_box(matcher.detect_pins_batch(
+                black_box(&board),
+                black_box(&pieces),
+                black_box(Player::Black),
+            ));
+        });
+    });
+}
+
+fn bench_detect_skewers_batch(c: &mut Criterion) {
+    let matcher = SimdPatternMatcher::new();
+    let board = BitboardBoard::new();
+    let pieces = vec![
+        (Position::new(4, 4), PieceType::Rook),
+        (Position::new(4, 5), PieceType::Bishop),
+        (Position::new(5, 4), PieceType::PromotedRook),
+        (Position::new(5, 5), PieceType::PromotedBishop),
+    ];
+
+    c.bench_function("simd_detect_skewers_batch", |b| {
+        b.iter(|| {
+            black_box(matcher.detect_skewers_batch(
+                black_box(&board),
+                black_box(&pieces),
+                black_box(Player::Black),
+            ));
+        });
+    });
+}
+
+fn bench_detect_discovered_attacks_batch(c: &mut Criterion) {
+    let matcher = SimdPatternMatcher::new();
+    let board = BitboardBoard::new();
+    let pieces = vec![
+        (Position::new(4, 4), PieceType::Rook),
+        (Position::new(4, 5), PieceType::Bishop),
+        (Position::new(5, 4), PieceType::Knight),
+        (Position::new(5, 5), PieceType::Gold),
+    ];
+    let target_pos = Position::new(8, 8);
+
+    c.bench_function("simd_detect_discovered_attacks_batch", |b| {
+        b.iter(|| {
+            black_box(matcher.detect_discovered_attacks_batch(
+                black_box(&board),
+                black_box(&pieces),
+                black_box(Player::Black),
+                black_box(target_pos),
+            ));
+        });
+    });
+}
+
 criterion_group!(
     benches,
     bench_count_attack_targets,
     bench_count_attack_targets_batch,
     bench_detect_forks_batch,
-    bench_detect_patterns_batch
+    bench_detect_patterns_batch,
+    bench_detect_pins_batch,
+    bench_detect_skewers_batch,
+    bench_detect_discovered_attacks_batch
 );
 criterion_main!(benches);
 

@@ -365,10 +365,20 @@ impl IntegratedEvaluator {
             None
         };
 
+        // Sync material evaluation SIMD flag with runtime SIMD config
+        #[cfg(feature = "simd")]
+        let mut material_config = config.material.clone();
+        #[cfg(feature = "simd")]
+        {
+            material_config.enable_simd = config.simd.enable_simd_evaluation;
+        }
+        #[cfg(not(feature = "simd"))]
+        let material_config = config.material.clone();
+
         let mut evaluator = Self {
             config: config.clone(),
             tapered_eval: TaperedEvaluation::new(),
-            material_eval: MaterialEvaluator::with_config(config.material.clone()),
+            material_eval: MaterialEvaluator::with_config(material_config),
             pst: pst_tables,
             phase_transition: PhaseTransition::new(),
             position_features: PositionFeatureEvaluator::with_config(
@@ -1274,7 +1284,13 @@ impl IntegratedEvaluator {
     }
 
     /// Update only the material evaluation configuration.
-    pub fn update_material_config(&mut self, material_config: MaterialEvaluationConfig) {
+    pub fn update_material_config(&mut self, mut material_config: MaterialEvaluationConfig) {
+        // Sync material evaluation SIMD flag with runtime SIMD config
+        #[cfg(feature = "simd")]
+        {
+            material_config.enable_simd = self.config.simd.enable_simd_evaluation;
+        }
+        
         let mut updated = self.config.clone();
         updated.material = material_config;
         self.set_config(updated);
@@ -1294,10 +1310,20 @@ impl IntegratedEvaluator {
 
     /// Update configuration
     pub fn set_config(&mut self, config: IntegratedEvaluationConfig) {
+        // Sync material evaluation SIMD flag with runtime SIMD config
+        #[cfg(feature = "simd")]
+        let mut material_config = config.material.clone();
+        #[cfg(feature = "simd")]
+        {
+            material_config.enable_simd = config.simd.enable_simd_evaluation;
+        }
+        #[cfg(not(feature = "simd"))]
+        let material_config = config.material.clone();
+        
         self.config = config.clone();
 
         {
-            self.material_eval.apply_config(config.material.clone());
+            self.material_eval.apply_config(material_config);
         }
 
         {
