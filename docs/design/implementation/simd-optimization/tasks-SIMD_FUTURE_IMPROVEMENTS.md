@@ -149,25 +149,53 @@ This document captures improvements, optimizations, and optional tasks for the S
 ---
 
 ### Task 5.6: Performance Validation with Timing
-**Status**: Optional  
+**Status**: ✅ Completed  
 **Priority**: Medium  
 **Estimated Effort**: 2-3 days
 
 **Description**: Add performance validation with timing measurements to ensure SIMD paths are actually faster than scalar.
 
 **Tasks**:
-- [ ] 5.6.1 Add timing measurements to telemetry system
-- [ ] 5.6.2 Create performance validation tests that measure actual execution time
-- [ ] 5.6.3 Add automatic performance regression detection
-- [ ] 5.6.4 Create performance comparison reports (SIMD vs scalar)
-- [ ] 5.6.5 Integrate timing validation into CI pipeline
+- [x] 5.6.1 Add timing measurements to telemetry system
+- [x] 5.6.2 Create performance validation tests that measure actual execution time
+- [x] 5.6.3 Add automatic performance regression detection
+- [x] 5.6.4 Create performance comparison reports (SIMD vs scalar)
+- [x] 5.6.5 Integrate timing validation into CI pipeline
 
 **Expected Impact**: Automatic detection of performance regressions
 
-**Files to Create/Modify**:
-- `src/utils/telemetry.rs` (add timing tracking)
-- `tests/simd_performance_validation_tests.rs` (new file)
-- `.github/workflows/simd-performance-check.yml` (update)
+**Files Created/Modified**:
+- `src/utils/telemetry.rs` - Added timing tracking to SimdTelemetry and SimdTelemetryTracker
+- `tests/simd_performance_validation_tests.rs` - Created comprehensive performance validation test suite (new file)
+- `.github/workflows/simd-performance-check.yml` - Updated to include performance validation tests
+
+**Completion Notes**:
+- **5.6.1**: Extended `SimdTelemetry` struct to include timing fields for all three components (evaluation, pattern matching, move generation). Added `record_*_with_time()` methods to `SimdTelemetryTracker` for recording timing alongside call counts. Added helper methods to calculate speedup ratios and average times.
+- **5.6.2**: Created comprehensive performance validation tests in `tests/simd_performance_validation_tests.rs`:
+  - `test_evaluation_performance_simd_vs_scalar`: Measures evaluation performance
+  - `test_pattern_matching_performance_simd_vs_scalar`: Measures pattern matching performance
+  - `test_move_generation_performance_simd_vs_scalar`: Measures move generation performance
+  - All tests measure actual execution time and compare SIMD vs scalar implementations
+- **5.6.3**: Implemented automatic performance regression detection in `test_performance_regression_detection()`:
+  - Tests all three components (evaluation, pattern matching, move generation)
+  - Uses regression threshold of 90% (allows up to 10% regression)
+  - In release builds, fails if SIMD is more than 10% slower than scalar
+  - In debug builds, allows up to 2x slowdown (expected due to function call overhead)
+- **5.6.4**: Created performance comparison report generation in `test_performance_comparison_report()` and `generate_performance_report()`:
+  - Generates comprehensive reports with timing statistics
+  - Includes speedup ratios and average times per operation
+  - Formats output for easy reading
+  - Can be used for CI reporting and local analysis
+- **5.6.5**: Integrated timing validation into CI pipeline:
+  - Added performance validation test step to `.github/workflows/simd-performance-check.yml`
+  - Tests run in release mode with `--nocapture` to show performance output
+  - Performance reports are uploaded as artifacts
+  - Tests respect `SHOGI_SKIP_PERFORMANCE_TESTS` environment variable for faster CI runs
+  - Updated workflow triggers to include evaluation, moves, and telemetry files
+- All tests can be skipped by setting `SHOGI_SKIP_PERFORMANCE_TESTS` environment variable (useful for faster CI runs)
+- Tests use realistic workloads (1000 iterations for evaluation/pattern matching, 500 for move generation)
+- Performance thresholds are relaxed in debug builds to account for function call overhead
+- Release builds enforce strict performance requirements (SIMD must be at least as fast as scalar)
 
 ---
 

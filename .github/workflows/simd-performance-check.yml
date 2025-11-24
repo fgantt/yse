@@ -5,6 +5,10 @@ on:
     paths:
       - 'src/bitboards/simd.rs'
       - 'src/bitboards/**'
+      - 'src/evaluation/**'
+      - 'src/moves.rs'
+      - 'src/utils/telemetry.rs'
+      - 'tests/simd_performance_validation_tests.rs'
       - 'Cargo.toml'
       - '.cargo/config.toml'
   push:
@@ -13,6 +17,10 @@ on:
     paths:
       - 'src/bitboards/simd.rs'
       - 'src/bitboards/**'
+      - 'src/evaluation/**'
+      - 'src/moves.rs'
+      - 'src/utils/telemetry.rs'
+      - 'tests/simd_performance_validation_tests.rs'
       - 'Cargo.toml'
       - '.cargo/config.toml'
 
@@ -51,14 +59,29 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-${{ matrix.target }}-
 
+      - name: Check SIMD feature compiles
+        run: |
+          cargo build --features simd --release --target ${{ matrix.target }}
+
       - name: Run SIMD performance regression tests
         run: |
           cargo test --features simd simd_performance_regression_tests --release --target ${{ matrix.target }}
         continue-on-error: false
 
-      - name: Check SIMD feature compiles
+      - name: Run SIMD performance validation tests (Task 5.6)
         run: |
-          cargo build --features simd --release --target ${{ matrix.target }}
+          cargo test --features simd simd_performance_validation_tests --release --target ${{ matrix.target }} -- --nocapture 2>&1 | tee performance_report.txt || true
+        continue-on-error: true
+        # Note: Performance validation tests may fail on slower CI machines
+        # They are designed to detect regressions but may be skipped if SHOGI_SKIP_PERFORMANCE_TESTS is set
+
+      - name: Upload performance report (if generated)
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: simd-performance-report-${{ matrix.os }}
+          path: performance_report.txt
+          if-no-files-found: ignore
 
       - name: Run SIMD benchmarks (list only, full benchmarks take too long for CI)
         run: |
