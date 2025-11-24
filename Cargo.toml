@@ -498,3 +498,8 @@ required-features = ["simd"]
 name = "simd_nps_benchmarks"
 harness = false
 required-features = ["simd"]
+
+[[bench]]
+name = "memory_layout_optimization_benchmarks"
+harness = false
+required-features = ["simd"]

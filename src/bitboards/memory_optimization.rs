@@ -159,7 +159,6 @@ pub mod prefetch {
 /// Cache-friendly data structures for SIMD operations
 pub mod cache_friendly {
     use crate::bitboards::SimdBitboard;
-    use super::alignment;
     
     /// Structure of Arrays (SoA) layout for multiple bitboards
     /// 
@@ -248,6 +247,148 @@ pub mod cache_friendly {
     }
     
     impl<const N: usize> Default for CacheAlignedBitboardArray<N> {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+    
+    /// Structure of Arrays (SoA) layout for PST table batch evaluation
+    /// 
+    /// Optimization 5.3: Optimized PST table layout for SIMD access.
+    /// Separates middlegame and endgame values into separate arrays for
+    /// better cache locality and SIMD vectorization in batch operations.
+    /// 
+    /// # Memory Layout
+    /// 
+    /// Instead of Array of Arrays (AoA): `[[i32; 9]; 9]` for mg and eg separately,
+    /// this uses SoA: `[i32; 81]` for mg values and `[i32; 81]` for eg values.
+    /// This enables SIMD vectorization when processing multiple positions.
+    #[repr(align(64))] // Cache line aligned
+    pub struct PstSoA {
+        /// Middlegame values for all 81 positions (flattened from 9x9)
+        pub mg_values: [i32; 81],
+        /// Endgame values for all 81 positions (flattened from 9x9)
+        pub eg_values: [i32; 81],
+    }
+    
+    impl PstSoA {
+        /// Create a new SoA structure from AoA layout
+        pub fn from_aoa(aoa_mg: &[[i32; 9]; 9], aoa_eg: &[[i32; 9]; 9]) -> Self {
+            let mut mg_values = [0; 81];
+            let mut eg_values = [0; 81];
+            
+            for row in 0..9 {
+                for col in 0..9 {
+                    let idx = (row * 9 + col) as usize;
+                    mg_values[idx] = aoa_mg[row as usize][col as usize];
+                    eg_values[idx] = aoa_eg[row as usize][col as usize];
+                }
+            }
+            
+            Self { mg_values, eg_values }
+        }
+        
+        /// Get middlegame and endgame values for a position
+        /// 
+        /// # Arguments
+        /// * `row` - Row index (0-8)
+        /// * `col` - Column index (0-8)
+        pub fn get(&self, row: u8, col: u8) -> (i32, i32) {
+            let idx = (row * 9 + col) as usize;
+            if idx < 81 {
+                (self.mg_values[idx], self.eg_values[idx])
+            } else {
+                (0, 0)
+            }
+        }
+        
+        /// Get values for multiple positions (batch access for SIMD)
+        /// 
+        /// # Arguments
+        /// * `positions` - Slice of (row, col) tuples
+        /// 
+        /// # Returns
+        /// Vector of (mg, eg) tuples
+        pub fn get_batch(&self, positions: &[(u8, u8)]) -> Vec<(i32, i32)> {
+            positions.iter()
+                .map(|&(row, col)| self.get(row, col))
+                .collect()
+        }
+    }
+    
+    impl Default for PstSoA {
+        fn default() -> Self {
+            Self {
+                mg_values: [0; 81],
+                eg_values: [0; 81],
+            }
+        }
+    }
+    
+    /// Structure of Arrays (SoA) layout for attack pattern batch operations
+    /// 
+    /// Optimization 5.4: Optimized attack pattern storage for batch operations.
+    /// Uses SoA layout to enable better SIMD vectorization when processing
+    /// multiple attack patterns simultaneously.
+    #[repr(align(64))] // Cache line aligned
+    pub struct AttackPatternSoA<const N: usize> {
+        /// Low 64 bits of each attack pattern
+        pub low_bits: [u64; N],
+        /// High 64 bits of each attack pattern
+        pub high_bits: [u64; N],
+    }
+    
+    impl<const N: usize> AttackPatternSoA<N> {
+        /// Create a new SoA structure
+        pub fn new() -> Self {
+            Self {
+                low_bits: [0; N],
+                high_bits: [0; N],
+            }
+        }
+        
+        /// Create from a slice of bitboards
+        pub fn from_bitboards(bitboards: &[SimdBitboard]) -> Self {
+            let mut soa = Self::new();
+            for (i, &bb) in bitboards.iter().take(N).enumerate() {
+                let value = bb.to_u128();
+                soa.low_bits[i] = value as u64;
+                soa.high_bits[i] = (value >> 64) as u64;
+            }
+            soa
+        }
+        
+        /// Get an attack pattern at the given index
+        pub fn get(&self, index: usize) -> SimdBitboard {
+            if index < N {
+                let value = (self.high_bits[index] as u128) << 64 | (self.low_bits[index] as u128);
+                SimdBitboard::from_u128(value)
+            } else {
+                SimdBitboard::empty()
+            }
+        }
+        
+        /// Set an attack pattern at the given index
+        pub fn set(&mut self, index: usize, bb: SimdBitboard) {
+            if index < N {
+                let value = bb.to_u128();
+                self.low_bits[index] = value as u64;
+                self.high_bits[index] = (value >> 64) as u64;
+            }
+        }
+        
+        /// Get a slice of low bits (for SIMD operations)
+        pub fn low_bits_slice(&self) -> &[u64] {
+            &self.low_bits
+        }
+        
+        /// Get a slice of high bits (for SIMD operations)
+        pub fn high_bits_slice(&self) -> &[u64] {
+            &self.high_bits
+        }
+    }
+    
+    impl<const N: usize> Default for AttackPatternSoA<N> {
         fn default() -> Self {
             Self::new()
         }
