@@ -203,6 +203,11 @@ harness = false
 required-features = ["legacy-tests"]
 
 [[bench]]
+name = "memory_optimization_evaluation_benchmarks"
+harness = false
+required-features = ["simd"]
+
+[[bench]]
 name = "history_heuristic_performance_benchmarks"
 harness = false
 required-features = ["legacy-tests"]
