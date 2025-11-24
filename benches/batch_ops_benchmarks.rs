@@ -35,6 +35,15 @@ fn scalar_batch_xor<const N: usize>(
     result
 }
 
+/// Scalar implementation of combine_all for comparison
+fn scalar_combine_all<const N: usize>(arr: &AlignedBitboardArray<N>) -> SimdBitboard {
+    let mut result = SimdBitboard::empty();
+    for i in 0..N {
+        result = result | *arr.get(i);
+    }
+    result
+}
+
 fn bench_batch_and(c: &mut Criterion) {
     let mut a_data = [SimdBitboard::empty(); 16];
     let mut b_data = [SimdBitboard::empty(); 16];
@@ -170,6 +179,51 @@ fn bench_batch_size<const N: usize>(group: &mut criterion::BenchmarkGroup<'_, cr
     });
 }
 
-criterion_group!(benches, bench_batch_and, bench_batch_or, bench_batch_xor, bench_batch_various_sizes);
+fn bench_combine_all(c: &mut Criterion) {
+    let mut group = c.benchmark_group("combine_all");
+    group.sample_size(1000);
+
+    // Test with different array sizes
+    for size in [4, 8, 16, 32] {
+        match size {
+            4 => bench_combine_all_size::<4>(&mut group),
+            8 => bench_combine_all_size::<8>(&mut group),
+            16 => bench_combine_all_size::<16>(&mut group),
+            32 => bench_combine_all_size::<32>(&mut group),
+            _ => unreachable!(),
+        }
+    }
+
+    group.finish();
+}
+
+fn bench_combine_all_size<const N: usize>(group: &mut criterion::BenchmarkGroup<'_, criterion::measurement::WallTime>) {
+    let mut data = [SimdBitboard::empty(); N];
+    
+    // Create diverse attack patterns
+    for i in 0..N {
+        data[i] = SimdBitboard::from_u128(
+            0x0F0F_0F0F_0F0F_0F0F ^ ((i as u128) << (i % 64))
+        );
+    }
+    
+    let arr = AlignedBitboardArray::<N>::from_slice(&data);
+
+    // Benchmark SIMD combine_all
+    group.bench_function(&format!("simd_combine_all_{}", N), |bencher| {
+        bencher.iter(|| {
+            black_box(arr.combine_all())
+        });
+    });
+
+    // Benchmark scalar combine_all
+    group.bench_function(&format!("scalar_combine_all_{}", N), |bencher| {
+        bencher.iter(|| {
+            black_box(scalar_combine_all(&arr))
+        });
+    });
+}
+
+criterion_group!(benches, bench_batch_and, bench_batch_or, bench_batch_xor, bench_batch_various_sizes, bench_combine_all);
 criterion_main!(benches);
 
