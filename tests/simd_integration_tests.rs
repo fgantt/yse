@@ -12,6 +12,11 @@ use shogi_engine::evaluation::tactical_patterns::TacticalPatternRecognizer;
 use shogi_engine::moves::MoveGenerator;
 use shogi_engine::types::board::CapturedPieces;
 use shogi_engine::types::core::{Piece, PieceType, Player, Position};
+use shogi_engine::utils::telemetry::{
+    get_simd_telemetry, reset_simd_telemetry, SimdTelemetry, SimdTelemetryTracker, SIMD_TELEMETRY,
+};
+use std::sync::Arc;
+use std::thread;
 
 #[test]
 fn test_simd_move_generation_same_results() {
@@ -253,5 +258,119 @@ fn test_simd_telemetry_pattern_matching() {
     // Should have recorded some calls (either SIMD or scalar)
     let total_pattern_calls = telemetry.simd_pattern_calls + telemetry.scalar_pattern_calls;
     assert!(total_pattern_calls > 0, "Should have recorded pattern matching calls");
+}
+
+#[test]
+fn test_simd_telemetry_accuracy_counts() {
+    reset_simd_telemetry();
+
+    for _ in 0..3 {
+        SIMD_TELEMETRY.record_simd_evaluation();
+    }
+    for _ in 0..2 {
+        SIMD_TELEMETRY.record_scalar_pattern();
+    }
+    SIMD_TELEMETRY.record_simd_move_gen();
+    SIMD_TELEMETRY.record_scalar_move_gen();
+
+    let telemetry = get_simd_telemetry();
+    assert_eq!(telemetry.simd_evaluation_calls, 3);
+    assert_eq!(telemetry.scalar_pattern_calls, 2);
+    assert_eq!(telemetry.simd_move_gen_calls, 1);
+    assert_eq!(telemetry.scalar_move_gen_calls, 1);
+}
+
+#[test]
+fn test_simd_telemetry_reset_functionality() {
+    reset_simd_telemetry();
+    SIMD_TELEMETRY.record_simd_evaluation_with_time(10);
+    SIMD_TELEMETRY.record_scalar_evaluation_with_time(20);
+    SIMD_TELEMETRY.record_simd_pattern_with_time(30);
+    SIMD_TELEMETRY.record_scalar_pattern_with_time(40);
+    SIMD_TELEMETRY.record_simd_move_gen_with_time(50);
+    SIMD_TELEMETRY.record_scalar_move_gen_with_time(60);
+
+    reset_simd_telemetry();
+    let telemetry = get_simd_telemetry();
+    assert_eq!(telemetry.simd_evaluation_calls, 0);
+    assert_eq!(telemetry.scalar_evaluation_calls, 0);
+    assert_eq!(telemetry.simd_pattern_calls, 0);
+    assert_eq!(telemetry.scalar_pattern_calls, 0);
+    assert_eq!(telemetry.simd_move_gen_calls, 0);
+    assert_eq!(telemetry.scalar_move_gen_calls, 0);
+    assert_eq!(telemetry.simd_evaluation_time_ns, 0);
+    assert_eq!(telemetry.scalar_evaluation_time_ns, 0);
+    assert_eq!(telemetry.simd_pattern_time_ns, 0);
+    assert_eq!(telemetry.scalar_pattern_time_ns, 0);
+    assert_eq!(telemetry.simd_move_gen_time_ns, 0);
+    assert_eq!(telemetry.scalar_move_gen_time_ns, 0);
+}
+
+#[test]
+fn test_simd_telemetry_concurrent_tracking() {
+    let tracker = Arc::new(SimdTelemetryTracker::new());
+    let thread_count = 8;
+    let iterations = 1_000;
+    let mut handles = Vec::new();
+
+    for _ in 0..thread_count {
+        let tracker_cloned = tracker.clone();
+        handles.push(thread::spawn(move || {
+            for _ in 0..iterations {
+                tracker_cloned.record_simd_move_gen();
+                tracker_cloned.record_scalar_move_gen();
+                tracker_cloned.record_simd_pattern_with_time(5);
+                tracker_cloned.record_scalar_pattern_with_time(7);
+            }
+        }));
+    }
+
+    for handle in handles {
+        handle.join().expect("Thread panicked");
+    }
+
+    let telemetry = tracker.snapshot();
+    let expected = (thread_count * iterations) as u64;
+    assert_eq!(telemetry.simd_move_gen_calls, expected);
+    assert_eq!(telemetry.scalar_move_gen_calls, expected);
+    assert_eq!(telemetry.simd_pattern_calls, expected);
+    assert_eq!(telemetry.scalar_pattern_calls, expected);
+    assert_eq!(telemetry.simd_pattern_time_ns, expected * 5);
+    assert_eq!(telemetry.scalar_pattern_time_ns, expected * 7);
+}
+
+#[test]
+fn test_simd_telemetry_serialization_round_trip() {
+    let telemetry = SimdTelemetry {
+        simd_evaluation_calls: 4,
+        scalar_evaluation_calls: 2,
+        simd_pattern_calls: 3,
+        scalar_pattern_calls: 1,
+        simd_move_gen_calls: 5,
+        scalar_move_gen_calls: 6,
+        simd_evaluation_time_ns: 40,
+        scalar_evaluation_time_ns: 20,
+        simd_pattern_time_ns: 30,
+        scalar_pattern_time_ns: 10,
+        simd_move_gen_time_ns: 50,
+        scalar_move_gen_time_ns: 60,
+    };
+
+    let json = serde_json::to_string(&telemetry).expect("serialize telemetry");
+    let round_trip: SimdTelemetry =
+        serde_json::from_str(&json).expect("deserialize telemetry");
+
+    assert_eq!(telemetry.simd_evaluation_calls, round_trip.simd_evaluation_calls);
+    assert_eq!(telemetry.scalar_evaluation_calls, round_trip.scalar_evaluation_calls);
+    assert_eq!(telemetry.simd_pattern_calls, round_trip.simd_pattern_calls);
+    assert_eq!(telemetry.scalar_pattern_calls, round_trip.scalar_pattern_calls);
+    assert_eq!(telemetry.simd_move_gen_calls, round_trip.simd_move_gen_calls);
+    assert_eq!(telemetry.scalar_move_gen_calls, round_trip.scalar_move_gen_calls);
+    assert_eq!(telemetry.simd_evaluation_time_ns, round_trip.simd_evaluation_time_ns);
+    assert_eq!(telemetry.scalar_evaluation_time_ns, round_trip.scalar_evaluation_time_ns);
+    assert_eq!(telemetry.simd_pattern_time_ns, round_trip.simd_pattern_time_ns);
+    assert_eq!(telemetry.scalar_pattern_time_ns, round_trip.scalar_pattern_time_ns);
+    assert_eq!(telemetry.simd_move_gen_time_ns, round_trip.simd_move_gen_time_ns);
+    assert_eq!(telemetry.scalar_move_gen_time_ns, round_trip.scalar_move_gen_time_ns);
 }
 
