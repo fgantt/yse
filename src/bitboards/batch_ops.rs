@@ -1093,7 +1093,11 @@ mod aarch64_batch {
     use crate::bitboards::SimdBitboard;
     use std::arch::aarch64::*;
 
-    /// Process batch AND operation using NEON
+    /// Process batch AND operation using NEON with optimized memory access and prefetching
+    /// Optimizations:
+    /// - Process 2 bitboards at a time for better throughput
+    /// - Prefetch hints for better cache performance
+    /// - Reduced instruction overhead
     pub(super) fn batch_and<const N: usize>(
         a: &AlignedBitboardArray<N>,
         b: &AlignedBitboardArray<N>,
@@ -1104,35 +1108,64 @@ mod aarch64_batch {
         let result_slice = result.as_mut_slice();
 
         unsafe {
-            let chunks = N / 4;
-            for i in 0..chunks {
-                let offset = i * 4;
-
-                for j in 0..4 {
-                    let idx = offset + j;
-                    let a_bytes = a_slice[idx].to_u128().to_le_bytes();
-                    let b_bytes = b_slice[idx].to_u128().to_le_bytes();
-                    
-                    let a_vec = vld1q_u8(a_bytes.as_ptr());
-                    let b_vec = vld1q_u8(b_bytes.as_ptr());
-                    
-                    let result_vec = vandq_u8(a_vec, b_vec);
-                    
-                    let mut result_bytes = [0u8; 16];
-                    vst1q_u8(result_bytes.as_mut_ptr(), result_vec);
-                    result_slice[idx] = SimdBitboard::from_u128(u128::from_le_bytes(result_bytes));
+            const PREFETCH_DISTANCE: usize = 8;
+            
+            // Process 2 bitboards at a time for better throughput
+            let pairs = N / 2;
+            for i in 0..pairs {
+                let idx1 = i * 2;
+                let idx2 = idx1 + 1;
+                
+                // Prefetch future elements for better cache performance
+                if i + PREFETCH_DISTANCE / 2 < pairs {
+                    let prefetch_idx = (i + PREFETCH_DISTANCE / 2) * 2;
+                    if prefetch_idx < N {
+                        // Compiler hint for prefetching (ARM64 prefetch intrinsics not stable)
+                        let _ = std::ptr::read_volatile(a_slice.as_ptr().add(prefetch_idx));
+                        let _ = std::ptr::read_volatile(b_slice.as_ptr().add(prefetch_idx));
+                    }
                 }
+                
+                // Load and process 2 bitboards simultaneously
+                let a1_bytes = a_slice[idx1].to_u128().to_le_bytes();
+                let a2_bytes = a_slice[idx2].to_u128().to_le_bytes();
+                let b1_bytes = b_slice[idx1].to_u128().to_le_bytes();
+                let b2_bytes = b_slice[idx2].to_u128().to_le_bytes();
+                
+                let a1_vec = vld1q_u8(a1_bytes.as_ptr());
+                let a2_vec = vld1q_u8(a2_bytes.as_ptr());
+                let b1_vec = vld1q_u8(b1_bytes.as_ptr());
+                let b2_vec = vld1q_u8(b2_bytes.as_ptr());
+                
+                // Process both simultaneously
+                let r1_vec = vandq_u8(a1_vec, b1_vec);
+                let r2_vec = vandq_u8(a2_vec, b2_vec);
+                
+                // Store both results
+                let mut r1_bytes = [0u8; 16];
+                let mut r2_bytes = [0u8; 16];
+                vst1q_u8(r1_bytes.as_mut_ptr(), r1_vec);
+                vst1q_u8(r2_bytes.as_mut_ptr(), r2_vec);
+                
+                result_slice[idx1] = SimdBitboard::from_u128(u128::from_le_bytes(r1_bytes));
+                result_slice[idx2] = SimdBitboard::from_u128(u128::from_le_bytes(r2_bytes));
             }
-
-            for i in (chunks * 4)..N {
-                result_slice[i] = a_slice[i] & b_slice[i];
+            
+            // Handle remaining odd element
+            if N % 2 == 1 {
+                let idx = pairs * 2;
+                result_slice[idx] = a_slice[idx] & b_slice[idx];
             }
         }
 
         result
     }
 
-    /// Process batch OR operation using NEON
+    /// Process batch OR operation using NEON with optimized memory access and prefetching
+    /// Optimizations:
+    /// - Process 2 bitboards at a time for better throughput
+    /// - Prefetch hints for better cache performance
+    /// - Reduced instruction overhead
     pub(super) fn batch_or<const N: usize>(
         a: &AlignedBitboardArray<N>,
         b: &AlignedBitboardArray<N>,
@@ -1143,35 +1176,64 @@ mod aarch64_batch {
         let result_slice = result.as_mut_slice();
 
         unsafe {
-            let chunks = N / 4;
-            for i in 0..chunks {
-                let offset = i * 4;
-
-                for j in 0..4 {
-                    let idx = offset + j;
-                    let a_bytes = a_slice[idx].to_u128().to_le_bytes();
-                    let b_bytes = b_slice[idx].to_u128().to_le_bytes();
-                    
-                    let a_vec = vld1q_u8(a_bytes.as_ptr());
-                    let b_vec = vld1q_u8(b_bytes.as_ptr());
-                    
-                    let result_vec = vorrq_u8(a_vec, b_vec);
-                    
-                    let mut result_bytes = [0u8; 16];
-                    vst1q_u8(result_bytes.as_mut_ptr(), result_vec);
-                    result_slice[idx] = SimdBitboard::from_u128(u128::from_le_bytes(result_bytes));
+            const PREFETCH_DISTANCE: usize = 8;
+            
+            // Process 2 bitboards at a time for better throughput
+            let pairs = N / 2;
+            for i in 0..pairs {
+                let idx1 = i * 2;
+                let idx2 = idx1 + 1;
+                
+                // Prefetch future elements for better cache performance
+                if i + PREFETCH_DISTANCE / 2 < pairs {
+                    let prefetch_idx = (i + PREFETCH_DISTANCE / 2) * 2;
+                    if prefetch_idx < N {
+                        // Compiler hint for prefetching (ARM64 prefetch intrinsics not stable)
+                        let _ = std::ptr::read_volatile(a_slice.as_ptr().add(prefetch_idx));
+                        let _ = std::ptr::read_volatile(b_slice.as_ptr().add(prefetch_idx));
+                    }
                 }
+                
+                // Load and process 2 bitboards simultaneously
+                let a1_bytes = a_slice[idx1].to_u128().to_le_bytes();
+                let a2_bytes = a_slice[idx2].to_u128().to_le_bytes();
+                let b1_bytes = b_slice[idx1].to_u128().to_le_bytes();
+                let b2_bytes = b_slice[idx2].to_u128().to_le_bytes();
+                
+                let a1_vec = vld1q_u8(a1_bytes.as_ptr());
+                let a2_vec = vld1q_u8(a2_bytes.as_ptr());
+                let b1_vec = vld1q_u8(b1_bytes.as_ptr());
+                let b2_vec = vld1q_u8(b2_bytes.as_ptr());
+                
+                // Process both simultaneously
+                let r1_vec = vorrq_u8(a1_vec, b1_vec);
+                let r2_vec = vorrq_u8(a2_vec, b2_vec);
+                
+                // Store both results
+                let mut r1_bytes = [0u8; 16];
+                let mut r2_bytes = [0u8; 16];
+                vst1q_u8(r1_bytes.as_mut_ptr(), r1_vec);
+                vst1q_u8(r2_bytes.as_mut_ptr(), r2_vec);
+                
+                result_slice[idx1] = SimdBitboard::from_u128(u128::from_le_bytes(r1_bytes));
+                result_slice[idx2] = SimdBitboard::from_u128(u128::from_le_bytes(r2_bytes));
             }
-
-            for i in (chunks * 4)..N {
-                result_slice[i] = a_slice[i] | b_slice[i];
+            
+            // Handle remaining odd element
+            if N % 2 == 1 {
+                let idx = pairs * 2;
+                result_slice[idx] = a_slice[idx] | b_slice[idx];
             }
         }
 
         result
     }
 
-    /// Process batch XOR operation using NEON
+    /// Process batch XOR operation using NEON with optimized memory access and prefetching
+    /// Optimizations:
+    /// - Process 2 bitboards at a time for better throughput
+    /// - Prefetch hints for better cache performance
+    /// - Reduced instruction overhead
     pub(super) fn batch_xor<const N: usize>(
         a: &AlignedBitboardArray<N>,
         b: &AlignedBitboardArray<N>,
@@ -1182,28 +1244,53 @@ mod aarch64_batch {
         let result_slice = result.as_mut_slice();
 
         unsafe {
-            let chunks = N / 4;
-            for i in 0..chunks {
-                let offset = i * 4;
-
-                for j in 0..4 {
-                    let idx = offset + j;
-                    let a_bytes = a_slice[idx].to_u128().to_le_bytes();
-                    let b_bytes = b_slice[idx].to_u128().to_le_bytes();
-                    
-                    let a_vec = vld1q_u8(a_bytes.as_ptr());
-                    let b_vec = vld1q_u8(b_bytes.as_ptr());
-                    
-                    let result_vec = veorq_u8(a_vec, b_vec);
-                    
-                    let mut result_bytes = [0u8; 16];
-                    vst1q_u8(result_bytes.as_mut_ptr(), result_vec);
-                    result_slice[idx] = SimdBitboard::from_u128(u128::from_le_bytes(result_bytes));
+            const PREFETCH_DISTANCE: usize = 8;
+            
+            // Process 2 bitboards at a time for better throughput
+            let pairs = N / 2;
+            for i in 0..pairs {
+                let idx1 = i * 2;
+                let idx2 = idx1 + 1;
+                
+                // Prefetch future elements for better cache performance
+                if i + PREFETCH_DISTANCE / 2 < pairs {
+                    let prefetch_idx = (i + PREFETCH_DISTANCE / 2) * 2;
+                    if prefetch_idx < N {
+                        // Compiler hint for prefetching (ARM64 prefetch intrinsics not stable)
+                        let _ = std::ptr::read_volatile(a_slice.as_ptr().add(prefetch_idx));
+                        let _ = std::ptr::read_volatile(b_slice.as_ptr().add(prefetch_idx));
+                    }
                 }
+                
+                // Load and process 2 bitboards simultaneously
+                let a1_bytes = a_slice[idx1].to_u128().to_le_bytes();
+                let a2_bytes = a_slice[idx2].to_u128().to_le_bytes();
+                let b1_bytes = b_slice[idx1].to_u128().to_le_bytes();
+                let b2_bytes = b_slice[idx2].to_u128().to_le_bytes();
+                
+                let a1_vec = vld1q_u8(a1_bytes.as_ptr());
+                let a2_vec = vld1q_u8(a2_bytes.as_ptr());
+                let b1_vec = vld1q_u8(b1_bytes.as_ptr());
+                let b2_vec = vld1q_u8(b2_bytes.as_ptr());
+                
+                // Process both simultaneously
+                let r1_vec = veorq_u8(a1_vec, b1_vec);
+                let r2_vec = veorq_u8(a2_vec, b2_vec);
+                
+                // Store both results
+                let mut r1_bytes = [0u8; 16];
+                let mut r2_bytes = [0u8; 16];
+                vst1q_u8(r1_bytes.as_mut_ptr(), r1_vec);
+                vst1q_u8(r2_bytes.as_mut_ptr(), r2_vec);
+                
+                result_slice[idx1] = SimdBitboard::from_u128(u128::from_le_bytes(r1_bytes));
+                result_slice[idx2] = SimdBitboard::from_u128(u128::from_le_bytes(r2_bytes));
             }
-
-            for i in (chunks * 4)..N {
-                result_slice[i] = a_slice[i] ^ b_slice[i];
+            
+            // Handle remaining odd element
+            if N % 2 == 1 {
+                let idx = pairs * 2;
+                result_slice[idx] = a_slice[idx] ^ b_slice[idx];
             }
         }
 
@@ -1468,6 +1555,8 @@ mod aarch64_combine_all {
     use std::arch::aarch64::*;
 
     /// Combine all bitboards using NEON-optimized tree reduction
+    /// Uses tree reduction pattern for O(log N) depth instead of O(N) sequential operations
+    /// This provides better instruction-level parallelism and reduced dependency chains
     pub(super) fn combine_all<const N: usize>(arr: &AlignedBitboardArray<N>) -> SimdBitboard {
         if N == 0 {
             return SimdBitboard::empty();
@@ -1478,23 +1567,86 @@ mod aarch64_combine_all {
 
         let slice = arr.as_slice();
         unsafe {
-            // Use SIMD OR operations for combining
-            let mut result = slice[0];
-            
-            for i in 1..N {
-                let result_bytes = result.to_u128().to_le_bytes();
-                let other_bytes = slice[i].to_u128().to_le_bytes();
-                
-                let result_vec = vld1q_u8(result_bytes.as_ptr());
-                let other_vec = vld1q_u8(other_bytes.as_ptr());
-                let combined = vorrq_u8(result_vec, other_vec);
-                
-                let mut combined_bytes = [0u8; 16];
-                vst1q_u8(combined_bytes.as_mut_ptr(), combined);
-                result = SimdBitboard::from_u128(u128::from_le_bytes(combined_bytes));
+            // For small arrays, use sequential reduction (overhead of tree reduction not worth it)
+            if N <= 4 {
+                let mut result = slice[0];
+                for i in 1..N {
+                    let result_bytes = result.to_u128().to_le_bytes();
+                    let other_bytes = slice[i].to_u128().to_le_bytes();
+                    
+                    let result_vec = vld1q_u8(result_bytes.as_ptr());
+                    let other_vec = vld1q_u8(other_bytes.as_ptr());
+                    let combined = vorrq_u8(result_vec, other_vec);
+                    
+                    let mut combined_bytes = [0u8; 16];
+                    vst1q_u8(combined_bytes.as_mut_ptr(), combined);
+                    result = SimdBitboard::from_u128(u128::from_le_bytes(combined_bytes));
+                }
+                return result;
             }
             
-            result
+            // Tree reduction for larger arrays
+            // Level 1: Combine pairs (0|1, 2|3, 4|5, ...)
+            // Level 2: Combine pairs of results
+            // Continue until single result
+            
+            // Use stack-allocated buffer for intermediate results (max 64 elements)
+            // This avoids heap allocation and is more efficient
+            let mut working: [SimdBitboard; 64] = [SimdBitboard::empty(); 64];
+            let working_slice = &mut working[..N.min(64)];
+            working_slice.copy_from_slice(slice);
+            
+            let mut current_size = N.min(64);
+            
+            // Tree reduction: combine pairs at each level
+            while current_size > 1 {
+                let pairs = current_size / 2;
+                
+                // Combine pairs in parallel
+                for i in 0..pairs {
+                    let idx1 = i * 2;
+                    let idx2 = idx1 + 1;
+                    
+                    let a1_bytes = working[idx1].to_u128().to_le_bytes();
+                    let a2_bytes = working[idx2].to_u128().to_le_bytes();
+                    
+                    let a1_vec = vld1q_u8(a1_bytes.as_ptr());
+                    let a2_vec = vld1q_u8(a2_bytes.as_ptr());
+                    let combined = vorrq_u8(a1_vec, a2_vec);
+                    
+                    let mut combined_bytes = [0u8; 16];
+                    vst1q_u8(combined_bytes.as_mut_ptr(), combined);
+                    working[i] = SimdBitboard::from_u128(u128::from_le_bytes(combined_bytes));
+                }
+                
+                // Handle odd element (if current_size is odd)
+                if current_size % 2 == 1 {
+                    working[pairs] = working[current_size - 1];
+                    current_size = pairs + 1;
+                } else {
+                    current_size = pairs;
+                }
+            }
+            
+            // For arrays larger than 64, combine the result with remaining elements
+            if N > 64 {
+                let mut result = working[0];
+                for i in 64..N {
+                    let result_bytes = result.to_u128().to_le_bytes();
+                    let other_bytes = slice[i].to_u128().to_le_bytes();
+                    
+                    let result_vec = vld1q_u8(result_bytes.as_ptr());
+                    let other_vec = vld1q_u8(other_bytes.as_ptr());
+                    let combined = vorrq_u8(result_vec, other_vec);
+                    
+                    let mut combined_bytes = [0u8; 16];
+                    vst1q_u8(combined_bytes.as_mut_ptr(), combined);
+                    result = SimdBitboard::from_u128(u128::from_le_bytes(combined_bytes));
+                }
+                result
+            } else {
+                working[0]
+            }
         }
     }
 }

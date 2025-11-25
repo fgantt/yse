@@ -508,3 +508,8 @@ required-features = ["simd"]
 name = "memory_layout_optimization_benchmarks"
 harness = false
 required-features = ["simd"]
+
+[[bench]]
+name = "arm_neon_benchmarks"
+harness = false
+required-features = ["simd"]
