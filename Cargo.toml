@@ -214,6 +214,11 @@ harness = false
 required-features = ["simd"]
 
 [[bench]]
+name = "enhanced_prefetching_benchmarks"
+harness = false
+required-features = ["simd"]
+
+[[bench]]
 name = "history_heuristic_performance_benchmarks"
 harness = false
 required-features = ["legacy-tests"]

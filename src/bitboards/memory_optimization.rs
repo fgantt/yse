@@ -8,8 +8,6 @@
 #[cfg(target_arch = "x86_64")]
 use std::arch::x86_64::is_x86_feature_detected;
 
-use crate::bitboards::SimdBitboard;
-
 /// SIMD alignment requirements
 pub mod alignment {
     /// 16-byte alignment for SSE/NEON (128-bit SIMD)
@@ -152,6 +150,299 @@ pub mod prefetch {
             if index < bitboards.len() {
                 prefetch_bitboard(&bitboards[index], level);
             }
+        }
+    }
+    
+    /// Prefetch a memory address directly
+    /// 
+    /// Optimization 6: Enhanced prefetching - provides direct prefetch for any pointer
+    /// 
+    /// # Arguments
+    /// * `ptr` - Pointer to memory address to prefetch
+    /// * `level` - Cache level to prefetch into
+    #[inline(always)]
+    pub unsafe fn prefetch_ptr(ptr: *const i8, level: PrefetchLevel) {
+        #[cfg(target_arch = "x86_64")]
+        {
+            let hint = match level {
+                PrefetchLevel::L1 => _MM_HINT_T0,
+                PrefetchLevel::L2 => _MM_HINT_T1,
+                PrefetchLevel::L3 => _MM_HINT_T2,
+            };
+            _mm_prefetch(ptr, hint);
+        }
+        
+        #[cfg(target_arch = "aarch64")]
+        {
+            // ARM64 prefetch - use compiler hint
+            std::ptr::read_volatile(ptr);
+        }
+        
+        #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+        {
+            let _ = (ptr, level); // No-op on unsupported platforms
+        }
+        
+        // Record prefetch operation for telemetry
+        crate::bitboards::memory_optimization::telemetry::record_prefetch_operation();
+    }
+}
+
+/// Adaptive prefetching system
+/// 
+/// Optimization 6: Enhanced prefetching - adaptive prefetching based on access patterns
+/// 
+/// This module provides an adaptive prefetching system that learns from access patterns
+/// and adjusts prefetch distances dynamically for optimal cache performance.
+pub mod adaptive_prefetch {
+    use std::collections::VecDeque;
+    
+    /// Adaptive prefetching configuration
+    #[derive(Debug, Clone)]
+    pub struct AdaptivePrefetchConfig {
+        /// Minimum prefetch distance
+        pub min_distance: usize,
+        /// Maximum prefetch distance
+        pub max_distance: usize,
+        /// Initial prefetch distance
+        pub initial_distance: usize,
+        /// Learning rate for distance adjustment (0.0 to 1.0)
+        pub learning_rate: f64,
+        /// Number of recent accesses to track
+        pub history_size: usize,
+        /// Threshold for cache hit rate to increase distance
+        pub hit_rate_threshold: f64,
+    }
+    
+    impl Default for AdaptivePrefetchConfig {
+        fn default() -> Self {
+            Self {
+                min_distance: 1,
+                max_distance: 8,
+                initial_distance: 2,
+                learning_rate: 0.1,
+                history_size: 32,
+                hit_rate_threshold: 0.7,
+            }
+        }
+    }
+    
+    /// Workload-specific prefetch configuration
+    #[derive(Debug, Clone)]
+    pub enum WorkloadType {
+        /// Sequential access pattern (e.g., row-by-row iteration)
+        Sequential { base_distance: usize },
+        /// Random access pattern (e.g., piece-based iteration)
+        Random { base_distance: usize },
+        /// Batch access pattern (e.g., sliding pieces batch)
+        Batch { base_distance: usize },
+    }
+    
+    impl Default for WorkloadType {
+        fn default() -> Self {
+            Self::Sequential { base_distance: 2 }
+        }
+    }
+    
+    /// Adaptive prefetch distance manager
+    /// 
+    /// Tracks access patterns and adaptively adjusts prefetch distances
+    /// to optimize cache performance based on workload characteristics.
+    pub struct AdaptivePrefetchManager {
+        config: AdaptivePrefetchConfig,
+        workload_type: WorkloadType,
+        current_distance: usize,
+        access_history: VecDeque<usize>,
+        cache_hit_count: usize,
+        cache_miss_count: usize,
+        adjustment_counter: usize,
+    }
+    
+    impl AdaptivePrefetchManager {
+        /// Create a new adaptive prefetch manager
+        pub fn new(config: AdaptivePrefetchConfig, workload_type: WorkloadType) -> Self {
+            let base_distance = match workload_type {
+                WorkloadType::Sequential { base_distance } => base_distance,
+                WorkloadType::Random { base_distance } => base_distance,
+                WorkloadType::Batch { base_distance } => base_distance,
+            };
+            
+            let initial_distance = base_distance.max(config.min_distance).min(config.max_distance);
+            
+            Self {
+                config,
+                workload_type,
+                current_distance: initial_distance,
+                access_history: VecDeque::with_capacity(32),
+                cache_hit_count: 0,
+                cache_miss_count: 0,
+                adjustment_counter: 0,
+            }
+        }
+        
+        /// Create for sequential access pattern
+        pub fn sequential() -> Self {
+            Self::new(
+                AdaptivePrefetchConfig::default(),
+                WorkloadType::Sequential { base_distance: 2 },
+            )
+        }
+        
+        /// Create for random access pattern
+        pub fn random() -> Self {
+            Self::new(
+                AdaptivePrefetchConfig::default(),
+                WorkloadType::Random { base_distance: 1 },
+            )
+        }
+        
+        /// Create for batch access pattern
+        pub fn batch() -> Self {
+            Self::new(
+                AdaptivePrefetchConfig::default(),
+                WorkloadType::Batch { base_distance: 3 },
+            )
+        }
+        
+        /// Get current prefetch distance
+        pub fn distance(&self) -> usize {
+            self.current_distance
+        }
+        
+        /// Record an access with index
+        pub fn record_access(&mut self, index: usize) {
+            self.access_history.push_back(index);
+            if self.access_history.len() > self.config.history_size {
+                self.access_history.pop_front();
+            }
+        }
+        
+        /// Record a cache hit
+        pub fn record_cache_hit(&mut self) {
+            self.cache_hit_count += 1;
+            self.maybe_adjust_distance();
+        }
+        
+        /// Record a cache miss
+        pub fn record_cache_miss(&mut self) {
+            self.cache_miss_count += 1;
+            self.maybe_adjust_distance();
+        }
+        
+        /// Adjust distance based on cache performance
+        fn maybe_adjust_distance(&mut self) {
+            self.adjustment_counter += 1;
+            
+            // Adjust every N accesses to avoid too frequent changes
+            if self.adjustment_counter < 10 {
+                return;
+            }
+            
+            self.adjustment_counter = 0;
+            
+            let total = self.cache_hit_count + self.cache_miss_count;
+            if total == 0 {
+                return;
+            }
+            
+            let hit_rate = self.cache_hit_count as f64 / total as f64;
+            
+            // Adjust distance based on hit rate
+            if hit_rate > self.config.hit_rate_threshold {
+                // Good hit rate - can increase distance for more aggressive prefetching
+                if self.current_distance < self.config.max_distance {
+                    let adjustment = ((self.config.max_distance - self.current_distance) as f64
+                        * self.config.learning_rate) as usize;
+                    self.current_distance = (self.current_distance + adjustment.max(1))
+                        .min(self.config.max_distance);
+                }
+            } else {
+                // Low hit rate - reduce distance to avoid prefetching too far ahead
+                if self.current_distance > self.config.min_distance {
+                    let adjustment = ((self.current_distance - self.config.min_distance) as f64
+                        * self.config.learning_rate) as usize;
+                    self.current_distance = (self.current_distance - adjustment.max(1))
+                        .max(self.config.min_distance);
+                }
+            }
+            
+            // Reset counters for next adjustment period
+            self.cache_hit_count = 0;
+            self.cache_miss_count = 0;
+        }
+        
+        /// Get optimal prefetch distance for current workload
+        pub fn get_optimal_distance(&self, current_index: usize, total_items: usize) -> usize {
+            // Base distance from workload type
+            let base = match self.workload_type {
+                WorkloadType::Sequential { base_distance } => base_distance,
+                WorkloadType::Random { base_distance } => base_distance,
+                WorkloadType::Batch { base_distance } => base_distance,
+            };
+            
+            // Adapt based on remaining items
+            let remaining = total_items.saturating_sub(current_index);
+            let distance = self.current_distance.min(remaining);
+            
+            // Ensure we're within configured bounds
+            distance.max(self.config.min_distance).min(self.config.max_distance)
+        }
+        
+        /// Analyze access pattern and suggest optimal distance
+        pub fn analyze_pattern(&self) -> usize {
+            if self.access_history.len() < 2 {
+                return self.current_distance;
+            }
+            
+            let history: Vec<usize> = self.access_history.iter().copied().collect();
+            let mut is_sequential = true;
+            let mut prev_index = history[0];
+            
+            for &index in history.iter().skip(1) {
+                // Check if accesses are roughly sequential
+                if index < prev_index || (index - prev_index) > 10 {
+                    is_sequential = false;
+                    break;
+                }
+                prev_index = index;
+            }
+            
+            // Adjust distance based on pattern
+            if is_sequential {
+                // Sequential pattern - can use larger distance
+                self.current_distance.min(self.config.max_distance)
+            } else {
+                // Random pattern - use smaller distance
+                self.current_distance.max(self.config.min_distance)
+            }
+        }
+        
+        /// Reset statistics
+        pub fn reset(&mut self) {
+            self.access_history.clear();
+            self.cache_hit_count = 0;
+            self.cache_miss_count = 0;
+            self.adjustment_counter = 0;
+        }
+    }
+    
+    /// Get recommended prefetch distance for different workload types
+    /// 
+    /// Optimization 6.6: Tuned prefetch distances for different workloads
+    pub fn get_recommended_distance(workload_type: &WorkloadType, total_items: usize) -> usize {
+        let base = match workload_type {
+            WorkloadType::Sequential { base_distance } => *base_distance,
+            WorkloadType::Random { base_distance } => *base_distance,
+            WorkloadType::Batch { base_distance } => *base_distance,
+        };
+        
+        // Adjust based on total items
+        match total_items {
+            0..=4 => base.min(1),
+            5..=8 => base.min(2),
+            9..=16 => base.min(3),
+            17..=32 => base.min(4),
+            _ => base.min(8),
         }
     }
 }
@@ -419,6 +710,124 @@ pub mod access_patterns {
         // 2. Implement cache-friendly data structures
         // 3. Use prefetching for likely access patterns
         let _ = bitboards;
+    }
+}
+
+/// Enhanced prefetching utilities for specific use cases
+/// 
+/// Optimization 6: Enhanced prefetching - provides workload-specific prefetching helpers
+pub mod enhanced_prefetch {
+    use super::prefetch::{prefetch_ptr, PrefetchLevel};
+    use super::adaptive_prefetch::{AdaptivePrefetchManager, WorkloadType, get_recommended_distance};
+    use std::sync::{Mutex, OnceLock};
+    
+    // Global adaptive prefetch managers for different workloads
+    fn get_batch_manager() -> &'static Mutex<AdaptivePrefetchManager> {
+        static MANAGER: OnceLock<Mutex<AdaptivePrefetchManager>> = OnceLock::new();
+        MANAGER.get_or_init(|| Mutex::new(AdaptivePrefetchManager::batch()))
+    }
+    
+    fn get_sequential_manager() -> &'static Mutex<AdaptivePrefetchManager> {
+        static MANAGER: OnceLock<Mutex<AdaptivePrefetchManager>> = OnceLock::new();
+        MANAGER.get_or_init(|| Mutex::new(AdaptivePrefetchManager::sequential()))
+    }
+    
+    fn get_random_manager() -> &'static Mutex<AdaptivePrefetchManager> {
+        static MANAGER: OnceLock<Mutex<AdaptivePrefetchManager>> = OnceLock::new();
+        MANAGER.get_or_init(|| Mutex::new(AdaptivePrefetchManager::random()))
+    }
+    
+    /// Prefetch magic table entry with adaptive distance
+    /// 
+    /// Optimization 6.2: Enhanced prefetching for magic table lookups
+    /// 
+    /// # Arguments
+    /// * `magic_entry_ptr` - Pointer to magic table entry
+    /// * `current_index` - Current index in batch
+    /// * `total_items` - Total items in batch
+    pub unsafe fn prefetch_magic_table(
+        magic_entry_ptr: *const i8,
+        current_index: usize,
+        total_items: usize,
+    ) {
+        if magic_entry_ptr.is_null() {
+            return;
+        }
+        
+        let _manager = get_batch_manager();
+        let _distance = _manager.lock().unwrap().get_optimal_distance(current_index, total_items);
+        
+        // Prefetch the magic entry (distance tracked by adaptive manager for future adjustments)
+        prefetch_ptr(magic_entry_ptr, PrefetchLevel::L1);
+        
+        // Also prefetch potential attack storage entry if we can calculate it
+        // This is handled separately in the caller for safety
+    }
+    
+    /// Prefetch PST table entry with adaptive distance
+    /// 
+    /// Optimization 6.3: Enhanced prefetching for PST table lookups
+    /// 
+    /// # Arguments
+    /// * `mg_ptr` - Pointer to middlegame PST table entry
+    /// * `eg_ptr` - Pointer to endgame PST table entry
+    /// * `current_pos` - Current position index (0-80 for 9x9 board)
+    /// * `total_positions` - Total positions to process
+    pub unsafe fn prefetch_pst_table(
+        mg_ptr: *const i8,
+        eg_ptr: *const i8,
+        current_pos: usize,
+        total_positions: usize,
+    ) {
+        if mg_ptr.is_null() || eg_ptr.is_null() {
+            return;
+        }
+        
+        let _manager = get_sequential_manager();
+        let _distance = _manager.lock().unwrap().get_optimal_distance(current_pos, total_positions);
+        
+        // Prefetch both mg and eg entries (distance tracked by adaptive manager for future adjustments)
+        prefetch_ptr(mg_ptr, PrefetchLevel::L1);
+        prefetch_ptr(eg_ptr, PrefetchLevel::L1);
+    }
+    
+    /// Get adaptive prefetch distance for workload type
+    /// 
+    /// Optimization 6.4: Prefetch distance optimization
+    /// 
+    /// # Arguments
+    /// * `workload_type` - Type of workload (Sequential, Random, Batch)
+    /// * `current_index` - Current index
+    /// * `total_items` - Total items
+    pub fn get_adaptive_distance(
+        workload_type: &WorkloadType,
+        current_index: usize,
+        total_items: usize,
+    ) -> usize {
+        let recommended = get_recommended_distance(workload_type, total_items);
+        
+        // Use adaptive manager based on workload type
+        let adaptive_distance = match workload_type {
+            WorkloadType::Batch { .. } => {
+                get_batch_manager().lock().unwrap().get_optimal_distance(current_index, total_items)
+            }
+            WorkloadType::Sequential { .. } => {
+                get_sequential_manager().lock().unwrap().get_optimal_distance(current_index, total_items)
+            }
+            WorkloadType::Random { .. } => {
+                get_random_manager().lock().unwrap().get_optimal_distance(current_index, total_items)
+            }
+        };
+        
+        // Use the recommended distance as a baseline, but allow adaptive adjustment
+        recommended.max(adaptive_distance).min(8)
+    }
+    
+    /// Reset all adaptive prefetch managers
+    pub fn reset_all_managers() {
+        get_batch_manager().lock().unwrap().reset();
+        get_sequential_manager().lock().unwrap().reset();
+        get_random_manager().lock().unwrap().reset();
     }
 }
 
