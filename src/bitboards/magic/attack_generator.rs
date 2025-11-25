@@ -6,14 +6,13 @@
 
 use crate::types::core::PieceType;
 use crate::types::Bitboard;
-use lru::LruCache;
-use std::num::NonZeroUsize;
 use lazy_static::lazy_static;
+use std::collections::{HashMap, VecDeque};
 
 /// Attack pattern generator with optimization
 pub struct AttackGenerator {
     /// Attack pattern cache with LRU eviction
-    pattern_cache: LruCache<(u8, PieceType, Bitboard), Bitboard>,
+    pattern_cache: AttackCache,
     /// Cache statistics
     cache_stats: CacheStatsInternal,
 }
@@ -95,9 +94,8 @@ impl AttackGenerator {
 
     /// Create a new attack generator with custom configuration
     pub fn with_config(config: AttackGeneratorConfig) -> Self {
-        let cache_size = NonZeroUsize::new(config.cache_size.max(1)).unwrap();
         Self {
-            pattern_cache: LruCache::new(cache_size),
+            pattern_cache: AttackCache::new(config.cache_size.max(1)),
             cache_stats: CacheStatsInternal::default(),
         }
     }
@@ -109,12 +107,12 @@ impl AttackGenerator {
         piece_type: PieceType,
         blockers: Bitboard,
     ) -> Bitboard {
-        let key = (square, piece_type, blockers);
+        let key = CacheKey::new(square, piece_type, blockers);
         
         // Check cache first
         if let Some(cached) = self.pattern_cache.get(&key) {
             self.cache_stats.hits += 1;
-            return *cached;
+            return cached;
         }
 
         // Cache miss
@@ -123,14 +121,8 @@ impl AttackGenerator {
         // Generate pattern
         let pattern = self.generate_attack_pattern_internal(square, piece_type, blockers);
 
-        // Check if insertion would cause eviction
-        let was_full = self.pattern_cache.len() >= self.pattern_cache.cap().get();
-        
         // Cache the result (may evict LRU entry)
-        self.pattern_cache.put(key, pattern);
-        
-        // Track evictions
-        if was_full && self.pattern_cache.len() >= self.pattern_cache.cap().get() {
+        if self.pattern_cache.insert(key, pattern) {
             self.cache_stats.evictions += 1;
         }
 
@@ -223,7 +215,7 @@ impl AttackGenerator {
 
         CacheStats {
             cache_size: self.pattern_cache.len(),
-            max_cache_size: self.pattern_cache.cap().get(),
+            max_cache_size: self.pattern_cache.capacity(),
             hits: self.cache_stats.hits,
             misses: self.cache_stats.misses,
             evictions: self.cache_stats.evictions,
@@ -235,7 +227,7 @@ impl AttackGenerator {
     /// Get cache configuration
     pub fn cache_config(&self) -> AttackGeneratorConfig {
         AttackGeneratorConfig {
-            cache_size: self.pattern_cache.cap().get(),
+            cache_size: self.pattern_cache.capacity(),
         }
     }
 
@@ -452,6 +444,91 @@ pub struct AttackStats {
 impl Default for AttackGenerator {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+struct CacheKey {
+    square: u8,
+    piece_type: PieceType,
+    blockers: Bitboard,
+}
+
+impl CacheKey {
+    #[inline]
+    fn new(square: u8, piece_type: PieceType, blockers: Bitboard) -> Self {
+        Self {
+            square,
+            piece_type,
+            blockers,
+        }
+    }
+}
+
+struct AttackCache {
+    capacity: usize,
+    map: HashMap<CacheKey, Bitboard>,
+    order: VecDeque<CacheKey>,
+}
+
+impl AttackCache {
+    fn new(capacity: usize) -> Self {
+        let cap = capacity.max(1);
+        Self {
+            capacity: cap,
+            map: HashMap::with_capacity(cap.min(1024)),
+            order: VecDeque::with_capacity(cap.min(1024)),
+        }
+    }
+
+    #[inline]
+    fn len(&self) -> usize {
+        self.map.len()
+    }
+
+    #[inline]
+    fn capacity(&self) -> usize {
+        self.capacity
+    }
+
+    fn get(&mut self, key: &CacheKey) -> Option<Bitboard> {
+        if let Some(&value) = self.map.get(key) {
+            self.order.push_back(*key);
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    fn insert(&mut self, key: CacheKey, value: Bitboard) -> bool {
+        if let Some(entry) = self.map.get_mut(&key) {
+            *entry = value;
+            self.order.push_back(key);
+            return false;
+        }
+
+        let mut evicted = false;
+        if self.map.len() >= self.capacity {
+            evicted = self.evict_one();
+        }
+
+        self.map.insert(key, value);
+        self.order.push_back(key);
+        evicted
+    }
+
+    fn clear(&mut self) {
+        self.map.clear();
+        self.order.clear();
+    }
+
+    fn evict_one(&mut self) -> bool {
+        while let Some(old_key) = self.order.pop_front() {
+            if self.map.remove(&old_key).is_some() {
+                return true;
+            }
+        }
+        false
     }
 }
 

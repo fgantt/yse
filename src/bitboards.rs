@@ -1,7 +1,12 @@
+use crate::bitboards::magic::attack_generator::AttackGenerator;
 use crate::search::RepetitionState;
 use crate::types::board::{CapturedPieces, GamePhase};
 use crate::types::core::{Move, Piece, PieceType, Player, Position};
-use crate::types::{Bitboard, ImpasseOutcome, ImpasseResult, MagicError, MagicTable, clear_bit, get_lsb, is_bit_set, set_bit};
+use crate::types::{
+    Bitboard, ImpasseOutcome, ImpasseResult, MagicError, MagicTable, clear_bit, get_lsb, is_bit_set,
+    set_bit,
+};
+use std::cell::RefCell;
 use std::sync::{Arc, OnceLock};
 
 pub const EMPTY_BITBOARD: Bitboard = Bitboard::empty();
@@ -88,6 +93,11 @@ pub use square_utils::{
 /// Shared singleton for magic bitboard table (Task 2.0.2.1)
 /// This allows multiple boards to share the same magic table without cloning
 static SHARED_MAGIC_TABLE: OnceLock<Arc<MagicTable>> = OnceLock::new();
+
+thread_local! {
+    /// Thread-local raycast generator so fallback lookups reuse the cache without cross-thread sharing
+    static RAYCAST_ATTACK_GENERATOR: RefCell<AttackGenerator> = RefCell::new(AttackGenerator::new());
+}
 
 /// Telemetry counters for magic bitboard operations (Task 2.0.2.3)
 #[derive(Debug, Default)]
@@ -1262,8 +1272,6 @@ impl BitboardBoard {
         square: Position,
         piece_type: PieceType,
     ) -> Bitboard {
-        use crate::bitboards::magic::attack_generator::AttackGenerator;
-        
         // Only support sliding pieces for ray-casting
         if !matches!(
             piece_type,
@@ -1275,13 +1283,13 @@ impl BitboardBoard {
             return EMPTY_BITBOARD;
         }
         
-        // Use AttackGenerator to compute ray-cast attacks
-        let mut generator = AttackGenerator::new();
         let occupied = self.occupied;
         let square_idx = square.to_index();
-        
-        // Generate attack pattern with current occupancy
-        generator.generate_attack_pattern(square_idx, piece_type, occupied)
+
+        RAYCAST_ATTACK_GENERATOR.with(|generator| {
+            let mut generator = generator.borrow_mut();
+            generator.generate_attack_pattern(square_idx, piece_type, occupied)
+        })
     }
 
     /// Check if magic bitboards are enabled
