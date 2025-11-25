@@ -3,10 +3,40 @@
 //! This module provides SIMD-accelerated pattern matching for tactical patterns,
 //! using batch operations to process multiple positions simultaneously.
 //!
+//! # Feature Flags & Configuration
+//!
+//! - **Compile-time**: Only available when the crate is built with
+//!   `--features simd`.
+//! - **Runtime**: `TacticalPatternRecognizer` checks
+//!   `SimdConfig::enable_simd_pattern_matching` (see
+//!   `docs/design/implementation/simd-optimization/SIMD_INTEGRATION_STATUS.md`)
+//!   before delegating to `SimdPatternMatcher`. This enables per-profile control
+//!   without recompilation, which is essential for experiments documented in
+//!   `SIMD_IMPLEMENTATION_EVALUATION.md`.
+//! - **Telemetry**: SIMD vs scalar invocation counts are tracked through
+//!   `SimdTelemetry`, allowing regression detection to align with the integration
+//!   status tasks.
+//!
 //! # Performance
 //!
 //! Uses SIMD batch operations to achieve 2-4x speedup for pattern matching
-//! compared to scalar implementations.
+//! compared to scalar implementations. This reduces fork/pin filtering cost and
+//! contributes to the 20%+ NPS gains captured in the integration benchmarks.
+//!
+//! # Usage
+//!
+//! ```rust,ignore
+//! use shogi_engine::config::SimdConfig;
+//! use shogi_engine::evaluation::tactical_patterns::TacticalPatternRecognizer;
+//!
+//! let mut recognizer = TacticalPatternRecognizer::default();
+//! let mut cfg = recognizer.config().clone();
+//! cfg.enable_simd_pattern_matching = true;
+//! recognizer.set_config(cfg);
+//!
+//! // Internally calls SimdPatternMatcher once the runtime flag and Cargo feature are enabled.
+//! let forks = recognizer.detect_forks(&board, player);
+//! ```
 
 #![cfg(feature = "simd")]
 

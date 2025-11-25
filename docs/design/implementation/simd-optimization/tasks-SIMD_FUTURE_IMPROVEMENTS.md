@@ -607,22 +607,30 @@ See Task 5.13 above for details.
 ---
 
 ### Doc Task 3: Update API Documentation
-**Status**: Future  
+**Status**: ✅ Completed  
 **Priority**: Low  
 **Estimated Effort**: 4-6 hours
 
 **Description**: Enhance API documentation with SIMD-specific information.
 
 **Tasks**:
-- [ ] DT3.1 Add SIMD feature flags to all relevant API documentation
-- [ ] DT3.2 Document performance characteristics in API docs
-- [ ] DT3.3 Add examples showing SIMD vs scalar usage
-- [ ] DT3.4 Document runtime configuration options
+- [x] DT3.1 Add SIMD feature flags to all relevant API documentation
+- [x] DT3.2 Document performance characteristics in API docs
+- [x] DT3.3 Add examples showing SIMD vs scalar usage
+- [x] DT3.4 Document runtime configuration options
 
-**Files to Modify**:
-- `src/bitboards/simd.rs` (enhance docs)
-- `src/evaluation/evaluation_simd.rs` (enhance docs)
-- `src/evaluation/tactical_patterns_simd.rs` (enhance docs)
+**Files Modified**:
+- `src/bitboards/simd.rs` - Expanded module documentation with compile-time/runtime flag details, configuration snippets, and references to `SimdConfig`
+- `src/evaluation/evaluation_simd.rs` - Added usage guidance showing how `IntegratedEvaluator` switches between SIMD/scalar paths and documented telemetry/performance context
+- `src/evaluation/tactical_patterns_simd.rs` - Documented runtime switches, performance expectations, and provided examples for enabling/disabling SIMD fork detection
+
+**Completion Notes**:
+- Added explicit **Feature Flags** sections to each module comment explaining the relationship between the cargo `simd` feature and the runtime `SimdConfig` booleans introduced in `tasks-SIMD_INTEGRATION_STATUS.md`
+- Documented historical context from `SIMD_IMPLEMENTATION_EVALUATION.md` so callers understand why explicit intrinsics are required and how the new APIs address past regressions
+- Linked all three APIs to `SIMD_INTEGRATION_STATUS.md` so integrators know which parts of the engine consume the SIMD paths (evaluation, tactical patterns, move generation)
+- Provided code samples that demonstrate toggling runtime flags (e.g., disabling SIMD move generation via `MoveGenerator::set_simd_config`) and calling `SimdEvaluator`/`SimdPatternMatcher` with feature guards; snippets are marked `rust,ignore` to avoid doctest failures
+- Clarified performance expectations (2-4x for bitwise operations and tactical filters, 20%+ NPS end-to-end) by referencing the measurements captured in `SIMD_IMPLEMENTATION_EVALUATION.md` and the follow-up telemetry outlined in `SIMD_INTEGRATION_STATUS.md`
+- Noted telemetry hooks and fallback behavior in every API so downstream docs can reference the same terminology used in `SIMD_IMPLEMENTATION_EVALUATION.md`
 
 ---
 

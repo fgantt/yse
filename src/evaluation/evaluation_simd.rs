@@ -3,10 +3,40 @@
 //! This module provides SIMD-accelerated evaluation functions for material counting
 //! and piece-square table evaluation, achieving 2-4x speedup over scalar implementations.
 //!
+//! # Feature Flags & Configuration
+//!
+//! - **Compile-time**: This module only compiles when the crate is built with
+//!   `--features simd`.
+//! - **Runtime**: `IntegratedEvaluator` consults `config::SimdConfig::enable_simd_evaluation`
+//!   before calling into `SimdEvaluator`. Toggling that flag lets you switch back
+//!   to the scalar path without rebuilding, as described in
+//!   `docs/design/implementation/simd-optimization/SIMD_INTEGRATION_STATUS.md`.
+//! - **Telemetry**: Every invocation is tracked through `SimdTelemetry`, making it
+//!   easy to validate performance regressions reported in
+//!   `SIMD_IMPLEMENTATION_EVALUATION.md`.
+//!
 //! # Performance
 //!
 //! Uses SIMD batch operations to process multiple pieces/positions simultaneously,
-//! reducing evaluation overhead in the search tree.
+//! reducing evaluation overhead in the search tree (2-4x faster vs scalar according
+//! to the integration benchmarks).
+//!
+//! # Usage
+//!
+//! ```rust,ignore
+//! use shogi_engine::config::SimdConfig;
+//! use shogi_engine::evaluation::{IntegratedEvaluator, evaluation_simd::SimdEvaluator};
+//!
+//! let mut eval = IntegratedEvaluator::default();
+//! let mut config = eval.config().clone();
+//! config.simd.enable_simd_evaluation = true;
+//! eval.set_config(config);
+//!
+//! // SimdEvaluator is used internally once the runtime flag is on.
+//! // Callers can also interact with it directly for custom tooling:
+//! let simd_eval = SimdEvaluator::new();
+//! let score = simd_eval.evaluate_pst_batch(board, pst, Player::Black);
+//! ```
 
 #![cfg(feature = "simd")]
 
@@ -17,6 +47,10 @@ use crate::types::core::{PieceType, Player, Position};
 use crate::types::evaluation::TaperedScore;
 
 /// SIMD-optimized evaluation functions
+///
+/// The runtime machinery in `IntegratedEvaluator` consults `SimdConfig` before
+/// instantiating this type, aligning with the workflow captured in
+/// `SIMD_INTEGRATION_STATUS.md`.
 pub struct SimdEvaluator {
     // Placeholder for future SIMD-specific state
 }

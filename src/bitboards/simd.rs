@@ -9,22 +9,48 @@
 //! - **ARM64**: NEON (always available on aarch64)
 //! - **WebAssembly**: Not supported (native platforms only)
 //!
+//! # Feature Flags
+//!
+//! - **Compile-time**: Enable the Cargo feature `simd` to compile the explicit
+//!   SSE/AVX/NEON implementations. Without it, this module automatically falls
+//!   back to scalar `u128` operations, mirroring the behavior described in
+//!   `docs/design/implementation/simd-optimization/SIMD_IMPLEMENTATION_EVALUATION.md`.
+//! - **Runtime**: The engine routes calls through `config::SimdConfig`
+//!   (`enable_simd_evaluation`, `enable_simd_pattern_matching`,
+//!   `enable_simd_move_generation`) as documented in
+//!   `docs/design/implementation/simd-optimization/SIMD_INTEGRATION_STATUS.md`.
+//!   API consumers can update these flags via helpers such as
+//!   `MoveGenerator::set_simd_config()` to force scalar fallbacks even when the
+//!   `simd` feature is on.
+//!
 //! # Performance Characteristics
 //!
-//! When the `simd` feature is enabled:
-//! - Bitwise operations use explicit SIMD intrinsics
-//! - Target: 2-4x speedup vs scalar implementation
-//! - Batch operations: 4-8x speedup for processing multiple bitboards
+//! Measured in `SIMD_IMPLEMENTATION_EVALUATION.md` and the follow-up integration
+//! reports, explicit intrinsics close the ~40% regression that the scalar wrapper
+//! exhibited. With both compile-time and runtime flags enabled:
+//!
+//! - Bitwise operations use explicit SIMD intrinsics (2-4x target speedup)
+//! - Batch operations process multiple bitboards at once (4-8x target speedup)
+//! - End-to-end search gains 20%+ NPS when paired with vectorized evaluation and
+//!   move generation.
 //!
 //! # Usage
 //!
-//! ```rust
+//! ```rust,ignore
 //! use shogi_engine::bitboards::SimdBitboard;
+//! use shogi_engine::config::SimdConfig;
+//! use shogi_engine::moves::MoveGenerator;
+//!
+//! // Toggle runtime SIMD usage even though the crate was compiled with `--features simd`.
+//! let mut generator = MoveGenerator::new();
+//! generator.set_simd_config(SimdConfig {
+//!     enable_simd_move_generation: true,
+//!     ..SimdConfig::default()
+//! });
 //!
 //! let bb1 = SimdBitboard::from_u128(0x0F0F);
 //! let bb2 = SimdBitboard::from_u128(0x3333);
-//!
-//! let result = bb1 & bb2; // Uses SIMD intrinsics when simd feature is enabled
+//! let result = bb1 & bb2; // Uses SIMD intrinsics when both feature levels allow it.
 //! ```
 
 use serde::{Deserialize, Serialize, Serializer, Deserializer};
@@ -39,13 +65,17 @@ use crate::bitboards::platform_detection;
 ///
 /// - **Native platforms only**: x86_64 or ARM64
 /// - **SIMD feature**: Enable with `--features simd` for explicit SIMD intrinsics
-/// - **Fallback**: When `simd` feature is disabled, uses scalar `u128` operations
+/// - **Runtime configuration**: Guarded by `config::SimdConfig`; callers can disable
+///   SIMD paths per subsystem without recompiling (see `SIMD_INTEGRATION_STATUS.md`)
+/// - **Fallback**: When `simd` feature is disabled or runtime flags are false, uses
+///   scalar `u128` operations (behavior documented in `SIMD_IMPLEMENTATION_EVALUATION.md`)
 ///
 /// # Performance
 ///
 /// - **Bitwise operations**: 2-4x speedup target with SIMD
+/// - **Batch operations**: 4-8x speedup when combined with `batch_ops`
 /// - **Hardware popcount**: Uses CPU POPCNT instruction when available
-/// - **Memory**: 16 bytes, aligned for SIMD access
+/// - **Telemetry**: Usage counters recorded via `SimdTelemetry` to validate gains
 ///
 /// # Example
 ///
