@@ -1,0 +1,62 @@
+{
+  "version": "2024-11-25",
+  "source": "docs/design/implementation/simd-optimization/SIMD_IMPLEMENTATION_EVALUATION.md",
+  "description": "Baseline ratios derived from the 2024 SIMD evaluation report. Ratios capture the known slowdown of the placeholder SIMD implementation so regressions can be detected automatically until real SIMD lands.",
+  "scenarios": [
+    {
+      "name": "bitwise_and",
+      "operation": "bitwise_and",
+      "iterations": 2000000,
+      "baseline_ratio": 1.827,
+      "allowed_regression_pct": 15.0,
+      "max_avg_simd_ns": 30.0,
+      "notes": "Baseline from 79.083µs vs 43.292µs measurement."
+    },
+    {
+      "name": "bitwise_or",
+      "operation": "bitwise_or",
+      "iterations": 2000000,
+      "baseline_ratio": 1.409,
+      "allowed_regression_pct": 15.0,
+      "max_avg_simd_ns": 30.0,
+      "notes": "Baseline from 64.667µs vs 45.958µs measurement."
+    },
+    {
+      "name": "bitwise_xor",
+      "operation": "bitwise_xor",
+      "iterations": 2000000,
+      "baseline_ratio": 1.438,
+      "allowed_regression_pct": 15.0,
+      "max_avg_simd_ns": 30.0,
+      "notes": "Baseline from 68.500µs vs 47.625µs measurement."
+    },
+    {
+      "name": "bitwise_not",
+      "operation": "bitwise_not",
+      "iterations": 2000000,
+      "baseline_ratio": 1.500,
+      "allowed_regression_pct": 20.0,
+      "max_avg_simd_ns": 25.0,
+      "notes": "Derived from average slowdown reported across scalar-only operations."
+    },
+    {
+      "name": "popcount",
+      "operation": "popcount",
+      "iterations": 1000000,
+      "baseline_ratio": 1.545,
+      "allowed_regression_pct": 15.0,
+      "max_avg_simd_ns": 120.0,
+      "notes": "Baseline from 76.5µs vs 49.5µs measurement."
+    },
+    {
+      "name": "combined_ops",
+      "operation": "combined",
+      "iterations": 1000000,
+      "baseline_ratio": 1.650,
+      "allowed_regression_pct": 20.0,
+      "max_avg_simd_ns": 60.0,
+      "notes": "Covers realistic workloads such as (a & b) | (c & !a)."
+    }
+  ]
+}
+

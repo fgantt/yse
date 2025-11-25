@@ -346,6 +346,7 @@ impl<const N: usize> AlignedBitboardArray<N> {
 - Benchmark suite for all operations
 - CI integration to prevent regressions
 - Performance monitoring in production
+- Baseline-driven regression tests (`tests/simd_performance_regression_tests.rs`) that compare against `tests/performance_baselines/simd_performance_baseline.json` on every CI run
 
 ---
 

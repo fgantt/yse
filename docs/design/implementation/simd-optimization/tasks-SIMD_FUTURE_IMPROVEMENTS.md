@@ -647,22 +647,29 @@ See Task 5.13 above for details.
 ---
 
 ### Test Task 2: Add Performance Regression Tests
-**Status**: Future  
+**Status**: ✅ Completed  
 **Priority**: Medium  
 **Estimated Effort**: 2-3 days
 
 **Description**: Enhance performance regression tests to catch performance degradations automatically.
 
 **Tasks**:
-- [ ] TT2.1 Add CI integration for performance regression tests
-- [ ] TT2.2 Create baseline performance metrics
-- [ ] TT2.3 Add automatic performance comparison
-- [ ] TT2.4 Add alerts for performance regressions
-- [ ] TT2.5 Document performance regression testing process
+- [x] TT2.1 Add CI integration for performance regression tests
+- [x] TT2.2 Create baseline performance metrics
+- [x] TT2.3 Add automatic performance comparison
+- [x] TT2.4 Add alerts for performance regressions
+- [x] TT2.5 Document performance regression testing process
 
 **Files to Create/Modify**:
 - `tests/simd_performance_regression_tests.rs` (enhance existing)
 - `.github/workflows/simd-performance-check.yml` (enhance)
+
+#### Completion Notes
+
+- **Baseline Source Alignment**: Captured the slowdown ratios documented in `SIMD_IMPLEMENTATION_EVALUATION.md` into `tests/performance_baselines/simd_performance_baseline.json`. Each entry records the scalar vs. SIMD ratio plus the maximum tolerated regression so we can track progress while the placeholder SIMD backend is still slower than scalar.
+- **Automated Comparison**: `tests/simd_performance_regression_tests.rs` now deserializes the baseline data, runs deterministic micro-benchmarks for all covered operations, and fails the suite if the measured ratio exceeds the allowed regression window. The test also emits Markdown summaries and alert lines when SIMD slows down even if the threshold is not crossed.
+- **CI Integration**: `.github/workflows/simd-performance-check.yml` exports the new `SIMD_PERF_OUTPUT` artifact from the regression test, surfaces it through the GitHub summary, and uploads it per platform. This keeps parity with the integration tasks tracked in `tasks-SIMD_INTEGRATION_STATUS.md` and ensures regressions are visible on Ubuntu and macOS runners.
+- **Documentation & Process**: Added this completion entry (TT2.5) to clarify how the baseline file, regression test, and workflow interact. Contributors updating SIMD code must refresh the baseline JSON so CI can compare against the latest known-good state.
 
 ---
 

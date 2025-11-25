@@ -3,30 +3,40 @@ name: SIMD Performance Regression Check
 on:
   pull_request:
     paths:
+      - '.github/workflows/simd-performance-check.yml'
       - 'src/bitboards/simd.rs'
       - 'src/bitboards/**'
       - 'src/evaluation/**'
       - 'src/moves.rs'
       - 'src/utils/telemetry.rs'
+      - 'tests/performance_baselines/**'
+      - 'tests/simd_performance_regression_tests.rs'
       - 'tests/simd_performance_validation_tests.rs'
       - 'Cargo.toml'
       - '.cargo/config.toml'
+      - 'docs/design/implementation/simd-optimization/tasks-SIMD_FUTURE_IMPROVEMENTS.md'
   push:
     branches:
       - main
     paths:
+      - '.github/workflows/simd-performance-check.yml'
       - 'src/bitboards/simd.rs'
       - 'src/bitboards/**'
       - 'src/evaluation/**'
       - 'src/moves.rs'
       - 'src/utils/telemetry.rs'
+      - 'tests/performance_baselines/**'
+      - 'tests/simd_performance_regression_tests.rs'
       - 'tests/simd_performance_validation_tests.rs'
       - 'Cargo.toml'
       - '.cargo/config.toml'
+      - 'docs/design/implementation/simd-optimization/tasks-SIMD_FUTURE_IMPROVEMENTS.md'
 
 jobs:
   simd-performance-check:
     name: SIMD Performance Regression Check
+    env:
+      SIMD_PERF_OUTPUT: simd-performance-summary-${{ matrix.os }}.md
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -81,6 +91,26 @@ jobs:
         with:
           name: simd-performance-report-${{ matrix.os }}
           path: performance_report.txt
+          if-no-files-found: ignore
+
+      - name: Publish SIMD regression summary
+        if: always()
+        run: |
+          if [ -f "${SIMD_PERF_OUTPUT}" ]; then
+            {
+              echo "## SIMD Performance Regression Summary (${{ matrix.os }})"
+              cat "${SIMD_PERF_OUTPUT}"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No SIMD performance summary produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload SIMD regression summary artifact
+        if: always()
+        uses: actions/upload-artifact@v3
+        with:
+          name: simd-performance-summary-${{ matrix.os }}
+          path: ${{ env.SIMD_PERF_OUTPUT }}
           if-no-files-found: ignore
 
       - name: Run SIMD benchmarks (list only, full benchmarks take too long for CI)
