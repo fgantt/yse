@@ -22,6 +22,16 @@ fn scalar_not(a: u128) -> u128 {
     !a
 }
 
+#[inline(always)]
+fn scalar_shl(a: u128, shift: u32) -> u128 {
+    a << shift
+}
+
+#[inline(always)]
+fn scalar_shr(a: u128, shift: u32) -> u128 {
+    a >> shift
+}
+
 fn bench_bitwise_operations(c: &mut Criterion) {
     let test_value1 = 0x0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F;
     let test_value2 = 0x3333_3333_3333_3333_3333_3333_3333_3333;
@@ -293,6 +303,47 @@ fn bench_batch_operations(c: &mut Criterion) {
     }
 }
 
+fn bench_shift_operations(c: &mut Criterion) {
+    let test_value = 0x0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F_0F0F;
+    let bb = SimdBitboard::from_u128(test_value);
+
+    let mut group = c.benchmark_group("shift_operations");
+    group.sample_size(1000);
+
+    // Test different shift amounts: small (1-7), medium (8-63), large (64-127)
+    for shift in [1, 4, 8, 16, 32, 48, 64, 96, 127] {
+        // Benchmark SIMD left shift
+        group.bench_function(&format!("simd_shl_{}", shift), |b| {
+            b.iter(|| {
+                black_box(bb << shift)
+            });
+        });
+
+        // Benchmark scalar left shift
+        group.bench_function(&format!("scalar_shl_{}", shift), |b| {
+            b.iter(|| {
+                black_box(scalar_shl(test_value, shift))
+            });
+        });
+
+        // Benchmark SIMD right shift
+        group.bench_function(&format!("simd_shr_{}", shift), |b| {
+            b.iter(|| {
+                black_box(bb >> shift)
+            });
+        });
+
+        // Benchmark scalar right shift
+        group.bench_function(&format!("scalar_shr_{}", shift), |b| {
+            b.iter(|| {
+                black_box(scalar_shr(test_value, shift))
+            });
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches, 
     bench_bitwise_operations, 
@@ -301,7 +352,8 @@ criterion_group!(
     bench_trailing_zeros,
     bench_leading_zeros,
     bench_is_empty,
-    bench_batch_operations
+    bench_batch_operations,
+    bench_shift_operations
 );
 criterion_main!(benches);
 
