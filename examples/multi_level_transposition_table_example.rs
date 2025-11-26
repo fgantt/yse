@@ -14,15 +14,7 @@ fn build_entry(
     score: i32,
     flag: TranspositionFlag,
 ) -> TranspositionEntry {
-    TranspositionEntry::new(
-        score,
-        depth,
-        flag,
-        None,
-        hash_key,
-        0,
-        EntrySource::MainSearch,
-    )
+    TranspositionEntry::new(score, depth, flag, None, hash_key, 0, EntrySource::MainSearch)
 }
 
 fn select_level(config: &MultiLevelConfig, depth: u8) -> usize {
@@ -49,11 +41,7 @@ fn compute_level_info(config: &MultiLevelConfig, level: usize) -> (usize, u8, u8
     .max(config.min_level_size)
     .min(config.max_level_size);
 
-    let min_depth = if level == 0 {
-        0
-    } else {
-        config.depth_thresholds[level - 1] + 1
-    };
+    let min_depth = if level == 0 { 0 } else { config.depth_thresholds[level - 1] + 1 };
 
     let max_depth = if level < config.depth_thresholds.len() {
         config.depth_thresholds[level]
@@ -74,10 +62,7 @@ fn main() {
     base_config.base_size = 1024;
     let mut table = MultiLevelTranspositionTable::with_config(base_config.clone());
 
-    println!(
-        "Created multi-level table with {} levels",
-        base_config.levels
-    );
+    println!("Created multi-level table with {} levels", base_config.levels);
 
     // Demonstrate basic operations
     demonstrate_basic_operations(&mut table);
@@ -239,22 +224,15 @@ fn demonstrate_custom_configuration() {
     println!("\nLevel configurations:");
     for level in 0..config.levels {
         let (size, min_depth, max_depth) = compute_level_info(&config, level);
-        println!(
-            "  Level {}: size={}, depth_range={}-{}",
-            level, size, min_depth, max_depth
-        );
+        println!("  Level {}: size={}, depth_range={}-{}", level, size, min_depth, max_depth);
     }
 }
 
 fn demonstrate_memory_allocation_strategies() {
     println!("\n--- Memory Allocation Strategies Demo ---");
 
-    let base_config = MultiLevelConfig {
-        levels: 3,
-        base_size: 1000,
-        size_multiplier: 1.5,
-        ..Default::default()
-    };
+    let base_config =
+        MultiLevelConfig { levels: 3, base_size: 1000, size_multiplier: 1.5, ..Default::default() };
 
     // Equal allocation
     let mut config = base_config.clone();
@@ -292,9 +270,6 @@ fn demonstrate_memory_allocation_strategies() {
     // Compare total memory usage
     println!("\nMemory Usage Comparison:");
     println!("  Equal: {} bytes", equal_table.get_total_memory_usage());
-    println!(
-        "  Proportional: {} bytes",
-        proportional_table.get_total_memory_usage()
-    );
+    println!("  Proportional: {} bytes", proportional_table.get_total_memory_usage());
     println!("  Custom: {} bytes", custom_table.get_total_memory_usage());
 }

@@ -16,15 +16,7 @@ fn build_entry(
     hash_key: u64,
     age: u32,
 ) -> TranspositionEntry {
-    TranspositionEntry::new(
-        score,
-        depth,
-        flag,
-        best_move,
-        hash_key,
-        age,
-        EntrySource::MainSearch,
-    )
+    TranspositionEntry::new(score, depth, flag, best_move, hash_key, age, EntrySource::MainSearch)
 }
 
 fn main() {
@@ -41,29 +33,17 @@ fn main() {
 
     println!("Default Configuration:");
     println!("  Table size: {}", default_config.table_size);
-    println!(
-        "  Replacement policy: {:?}",
-        default_config.replacement_policy
-    );
+    println!("  Replacement policy: {:?}", default_config.replacement_policy);
     println!("  Enable statistics: {}", default_config.enable_statistics);
 
     println!("\nPerformance Optimized Configuration:");
     println!("  Table size: {}", performance_config.table_size);
-    println!(
-        "  Replacement policy: {:?}",
-        performance_config.replacement_policy
-    );
-    println!(
-        "  Enable statistics: {}",
-        performance_config.enable_statistics
-    );
+    println!("  Replacement policy: {:?}", performance_config.replacement_policy);
+    println!("  Enable statistics: {}", performance_config.enable_statistics);
 
     println!("\nMemory Optimized Configuration:");
     println!("  Table size: {}", memory_config.table_size);
-    println!(
-        "  Replacement policy: {:?}",
-        memory_config.replacement_policy
-    );
+    println!("  Replacement policy: {:?}", memory_config.replacement_policy);
     println!("  Enable statistics: {}", memory_config.enable_statistics);
 
     // 2. Performance benchmarking
@@ -142,14 +122,8 @@ fn benchmark_transposition_table(config: &TranspositionConfig, name: &str) {
 
     let stats = tt.get_stats();
 
-    println!(
-        "  Store operations: {:.2}μs/op",
-        store_time.as_micros() as f64 / iterations as f64
-    );
-    println!(
-        "  Probe operations: {:.2}μs/op",
-        probe_time.as_micros() as f64 / iterations as f64
-    );
+    println!("  Store operations: {:.2}μs/op", store_time.as_micros() as f64 / iterations as f64);
+    println!("  Probe operations: {:.2}μs/op", probe_time.as_micros() as f64 / iterations as f64);
     println!("  Hit rate: {:.2}%", stats.hit_rate * 100.0);
     println!("  Configured table size: {}", config.table_size);
     println!("  Stores recorded: {}", stats.stores);
@@ -173,14 +147,8 @@ fn analyze_hit_rates() {
         // Store entries with varying depths
         for i in 0..iterations {
             let depth = (i % 9 + 1) as u8;
-            let entry = build_entry(
-                (i % 1000) as i32,
-                depth,
-                TranspositionFlag::Exact,
-                None,
-                i as u64,
-                0,
-            );
+            let entry =
+                build_entry((i % 1000) as i32, depth, TranspositionFlag::Exact, None, i as u64, 0);
             tt.store(entry);
         }
 
@@ -204,10 +172,7 @@ fn analyze_memory_usage() {
     let configs = vec![
         (TranspositionConfig::memory_optimized(), "Memory Optimized"),
         (TranspositionConfig::default(), "Default"),
-        (
-            TranspositionConfig::performance_optimized(),
-            "Performance Optimized",
-        ),
+        (TranspositionConfig::performance_optimized(), "Performance Optimized"),
     ];
 
     for (config, name) in configs {
@@ -242,10 +207,7 @@ fn benchmark_move_ordering() {
             gives_check: false,
             is_recapture: false,
             captured_piece: if i % 3 == 0 {
-                Some(Piece {
-                    piece_type: PieceType::Pawn,
-                    player: Player::White,
-                })
+                Some(Piece { piece_type: PieceType::Pawn, player: Player::White })
             } else {
                 None
             },

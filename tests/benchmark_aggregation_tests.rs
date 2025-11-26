@@ -218,16 +218,14 @@ fn test_full_benchmark_pipeline() {
     let aggregator = BenchmarkAggregator::with_directory(temp_dir.path());
 
     // Create mock reports
-    let reports = vec![
-        BenchmarkReport {
-            benchmark_name: "bench1".to_string(),
-            mean_time_ns: 1000000.0,
-            std_dev_ns: 50000.0,
-            throughput_ops_per_sec: 1000.0,
-            samples: 100,
-            baseline_comparison: None,
-        },
-    ];
+    let reports = vec![BenchmarkReport {
+        benchmark_name: "bench1".to_string(),
+        mean_time_ns: 1000000.0,
+        std_dev_ns: 50000.0,
+        throughput_ops_per_sec: 1000.0,
+        samples: 100,
+        baseline_comparison: None,
+    }];
 
     // Generate report
     let aggregated = aggregator.generate_benchmark_report(&reports);
@@ -248,12 +246,8 @@ fn test_environment_variable_baseline_path() {
     std::env::set_var("BENCHMARK_BASELINE_PATH", test_path);
 
     let aggregator = BenchmarkAggregator::new();
-    assert_eq!(
-        aggregator.baseline_path.as_ref().map(|p| p.to_str().unwrap()),
-        Some(test_path)
-    );
+    assert_eq!(aggregator.baseline_path.as_ref().map(|p| p.to_str().unwrap()), Some(test_path));
 
     // Clean up
     std::env::remove_var("BENCHMARK_BASELINE_PATH");
 }
-

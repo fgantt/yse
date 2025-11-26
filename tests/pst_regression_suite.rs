@@ -53,66 +53,26 @@ fn aggregate_pst(
 }
 
 fn sample_boards() -> Vec<BitboardBoard> {
-    vec![
-        opening_structure(),
-        contested_middlegame(),
-        simplified_endgame(),
-    ]
+    vec![opening_structure(), contested_middlegame(), simplified_endgame()]
 }
 
 fn opening_structure() -> BitboardBoard {
     let mut board = BitboardBoard::empty();
     // Black side pieces
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(8, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(7, 7),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Bishop, Player::Black),
-        Position::new(7, 1),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::Black),
-        Position::new(8, 5),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::Black),
-        Position::new(8, 3),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Pawn, Player::Black),
-        Position::new(6, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(7, 7));
+    board.place_piece(Piece::new(PieceType::Bishop, Player::Black), Position::new(7, 1));
+    board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(8, 5));
+    board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(8, 3));
+    board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 4));
 
     // White side pieces
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::White),
-        Position::new(1, 1),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Bishop, Player::White),
-        Position::new(1, 7),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::White),
-        Position::new(0, 3),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::White),
-        Position::new(0, 5),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Pawn, Player::White),
-        Position::new(2, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
+    board.place_piece(Piece::new(PieceType::Rook, Player::White), Position::new(1, 1));
+    board.place_piece(Piece::new(PieceType::Bishop, Player::White), Position::new(1, 7));
+    board.place_piece(Piece::new(PieceType::Gold, Player::White), Position::new(0, 3));
+    board.place_piece(Piece::new(PieceType::Silver, Player::White), Position::new(0, 5));
+    board.place_piece(Piece::new(PieceType::Pawn, Player::White), Position::new(2, 4));
 
     board
 }
@@ -120,47 +80,17 @@ fn opening_structure() -> BitboardBoard {
 fn contested_middlegame() -> BitboardBoard {
     let mut board = BitboardBoard::empty();
 
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(8, 2),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(4, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Bishop, Player::Black),
-        Position::new(5, 3),
-    );
-    board.place_piece(
-        Piece::new(PieceType::PromotedPawn, Player::Black),
-        Position::new(3, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Knight, Player::Black),
-        Position::new(6, 2),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 2));
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 4));
+    board.place_piece(Piece::new(PieceType::Bishop, Player::Black), Position::new(5, 3));
+    board.place_piece(Piece::new(PieceType::PromotedPawn, Player::Black), Position::new(3, 4));
+    board.place_piece(Piece::new(PieceType::Knight, Player::Black), Position::new(6, 2));
 
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(1, 6),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::White),
-        Position::new(5, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::PromotedSilver, Player::White),
-        Position::new(2, 5),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::White),
-        Position::new(2, 7),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Pawn, Player::White),
-        Position::new(3, 6),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(1, 6));
+    board.place_piece(Piece::new(PieceType::Rook, Player::White), Position::new(5, 4));
+    board.place_piece(Piece::new(PieceType::PromotedSilver, Player::White), Position::new(2, 5));
+    board.place_piece(Piece::new(PieceType::Gold, Player::White), Position::new(2, 7));
+    board.place_piece(Piece::new(PieceType::Pawn, Player::White), Position::new(3, 6));
 
     board
 }
@@ -168,39 +98,15 @@ fn contested_middlegame() -> BitboardBoard {
 fn simplified_endgame() -> BitboardBoard {
     let mut board = BitboardBoard::empty();
 
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(7, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::PromotedRook, Player::Black),
-        Position::new(4, 3),
-    );
-    board.place_piece(
-        Piece::new(PieceType::PromotedBishop, Player::Black),
-        Position::new(5, 5),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Pawn, Player::Black),
-        Position::new(2, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(7, 4));
+    board.place_piece(Piece::new(PieceType::PromotedRook, Player::Black), Position::new(4, 3));
+    board.place_piece(Piece::new(PieceType::PromotedBishop, Player::Black), Position::new(5, 5));
+    board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(2, 4));
 
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(1, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::White),
-        Position::new(2, 3),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::White),
-        Position::new(3, 5),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Pawn, Player::White),
-        Position::new(6, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(1, 4));
+    board.place_piece(Piece::new(PieceType::Gold, Player::White), Position::new(2, 3));
+    board.place_piece(Piece::new(PieceType::Silver, Player::White), Position::new(3, 5));
+    board.place_piece(Piece::new(PieceType::Pawn, Player::White), Position::new(6, 4));
 
     board
 }

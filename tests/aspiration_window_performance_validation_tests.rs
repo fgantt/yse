@@ -48,10 +48,7 @@ mod aspiration_window_performance_validation_tests {
         println!("  Total time: {:?}", total_time);
 
         // Performance assertions
-        assert!(
-            avg_time.as_millis() < 1000,
-            "Average search time should be under 1 second"
-        );
+        assert!(avg_time.as_millis() < 1000, "Average search time should be under 1 second");
         assert!(success_rate >= 95.0, "Success rate should be at least 95%");
     }
 
@@ -143,14 +140,8 @@ mod aspiration_window_performance_validation_tests {
         println!("  Success rate: {:.1}%", success_rate);
 
         // Should still perform well even with retries
-        assert!(
-            avg_time.as_millis() < 2000,
-            "Error recovery should not be too slow"
-        );
-        assert!(
-            success_rate >= 90.0,
-            "Error recovery should maintain high success rate"
-        );
+        assert!(avg_time.as_millis() < 2000, "Error recovery should not be too slow");
+        assert!(success_rate >= 90.0, "Error recovery should maintain high success rate");
     }
 
     /// Benchmark integer overflow safety performance
@@ -193,14 +184,8 @@ mod aspiration_window_performance_validation_tests {
         println!("  Success rate: {:.1}%", success_rate);
 
         // Should handle overflow cases efficiently
-        assert!(
-            avg_time.as_millis() < 1000,
-            "Overflow safety should not be slow"
-        );
-        assert!(
-            success_rate >= 95.0,
-            "Overflow safety should maintain high success rate"
-        );
+        assert!(avg_time.as_millis() < 1000, "Overflow safety should not be slow");
+        assert!(success_rate >= 95.0, "Overflow safety should maintain high success rate");
     }
 
     // ===== REGRESSION TESTS =====
@@ -233,11 +218,7 @@ mod aspiration_window_performance_validation_tests {
         let avg_time = total_time / iterations;
 
         // Performance should be reasonable (under 500ms per search)
-        assert!(
-            avg_time.as_millis() < 500,
-            "Performance regression detected: {:?}",
-            avg_time
-        );
+        assert!(avg_time.as_millis() < 500, "Performance regression detected: {:?}", avg_time);
 
         println!("No Regression Test - Average time: {:?}", avg_time);
     }
@@ -295,9 +276,7 @@ mod aspiration_window_performance_validation_tests {
             max_researches: 10, // Allow many retries
             enable_statistics: true,
         };
-        engine
-            .update_aspiration_window_config(error_config)
-            .unwrap();
+        engine.update_aspiration_window_config(error_config).unwrap();
 
         let error_start = Instant::now();
         for _ in 0..10 {
@@ -357,16 +336,8 @@ mod aspiration_window_performance_validation_tests {
         println!("  Average time per search: {:?}", elapsed / 100);
 
         // Should maintain high success rate even under stress
-        assert!(
-            success_rate >= 95.0,
-            "Stress test success rate too low: {:.1}%",
-            success_rate
-        );
-        assert!(
-            elapsed.as_secs() < 10,
-            "Stress test took too long: {:?}",
-            elapsed
-        );
+        assert!(success_rate >= 95.0, "Stress test success rate too low: {:.1}%", success_rate);
+        assert!(elapsed.as_secs() < 10, "Stress test took too long: {:?}", elapsed);
     }
 
     /// Stress test with extreme values
@@ -414,11 +385,7 @@ mod aspiration_window_performance_validation_tests {
             "Extreme values test success rate too low: {:.1}%",
             success_rate
         );
-        assert!(
-            elapsed.as_secs() < 5,
-            "Extreme values test took too long: {:?}",
-            elapsed
-        );
+        assert!(elapsed.as_secs() < 5, "Extreme values test took too long: {:?}", elapsed);
     }
 
     // ===== INTEGRATION PERFORMANCE TESTS =====
@@ -467,10 +434,6 @@ mod aspiration_window_performance_validation_tests {
             "Integration test success rate too low: {:.1}%",
             success_rate
         );
-        assert!(
-            avg_time.as_millis() < 1000,
-            "Integration test too slow: {:?}",
-            avg_time
-        );
+        assert!(avg_time.as_millis() < 1000, "Integration test too slow: {:?}", avg_time);
     }
 }

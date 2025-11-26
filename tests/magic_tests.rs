@@ -10,11 +10,7 @@ use shogi_engine::types::{Bitboard, MagicTable, PieceType, Position};
 #[test]
 fn test_magic_table_creation() {
     let result = MagicTable::new();
-    assert!(
-        result.is_ok(),
-        "Failed to create magic table: {:?}",
-        result.err()
-    );
+    assert!(result.is_ok(), "Failed to create magic table: {:?}", result.err());
 
     let table = result.unwrap();
 
@@ -79,10 +75,7 @@ fn test_bishop_attack_patterns() {
     assert!(attacks != 0, "Bishop should have attacks on empty board");
 
     let attack_count = attacks.count_ones();
-    assert!(
-        attack_count > 0,
-        "Bishop should attack at least some squares"
-    );
+    assert!(attack_count > 0, "Bishop should attack at least some squares");
 }
 
 #[test]
@@ -98,16 +91,10 @@ fn test_rook_with_blockers() {
     let attacks = table.get_attacks(square, PieceType::Rook, blocker);
 
     // Rook should attack the blocker square but not beyond
-    assert!(
-        attacks & (1u128 << 41) != 0,
-        "Rook should attack blocker square"
-    );
+    assert!(attacks & (1u128 << 41) != 0, "Rook should attack blocker square");
 
     // Squares beyond blocker should not be attacked
-    assert!(
-        attacks & (1u128 << 42) == 0,
-        "Rook should not attack beyond blocker"
-    );
+    assert!(attacks & (1u128 << 42) == 0, "Rook should not attack beyond blocker");
 }
 
 #[test]
@@ -123,10 +110,7 @@ fn test_bishop_with_blockers() {
     let attacks = table.get_attacks(square, PieceType::Bishop, blocker);
 
     // Bishop should attack the blocker square
-    assert!(
-        attacks & (1u128 << 32) != 0,
-        "Bishop should attack blocker square"
-    );
+    assert!(attacks & (1u128 << 32) != 0, "Bishop should attack blocker square");
 }
 
 #[test]
@@ -141,16 +125,8 @@ fn test_corner_squares() {
         let rook_attacks = table.get_attacks(corner, PieceType::Rook, empty_board);
         let bishop_attacks = table.get_attacks(corner, PieceType::Bishop, empty_board);
 
-        assert!(
-            rook_attacks != 0,
-            "Rook should have attacks from corner {}",
-            corner
-        );
-        assert!(
-            bishop_attacks != 0,
-            "Bishop should have attacks from corner {}",
-            corner
-        );
+        assert!(rook_attacks != 0, "Rook should have attacks from corner {}", corner);
+        assert!(bishop_attacks != 0, "Bishop should have attacks from corner {}", corner);
     }
 }
 
@@ -166,11 +142,7 @@ fn test_edge_squares() {
         let rook_attacks = table.get_attacks(edge, PieceType::Rook, empty_board);
         let bishop_attacks = table.get_attacks(edge, PieceType::Bishop, empty_board);
 
-        assert!(
-            rook_attacks != 0,
-            "Rook should have attacks from edge {}",
-            edge
-        );
+        assert!(rook_attacks != 0, "Rook should have attacks from edge {}", edge);
         // Bishop may not have attacks from all edges (depends on diagonal availability)
     }
 }
@@ -185,19 +157,11 @@ fn test_magic_finder_generation() {
     for &square in &test_squares {
         // Test rook
         let rook_result = finder.find_magic_number(square, PieceType::Rook);
-        assert!(
-            rook_result.is_ok(),
-            "Failed to find rook magic for square {}",
-            square
-        );
+        assert!(rook_result.is_ok(), "Failed to find rook magic for square {}", square);
 
         // Test bishop
         let bishop_result = finder.find_magic_number(square, PieceType::Bishop);
-        assert!(
-            bishop_result.is_ok(),
-            "Failed to find bishop magic for square {}",
-            square
-        );
+        assert!(bishop_result.is_ok(), "Failed to find bishop magic for square {}", square);
     }
 }
 
@@ -232,14 +196,8 @@ fn test_attack_generator_with_blockers() {
     assert!(attacks & (1u128 << 49) != 0, "Should attack down blocker");
 
     // Should not go beyond blockers
-    assert!(
-        attacks & (1u128 << 42) == 0,
-        "Should not go beyond right blocker"
-    );
-    assert!(
-        attacks & (1u128 << 58) == 0,
-        "Should not go beyond down blocker"
-    );
+    assert!(attacks & (1u128 << 42) == 0, "Should not go beyond right blocker");
+    assert!(attacks & (1u128 << 58) == 0, "Should not go beyond down blocker");
 }
 
 #[test]
@@ -249,11 +207,7 @@ fn test_magic_validator() {
 
     // Validate the entire magic table
     let result = validator.validate_magic_table(&table);
-    assert!(
-        result.is_ok(),
-        "Magic table validation failed: {:?}",
-        result.err()
-    );
+    assert!(result.is_ok(), "Magic table validation failed: {:?}", result.err());
 }
 
 #[test]
@@ -283,11 +237,7 @@ fn test_position_from_index() {
         let pos = Position::from_index(square);
         let index_back = pos.to_index();
 
-        assert_eq!(
-            square, index_back,
-            "Position round-trip failed for square {}",
-            square
-        );
+        assert_eq!(square, index_back, "Position round-trip failed for square {}", square);
     }
 }
 
@@ -379,10 +329,6 @@ fn test_deterministic_results() {
         let attacks1 = table1.get_attacks(square, PieceType::Rook, blockers);
         let attacks2 = table2.get_attacks(square, PieceType::Rook, blockers);
 
-        assert_eq!(
-            attacks1, attacks2,
-            "Results should be deterministic for square {}",
-            square
-        );
+        assert_eq!(attacks1, attacks2, "Results should be deterministic for square {}", square);
     }
 }

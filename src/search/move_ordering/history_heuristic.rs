@@ -261,10 +261,7 @@ impl HistoryHeuristicManager {
                 let entry = HistoryEntry {
                     score: final_score,
                     last_update: current_time,
-                    update_count: current_entry
-                        .as_ref()
-                        .map(|e| e.update_count + 1)
-                        .unwrap_or(1),
+                    update_count: current_entry.as_ref().map(|e| e.update_count + 1).unwrap_or(1),
                 };
                 self.quiet_history_table.insert(key, entry);
             }
@@ -292,10 +289,7 @@ impl HistoryHeuristicManager {
                 let entry = HistoryEntry {
                     score: final_score,
                     last_update: current_time,
-                    update_count: current_entry
-                        .as_ref()
-                        .map(|e| e.update_count + 1)
-                        .unwrap_or(1),
+                    update_count: current_entry.as_ref().map(|e| e.update_count + 1).unwrap_or(1),
                 };
                 phase_table.insert(key, entry);
             }
@@ -310,10 +304,7 @@ impl HistoryHeuristicManager {
                 let entry = HistoryEntry {
                     score: final_score,
                     last_update: current_time,
-                    update_count: current_entry
-                        .as_ref()
-                        .map(|e| e.update_count + 1)
-                        .unwrap_or(1),
+                    update_count: current_entry.as_ref().map(|e| e.update_count + 1).unwrap_or(1),
                 };
                 self.relative_history_table.insert(relative_key, entry);
             }

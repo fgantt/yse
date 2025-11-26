@@ -30,8 +30,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
 
-use super::types::{OptimizationMethod, PerformanceConfig, TuningResults, ValidationResults};
 use super::optimizer::IncrementalState;
+use super::types::{OptimizationMethod, PerformanceConfig, TuningResults, ValidationResults};
 
 /// Verbosity levels for logging
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -182,10 +182,7 @@ impl TuningProfiler {
 
     /// Create profiler with custom log level
     pub fn with_log_level(config: PerformanceConfig, log_level: LogLevel) -> Self {
-        Self {
-            log_level,
-            ..Self::new(config)
-        }
+        Self { log_level, ..Self::new(config) }
     }
 
     /// Start timing an operation
@@ -230,11 +227,7 @@ impl TuningProfiler {
             snapshots.drain(0..remove_count);
         }
 
-        debug!(
-            "Memory usage: {} bytes ({:.2} MB)",
-            bytes,
-            bytes as f64 / 1_048_576.0
-        );
+        debug!("Memory usage: {} bytes ({:.2} MB)", bytes, bytes as f64 / 1_048_576.0);
     }
 
     /// Record iteration completion
@@ -311,18 +304,12 @@ impl TuningProfiler {
         incremental_state: Option<&IncrementalState>,
     ) -> Result<(), std::io::Error> {
         let checkpoint_data = CheckpointData {
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs(),
             iteration,
             weights: weights.unwrap_or_default(),
             current_error: error,
-            optimization_method: optimization_method.unwrap_or(
-                OptimizationMethod::GradientDescent {
-                    learning_rate: 0.01,
-                },
-            ),
+            optimization_method: optimization_method
+                .unwrap_or(OptimizationMethod::GradientDescent { learning_rate: 0.01 }),
             metrics: self.metrics.lock().unwrap().clone(),
             validation_results: None,
             incremental_state: incremental_state.map(|s| s.to_checkpoint()),
@@ -424,18 +411,12 @@ impl TuningProfiler {
         }
 
         let mean_error = error_history.iter().sum::<f64>() / error_history.len() as f64;
-        let variance = error_history
-            .iter()
-            .map(|&x| (x - mean_error).powi(2))
-            .sum::<f64>()
+        let variance = error_history.iter().map(|&x| (x - mean_error).powi(2)).sum::<f64>()
             / error_history.len() as f64;
         let error_std_dev = variance.sqrt();
 
         let min_error = error_history.iter().cloned().fold(f64::INFINITY, f64::min);
-        let max_error = error_history
-            .iter()
-            .cloned()
-            .fold(f64::NEG_INFINITY, f64::max);
+        let max_error = error_history.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
 
         let initial_error = error_history[0];
         let final_error = metrics.final_error;
@@ -449,10 +430,7 @@ impl TuningProfiler {
         let last_10_percent = error_history.len() / 10;
         let last_errors = &error_history[error_history.len().saturating_sub(last_10_percent)..];
         let last_mean = last_errors.iter().sum::<f64>() / last_errors.len() as f64;
-        let stability_metric = last_errors
-            .iter()
-            .map(|&x| (x - last_mean).powi(2))
-            .sum::<f64>()
+        let stability_metric = last_errors.iter().map(|&x| (x - last_mean).powi(2)).sum::<f64>()
             / last_errors.len() as f64;
 
         StatisticalAnalysis {
@@ -527,9 +505,7 @@ impl TuningProfiler {
             analysis.min_error,
             analysis.max_error,
             results.converged,
-            progress
-                .eta_seconds
-                .map_or("N/A".to_string(), |eta| format!("{:.1}s", eta)),
+            progress.eta_seconds.map_or("N/A".to_string(), |eta| format!("{:.1}s", eta)),
             progress.progress_percentage * 100.0
         )
     }
@@ -550,9 +526,8 @@ impl TuningProfiler {
     fn log_iteration(&self, iteration: usize, error: f64, iteration_time: Duration) {
         if self.config.enable_logging {
             let progress = self.get_progress();
-            let eta_str = progress
-                .eta_seconds
-                .map_or("N/A".to_string(), |eta| format!("{:.1}s", eta));
+            let eta_str =
+                progress.eta_seconds.map_or("N/A".to_string(), |eta| format!("{:.1}s", eta));
 
             info!(
                 "Iteration {}: Error = {:.6}, Time = {:?}, ETA = {}",
@@ -622,10 +597,7 @@ pub struct OperationTimer {
 
 impl OperationTimer {
     fn new(operation: String, start_time: Instant) -> Self {
-        Self {
-            operation,
-            start_time,
-        }
+        Self { operation, start_time }
     }
 
     /// Stop the timer and return the duration
@@ -777,14 +749,10 @@ mod tests {
         let mut profiler = TuningProfiler::new(config);
 
         let weights = vec![1.0, 2.0, 3.0];
-        let method = OptimizationMethod::GradientDescent {
-            learning_rate: 0.01,
-        };
+        let method = OptimizationMethod::GradientDescent { learning_rate: 0.01 };
 
         // Create checkpoint with custom path
-        profiler
-            .create_checkpoint(5, 0.3, Some(weights.clone()), Some(method))
-            .unwrap();
+        profiler.create_checkpoint(5, 0.3, Some(weights.clone()), Some(method)).unwrap();
 
         // Verify checkpoint was created in custom path
         let checkpoint_path = Path::new("test_checkpoints/checkpoint_iter_5.json");
@@ -816,9 +784,7 @@ mod tests {
 
         // Create profiler and checkpoint
         let mut profiler = TuningProfiler::new(config);
-        profiler
-            .create_checkpoint(1, 0.1, None, None)
-            .unwrap();
+        profiler.create_checkpoint(1, 0.1, None, None).unwrap();
 
         // Verify directory was created
         assert!(checkpoint_dir.exists(), "Directory should be created automatically");

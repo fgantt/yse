@@ -59,15 +59,8 @@ fn single_search_tt_metrics(depth: u8, nodes: u32) -> (f64, f64, u64, u64) {
     engine.reset_core_search_metrics();
 
     let mut board = BitboardBoard::new();
-    let _ = engine.search_at_depth(
-        &mut board,
-        &captured,
-        Player::Black,
-        depth,
-        nodes,
-        -10000,
-        10000,
-    );
+    let _ =
+        engine.search_at_depth(&mut board, &captured, Player::Black, depth, nodes, -10000, 10000);
 
     let metrics = engine.get_core_search_metrics();
     let hit_rate = if metrics.total_tt_probes > 0 {

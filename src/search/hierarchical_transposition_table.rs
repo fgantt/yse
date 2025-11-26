@@ -60,10 +60,7 @@ pub struct HierarchicalMaintenanceConfig {
 
 impl Default for HierarchicalMaintenanceConfig {
     fn default() -> Self {
-        Self {
-            mode: HierarchicalMaintenanceMode::Off,
-            max_sweep_ms: None,
-        }
+        Self { mode: HierarchicalMaintenanceMode::Off, max_sweep_ms: None }
     }
 }
 
@@ -185,9 +182,7 @@ impl HierarchicalTranspositionTable {
         let mut l1_config = config.l1_config.clone();
         l1_config.enable_statistics = config.enable_statistics;
 
-        let l2 = Arc::new(Mutex::new(CompressedTranspositionTable::new(
-            config.l2_config.clone(),
-        )));
+        let l2 = Arc::new(Mutex::new(CompressedTranspositionTable::new(config.l2_config.clone())));
         let maintenance_handle =
             Self::spawn_maintenance_worker(&config.maintenance, Arc::clone(&l2));
 
@@ -304,10 +299,7 @@ impl Drop for HierarchicalTranspositionTable {
 
 impl MaintenanceHandle {
     fn new(join_handle: thread::JoinHandle<()>, shutdown: Arc<AtomicBool>) -> Self {
-        Self {
-            shutdown,
-            join_handle: Some(join_handle),
-        }
+        Self { shutdown, join_handle: Some(join_handle) }
     }
 
     fn shutdown(&mut self) {
@@ -332,11 +324,8 @@ fn maintenance_loop(
     match maintenance.mode {
         HierarchicalMaintenanceMode::Off => return,
         HierarchicalMaintenanceMode::Interval { seconds } => {
-            let sleep_duration = if seconds == 0 {
-                Duration::from_millis(50)
-            } else {
-                Duration::from_secs(seconds)
-            };
+            let sleep_duration =
+                if seconds == 0 { Duration::from_millis(50) } else { Duration::from_secs(seconds) };
             while !shutdown.load(AtomicOrdering::Relaxed) {
                 perform_maintenance_cycle(&l2, &maintenance);
                 if shutdown.load(AtomicOrdering::Relaxed) {
@@ -468,9 +457,8 @@ mod tests {
         assert_eq!(retrieved.score, 90);
 
         // Subsequent probe should hit L1 due to promotion.
-        let (retrieved_again, level_again) = table
-            .probe(0xABCD1234, 4)
-            .expect("entry missing after promotion");
+        let (retrieved_again, level_again) =
+            table.probe(0xABCD1234, 4).expect("entry missing after promotion");
         assert_eq!(level_again, HitLevel::L1);
         assert_eq!(retrieved_again.score, 90);
     }
@@ -514,10 +502,7 @@ mod tests {
         assert_eq!(config.demotion_age, 6);
         assert!(config.enable_statistics);
         assert!(config.l1_config.enable_statistics);
-        matches!(
-            &config.maintenance.mode,
-            HierarchicalMaintenanceMode::Interval { .. }
-        );
+        matches!(&config.maintenance.mode, HierarchicalMaintenanceMode::Interval { .. });
         assert_eq!(config.maintenance.max_sweep_ms, Some(250));
         assert_eq!(config.l2_config.max_maintenance_backlog, 7);
 

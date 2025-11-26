@@ -53,8 +53,8 @@
 //! let result = bb1 & bb2; // Uses SIMD intrinsics when both feature levels allow it.
 //! ```
 
-use serde::{Deserialize, Serialize, Serializer, Deserializer};
 use crate::bitboards::platform_detection;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// SIMD-optimized bitboard for 128-bit operations
 ///
@@ -146,20 +146,20 @@ impl SimdBitboard {
     pub fn leading_zeros(&self) -> u32 {
         self.data.leading_zeros()
     }
-    
+
     /// Get the detected SIMD level for this platform
     /// This uses runtime platform detection to determine what SIMD features are available
     #[cfg(feature = "simd")]
     pub fn get_detected_simd_level() -> platform_detection::SimdLevel {
         platform_detection::get_simd_level()
     }
-    
+
     /// Check if the current platform has SIMD support
     #[cfg(feature = "simd")]
     pub fn has_simd_support() -> bool {
         platform_detection::has_simd_support()
     }
-    
+
     /// Get platform capabilities summary for debugging
     #[cfg(feature = "simd")]
     pub fn get_platform_info() -> String {
@@ -189,13 +189,13 @@ mod x86_64_simd {
             // Load u128 bytes directly into SSE register
             let a_bytes = a.to_u128().to_le_bytes();
             let b_bytes = b.to_u128().to_le_bytes();
-            
+
             let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
             let b_vec = _mm_loadu_si128(b_bytes.as_ptr() as *const __m128i);
-            
+
             // Perform SIMD AND
             let result = _mm_and_si128(a_vec, b_vec);
-            
+
             // Extract result back to u128
             let mut result_bytes = [0u8; 16];
             _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result);
@@ -208,12 +208,12 @@ mod x86_64_simd {
         unsafe {
             let a_bytes = a.to_u128().to_le_bytes();
             let b_bytes = b.to_u128().to_le_bytes();
-            
+
             let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
             let b_vec = _mm_loadu_si128(b_bytes.as_ptr() as *const __m128i);
-            
+
             let result = _mm_or_si128(a_vec, b_vec);
-            
+
             let mut result_bytes = [0u8; 16];
             _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result);
             SimdBitboard::from_u128(u128::from_le_bytes(result_bytes))
@@ -225,12 +225,12 @@ mod x86_64_simd {
         unsafe {
             let a_bytes = a.to_u128().to_le_bytes();
             let b_bytes = b.to_u128().to_le_bytes();
-            
+
             let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
             let b_vec = _mm_loadu_si128(b_bytes.as_ptr() as *const __m128i);
-            
+
             let result = _mm_xor_si128(a_vec, b_vec);
-            
+
             let mut result_bytes = [0u8; 16];
             _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result);
             SimdBitboard::from_u128(u128::from_le_bytes(result_bytes))
@@ -244,9 +244,9 @@ mod x86_64_simd {
             let ones = _mm_set1_epi8(-1i8);
             let a_bytes = a.to_u128().to_le_bytes();
             let a_vec = _mm_loadu_si128(a_bytes.as_ptr() as *const __m128i);
-            
+
             let result = _mm_andnot_si128(a_vec, ones);
-            
+
             let mut result_bytes = [0u8; 16];
             _mm_storeu_si128(result_bytes.as_mut_ptr() as *mut __m128i, result);
             SimdBitboard::from_u128(u128::from_le_bytes(result_bytes))
@@ -282,12 +282,12 @@ mod aarch64_simd {
         unsafe {
             let a_bytes = a.to_u128().to_le_bytes();
             let b_bytes = b.to_u128().to_le_bytes();
-            
+
             let a_vec = vld1q_u8(a_bytes.as_ptr());
             let b_vec = vld1q_u8(b_bytes.as_ptr());
-            
+
             let result = vandq_u8(a_vec, b_vec);
-            
+
             let mut result_bytes = [0u8; 16];
             vst1q_u8(result_bytes.as_mut_ptr(), result);
             SimdBitboard::from_u128(u128::from_le_bytes(result_bytes))
@@ -299,12 +299,12 @@ mod aarch64_simd {
         unsafe {
             let a_bytes = a.to_u128().to_le_bytes();
             let b_bytes = b.to_u128().to_le_bytes();
-            
+
             let a_vec = vld1q_u8(a_bytes.as_ptr());
             let b_vec = vld1q_u8(b_bytes.as_ptr());
-            
+
             let result = vorrq_u8(a_vec, b_vec);
-            
+
             let mut result_bytes = [0u8; 16];
             vst1q_u8(result_bytes.as_mut_ptr(), result);
             SimdBitboard::from_u128(u128::from_le_bytes(result_bytes))
@@ -316,12 +316,12 @@ mod aarch64_simd {
         unsafe {
             let a_bytes = a.to_u128().to_le_bytes();
             let b_bytes = b.to_u128().to_le_bytes();
-            
+
             let a_vec = vld1q_u8(a_bytes.as_ptr());
             let b_vec = vld1q_u8(b_bytes.as_ptr());
-            
+
             let result = veorq_u8(a_vec, b_vec);
-            
+
             let mut result_bytes = [0u8; 16];
             vst1q_u8(result_bytes.as_mut_ptr(), result);
             SimdBitboard::from_u128(u128::from_le_bytes(result_bytes))
@@ -333,11 +333,11 @@ mod aarch64_simd {
         unsafe {
             let a_bytes = a.to_u128().to_le_bytes();
             let a_vec = vld1q_u8(a_bytes.as_ptr());
-            
+
             // Create all-ones mask and XOR
             let ones = vdupq_n_u8(0xFF);
             let result = veorq_u8(a_vec, ones);
-            
+
             let mut result_bytes = [0u8; 16];
             vst1q_u8(result_bytes.as_mut_ptr(), result);
             SimdBitboard::from_u128(u128::from_le_bytes(result_bytes))
@@ -402,7 +402,7 @@ mod scalar_fallback {
 // Public trait implementations that dispatch to SIMD or scalar implementations
 impl std::ops::BitAnd for SimdBitboard {
     type Output = Self;
-    
+
     #[inline(always)]
     fn bitand(self, rhs: Self) -> Self::Output {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -422,7 +422,7 @@ impl std::ops::BitAnd for SimdBitboard {
 
 impl std::ops::BitOr for SimdBitboard {
     type Output = Self;
-    
+
     #[inline(always)]
     fn bitor(self, rhs: Self) -> Self::Output {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -442,7 +442,7 @@ impl std::ops::BitOr for SimdBitboard {
 
 impl std::ops::BitXor for SimdBitboard {
     type Output = Self;
-    
+
     #[inline(always)]
     fn bitxor(self, rhs: Self) -> Self::Output {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -462,7 +462,7 @@ impl std::ops::BitXor for SimdBitboard {
 
 impl std::ops::Not for SimdBitboard {
     type Output = Self;
-    
+
     #[inline(always)]
     fn not(self) -> Self::Output {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -482,7 +482,7 @@ impl std::ops::Not for SimdBitboard {
 
 impl std::ops::Shl<u32> for SimdBitboard {
     type Output = Self;
-    
+
     #[inline(always)]
     fn shl(self, rhs: u32) -> Self::Output {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]
@@ -502,7 +502,7 @@ impl std::ops::Shl<u32> for SimdBitboard {
 
 impl std::ops::Shr<u32> for SimdBitboard {
     type Output = Self;
-    
+
     #[inline(always)]
     fn shr(self, rhs: u32) -> Self::Output {
         #[cfg(all(feature = "simd", target_arch = "x86_64"))]

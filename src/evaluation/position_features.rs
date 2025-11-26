@@ -44,10 +44,7 @@ fn is_gold_equivalent(piece_type: PieceType) -> bool {
 }
 
 fn is_promoted_major(piece_type: PieceType) -> bool {
-    matches!(
-        piece_type,
-        PieceType::PromotedBishop | PieceType::PromotedRook
-    )
+    matches!(piece_type, PieceType::PromotedBishop | PieceType::PromotedRook)
 }
 
 fn oriented_coords(pos: Position, player: Player) -> (i8, i8) {
@@ -59,16 +56,10 @@ fn oriented_coords(pos: Position, player: Player) -> (i8, i8) {
 }
 
 fn oriented_offset_to_actual(base: Position, player: Player, dr: i8, dc: i8) -> Option<Position> {
-    let target_row = if player == Player::Black {
-        base.row as i8 + dr
-    } else {
-        base.row as i8 - dr
-    };
-    let target_col = if player == Player::Black {
-        base.col as i8 + dc
-    } else {
-        base.col as i8 - dc
-    };
+    let target_row =
+        if player == Player::Black { base.row as i8 + dr } else { base.row as i8 - dr };
+    let target_col =
+        if player == Player::Black { base.col as i8 + dc } else { base.col as i8 - dc };
 
     if target_row < 0 || target_row >= 9 || target_col < 0 || target_col >= 9 {
         None
@@ -506,16 +497,7 @@ impl PositionFeatureEvaluator {
         let mut mg_score = 0;
         let mut eg_score = 0;
 
-        let shield_offsets = [
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, -1),
-            (0, 1),
-            (1, -1),
-            (1, 0),
-            (1, 1),
-        ];
+        let shield_offsets = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
 
         for (dr, dc) in shield_offsets {
             let new_row = king_pos.row as i8 + dr;
@@ -824,16 +806,7 @@ impl PositionFeatureEvaluator {
     ) -> TaperedScore {
         let mut open_squares = 0;
 
-        let offsets = [
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, -1),
-            (0, 1),
-            (1, -1),
-            (1, 0),
-            (1, 1),
-        ];
+        let offsets = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
 
         for (dr, dc) in offsets {
             let new_row = king_pos.row as i8 + dr;
@@ -1279,8 +1252,7 @@ impl PositionFeatureEvaluator {
         dr: i8,
         dc: i8,
     ) -> Option<Piece> {
-        oriented_offset_to_actual(king_pos, player, dr, dc)
-            .and_then(|pos| board.get_piece(pos))
+        oriented_offset_to_actual(king_pos, player, dr, dc).and_then(|pos| board.get_piece(pos))
     }
 
     fn column_has_unpromoted_pawn(
@@ -1493,10 +1465,8 @@ impl PositionFeatureEvaluator {
             return TaperedScore::default();
         }
 
-        let oriented: Vec<(i8, i8)> = pawns
-            .iter()
-            .map(|pawn| oriented_coords(*pawn, player))
-            .collect();
+        let oriented: Vec<(i8, i8)> =
+            pawns.iter().map(|pawn| oriented_coords(*pawn, player)).collect();
 
         for i in 0..pawns.len() {
             for j in i + 1..pawns.len() {
@@ -1563,21 +1533,11 @@ impl PositionFeatureEvaluator {
             return TaperedScore::default();
         }
 
-        let oriented: Vec<(i8, i8)> = pawns
-            .iter()
-            .map(|pawn| oriented_coords(*pawn, player))
-            .collect();
+        let oriented: Vec<(i8, i8)> =
+            pawns.iter().map(|pawn| oriented_coords(*pawn, player)).collect();
 
-        let chain_offsets = [
-            (0i8, -1i8),
-            (0, 1),
-            (-1, 0),
-            (1, 0),
-            (-1, -1),
-            (-1, 1),
-            (1, -1),
-            (1, 1),
-        ];
+        let chain_offsets =
+            [(0i8, -1i8), (0, 1), (-1, 0), (1, 0), (-1, -1), (-1, 1), (1, -1), (1, 1)];
 
         let mut pawn_marks = [false; 81];
         let mut gold_marks = [false; 81];
@@ -1662,11 +1622,8 @@ impl PositionFeatureEvaluator {
         const BLACK_EG_TABLE: [i32; 9] = [92, 78, 62, 46, 32, 20, 10, 3, 0];
 
         for pawn in pawns {
-            let idx = if player == Player::Black {
-                pawn.row as usize
-            } else {
-                (8 - pawn.row) as usize
-            };
+            let idx =
+                if player == Player::Black { pawn.row as usize } else { (8 - pawn.row) as usize };
             mg_score += BLACK_MG_TABLE[idx];
             eg_score += BLACK_EG_TABLE[idx];
         }
@@ -1738,11 +1695,7 @@ impl PositionFeatureEvaluator {
         for pawn in pawns {
             if self.is_passed_pawn(board, *pawn, player) {
                 // Calculate how advanced the passed pawn is
-                let advancement = if player == Player::Black {
-                    8 - pawn.row
-                } else {
-                    pawn.row
-                };
+                let advancement = if player == Player::Black { 8 - pawn.row } else { pawn.row };
 
                 let mut bonus_mg = (advancement * advancement) as i32 * 5;
                 let mut bonus_eg = (advancement * advancement) as i32 * 12;
@@ -1861,7 +1814,6 @@ impl PositionFeatureEvaluator {
         // STUB: Return default score to fix performance regression
         TaperedScore::default()
     }
-
 
     fn evaluate_piece_mobility_from_stats(
         &self,
@@ -2766,23 +2718,11 @@ mod tests {
             let weight = evaluator.get_mobility_weight(piece_type);
 
             // All weights should be positive
-            assert!(
-                weight.0 > 0,
-                "MG weight for {:?} should be positive",
-                piece_type
-            );
-            assert!(
-                weight.1 > 0,
-                "EG weight for {:?} should be positive",
-                piece_type
-            );
+            assert!(weight.0 > 0, "MG weight for {:?} should be positive", piece_type);
+            assert!(weight.1 > 0, "EG weight for {:?} should be positive", piece_type);
 
             // Endgame weight should be >= middlegame weight
-            assert!(
-                weight.1 >= weight.0,
-                "EG weight should be >= MG weight for {:?}",
-                piece_type
-            );
+            assert!(weight.1 >= weight.0, "EG weight should be >= MG weight for {:?}", piece_type);
         }
     }
 

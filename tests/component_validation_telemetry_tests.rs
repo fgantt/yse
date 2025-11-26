@@ -133,18 +133,9 @@ fn test_all_pattern_stats_aggregated() {
     let telemetry = telemetry.unwrap();
 
     // Verify all pattern stats are present
-    assert!(
-        telemetry.tactical.is_some(),
-        "Tactical stats should be present"
-    );
-    assert!(
-        telemetry.positional.is_some(),
-        "Positional stats should be present"
-    );
-    assert!(
-        telemetry.castle_patterns.is_some(),
-        "Castle stats should be present"
-    );
+    assert!(telemetry.tactical.is_some(), "Tactical stats should be present");
+    assert!(telemetry.positional.is_some(), "Positional stats should be present");
+    assert!(telemetry.castle_patterns.is_some(), "Castle stats should be present");
 }
 
 #[test]

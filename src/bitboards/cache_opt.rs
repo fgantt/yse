@@ -33,10 +33,7 @@ pub struct CacheAlignedPopcountTable {
 impl CacheAlignedPopcountTable {
     /// Create a new cache-aligned population count table
     pub fn new() -> Self {
-        Self {
-            table: [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4],
-            _padding: [0; 48],
-        }
+        Self { table: [0, 1, 1, 2, 1, 2, 2, 3, 1, 2, 2, 3, 2, 3, 3, 4], _padding: [0; 48] }
     }
 
     /// Get population count for a 4-bit value
@@ -70,10 +67,7 @@ impl CacheAlignedBitPositionTable {
             }
         }
 
-        Self {
-            positions,
-            _padding: [],
-        }
+        Self { positions, _padding: [] }
     }
 
     /// Get bit positions for a 4-bit value
@@ -108,10 +102,7 @@ impl CacheAlignedRankMasks {
             masks[rank] = mask;
         }
 
-        Self {
-            masks,
-            _padding: [0; 56],
-        }
+        Self { masks, _padding: [0; 56] }
     }
 
     /// Get rank mask for a specific rank
@@ -150,10 +141,7 @@ impl CacheAlignedFileMasks {
             masks[file] = mask;
         }
 
-        Self {
-            masks,
-            _padding: [0; 56],
-        }
+        Self { masks, _padding: [0; 56] }
     }
 
     /// Get file mask for a specific file
@@ -579,7 +567,11 @@ mod tests {
 
     #[test]
     fn test_process_bitboard_sequence() {
-        let bitboards = vec![Bitboard::from_u128(0b1010), Bitboard::from_u128(0b1100), Bitboard::from_u128(0b1111)];
+        let bitboards = vec![
+            Bitboard::from_u128(0b1010),
+            Bitboard::from_u128(0b1100),
+            Bitboard::from_u128(0b1111),
+        ];
         let counts = unsafe { process_bitboard_sequence(&bitboards) };
         assert_eq!(counts, vec![2, 2, 4]);
     }
@@ -588,7 +580,8 @@ mod tests {
     fn test_rank_masks() {
         let rank_masks = &*CACHE_ALIGNED_RANK_MASKS;
         let rank_0_mask = rank_masks.get_rank_mask(0);
-        assert_eq!(rank_0_mask & Bitboard::from_u128(0x1FF), Bitboard::from_u128(0x1FF)); // First 9 bits set
+        assert_eq!(rank_0_mask & Bitboard::from_u128(0x1FF), Bitboard::from_u128(0x1FF));
+        // First 9 bits set
     }
 
     #[test]

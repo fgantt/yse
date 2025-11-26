@@ -19,14 +19,7 @@ mod killer_move_integration_tests {
         piece_type: PieceType,
         player: Player,
     ) -> Move {
-        Move {
-            from,
-            to,
-            piece_type,
-            player,
-            promotion: false,
-            drop: from.is_none(),
-        }
+        Move { from, to, piece_type, player, promotion: false, drop: from.is_none() }
     }
 
     /// Test killer move integration with search depth management
@@ -96,11 +89,7 @@ mod killer_move_integration_tests {
         orderer.add_killer_move(killer_move.clone());
 
         // Order moves - killer move should be prioritized
-        let moves = vec![
-            quiet_move.clone(),
-            capture_move.clone(),
-            killer_move.clone(),
-        ];
+        let moves = vec![quiet_move.clone(), capture_move.clone(), killer_move.clone()];
         let ordered = orderer.order_moves_with_killer(&moves);
 
         // Verify killer move is first
@@ -204,10 +193,7 @@ mod killer_move_integration_tests {
     /// Test killer move configuration and customization
     #[test]
     fn test_killer_move_configuration() {
-        let custom_weights = OrderingWeights {
-            killer_move_weight: 8000,
-            ..Default::default()
-        };
+        let custom_weights = OrderingWeights { killer_move_weight: 8000, ..Default::default() };
 
         let mut orderer = MoveOrdering::with_config(custom_weights);
         orderer.set_max_killer_moves_per_depth(5);
@@ -306,14 +292,7 @@ mod killer_move_integration_tests {
         orderer.add_killer_move(killer_move.clone());
 
         // Store PV move
-        orderer.update_pv_move(
-            &board,
-            &captured_pieces,
-            player,
-            depth,
-            pv_move.clone(),
-            100,
-        );
+        orderer.update_pv_move(&board, &captured_pieces, player, depth, pv_move.clone(), 100);
 
         // Order moves with both PV and killer prioritization
         let moves = vec![regular_move.clone(), killer_move.clone(), pv_move.clone()];

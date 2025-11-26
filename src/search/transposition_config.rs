@@ -42,18 +42,12 @@ impl ReplacementPolicy {
 
     /// Check if this policy considers depth in replacement decisions
     pub fn considers_depth(&self) -> bool {
-        matches!(
-            self,
-            ReplacementPolicy::DepthPreferred | ReplacementPolicy::DepthAndAge
-        )
+        matches!(self, ReplacementPolicy::DepthPreferred | ReplacementPolicy::DepthAndAge)
     }
 
     /// Check if this policy considers age in replacement decisions
     pub fn considers_age(&self) -> bool {
-        matches!(
-            self,
-            ReplacementPolicy::AgeBased | ReplacementPolicy::DepthAndAge
-        )
+        matches!(self, ReplacementPolicy::AgeBased | ReplacementPolicy::DepthAndAge)
     }
 }
 
@@ -341,9 +335,7 @@ pub struct TranspositionConfigBuilder {
 impl TranspositionConfigBuilder {
     /// Create a new builder with default configuration
     pub fn new() -> Self {
-        Self {
-            config: TranspositionConfig::new(),
-        }
+        Self { config: TranspositionConfig::new() }
     }
 
     /// Set the table size
@@ -468,11 +460,7 @@ impl std::fmt::Display for ConfigError {
                 write!(f, "Table size {} is too large (maximum 16M)", size)
             }
             ConfigError::MemoryLimitExceeded { estimated, limit } => {
-                write!(
-                    f,
-                    "Estimated memory usage {} MB exceeds limit {} MB",
-                    estimated, limit
-                )
+                write!(f, "Estimated memory usage {} MB exceeds limit {} MB", estimated, limit)
             }
             ConfigError::MaxAgeTooLarge(age) => {
                 write!(f, "Max age {} is too large (maximum 10000)", age)
@@ -514,10 +502,7 @@ mod tests {
         assert_eq!(config.max_memory_mb, 512);
         assert!(config.clear_between_games);
         assert!(!config.enable_statistics);
-        assert_eq!(
-            config.collision_strategy,
-            CollisionStrategy::UseReplacementPolicy
-        );
+        assert_eq!(config.collision_strategy, CollisionStrategy::UseReplacementPolicy);
         assert!(config.validate_hash_keys);
     }
 
@@ -539,17 +524,11 @@ mod tests {
         // Invalid table size (not power of 2)
         let mut invalid_config = TranspositionConfig::new();
         invalid_config.table_size = 1000;
-        assert!(matches!(
-            invalid_config.validate(),
-            Err(ConfigError::InvalidTableSize(1000))
-        ));
+        assert!(matches!(invalid_config.validate(), Err(ConfigError::InvalidTableSize(1000))));
 
         // Table size too small
         invalid_config.table_size = 512;
-        assert!(matches!(
-            invalid_config.validate(),
-            Err(ConfigError::TableSizeTooSmall(512))
-        ));
+        assert!(matches!(invalid_config.validate(), Err(ConfigError::TableSizeTooSmall(512))));
 
         // Table size too large
         invalid_config.table_size = 32 * 1024 * 1024;
@@ -559,10 +538,7 @@ mod tests {
         // Max age too large
         invalid_config.table_size = 1024 * 1024;
         invalid_config.max_age = 20000;
-        assert!(matches!(
-            invalid_config.validate(),
-            Err(ConfigError::MaxAgeTooLarge(20000))
-        ));
+        assert!(matches!(invalid_config.validate(), Err(ConfigError::MaxAgeTooLarge(20000))));
     }
 
     #[test]
@@ -621,10 +597,7 @@ mod tests {
         let summary = config.summary();
 
         assert_eq!(summary.table_size, config.table_size);
-        assert_eq!(
-            summary.estimated_memory_mb,
-            config.estimated_memory_usage_mb()
-        );
+        assert_eq!(summary.estimated_memory_mb, config.estimated_memory_usage_mb());
         assert_eq!(summary.replacement_policy, config.replacement_policy);
         assert_eq!(summary.max_age, config.max_age);
 
@@ -647,20 +620,14 @@ mod tests {
         // Test performance optimized config
         let perf_config = TranspositionConfig::performance_optimized();
         assert_eq!(perf_config.table_size, 4 * 1024 * 1024);
-        assert_eq!(
-            perf_config.replacement_policy,
-            ReplacementPolicy::DepthAndAge
-        );
+        assert_eq!(perf_config.replacement_policy, ReplacementPolicy::DepthAndAge);
         assert!(!perf_config.enable_memory_mapping);
         assert!(perf_config.enable_prefetching);
 
         // Test debug config
         let debug_config = TranspositionConfig::debug_config();
         assert_eq!(debug_config.table_size, 1024);
-        assert_eq!(
-            debug_config.replacement_policy,
-            ReplacementPolicy::AlwaysReplace
-        );
+        assert_eq!(debug_config.replacement_policy, ReplacementPolicy::AlwaysReplace);
         assert!(debug_config.validate_hash_keys);
     }
 
@@ -689,10 +656,7 @@ mod tests {
         assert!(error_str.contains("1000"));
         assert!(error_str.contains("power of 2"));
 
-        let error = ConfigError::MemoryLimitExceeded {
-            estimated: 1000,
-            limit: 500,
-        };
+        let error = ConfigError::MemoryLimitExceeded { estimated: 1000, limit: 500 };
         let error_str = format!("{}", error);
         assert!(error_str.contains("1000"));
         assert!(error_str.contains("500"));

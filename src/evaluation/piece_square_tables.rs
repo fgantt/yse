@@ -52,7 +52,7 @@ pub struct PieceSquareTables {
 }
 
 /// Piece-square table storage with cache-aligned memory layout
-/// 
+///
 /// Task 1.10.2: Optimized memory alignment for PST data structures.
 /// Uses 64-byte cache line alignment for optimal cache performance.
 #[repr(align(64))]
@@ -260,16 +260,13 @@ pub enum PieceSquareTableError {
 impl PieceSquareTables {
     /// Create a new PieceSquareTables with default values
     pub fn new() -> Self {
-        let inner = BUILTIN_PST
-            .get_or_init(|| Arc::new(PieceSquareTableStorage::default()))
-            .clone();
+        let inner =
+            BUILTIN_PST.get_or_init(|| Arc::new(PieceSquareTableStorage::default())).clone();
         Self { inner }
     }
 
     pub fn from_raw(raw: PieceSquareTableRaw) -> Self {
-        Self {
-            inner: Arc::new(PieceSquareTableStorage::from(raw)),
-        }
+        Self { inner: Arc::new(PieceSquareTableStorage::from(raw)) }
     }
 
     pub fn to_raw(&self) -> PieceSquareTableRaw {
@@ -284,10 +281,7 @@ impl PieceSquareTables {
             tables: &'a HashMap<PieceType, PiecePhaseTables>,
             piece: PieceType,
         ) -> Result<PiecePhaseTables, PieceSquareTableError> {
-            tables
-                .get(&piece)
-                .copied()
-                .ok_or(PieceSquareTableError::MissingPiece(piece))
+            tables.get(&piece).copied().ok_or(PieceSquareTableError::MissingPiece(piece))
         }
 
         let pawn = get_tables(tables, PieceType::Pawn)?;
@@ -352,29 +346,13 @@ impl PieceSquareTables {
 
         insert!(PieceType::Pawn, self.pawn_table_mg, self.pawn_table_eg);
         insert!(PieceType::Lance, self.lance_table_mg, self.lance_table_eg);
-        insert!(
-            PieceType::Knight,
-            self.knight_table_mg,
-            self.knight_table_eg
-        );
-        insert!(
-            PieceType::Silver,
-            self.silver_table_mg,
-            self.silver_table_eg
-        );
+        insert!(PieceType::Knight, self.knight_table_mg, self.knight_table_eg);
+        insert!(PieceType::Silver, self.silver_table_mg, self.silver_table_eg);
         insert!(PieceType::Gold, self.gold_table_mg, self.gold_table_eg);
-        insert!(
-            PieceType::Bishop,
-            self.bishop_table_mg,
-            self.bishop_table_eg
-        );
+        insert!(PieceType::Bishop, self.bishop_table_mg, self.bishop_table_eg);
         insert!(PieceType::Rook, self.rook_table_mg, self.rook_table_eg);
         insert!(PieceType::King, [[0; 9]; 9], [[0; 9]; 9]);
-        insert!(
-            PieceType::PromotedPawn,
-            self.promoted_pawn_table_mg,
-            self.promoted_pawn_table_eg
-        );
+        insert!(PieceType::PromotedPawn, self.promoted_pawn_table_mg, self.promoted_pawn_table_eg);
         insert!(
             PieceType::PromotedLance,
             self.promoted_lance_table_mg,
@@ -395,11 +373,7 @@ impl PieceSquareTables {
             self.promoted_bishop_table_mg,
             self.promoted_bishop_table_eg
         );
-        insert!(
-            PieceType::PromotedRook,
-            self.promoted_rook_table_mg,
-            self.promoted_rook_table_eg
-        );
+        insert!(PieceType::PromotedRook, self.promoted_rook_table_mg, self.promoted_rook_table_eg);
 
         map
     }
@@ -438,18 +412,15 @@ impl PieceSquareTables {
             PieceType::PromotedLance => {
                 (&self.promoted_lance_table_mg, &self.promoted_lance_table_eg)
             }
-            PieceType::PromotedKnight => (
-                &self.promoted_knight_table_mg,
-                &self.promoted_knight_table_eg,
-            ),
-            PieceType::PromotedSilver => (
-                &self.promoted_silver_table_mg,
-                &self.promoted_silver_table_eg,
-            ),
-            PieceType::PromotedBishop => (
-                &self.promoted_bishop_table_mg,
-                &self.promoted_bishop_table_eg,
-            ),
+            PieceType::PromotedKnight => {
+                (&self.promoted_knight_table_mg, &self.promoted_knight_table_eg)
+            }
+            PieceType::PromotedSilver => {
+                (&self.promoted_silver_table_mg, &self.promoted_silver_table_eg)
+            }
+            PieceType::PromotedBishop => {
+                (&self.promoted_bishop_table_mg, &self.promoted_bishop_table_eg)
+            }
             PieceType::PromotedRook => (&self.promoted_rook_table_mg, &self.promoted_rook_table_eg),
 
             // King has no positional bonus

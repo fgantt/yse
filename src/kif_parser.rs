@@ -71,46 +71,23 @@ impl KifGame {
             // Parse metadata using substring to avoid UTF-8 boundary issues
             if trimmed.starts_with("開始日時：") {
                 metadata.date = Some(
-                    trimmed
-                        .split_once("開始日時：")
-                        .map(|(_, v)| v)
-                        .unwrap_or("")
-                        .to_string(),
+                    trimmed.split_once("開始日時：").map(|(_, v)| v).unwrap_or("").to_string(),
                 );
             } else if trimmed.starts_with("終了日時：") {
                 // End date - could be used for game duration
             } else if trimmed.starts_with("持ち時間：") {
                 metadata.time_control = Some(
-                    trimmed
-                        .split_once("持ち時間：")
-                        .map(|(_, v)| v)
-                        .unwrap_or("")
-                        .to_string(),
+                    trimmed.split_once("持ち時間：").map(|(_, v)| v).unwrap_or("").to_string(),
                 );
             } else if trimmed.starts_with("先手：") {
-                metadata.player1_name = Some(
-                    trimmed
-                        .split_once("先手：")
-                        .map(|(_, v)| v)
-                        .unwrap_or("")
-                        .to_string(),
-                );
+                metadata.player1_name =
+                    Some(trimmed.split_once("先手：").map(|(_, v)| v).unwrap_or("").to_string());
             } else if trimmed.starts_with("後手：") {
-                metadata.player2_name = Some(
-                    trimmed
-                        .split_once("後手：")
-                        .map(|(_, v)| v)
-                        .unwrap_or("")
-                        .to_string(),
-                );
+                metadata.player2_name =
+                    Some(trimmed.split_once("後手：").map(|(_, v)| v).unwrap_or("").to_string());
             } else if trimmed.starts_with("手合割：") {
-                metadata.game_type = Some(
-                    trimmed
-                        .split_once("手合割：")
-                        .map(|(_, v)| v)
-                        .unwrap_or("")
-                        .to_string(),
-                );
+                metadata.game_type =
+                    Some(trimmed.split_once("手合割：").map(|(_, v)| v).unwrap_or("").to_string());
             } else if trimmed.starts_with("手数") || trimmed.starts_with("手-----") {
                 // Move header - start of move section
                 in_move_section = true;
@@ -150,12 +127,7 @@ impl KifGame {
         // Convert to USI format (simplified for now)
         let usi_move = Self::kif_to_usi(&move_text);
 
-        Some(KifMove {
-            move_number,
-            move_text,
-            usi_move,
-            comment,
-        })
+        Some(KifMove { move_number, move_text, usi_move, comment })
     }
 
     /// Convert KIF notation to USI format (simplified)
@@ -198,10 +170,7 @@ impl KifGame {
         })?;
 
         let from_rank_letter = Self::rank_to_letter(origin.1)?;
-        let mut usi = format!(
-            "{}{}{}{}",
-            origin.0, from_rank_letter, to_file, to_rank_letter
-        );
+        let mut usi = format!("{}{}{}{}", origin.0, from_rank_letter, to_file, to_rank_letter);
 
         if promotion {
             usi.push('+');

@@ -96,9 +96,7 @@ impl BinaryHeader {
         })?;
 
         if magic != MAGIC_NUMBER {
-            return Err(OpeningBookError::BinaryFormatError(
-                "Invalid magic number".to_string(),
-            ));
+            return Err(OpeningBookError::BinaryFormatError("Invalid magic number".to_string()));
         }
 
         let mut version_bytes = [0u8; 4];
@@ -168,11 +166,7 @@ impl BinaryWriter {
 
         // Calculate hash table size (next power of 2 >= entry_count)
         let entry_count = book.positions.len() as u64;
-        let hash_table_size = if entry_count == 0 {
-            0
-        } else {
-            entry_count.next_power_of_two()
-        };
+        let hash_table_size = if entry_count == 0 { 0 } else { entry_count.next_power_of_two() };
 
         // Create header
         let header = BinaryHeader::new(entry_count, hash_table_size, book.total_moves as u64);
@@ -199,20 +193,16 @@ impl BinaryWriter {
             position_entries.push(entry_bytes);
 
             // Add to hash table
-            hash_table.push(HashTableEntry {
-                position_hash: *hash,
-                entry_offset: current_offset as u64,
-            });
+            hash_table
+                .push(HashTableEntry { position_hash: *hash, entry_offset: current_offset as u64 });
 
             current_offset += entry_len;
         }
 
         // Write hash table
         for entry in &hash_table {
-            self.buffer
-                .extend_from_slice(&entry.position_hash.to_le_bytes());
-            self.buffer
-                .extend_from_slice(&entry.entry_offset.to_le_bytes());
+            self.buffer.extend_from_slice(&entry.position_hash.to_le_bytes());
+            self.buffer.extend_from_slice(&entry.entry_offset.to_le_bytes());
         }
 
         // Pad hash table to size (only if we have entries to pad)
@@ -310,10 +300,7 @@ impl BinaryWriter {
 impl BinaryReader {
     /// Create a new reader
     pub fn new(data: Vec<u8>) -> Self {
-        Self {
-            data: data.into_boxed_slice(),
-            position: 0,
-        }
+        Self { data: data.into_boxed_slice(), position: 0 }
     }
 
     /// Read opening book from binary format
@@ -352,10 +339,7 @@ impl BinaryReader {
         for _ in 0..hash_table_size {
             let position_hash = self.read_u64()?;
             let entry_offset = self.read_u64()?;
-            hash_table.push(HashTableEntry {
-                position_hash,
-                entry_offset,
-            });
+            hash_table.push(HashTableEntry { position_hash, entry_offset });
         }
 
         // Read position entries
@@ -402,11 +386,7 @@ impl BinaryReader {
         let chunk_offset = self.read_u64()?;
         let chunk_size = self.read_u32()? as usize;
 
-        Ok(ChunkHeader {
-            position_count,
-            chunk_offset,
-            chunk_size,
-        })
+        Ok(ChunkHeader { position_count, chunk_offset, chunk_size })
     }
 
     /// Read a position entry
@@ -437,10 +417,7 @@ impl BinaryReader {
         let from = if from_bytes == 0xFFFF {
             None
         } else {
-            Some(Position::new(
-                ((from_bytes >> 8) & 0xFF) as u8,
-                (from_bytes & 0xFF) as u8,
-            ))
+            Some(Position::new(((from_bytes >> 8) & 0xFF) as u8, (from_bytes & 0xFF) as u8))
         };
 
         // Read to position
@@ -503,9 +480,7 @@ impl BinaryReader {
     /// Helper methods for reading primitive types
     fn read_u8(&mut self) -> Result<u8, OpeningBookError> {
         if self.position >= self.data.len() {
-            return Err(OpeningBookError::BinaryFormatError(
-                "Unexpected end of data".to_string(),
-            ));
+            return Err(OpeningBookError::BinaryFormatError("Unexpected end of data".to_string()));
         }
         let value = self.data[self.position];
         self.position += 1;
@@ -514,9 +489,7 @@ impl BinaryReader {
 
     fn read_u16(&mut self) -> Result<u16, OpeningBookError> {
         if self.position + 1 >= self.data.len() {
-            return Err(OpeningBookError::BinaryFormatError(
-                "Unexpected end of data".to_string(),
-            ));
+            return Err(OpeningBookError::BinaryFormatError("Unexpected end of data".to_string()));
         }
         let bytes = [self.data[self.position], self.data[self.position + 1]];
         self.position += 2;
@@ -525,9 +498,7 @@ impl BinaryReader {
 
     pub fn read_u32(&mut self) -> Result<u32, OpeningBookError> {
         if self.position + 3 >= self.data.len() {
-            return Err(OpeningBookError::BinaryFormatError(
-                "Unexpected end of data".to_string(),
-            ));
+            return Err(OpeningBookError::BinaryFormatError("Unexpected end of data".to_string()));
         }
         let bytes = [
             self.data[self.position],
@@ -541,9 +512,7 @@ impl BinaryReader {
 
     fn read_u64(&mut self) -> Result<u64, OpeningBookError> {
         if self.position + 7 >= self.data.len() {
-            return Err(OpeningBookError::BinaryFormatError(
-                "Unexpected end of data".to_string(),
-            ));
+            return Err(OpeningBookError::BinaryFormatError("Unexpected end of data".to_string()));
         }
         let bytes = [
             self.data[self.position],
@@ -561,9 +530,7 @@ impl BinaryReader {
 
     fn read_i32(&mut self) -> Result<i32, OpeningBookError> {
         if self.position + 3 >= self.data.len() {
-            return Err(OpeningBookError::BinaryFormatError(
-                "Unexpected end of data".to_string(),
-            ));
+            return Err(OpeningBookError::BinaryFormatError("Unexpected end of data".to_string()));
         }
         let bytes = [
             self.data[self.position],
@@ -577,9 +544,7 @@ impl BinaryReader {
 
     fn read_bytes(&mut self, len: usize) -> Result<Vec<u8>, OpeningBookError> {
         if self.position + len > self.data.len() {
-            return Err(OpeningBookError::BinaryFormatError(
-                "Unexpected end of data".to_string(),
-            ));
+            return Err(OpeningBookError::BinaryFormatError("Unexpected end of data".to_string()));
         }
         let bytes = self.data[self.position..self.position + len].to_vec();
         self.position += len;

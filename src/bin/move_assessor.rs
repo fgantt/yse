@@ -198,22 +198,13 @@ fn analyze_kif_game(
         .iter()
         .filter(|(_, _, q)| matches!(q, MoveQuality::Excellent(_)))
         .count();
-    let good = analyses
-        .iter()
-        .filter(|(_, _, q)| matches!(q, MoveQuality::Good))
-        .count();
+    let good = analyses.iter().filter(|(_, _, q)| matches!(q, MoveQuality::Good)).count();
     let inaccuracies = analyses
         .iter()
         .filter(|(_, _, q)| matches!(q, MoveQuality::Inaccuracy(_)))
         .count();
-    let mistakes = analyses
-        .iter()
-        .filter(|(_, _, q)| matches!(q, MoveQuality::Mistake(_)))
-        .count();
-    let blunders = analyses
-        .iter()
-        .filter(|(_, _, q)| matches!(q, MoveQuality::Blunder(_)))
-        .count();
+    let mistakes = analyses.iter().filter(|(_, _, q)| matches!(q, MoveQuality::Mistake(_))).count();
+    let blunders = analyses.iter().filter(|(_, _, q)| matches!(q, MoveQuality::Blunder(_))).count();
 
     Ok(GameAnalysis {
         total_moves: move_number - 1,
@@ -322,22 +313,13 @@ fn simulate_game_analysis(
         .iter()
         .filter(|(_, _, q)| matches!(q, MoveQuality::Excellent(_)))
         .count();
-    let good = analyses
-        .iter()
-        .filter(|(_, _, q)| matches!(q, MoveQuality::Good))
-        .count();
+    let good = analyses.iter().filter(|(_, _, q)| matches!(q, MoveQuality::Good)).count();
     let inaccuracies = analyses
         .iter()
         .filter(|(_, _, q)| matches!(q, MoveQuality::Inaccuracy(_)))
         .count();
-    let mistakes = analyses
-        .iter()
-        .filter(|(_, _, q)| matches!(q, MoveQuality::Mistake(_)))
-        .count();
-    let blunders = analyses
-        .iter()
-        .filter(|(_, _, q)| matches!(q, MoveQuality::Blunder(_)))
-        .count();
+    let mistakes = analyses.iter().filter(|(_, _, q)| matches!(q, MoveQuality::Mistake(_))).count();
+    let blunders = analyses.iter().filter(|(_, _, q)| matches!(q, MoveQuality::Blunder(_))).count();
 
     Ok(GameAnalysis {
         total_moves: move_number - 1,
@@ -436,13 +418,7 @@ fn print_analysis(analysis: &GameAnalysis, verbose: bool) {
     if verbose {
         println!("\n=== Detailed Move Analysis ===");
         for (num, mv, quality) in &analysis.move_analyses {
-            println!(
-                "Move {}: {} {} ({})",
-                num,
-                mv,
-                quality.to_string(),
-                quality.name()
-            );
+            println!("Move {}: {} {} ({})", num, mv, quality.to_string(), quality.name());
         }
     }
 }
@@ -477,17 +453,11 @@ fn find_blunders(
     }
 
     if analysis.mistakes > 0 {
-        println!(
-            "\nMistakes (losing 100-{} centipawns): {}",
-            threshold, analysis.mistakes
-        );
+        println!("\nMistakes (losing 100-{} centipawns): {}", threshold, analysis.mistakes);
     }
 
     if analysis.inaccuracies > 0 {
-        println!(
-            "Inaccuracies (losing 50-100 centipawns): {}",
-            analysis.inaccuracies
-        );
+        println!("Inaccuracies (losing 50-100 centipawns): {}", analysis.inaccuracies);
     }
 
     println!(
@@ -556,14 +526,8 @@ fn save_analysis(
         accuracy_percent: ((analysis.excellent_moves + analysis.good_moves) as f64
             / analysis.total_moves as f64)
             * 100.0,
-        worst_move: analysis
-            .worst_move
-            .as_ref()
-            .map(|(n, m, _)| format!("Move #{}: {}", n, m)),
-        best_move: analysis
-            .best_move
-            .as_ref()
-            .map(|(n, m, _)| format!("Move #{}: {}", n, m)),
+        worst_move: analysis.worst_move.as_ref().map(|(n, m, _)| format!("Move #{}: {}", n, m)),
+        best_move: analysis.best_move.as_ref().map(|(n, m, _)| format!("Move #{}: {}", n, m)),
         moves: analysis
             .move_analyses
             .iter()

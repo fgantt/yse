@@ -24,9 +24,7 @@ pub struct KingRookVsKingSolver {
 impl KingRookVsKingSolver {
     /// Create a new KingRookVsKingSolver with default configuration
     pub fn new() -> Self {
-        Self {
-            config: KingRookConfig::default(),
-        }
+        Self { config: KingRookConfig::default() }
     }
 
     /// Create a new KingRookVsKingSolver with custom configuration
@@ -179,10 +177,7 @@ impl KingRookVsKingSolver {
                         let new_col = (from.col as i32 + dc) as u8;
 
                         if new_row < 9 && new_col < 9 {
-                            let to = Position {
-                                row: new_row,
-                                col: new_col,
-                            };
+                            let to = Position { row: new_row, col: new_col };
                             let mut candidate =
                                 Move::new_move(from, to, piece.piece_type, piece.player, false);
                             candidate.is_capture =
@@ -208,10 +203,7 @@ impl KingRookVsKingSolver {
                             break; // Out of bounds
                         }
 
-                        let to = Position {
-                            row: new_row,
-                            col: new_col,
-                        };
+                        let to = Position { row: new_row, col: new_col };
 
                         let mut candidate =
                             Move::new_move(from, to, piece.piece_type, piece.player, false);
@@ -501,10 +493,7 @@ impl KingRookVsKingSolver {
                     let escape_col = (defending_king.col as i8 + dc) as u8;
 
                     if escape_row < 9 && escape_col < 9 {
-                        let escape_pos = Position {
-                            row: escape_row,
-                            col: escape_col,
-                        };
+                        let escape_pos = Position { row: escape_row, col: escape_col };
                         // If the move's destination attacks this escape square, it restricts mobility
                         if move_.to == escape_pos
                             || temp_board.is_square_attacked_by(escape_pos, player)
@@ -564,10 +553,7 @@ impl KingRookVsKingSolver {
                     let escape_col = (defending_king.col as i8 + dc) as u8;
 
                     if escape_row < 9 && escape_col < 9 {
-                        let escape_pos = Position {
-                            row: escape_row,
-                            col: escape_col,
-                        };
+                        let escape_pos = Position { row: escape_row, col: escape_col };
                         // Rook can attack if on same rank or file
                         if temp_board.is_square_attacked_by(escape_pos, player) {
                             controls = true;
@@ -687,13 +673,7 @@ mod tests {
     fn build_board(pieces: &[(Player, PieceType, Position)]) -> BitboardBoard {
         let mut board = BitboardBoard::empty();
         for (player, piece_type, position) in pieces {
-            board.place_piece(
-                Piece {
-                    piece_type: *piece_type,
-                    player: *player,
-                },
-                *position,
-            );
+            board.place_piece(Piece { piece_type: *piece_type, player: *player }, *position);
         }
         board
     }
@@ -782,22 +762,10 @@ mod tests {
         let mut board = BitboardBoard::empty();
         let captured = CapturedPieces::new();
 
-        board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(4, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Rook, Player::Black),
-            Position::new(4, 5),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Rook, Player::White),
-            Position::new(4, 8),
-        );
-        board.place_piece(
-            Piece::new(PieceType::King, Player::White),
-            Position::new(0, 0),
-        );
+        board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(4, 4));
+        board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 5));
+        board.place_piece(Piece::new(PieceType::Rook, Player::White), Position::new(4, 8));
+        board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 0));
 
         let moves = solver.generate_moves(&board, Player::Black, &captured);
         assert!(
@@ -815,24 +783,12 @@ mod tests {
         let mut captured = CapturedPieces::new();
         captured.add_piece(PieceType::Pawn, Player::Black);
 
-        board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(4, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Rook, Player::Black),
-            Position::new(4, 5),
-        );
-        board.place_piece(
-            Piece::new(PieceType::King, Player::White),
-            Position::new(0, 0),
-        );
+        board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(4, 4));
+        board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 5));
+        board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 0));
 
         let moves = solver.generate_moves(&board, Player::Black, &captured);
-        assert!(
-            moves.is_empty(),
-            "Solver should not generate moves when captured pieces exist"
-        );
+        assert!(moves.is_empty(), "Solver should not generate moves when captured pieces exist");
     }
 
     #[test]
@@ -875,13 +831,8 @@ mod tests {
             (Player::Black, PieceType::Rook, rook_pos),
             (Player::White, PieceType::King, Position::new(0, 4)),
         ]);
-        let coord_move = Move::new_move(
-            rook_pos,
-            Position::new(0, 4),
-            PieceType::Rook,
-            Player::Black,
-            false,
-        );
+        let coord_move =
+            Move::new_move(rook_pos, Position::new(0, 4), PieceType::Rook, Player::Black, false);
 
         assert!(solver.coordinates_king_rook(
             &board,

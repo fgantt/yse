@@ -32,11 +32,7 @@ impl<'a> DependencyValidator<'a> {
         enabled_component_ids: Vec<ComponentId>,
         components: ComponentFlags,
     ) -> Self {
-        Self {
-            dependency_graph,
-            enabled_component_ids,
-            components,
-        }
+        Self { dependency_graph, enabled_component_ids, components }
     }
 
     /// Validate component dependencies
@@ -238,10 +234,7 @@ mod tests {
     #[test]
     fn test_dependency_validator() {
         let graph = ComponentDependencyGraph::default();
-        let enabled = vec![
-            ComponentId::Material,
-            ComponentId::PieceSquareTables,
-        ];
+        let enabled = vec![ComponentId::Material, ComponentId::PieceSquareTables];
         let components = ComponentFlags {
             position_features: false,
             positional_patterns: false,
@@ -258,10 +251,8 @@ mod tests {
     #[test]
     fn test_conflict_detection() {
         let graph = ComponentDependencyGraph::default();
-        let enabled = vec![
-            ComponentId::PositionFeaturesCenterControl,
-            ComponentId::PositionalPatterns,
-        ];
+        let enabled =
+            vec![ComponentId::PositionFeaturesCenterControl, ComponentId::PositionalPatterns];
         let components = ComponentFlags {
             position_features: true,
             positional_patterns: true,
@@ -275,4 +266,3 @@ mod tests {
         assert!(!warnings.is_empty());
     }
 }
-

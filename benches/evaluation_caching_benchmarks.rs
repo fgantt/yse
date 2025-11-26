@@ -170,11 +170,7 @@ fn benchmark_evaluation_caching_efficiency(c: &mut Criterion) {
                 0.0
             };
 
-            black_box((
-                efficiency_rate,
-                total_cache_benefit,
-                metrics.evaluation_cache_hits,
-            ))
+            black_box((efficiency_rate, total_cache_benefit, metrics.evaluation_cache_hits))
         })
     });
 

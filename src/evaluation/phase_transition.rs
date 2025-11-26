@@ -33,7 +33,7 @@
 use crate::evaluation::advanced_interpolation::{
     AdvancedInterpolationConfig, AdvancedInterpolator, PositionCharacteristics, PositionType,
 };
-use crate::types::evaluation::{GAME_PHASE_MAX, TaperedScore};
+use crate::types::evaluation::{TaperedScore, GAME_PHASE_MAX};
 
 use serde::{Deserialize, Serialize};
 
@@ -155,11 +155,8 @@ impl PhaseTransition {
         // Symmetric cubic easing (ease-in-out):
         // For t < 0.5 → 4t³, otherwise → 1 - ((-2t + 2)³) / 2
         let t = phase as f64 / GAME_PHASE_MAX as f64;
-        let mg_weight = if t < 0.5 {
-            4.0 * t * t * t
-        } else {
-            1.0 - f64::powi(-2.0 * t + 2.0, 3) / 2.0
-        };
+        let mg_weight =
+            if t < 0.5 { 4.0 * t * t * t } else { 1.0 - f64::powi(-2.0 * t + 2.0, 3) / 2.0 };
         let eg_weight = 1.0 - mg_weight;
 
         (score.mg as f64 * mg_weight + score.eg as f64 * eg_weight) as i32
@@ -324,9 +321,7 @@ impl PhaseTransition {
 
     fn initialize_advanced(config: &PhaseTransitionConfig) -> Option<AdvancedInterpolator> {
         if config.use_advanced_interpolator {
-            Some(AdvancedInterpolator::with_config(
-                config.advanced_config.clone(),
-            ))
+            Some(AdvancedInterpolator::with_config(config.advanced_config.clone()))
         } else {
             None
         }
@@ -381,9 +376,7 @@ pub struct PhaseTransitionSnapshot {
 
 impl PhaseTransitionStats {
     pub fn snapshot(&self) -> PhaseTransitionSnapshot {
-        PhaseTransitionSnapshot {
-            interpolations: self.interpolations,
-        }
+        PhaseTransitionSnapshot { interpolations: self.interpolations }
     }
 }
 
@@ -428,10 +421,7 @@ mod tests {
 
         // Cubic should differ from linear in the middle
         let result_128 = transition.interpolate(score, 128, InterpolationMethod::Cubic);
-        assert_eq!(
-            result_128, 150,
-            "Cubic midpoint should stay balanced after easing adjustment"
-        );
+        assert_eq!(result_128, 150, "Cubic midpoint should stay balanced after easing adjustment");
     }
 
     #[test]

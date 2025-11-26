@@ -227,9 +227,7 @@ fn bench_get_statistics(c: &mut Criterion) {
         let _ = cache.probe(&board, Player::Black, &captured_pieces);
     }
 
-    c.bench_function("get_statistics", |b| {
-        b.iter(|| black_box(cache.get_statistics()))
-    });
+    c.bench_function("get_statistics", |b| b.iter(|| black_box(cache.get_statistics())));
 }
 
 /// Benchmark concurrent access patterns (stress test)
@@ -244,13 +242,7 @@ fn bench_concurrent_access(c: &mut Criterion) {
         b.iter(|| {
             // Simulate mixed read/write workload
             for i in 0..50 {
-                cache.store(
-                    &board,
-                    Player::Black,
-                    &captured_pieces,
-                    i * 10,
-                    (i % 10) as u8,
-                );
+                cache.store(&board, Player::Black, &captured_pieces, i * 10, (i % 10) as u8);
             }
             for _ in 0..50 {
                 let _ = black_box(cache.probe(&board, Player::Black, &captured_pieces));
@@ -285,11 +277,7 @@ fn bench_hit_rate_scenarios(c: &mut Criterion) {
         b.iter(|| {
             for i in 0..100 {
                 // Different player each time to force misses
-                let player = if i % 2 == 0 {
-                    Player::Black
-                } else {
-                    Player::White
-                };
+                let player = if i % 2 == 0 { Player::Black } else { Player::White };
                 cache.clear(); // Clear to force miss
                 let _ = black_box(cache.probe(&board, player, &captured_pieces));
             }

@@ -291,11 +291,7 @@ pub struct IncrementalPatternTracker {
 impl IncrementalPatternTracker {
     /// Create new tracker
     pub fn new() -> Self {
-        Self {
-            last_position_hash: None,
-            last_results: None,
-            enabled: true,
-        }
+        Self { last_position_hash: None, last_results: None, enabled: true }
     }
 
     /// Check if can do incremental update

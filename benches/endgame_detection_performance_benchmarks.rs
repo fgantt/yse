@@ -195,32 +195,28 @@ fn benchmark_search_performance_with_optimization(c: &mut Criterion) {
 
     // Test at different depths to see cumulative effect
     for depth in [3, 4, 5, 6] {
-        group.bench_with_input(
-            BenchmarkId::new("search_depth", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine_with_endgame_detection();
-                    engine.reset_null_move_stats();
+        group.bench_with_input(BenchmarkId::new("search_depth", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine_with_endgame_detection();
+                engine.reset_null_move_stats();
 
-                    let start = std::time::Instant::now();
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        1000,
-                    );
-                    let elapsed = start.elapsed();
+                let start = std::time::Instant::now();
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    1000,
+                );
+                let elapsed = start.elapsed();
 
-                    let stats = engine.get_null_move_stats().clone();
-                    let nodes = engine.get_nodes_searched();
+                let stats = engine.get_null_move_stats().clone();
+                let nodes = engine.get_nodes_searched();
 
-                    black_box((result, elapsed, nodes, stats))
-                });
-            },
-        );
+                black_box((result, elapsed, nodes, stats))
+            });
+        });
     }
 
     group.finish();

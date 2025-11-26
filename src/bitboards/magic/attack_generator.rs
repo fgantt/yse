@@ -34,9 +34,7 @@ pub struct AttackGeneratorConfig {
 
 impl Default for AttackGeneratorConfig {
     fn default() -> Self {
-        Self {
-            cache_size: 10_000,
-        }
+        Self { cache_size: 10_000 }
     }
 }
 
@@ -108,7 +106,7 @@ impl AttackGenerator {
         blockers: Bitboard,
     ) -> Bitboard {
         let key = CacheKey::new(square, piece_type, blockers);
-        
+
         // Check cache first
         if let Some(cached) = self.pattern_cache.get(&key) {
             self.cache_stats.hits += 1;
@@ -226,9 +224,7 @@ impl AttackGenerator {
 
     /// Get cache configuration
     pub fn cache_config(&self) -> AttackGeneratorConfig {
-        AttackGeneratorConfig {
-            cache_size: self.pattern_cache.capacity(),
-        }
+        AttackGeneratorConfig { cache_size: self.pattern_cache.capacity() }
     }
 
     // Removed initialize_direction_cache - now using lazy_static for zero-cost access
@@ -415,7 +411,6 @@ impl AttackGenerator {
             average_attacks: (max_attacks + min_attacks) / 2,
         }
     }
-
 }
 
 /// Cache statistics for attack generator
@@ -457,11 +452,7 @@ struct CacheKey {
 impl CacheKey {
     #[inline]
     fn new(square: u8, piece_type: PieceType, blockers: Bitboard) -> Self {
-        Self {
-            square,
-            piece_type,
-            blockers,
-        }
+        Self { square, piece_type, blockers }
     }
 }
 
@@ -569,24 +560,15 @@ mod tests {
         let generator = AttackGenerator::new();
 
         // Test moving right from square 0 (top-left corner)
-        let direction = Direction {
-            row_delta: 0,
-            col_delta: 1,
-        };
+        let direction = Direction { row_delta: 0, col_delta: 1 };
         assert_eq!(generator.get_next_square(0, direction), Some(1));
 
         // Test moving down from square 0
-        let direction = Direction {
-            row_delta: 1,
-            col_delta: 0,
-        };
+        let direction = Direction { row_delta: 1, col_delta: 0 };
         assert_eq!(generator.get_next_square(0, direction), Some(9));
 
         // Test moving out of bounds
-        let direction = Direction {
-            row_delta: -1,
-            col_delta: 0,
-        };
+        let direction = Direction { row_delta: -1, col_delta: 0 };
         assert_eq!(generator.get_next_square(0, direction), None);
     }
 
@@ -630,10 +612,7 @@ mod tests {
         let generator = AttackGenerator::new();
 
         // Test moving right from square 0
-        let direction = Direction {
-            row_delta: 0,
-            col_delta: 1,
-        };
+        let direction = Direction { row_delta: 0, col_delta: 1 };
         let attacks = generator.generate_directional_attack(0, direction, Bitboard::default());
         assert_ne!(attacks, Bitboard::default());
 
@@ -661,7 +640,8 @@ mod tests {
         let mut generator = AttackGenerator::new();
 
         // Get all squares attacked by rook from square 0
-        let attacked_squares = generator.get_attacked_squares(0, PieceType::Rook, Bitboard::default());
+        let attacked_squares =
+            generator.get_attacked_squares(0, PieceType::Rook, Bitboard::default());
         assert!(!attacked_squares.is_empty());
         assert!(attacked_squares.contains(&1)); // Right
         assert!(attacked_squares.contains(&9)); // Down
@@ -676,8 +656,10 @@ mod tests {
         assert!(count > 0);
 
         // Bishops have strictly more mobility from the center than the corner
-        let bishop_corner = generator.count_attacked_squares(0, PieceType::Bishop, Bitboard::default());
-        let bishop_center = generator.count_attacked_squares(40, PieceType::Bishop, Bitboard::default());
+        let bishop_corner =
+            generator.count_attacked_squares(0, PieceType::Bishop, Bitboard::default());
+        let bishop_center =
+            generator.count_attacked_squares(40, PieceType::Bishop, Bitboard::default());
         assert!(bishop_center > bishop_corner);
     }
 
@@ -687,7 +669,8 @@ mod tests {
 
         let squares = vec![0, 1];
         let piece_types = vec![PieceType::Rook, PieceType::Bishop];
-        let combined = generator.generate_combined_attacks(&squares, &piece_types, Bitboard::default());
+        let combined =
+            generator.generate_combined_attacks(&squares, &piece_types, Bitboard::default());
 
         assert_ne!(combined, Bitboard::default());
     }
@@ -697,17 +680,12 @@ mod tests {
         let mut generator = AttackGenerator::new();
 
         let directions = vec![
-            Direction {
-                row_delta: 0,
-                col_delta: 1,
-            },
-            Direction {
-                row_delta: 1,
-                col_delta: 0,
-            },
+            Direction { row_delta: 0, col_delta: 1 },
+            Direction { row_delta: 1, col_delta: 0 },
         ];
 
-        let attacks = generator.generate_attack_with_directions(0, &directions, Bitboard::default());
+        let attacks =
+            generator.generate_attack_with_directions(0, &directions, Bitboard::default());
         assert_ne!(attacks, Bitboard::default());
     }
 

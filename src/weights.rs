@@ -189,10 +189,7 @@ impl WeightManager {
         // Validate weight values
         for (i, &weight) in weight_file.weights.iter().enumerate() {
             if !weight.is_finite() {
-                return Err(WeightError::InvalidWeight {
-                    index: i,
-                    value: weight,
-                });
+                return Err(WeightError::InvalidWeight { index: i, value: weight });
             }
         }
 
@@ -221,11 +218,8 @@ impl WeightManager {
         }
 
         // Get the weights to use (tuned or default)
-        let weights = if self.enabled {
-            self.weights.as_ref().unwrap()
-        } else {
-            &self.default_weights
-        };
+        let weights =
+            if self.enabled { self.weights.as_ref().unwrap() } else { &self.default_weights };
 
         // Apply phase-dependent weighting
         let phase_weight = game_phase as f64 / 100.0; // Assuming GAME_PHASE_MAX = 100
@@ -375,31 +369,19 @@ pub enum WeightError {
     #[error(
         "Version mismatch: file version {file_version}, supported version {supported_version}"
     )]
-    VersionMismatch {
-        file_version: u32,
-        supported_version: u32,
-    },
+    VersionMismatch { file_version: u32, supported_version: u32 },
 
     #[error("Feature count mismatch: file has {file_features}, expected {expected_features}")]
-    FeatureCountMismatch {
-        file_features: usize,
-        expected_features: usize,
-    },
+    FeatureCountMismatch { file_features: usize, expected_features: usize },
 
     #[error("Weight count mismatch: file has {file_weights}, expected {expected_weights}")]
-    WeightCountMismatch {
-        file_weights: usize,
-        expected_weights: usize,
-    },
+    WeightCountMismatch { file_weights: usize, expected_weights: usize },
 
     #[error("Invalid weight at index {index}: {value}")]
     InvalidWeight { index: usize, value: f64 },
 
     #[error("Checksum mismatch: file checksum {file_checksum}, calculated {calculated_checksum}")]
-    ChecksumMismatch {
-        file_checksum: u64,
-        calculated_checksum: u64,
-    },
+    ChecksumMismatch { file_checksum: u64, calculated_checksum: u64 },
 
     #[error("Unsupported file format")]
     UnsupportedFormat,

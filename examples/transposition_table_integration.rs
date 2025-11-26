@@ -15,15 +15,7 @@ fn build_entry(
     hash_key: u64,
     age: u32,
 ) -> TranspositionEntry {
-    TranspositionEntry::new(
-        score,
-        depth,
-        flag,
-        best_move,
-        hash_key,
-        age,
-        EntrySource::MainSearch,
-    )
+    TranspositionEntry::new(score, depth, flag, best_move, hash_key, age, EntrySource::MainSearch)
 }
 
 fn main() {
@@ -188,16 +180,8 @@ fn move_ordering_integration() {
     println!("  Ordering moves with TT integration...");
     let start = std::time::Instant::now();
 
-    let ordered_moves = orderer.order_moves(
-        &moves,
-        &board,
-        &captured,
-        Player::Black,
-        3,
-        -1000,
-        1000,
-        None,
-    );
+    let ordered_moves =
+        orderer.order_moves(&moves, &board, &captured, Player::Black, 3, -1000, 1000, None);
 
     let ordering_time = start.elapsed();
     println!("  ✅ Move ordering completed!");
@@ -213,10 +197,7 @@ fn move_ordering_integration() {
     println!("     TT hint moves: {}", ordering_stats.tt_hint_moves);
     println!("     Killer move hits: {}", ordering_stats.killer_move_hits);
     println!("     History hits: {}", ordering_stats.history_hits);
-    println!(
-        "     Counter move hits: {}",
-        ordering_stats.counter_move_hits
-    );
+    println!("     Counter move hits: {}", ordering_stats.counter_move_hits);
 
     // Demonstrate killer move updates
     println!("  Updating killer moves...");
@@ -388,14 +369,7 @@ fn error_handling_integration() {
     let mut recovery_tt = ThreadSafeTranspositionTable::new(TranspositionConfig::default());
 
     // Store and retrieve successfully
-    recovery_tt.store(build_entry(
-        100,
-        3,
-        TranspositionFlag::Exact,
-        None,
-        12345,
-        0,
-    ));
+    recovery_tt.store(build_entry(100, 3, TranspositionFlag::Exact, None, 12345, 0));
     let recovery_result = recovery_tt.probe(12345, 3);
 
     if recovery_result.is_some() {
@@ -439,10 +413,7 @@ fn generate_sample_moves() -> Vec<Move> {
             is_promotion: false,
             gives_check: false,
             is_recapture: false,
-            captured_piece: Some(Piece {
-                piece_type: PieceType::Pawn,
-                player: Player::White,
-            }),
+            captured_piece: Some(Piece { piece_type: PieceType::Pawn, player: Player::White }),
             player: Player::Black,
         });
     }

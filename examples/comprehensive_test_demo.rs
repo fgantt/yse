@@ -39,14 +39,8 @@ fn main() {
     let mut selective_runner = TestRunner::with_config(config);
     let selective_result = selective_runner.run_tests();
 
-    println!(
-        "Selective test execution completed: {}",
-        selective_result.success
-    );
-    println!(
-        "Selective execution time: {:.2}s",
-        selective_result.execution_time.as_secs_f64()
-    );
+    println!("Selective test execution completed: {}", selective_result.success);
+    println!("Selective execution time: {:.2}s", selective_result.execution_time.as_secs_f64());
 
     // Demonstrate performance targets
     println!("\n📈 Performance Targets:");
@@ -60,10 +54,7 @@ fn main() {
     println!("Max Operation Time: {}μs", targets.max_operation_time_us);
     println!("Min Hit Rate: {:.1}%", targets.min_hit_rate * 100.0);
     println!("Max Memory Growth: {}MB", targets.max_memory_growth_mb);
-    println!(
-        "Min Speed Improvement: {:.1}%",
-        targets.min_speed_improvement
-    );
+    println!("Min Speed Improvement: {:.1}%", targets.min_speed_improvement);
 
     // Demonstrate known position validation
     println!("\n🎯 Known Position Validation:");

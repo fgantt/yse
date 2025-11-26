@@ -8,10 +8,7 @@ use shogi_engine::BitboardBoard;
 #[test]
 fn integrated_evaluator_material_toggle_updates_scores_and_clears_caches() {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(4, 4),
-    );
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 4));
 
     let captured = CapturedPieces::new();
 
@@ -30,10 +27,7 @@ fn integrated_evaluator_material_toggle_updates_scores_and_clears_caches() {
     let research_score = evaluator.evaluate(&board, Player::Black, &captured);
     assert_ne!(research_score.score, 0);
     assert!(evaluator.cache_stats().eval_cache_size > 0);
-    assert!(evaluator
-        .telemetry_snapshot()
-        .and_then(|t| t.material)
-        .is_some());
+    assert!(evaluator.telemetry_snapshot().and_then(|t| t.material).is_some());
 
     let mut updated_config = config;
     updated_config.material.use_research_values = false;
@@ -46,19 +40,13 @@ fn integrated_evaluator_material_toggle_updates_scores_and_clears_caches() {
 
     let classic_score = evaluator.evaluate(&board, Player::Black, &captured);
     assert_ne!(classic_score, research_score);
-    assert!(evaluator
-        .telemetry_snapshot()
-        .and_then(|t| t.material)
-        .is_some());
+    assert!(evaluator.telemetry_snapshot().and_then(|t| t.material).is_some());
 }
 
 #[test]
 fn integrated_evaluator_resets_material_stats_on_config_update() {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::Black),
-        Position::new(3, 3),
-    );
+    board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(3, 3));
 
     let captured = CapturedPieces::new();
 

@@ -191,10 +191,7 @@ fn benchmark_algorithm_skip_rates(c: &mut Criterion) {
             let nmp_stats = engine.get_null_move_stats();
             let iid_stats = engine.get_iid_stats();
 
-            black_box((
-                nmp_stats.skipped_time_pressure,
-                iid_stats.positions_skipped_time_pressure,
-            ))
+            black_box((nmp_stats.skipped_time_pressure, iid_stats.positions_skipped_time_pressure))
         })
     });
 

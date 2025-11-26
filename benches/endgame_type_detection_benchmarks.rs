@@ -54,52 +54,44 @@ fn benchmark_endgame_type_detection_overhead(c: &mut Criterion) {
     // Test at different depths
     for depth in [3, 4, 5, 6] {
         // Benchmark with basic endgame detection
-        group.bench_with_input(
-            BenchmarkId::new("basic_endgame", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine_with_basic_endgame();
-                    engine.reset_null_move_stats();
+        group.bench_with_input(BenchmarkId::new("basic_endgame", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine_with_basic_endgame();
+                engine.reset_null_move_stats();
 
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        1000,
-                    );
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    1000,
+                );
 
-                    let stats = engine.get_null_move_stats().clone();
-                    black_box((result, stats))
-                });
-            },
-        );
+                let stats = engine.get_null_move_stats().clone();
+                black_box((result, stats))
+            });
+        });
 
         // Benchmark with enhanced endgame type detection
-        group.bench_with_input(
-            BenchmarkId::new("enhanced_endgame", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine_with_enhanced_endgame();
-                    engine.reset_null_move_stats();
+        group.bench_with_input(BenchmarkId::new("enhanced_endgame", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine_with_enhanced_endgame();
+                engine.reset_null_move_stats();
 
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        1000,
-                    );
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    1000,
+                );
 
-                    let stats = engine.get_null_move_stats().clone();
-                    black_box((result, stats))
-                });
-            },
-        );
+                let stats = engine.get_null_move_stats().clone();
+                black_box((result, stats))
+            });
+        });
     }
 
     group.finish();
@@ -180,11 +172,8 @@ fn benchmark_endgame_type_thresholds(c: &mut Criterion) {
     let player = Player::Black;
     let depth = 5;
 
-    let threshold_configs = vec![
-        ("conservative", 15, 10, 8),
-        ("default", 12, 8, 6),
-        ("aggressive", 10, 6, 4),
-    ];
+    let threshold_configs =
+        vec![("conservative", 15, 10, 8), ("default", 12, 8, 6), ("aggressive", 10, 6, 4)];
 
     for (name, material, king_activity, zugzwang) in threshold_configs {
         group.bench_with_input(

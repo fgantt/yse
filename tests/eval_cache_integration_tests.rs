@@ -20,15 +20,8 @@ fn test_end_to_end_cache_with_search() {
     let captured_pieces = CapturedPieces::new();
 
     // Perform search with cache enabled
-    let result = engine.search_at_depth(
-        &board,
-        &captured_pieces,
-        Player::Black,
-        3,
-        1000,
-        -10000,
-        10000,
-    );
+    let result =
+        engine.search_at_depth(&board, &captured_pieces, Player::Black, 3, 1000, -10000, 10000);
     assert!(result.is_some());
 
     // Check cache was used

@@ -40,146 +40,26 @@ mod comprehensive_tests {
 
         // Test edge cases
         let edge_cases = vec![
-            (
-                QuiescenceConfig {
-                    max_depth: 1,
-                    ..valid_config.clone()
-                },
-                true,
-            ),
-            (
-                QuiescenceConfig {
-                    max_depth: 20,
-                    ..valid_config.clone()
-                },
-                true,
-            ),
-            (
-                QuiescenceConfig {
-                    max_depth: 0,
-                    ..valid_config.clone()
-                },
-                false,
-            ),
-            (
-                QuiescenceConfig {
-                    max_depth: 21,
-                    ..valid_config.clone()
-                },
-                false,
-            ),
-            (
-                QuiescenceConfig {
-                    futility_margin: 0,
-                    ..valid_config.clone()
-                },
-                true,
-            ),
-            (
-                QuiescenceConfig {
-                    futility_margin: 1000,
-                    ..valid_config.clone()
-                },
-                true,
-            ),
-            (
-                QuiescenceConfig {
-                    futility_margin: -1,
-                    ..valid_config.clone()
-                },
-                false,
-            ),
-            (
-                QuiescenceConfig {
-                    futility_margin: 1001,
-                    ..valid_config.clone()
-                },
-                false,
-            ),
-            (
-                QuiescenceConfig {
-                    delta_margin: 0,
-                    ..valid_config.clone()
-                },
-                true,
-            ),
-            (
-                QuiescenceConfig {
-                    delta_margin: 1000,
-                    ..valid_config.clone()
-                },
-                true,
-            ),
-            (
-                QuiescenceConfig {
-                    delta_margin: -1,
-                    ..valid_config.clone()
-                },
-                false,
-            ),
-            (
-                QuiescenceConfig {
-                    delta_margin: 1001,
-                    ..valid_config.clone()
-                },
-                false,
-            ),
-            (
-                QuiescenceConfig {
-                    tt_size_mb: 1,
-                    ..valid_config.clone()
-                },
-                true,
-            ),
-            (
-                QuiescenceConfig {
-                    tt_size_mb: 1024,
-                    ..valid_config.clone()
-                },
-                true,
-            ),
-            (
-                QuiescenceConfig {
-                    tt_size_mb: 0,
-                    ..valid_config.clone()
-                },
-                false,
-            ),
-            (
-                QuiescenceConfig {
-                    tt_size_mb: 1025,
-                    ..valid_config.clone()
-                },
-                false,
-            ),
-            (
-                QuiescenceConfig {
-                    tt_cleanup_threshold: 1,
-                    ..valid_config.clone()
-                },
-                true,
-            ),
-            (
-                QuiescenceConfig {
-                    tt_cleanup_threshold: 1000000,
-                    ..valid_config.clone()
-                },
-                true,
-            ),
-            (
-                QuiescenceConfig {
-                    tt_cleanup_threshold: 0,
-                    ..valid_config.clone()
-                },
-                false,
-            ),
-            (
-                QuiescenceConfig {
-                    tt_cleanup_threshold: 1000001,
-                    ..valid_config.clone()
-                },
-                false,
-            ),
+            (QuiescenceConfig { max_depth: 1, ..valid_config.clone() }, true),
+            (QuiescenceConfig { max_depth: 20, ..valid_config.clone() }, true),
+            (QuiescenceConfig { max_depth: 0, ..valid_config.clone() }, false),
+            (QuiescenceConfig { max_depth: 21, ..valid_config.clone() }, false),
+            (QuiescenceConfig { futility_margin: 0, ..valid_config.clone() }, true),
+            (QuiescenceConfig { futility_margin: 1000, ..valid_config.clone() }, true),
+            (QuiescenceConfig { futility_margin: -1, ..valid_config.clone() }, false),
+            (QuiescenceConfig { futility_margin: 1001, ..valid_config.clone() }, false),
+            (QuiescenceConfig { delta_margin: 0, ..valid_config.clone() }, true),
+            (QuiescenceConfig { delta_margin: 1000, ..valid_config.clone() }, true),
+            (QuiescenceConfig { delta_margin: -1, ..valid_config.clone() }, false),
+            (QuiescenceConfig { delta_margin: 1001, ..valid_config.clone() }, false),
+            (QuiescenceConfig { tt_size_mb: 1, ..valid_config.clone() }, true),
+            (QuiescenceConfig { tt_size_mb: 1024, ..valid_config.clone() }, true),
+            (QuiescenceConfig { tt_size_mb: 0, ..valid_config.clone() }, false),
+            (QuiescenceConfig { tt_size_mb: 1025, ..valid_config.clone() }, false),
+            (QuiescenceConfig { tt_cleanup_threshold: 1, ..valid_config.clone() }, true),
+            (QuiescenceConfig { tt_cleanup_threshold: 1000000, ..valid_config.clone() }, true),
+            (QuiescenceConfig { tt_cleanup_threshold: 0, ..valid_config.clone() }, false),
+            (QuiescenceConfig { tt_cleanup_threshold: 1000001, ..valid_config.clone() }, false),
         ];
 
         for (config, should_be_valid) in edge_cases {
@@ -294,10 +174,7 @@ mod comprehensive_tests {
                 player,
                 false,
                 true,
-                Some(Piece {
-                    piece_type: PieceType::Pawn,
-                    player: player.opposite(),
-                }),
+                Some(Piece { piece_type: PieceType::Pawn, player: player.opposite() }),
                 false,
                 false,
             ), // Pawn captures pawn
@@ -308,10 +185,7 @@ mod comprehensive_tests {
                 player,
                 false,
                 true,
-                Some(Piece {
-                    piece_type: PieceType::Rook,
-                    player: player.opposite(),
-                }),
+                Some(Piece { piece_type: PieceType::Rook, player: player.opposite() }),
                 false,
                 false,
             ), // Pawn captures rook
@@ -320,10 +194,7 @@ mod comprehensive_tests {
         let sorted_moves = engine.sort_quiescence_moves(&moves);
 
         // Rook capture should be first (higher value)
-        assert_eq!(
-            sorted_moves[0].captured_piece.as_ref().unwrap().piece_type,
-            PieceType::Rook
-        );
+        assert_eq!(sorted_moves[0].captured_piece.as_ref().unwrap().piece_type, PieceType::Rook);
     }
 
     #[test]

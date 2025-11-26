@@ -98,11 +98,7 @@ fn benchmark_bitscan_comprehensive(c: &mut Criterion) {
     group.bench_function("bit_scan_forward_native", |b| {
         b.iter(|| {
             for &bb in &test_data {
-                black_box(if bb == 0 {
-                    None
-                } else {
-                    Some(bb.trailing_zeros() as u8)
-                });
+                black_box(if bb == 0 { None } else { Some(bb.trailing_zeros() as u8) });
             }
         })
     });
@@ -127,11 +123,7 @@ fn benchmark_bitscan_comprehensive(c: &mut Criterion) {
     group.bench_function("bit_scan_reverse_native", |b| {
         b.iter(|| {
             for &bb in &test_data {
-                black_box(if bb == 0 {
-                    None
-                } else {
-                    Some((127 - bb.leading_zeros()) as u8)
-                });
+                black_box(if bb == 0 { None } else { Some((127 - bb.leading_zeros()) as u8) });
             }
         })
     });
@@ -280,11 +272,7 @@ fn benchmark_branch_prediction(c: &mut Criterion) {
         b.iter(|| {
             for &bb in &sparse_data {
                 black_box(bb.count_ones());
-                black_box(if bb == 0 {
-                    None
-                } else {
-                    Some(bb.trailing_zeros() as u8)
-                });
+                black_box(if bb == 0 { None } else { Some(bb.trailing_zeros() as u8) });
             }
         })
     });
@@ -303,11 +291,7 @@ fn benchmark_branch_prediction(c: &mut Criterion) {
         b.iter(|| {
             for &bb in &dense_data {
                 black_box(bb.count_ones());
-                black_box(if bb == 0 {
-                    None
-                } else {
-                    Some(bb.trailing_zeros() as u8)
-                });
+                black_box(if bb == 0 { None } else { Some(bb.trailing_zeros() as u8) });
             }
         })
     });
@@ -328,11 +312,7 @@ fn benchmark_branch_prediction(c: &mut Criterion) {
         b.iter(|| {
             for &bb in &mixed_data {
                 black_box(bb.count_ones());
-                black_box(if bb == 0 {
-                    None
-                } else {
-                    Some(bb.trailing_zeros() as u8)
-                });
+                black_box(if bb == 0 { None } else { Some(bb.trailing_zeros() as u8) });
                 black_box(bb == 0);
                 black_box(bb != 0 && (bb & (bb - 1) == 0));
             }

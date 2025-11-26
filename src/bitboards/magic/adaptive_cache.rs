@@ -62,10 +62,7 @@ impl AdaptiveCache {
 
     /// Get attack pattern from cache
     pub fn get(&self, square: u8, occupied: Bitboard) -> Option<Bitboard> {
-        let key = CacheKey {
-            square,
-            occupied_hash: Self::hash_occupied(occupied),
-        };
+        let key = CacheKey { square, occupied_hash: Self::hash_occupied(occupied) };
 
         let mut cache = self.cache.borrow_mut();
 
@@ -86,10 +83,7 @@ impl AdaptiveCache {
 
     /// Insert attack pattern into cache
     pub fn insert(&self, square: u8, occupied: Bitboard, attacks: Bitboard) {
-        let key = CacheKey {
-            square,
-            occupied_hash: Self::hash_occupied(occupied),
-        };
+        let key = CacheKey { square, occupied_hash: Self::hash_occupied(occupied) };
 
         let mut cache = self.cache.borrow_mut();
 
@@ -101,14 +95,7 @@ impl AdaptiveCache {
         let mut counter = self.access_counter.borrow_mut();
         *counter += 1;
 
-        cache.insert(
-            key,
-            CacheEntry {
-                attacks,
-                last_access: *counter,
-                access_count: 1,
-            },
-        );
+        cache.insert(key, CacheEntry { attacks, last_access: *counter, access_count: 1 });
 
         *self.current_size.borrow_mut() = cache.len();
     }

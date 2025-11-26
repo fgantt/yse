@@ -201,7 +201,11 @@ pub fn bit_positions(bb: Bitboard) -> Vec<u8> {
 /// ```
 pub fn extract_lsb(bb: Bitboard) -> (Bitboard, Bitboard) {
     let lsb = isolate_lsb(bb);
-    let cleared = if bb.is_empty() { Bitboard::default() } else { bb & Bitboard::from_u128(bb.to_u128() - 1) };
+    let cleared = if bb.is_empty() {
+        Bitboard::default()
+    } else {
+        bb & Bitboard::from_u128(bb.to_u128() - 1)
+    };
     (lsb, cleared)
 }
 
@@ -844,7 +848,10 @@ mod tests {
             // Test that lsb_position and msb_position are consistent with positions
             if !positions.is_empty() {
                 assert_eq!(lsb_position(Bitboard::from_u128(bb)), Some(positions[0]));
-                assert_eq!(msb_position(Bitboard::from_u128(bb)), Some(positions[positions.len() - 1]));
+                assert_eq!(
+                    msb_position(Bitboard::from_u128(bb)),
+                    Some(positions[positions.len() - 1])
+                );
             }
         }
     }

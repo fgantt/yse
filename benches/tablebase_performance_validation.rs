@@ -107,10 +107,7 @@ fn bench_memory_usage(c: &mut Criterion) {
     let configs = [
         ("default", TablebaseConfig::default()),
         ("memory_optimized", TablebaseConfig::memory_optimized()),
-        (
-            "performance_optimized",
-            TablebaseConfig::performance_optimized(),
-        ),
+        ("performance_optimized", TablebaseConfig::performance_optimized()),
     ];
 
     for (name, config) in configs.iter() {
@@ -303,18 +300,14 @@ fn bench_throughput(c: &mut Criterion) {
         let tablebase = MicroTablebase::new();
 
         group.throughput(Throughput::Elements(*workload as u64));
-        group.bench_with_input(
-            BenchmarkId::new("probes", workload),
-            workload,
-            |b, &workload| {
-                b.iter(|| {
-                    let mut tb = tablebase.clone();
-                    for _ in 0..workload {
-                        let _ = tb.probe(&board, Player::Black, &captured_pieces);
-                    }
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("probes", workload), workload, |b, &workload| {
+            b.iter(|| {
+                let mut tb = tablebase.clone();
+                for _ in 0..workload {
+                    let _ = tb.probe(&board, Player::Black, &captured_pieces);
+                }
+            })
+        });
     }
 
     group.finish();
@@ -372,10 +365,7 @@ fn validate_performance() {
 
     let hit_rate = stats.cache_hits as f64 / stats.total_probes as f64;
     if hit_rate < 0.5 {
-        println!(
-            "⚠️  Cache hit rate is low ({:.2}%). Consider:",
-            hit_rate * 100.0
-        );
+        println!("⚠️  Cache hit rate is low ({:.2}%). Consider:", hit_rate * 100.0);
         println!("   - Increasing cache size");
         println!("   - Using adaptive eviction");
     } else {

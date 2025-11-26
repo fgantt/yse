@@ -107,15 +107,10 @@ pub fn get_yagura_castle() -> CastlePattern {
 
     let mut variants = Vec::new();
     variants.push(CastleVariant::from_descriptors("left-base", &base));
-    variants.push(CastleVariant::from_descriptors(
-        "right-base",
-        &mirror_descriptors(&base),
-    ));
+    variants.push(CastleVariant::from_descriptors("right-base", &mirror_descriptors(&base)));
     variants.push(CastleVariant::from_descriptors("left-advanced", &advanced));
-    variants.push(CastleVariant::from_descriptors(
-        "right-advanced",
-        &mirror_descriptors(&advanced),
-    ));
+    variants
+        .push(CastleVariant::from_descriptors("right-advanced", &mirror_descriptors(&advanced)));
 
     CastlePattern {
         name: "Yagura",

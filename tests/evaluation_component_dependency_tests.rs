@@ -15,24 +15,15 @@ fn test_dependency_graph_creation() {
     let graph = ComponentDependencyGraph::default();
 
     // Verify conflicts are registered
-    assert!(graph.conflicts(
-        ComponentId::PositionFeaturesCenterControl,
-        ComponentId::PositionalPatterns
-    ));
-    assert!(graph.conflicts(
-        ComponentId::PositionFeaturesDevelopment,
-        ComponentId::OpeningPrinciples
-    ));
-    assert!(graph.conflicts(
-        ComponentId::PositionFeaturesPassedPawns,
-        ComponentId::EndgamePatterns
-    ));
+    assert!(graph
+        .conflicts(ComponentId::PositionFeaturesCenterControl, ComponentId::PositionalPatterns));
+    assert!(
+        graph.conflicts(ComponentId::PositionFeaturesDevelopment, ComponentId::OpeningPrinciples)
+    );
+    assert!(graph.conflicts(ComponentId::PositionFeaturesPassedPawns, ComponentId::EndgamePatterns));
 
     // Verify complements are registered
-    assert!(graph.complements(
-        ComponentId::PositionFeaturesKingSafety,
-        ComponentId::CastlePatterns
-    ));
+    assert!(graph.complements(ComponentId::PositionFeaturesKingSafety, ComponentId::CastlePatterns));
 
     // Verify requirements are registered
     assert!(graph.requires(ComponentId::EndgamePatterns, ComponentId::PositionFeatures));
@@ -151,10 +142,7 @@ fn test_auto_resolve_conflicts() {
 
     // Get suggestions
     let suggestions = config.suggest_component_resolution();
-    assert!(
-        !suggestions.is_empty(),
-        "Should provide conflict resolution suggestions"
-    );
+    assert!(!suggestions.is_empty(), "Should provide conflict resolution suggestions");
 
     // Test auto-resolve (logs resolutions)
     // Note: auto_resolve_conflicts may return empty if conflicts are handled during evaluation
@@ -212,19 +200,13 @@ fn test_comprehensive_dependency_validation() {
 
     // Validate configuration
     let result = evaluator.validate_configuration();
-    assert!(
-        result.is_ok(),
-        "Validation should succeed (warnings are OK)"
-    );
+    assert!(result.is_ok(), "Validation should succeed (warnings are OK)");
 
     let warnings = result.unwrap();
 
     // Should have some warnings (depending on configuration)
     // We're not asserting specific warnings since default config may or may not have conflicts
-    assert!(
-        warnings.len() >= 0,
-        "Should return warnings (may be empty if no conflicts)"
-    );
+    assert!(warnings.len() >= 0, "Should return warnings (may be empty if no conflicts)");
 }
 
 /// Test dependency graph methods
@@ -305,10 +287,7 @@ fn test_suggest_component_resolution() {
     let suggestions = config.suggest_component_resolution();
 
     // Should provide suggestions for conflicts
-    assert!(
-        !suggestions.is_empty(),
-        "Should provide resolution suggestions"
-    );
+    assert!(!suggestions.is_empty(), "Should provide resolution suggestions");
 
     // Suggestions should contain helpful information
     // Note: suggestions may be empty if no conflicts are detected by the graph

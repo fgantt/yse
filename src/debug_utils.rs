@@ -177,10 +177,7 @@ pub fn end_timing(key: &str, feature: &str) {
                 let search_elapsed = get_search_elapsed_ms();
                 trace_log(
                     feature,
-                    &format!(
-                        "{} completed in {}ms (total: {}ms)",
-                        key, elapsed_ms, search_elapsed
-                    ),
+                    &format!("{} completed in {}ms (total: {}ms)", key, elapsed_ms, search_elapsed),
                 );
             }
         }
@@ -234,16 +231,9 @@ pub fn log_decision(feature: &str, decision: &str, reason: &str, value: Option<i
         return;
     }
 
-    let value_str = if let Some(v) = value {
-        format!(" (value: {})", v)
-    } else {
-        String::new()
-    };
+    let value_str = if let Some(v) = value { format!(" (value: {})", v) } else { String::new() };
 
-    trace_log(
-        feature,
-        &format!("DECISION: {} - {} {}", decision, reason, value_str),
-    );
+    trace_log(feature, &format!("DECISION: {} - {} {}", decision, reason, value_str));
 }
 
 #[cfg(not(feature = "verbose-debug"))]
@@ -259,10 +249,7 @@ pub fn log_move_eval(feature: &str, move_str: &str, score: i32, reason: &str) {
         return;
     }
 
-    trace_log(
-        feature,
-        &format!("MOVE_EVAL: {} -> {} ({})", move_str, score, reason),
-    );
+    trace_log(feature, &format!("MOVE_EVAL: {} -> {} ({})", move_str, score, reason));
 }
 
 #[cfg(not(feature = "verbose-debug"))]
@@ -280,10 +267,7 @@ pub fn log_search_stats(feature: &str, depth: u8, nodes: u64, score: i32, pv: &s
 
     trace_log(
         feature,
-        &format!(
-            "SEARCH_STATS: depth={} nodes={} score={} pv={}",
-            depth, nodes, score, pv
-        ),
+        &format!("SEARCH_STATS: depth={} nodes={} score={} pv={}", depth, nodes, score, pv),
     );
 }
 

@@ -229,11 +229,7 @@ fn bench_cache_efficiency(c: &mut Criterion) {
                     2 => PieceType::Gold,
                     _ => PieceType::Silver,
                 };
-                let player = if i % 2 == 0 {
-                    Player::Black
-                } else {
-                    Player::White
-                };
+                let player = if i % 2 == 0 { Player::Black } else { Player::White };
 
                 let pattern = tables.get_attack_pattern(square as u8, piece_type, player);
                 black_box(pattern);

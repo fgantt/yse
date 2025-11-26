@@ -321,10 +321,7 @@ impl PatternWeights {
                 return Err(format!("Weight '{}' cannot be negative: {}", name, weight));
             }
             if weight > 10.0 {
-                return Err(format!(
-                    "Weight '{}' is too large (max 10.0): {}",
-                    name, weight
-                ));
+                return Err(format!("Weight '{}' is too large (max 10.0): {}", name, weight));
             }
             if !weight.is_finite() {
                 return Err(format!("Weight '{}' must be finite: {}", name, weight));
@@ -392,10 +389,7 @@ impl AdvancedPatternConfig {
         }
 
         if self.cache_size > 10_000_000 {
-            return Err(format!(
-                "cache_size is too large (max 10M): {}",
-                self.cache_size
-            ));
+            return Err(format!("cache_size is too large (max 10M): {}", self.cache_size));
         }
 
         Ok(())
@@ -462,16 +456,8 @@ impl fmt::Display for PatternConfig {
         writeln!(f, "  Advanced:")?;
         writeln!(f, "    - Caching: {}", self.advanced.enable_caching)?;
         writeln!(f, "    - Cache Size: {}", self.advanced.cache_size)?;
-        writeln!(
-            f,
-            "    - Incremental Updates: {}",
-            self.advanced.incremental_updates
-        )?;
-        writeln!(
-            f,
-            "    - Collect Statistics: {}",
-            self.advanced.collect_statistics
-        )?;
+        writeln!(f, "    - Incremental Updates: {}", self.advanced.incremental_updates)?;
+        writeln!(f, "    - Collect Statistics: {}", self.advanced.collect_statistics)?;
         Ok(())
     }
 }

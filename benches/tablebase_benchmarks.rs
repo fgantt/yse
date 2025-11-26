@@ -8,52 +8,25 @@ use shogi_engine::types::{CapturedPieces, Move, Piece, PieceType, Player, Positi
 
 fn build_gold_position() -> (BitboardBoard, CapturedPieces, Player) {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(2, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::Black),
-        Position::new(1, 3),
-    );
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(2, 4));
+    board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(1, 3));
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
     (board, CapturedPieces::new(), Player::Black)
 }
 
 fn build_silver_position() -> (BitboardBoard, CapturedPieces, Player) {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(2, 3),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::Black),
-        Position::new(1, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 3),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(2, 3));
+    board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(1, 4));
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 3));
     (board, CapturedPieces::new(), Player::Black)
 }
 
 fn build_rook_position() -> (BitboardBoard, CapturedPieces, Player) {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(2, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(0, 2),
-    );
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(2, 4));
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(0, 2));
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
     (board, CapturedPieces::new(), Player::Black)
 }
 

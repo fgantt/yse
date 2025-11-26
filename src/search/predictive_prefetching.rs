@@ -303,10 +303,8 @@ impl PredictivePrefetcher {
 
         let mut prediction_with_metadata = prediction;
         prediction_with_metadata.metadata.prediction_time_us = prediction_time;
-        self.prediction_cache.insert(
-            current_hash,
-            (prediction_with_metadata.clone(), Instant::now()),
-        );
+        self.prediction_cache
+            .insert(current_hash, (prediction_with_metadata.clone(), Instant::now()));
 
         prediction_with_metadata
     }
@@ -347,8 +345,7 @@ impl PredictivePrefetcher {
         if let Some(ref move_) = move_info {
             self.recent_accesses.push_back((hash, now, move_.clone()));
         } else {
-            self.recent_accesses
-                .push_back((hash, now, create_dummy_move()));
+            self.recent_accesses.push_back((hash, now, create_dummy_move()));
         }
 
         // Maintain recent accesses size
@@ -562,11 +559,8 @@ impl PredictivePrefetcher {
         }
 
         // Sort by confidence and limit
-        let mut indexed: Vec<(usize, f64)> = combined_confidences
-            .iter()
-            .enumerate()
-            .map(|(i, &c)| (i, c))
-            .collect();
+        let mut indexed: Vec<(usize, f64)> =
+            combined_confidences.iter().enumerate().map(|(i, &c)| (i, c)).collect();
         indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap());
 
         let limited_hashes: Vec<u64> = indexed
@@ -575,11 +569,8 @@ impl PredictivePrefetcher {
             .map(|&(i, _)| combined_hashes[i])
             .collect();
 
-        let limited_confidences: Vec<f64> = indexed
-            .iter()
-            .take(self.config.max_prefetch_entries)
-            .map(|&(_, c)| c)
-            .collect();
+        let limited_confidences: Vec<f64> =
+            indexed.iter().take(self.config.max_prefetch_entries).map(|&(_, c)| c).collect();
 
         PrefetchPrediction {
             predicted_hashes: limited_hashes,
@@ -723,13 +714,8 @@ impl PredictivePrefetcher {
     /// Update access patterns
     fn update_access_patterns(&mut self, _hash: u64, _move_info: Option<Move>) {
         // Create pattern from recent accesses
-        let recent_hashes: Vec<u64> = self
-            .recent_accesses
-            .iter()
-            .rev()
-            .take(5)
-            .map(|(h, _, _)| *h)
-            .collect();
+        let recent_hashes: Vec<u64> =
+            self.recent_accesses.iter().rev().take(5).map(|(h, _, _)| *h).collect();
 
         if recent_hashes.len() >= 3 {
             let pattern_key = recent_hashes.clone();
@@ -785,11 +771,7 @@ impl PredictivePrefetcher {
         // Update weights based on recent performance
         for (pattern, _access_pattern) in &self.access_patterns {
             let pattern_key = self.hash_to_pattern(pattern);
-            let current_weight = self
-                .pattern_weights
-                .get(&pattern_key)
-                .copied()
-                .unwrap_or(0.5);
+            let current_weight = self.pattern_weights.get(&pattern_key).copied().unwrap_or(0.5);
 
             // Adjust weight based on frequency and recency
             let frequency_bonus = (_access_pattern.frequency as f64).log10() / 10.0;
@@ -808,13 +790,8 @@ impl PredictivePrefetcher {
     fn analyze_recent_patterns(&mut self) {
         // Analyze the last 50 accesses for new patterns
         let recent_count = self.recent_accesses.len().min(50);
-        let recent_accesses: Vec<(u64, Instant, Move)> = self
-            .recent_accesses
-            .iter()
-            .rev()
-            .take(recent_count)
-            .cloned()
-            .collect();
+        let recent_accesses: Vec<(u64, Instant, Move)> =
+            self.recent_accesses.iter().rev().take(recent_count).cloned().collect();
 
         // Find repeating patterns
         for window_size in 3..=8 {
@@ -878,11 +855,7 @@ impl PredictivePrefetcher {
         let piece_pattern = hashes.iter().take(5).map(|_| PieceType::Pawn).collect();
         let position_pattern = hashes.iter().take(5).map(|h| (h & 0xFF) as u8).collect();
 
-        MovePattern {
-            piece_pattern,
-            position_pattern,
-            depth: hashes.len() as u8,
-        }
+        MovePattern { piece_pattern, position_pattern, depth: hashes.len() as u8 }
     }
 }
 
@@ -940,10 +913,7 @@ mod tests {
         let prediction = prefetcher.predict_next_accesses(current_hash, Some(create_dummy_move()));
 
         assert!(!prediction.predicted_hashes.is_empty());
-        assert_eq!(
-            prediction.predicted_hashes.len(),
-            prediction.confidence_scores.len()
-        );
+        assert_eq!(prediction.predicted_hashes.len(), prediction.confidence_scores.len());
         assert!(prediction.predicted_hashes.len() <= 10); // max_prefetch_entries
 
         // Verify all predicted hashes are different from current

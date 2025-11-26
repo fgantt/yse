@@ -143,10 +143,7 @@ mod performance_benchmarks {
         // Verify data integrity
         let original_stats = book.get_stats();
         let deserialized_stats = deserialized_book.get_stats();
-        assert_eq!(
-            deserialized_stats.position_count,
-            original_stats.position_count
-        );
+        assert_eq!(deserialized_stats.position_count, original_stats.position_count);
         assert_eq!(deserialized_stats.move_count, original_stats.move_count);
     }
 
@@ -241,10 +238,7 @@ mod performance_benchmarks {
 
         println!("Binary size: {} bytes", binary_size);
         println!("JSON size: {} bytes", json_size);
-        println!(
-            "Compression ratio: {:.2}%",
-            (binary_size as f64 / json_size as f64) * 100.0
-        );
+        println!("Compression ratio: {:.2}%", (binary_size as f64 / json_size as f64) * 100.0);
 
         // Binary format should be more compact than JSON
         assert!(binary_size < json_size);
@@ -366,10 +360,7 @@ mod regression_tests {
         // Verify all data is preserved
         let original_stats = original_book.get_stats();
         let deserialized_stats = deserialized_book.get_stats();
-        assert_eq!(
-            deserialized_stats.position_count,
-            original_stats.position_count
-        );
+        assert_eq!(deserialized_stats.position_count, original_stats.position_count);
         assert_eq!(deserialized_stats.move_count, original_stats.move_count);
         assert_eq!(deserialized_book.is_loaded(), original_book.is_loaded());
 
@@ -379,10 +370,7 @@ mod regression_tests {
 
         assert!(original_moves.is_some());
         assert!(deserialized_moves.is_some());
-        assert_eq!(
-            original_moves.unwrap().len(),
-            deserialized_moves.unwrap().len()
-        );
+        assert_eq!(original_moves.unwrap().len(), deserialized_moves.unwrap().len());
     }
 
     #[test]
@@ -495,10 +483,7 @@ mod regression_tests {
         let deserialized_book = OpeningBook::from_binary(&binary_data).unwrap();
         let original_stats = book.get_stats();
         let deserialized_stats = deserialized_book.get_stats();
-        assert_eq!(
-            deserialized_stats.position_count,
-            original_stats.position_count
-        );
+        assert_eq!(deserialized_stats.position_count, original_stats.position_count);
     }
 }
 
@@ -602,10 +587,7 @@ mod stress_tests {
         assert!(serialization_duration.as_millis() < 5000);
 
         println!("Large book lookup time: {:?}", duration);
-        println!(
-            "Large book serialization time: {:?}",
-            serialization_duration
-        );
+        println!("Large book serialization time: {:?}", serialization_duration);
         println!("Large book binary size: {} bytes", binary_data.len());
     }
 

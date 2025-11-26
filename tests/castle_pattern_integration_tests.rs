@@ -130,17 +130,11 @@ fn test_castle_weight_validation() {
 
     // Invalid weight (negative) should fail
     config.weights.castle_weight = -1.0;
-    assert!(matches!(
-        config.validate(),
-        Err(ConfigError::InvalidWeight(_))
-    ));
+    assert!(matches!(config.validate(), Err(ConfigError::InvalidWeight(_))));
 
     // Invalid weight (too large) should fail
     config.weights.castle_weight = 15.0;
-    assert!(matches!(
-        config.validate(),
-        Err(ConfigError::InvalidWeight(_))
-    ));
+    assert!(matches!(config.validate(), Err(ConfigError::InvalidWeight(_))));
 
     // Valid weight (boundary) should pass
     config.weights.castle_weight = 10.0;

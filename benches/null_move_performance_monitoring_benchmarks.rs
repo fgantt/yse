@@ -244,59 +244,55 @@ fn benchmark_nmp_regression_testing(c: &mut Criterion) {
 
     // Test at different depths to ensure consistent performance
     for depth in [3, 4, 5] {
-        group.bench_with_input(
-            BenchmarkId::new("regression", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine_with_config(config.clone());
-                    engine.reset_null_move_stats();
+        group.bench_with_input(BenchmarkId::new("regression", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine_with_config(config.clone());
+                engine.reset_null_move_stats();
 
-                    let start = std::time::Instant::now();
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        1000,
-                    );
-                    let elapsed = start.elapsed();
+                let start = std::time::Instant::now();
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    1000,
+                );
+                let elapsed = start.elapsed();
 
-                    let stats = engine.get_null_move_stats().clone();
-                    let nodes = engine.get_nodes_searched();
-                    let cutoff_rate = stats.cutoff_rate();
-                    let efficiency = stats.efficiency();
+                let stats = engine.get_null_move_stats().clone();
+                let nodes = engine.get_nodes_searched();
+                let cutoff_rate = stats.cutoff_rate();
+                let efficiency = stats.efficiency();
 
-                    // Regression checks (only fail in CI, not in normal benchmarks)
-                    if std::env::var("NMP_REGRESSION_TEST").is_ok() {
-                        let baseline = PerformanceBaseline::default();
-                        if stats.attempts > 0 {
-                            assert!(
-                                cutoff_rate >= baseline.min_cutoff_rate,
-                                "Regression: cutoff rate {} < threshold {}",
-                                cutoff_rate,
-                                baseline.min_cutoff_rate
-                            );
-                            assert!(
-                                efficiency >= baseline.min_efficiency,
-                                "Regression: efficiency {} < threshold {}",
-                                efficiency,
-                                baseline.min_efficiency
-                            );
-                        }
+                // Regression checks (only fail in CI, not in normal benchmarks)
+                if std::env::var("NMP_REGRESSION_TEST").is_ok() {
+                    let baseline = PerformanceBaseline::default();
+                    if stats.attempts > 0 {
                         assert!(
-                            elapsed.as_secs_f64() * 1000.0 <= baseline.max_search_time_ms,
-                            "Regression: search time {}ms > threshold {}ms",
-                            elapsed.as_secs_f64() * 1000.0,
-                            baseline.max_search_time_ms
+                            cutoff_rate >= baseline.min_cutoff_rate,
+                            "Regression: cutoff rate {} < threshold {}",
+                            cutoff_rate,
+                            baseline.min_cutoff_rate
+                        );
+                        assert!(
+                            efficiency >= baseline.min_efficiency,
+                            "Regression: efficiency {} < threshold {}",
+                            efficiency,
+                            baseline.min_efficiency
                         );
                     }
+                    assert!(
+                        elapsed.as_secs_f64() * 1000.0 <= baseline.max_search_time_ms,
+                        "Regression: search time {}ms > threshold {}ms",
+                        elapsed.as_secs_f64() * 1000.0,
+                        baseline.max_search_time_ms
+                    );
+                }
 
-                    black_box((result, elapsed, nodes, cutoff_rate, efficiency))
-                });
-            },
-        );
+                black_box((result, elapsed, nodes, cutoff_rate, efficiency))
+            });
+        });
     }
 
     group.finish();

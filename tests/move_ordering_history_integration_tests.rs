@@ -19,14 +19,7 @@ mod history_heuristic_integration_tests {
         piece_type: PieceType,
         player: Player,
     ) -> Move {
-        Move {
-            from,
-            to,
-            piece_type,
-            player,
-            promotion: false,
-            drop: from.is_none(),
-        }
+        Move { from, to, piece_type, player, promotion: false, drop: from.is_none() }
     }
 
     /// Test history heuristic integration with search depth
@@ -85,11 +78,7 @@ mod history_heuristic_integration_tests {
         orderer.update_history_score(&history_move, 3);
 
         // Order moves - history move should be prioritized
-        let moves = vec![
-            quiet_move.clone(),
-            capture_move.clone(),
-            history_move.clone(),
-        ];
+        let moves = vec![quiet_move.clone(), capture_move.clone(), history_move.clone()];
         let ordered = orderer.order_moves_with_history(&moves);
 
         // Verify history move is first
@@ -182,10 +171,7 @@ mod history_heuristic_integration_tests {
     /// Test history heuristic configuration and customization
     #[test]
     fn test_history_heuristic_configuration() {
-        let custom_weights = OrderingWeights {
-            history_weight: 4000,
-            ..Default::default()
-        };
+        let custom_weights = OrderingWeights { history_weight: 4000, ..Default::default() };
 
         let mut orderer = MoveOrdering::with_config(custom_weights);
         orderer.set_max_history_score(5000);
@@ -292,22 +278,11 @@ mod history_heuristic_integration_tests {
         orderer.update_history_score(&history_move, 3);
 
         // Store PV move
-        orderer.update_pv_move(
-            &board,
-            &captured_pieces,
-            player,
-            depth,
-            pv_move.clone(),
-            100,
-        );
+        orderer.update_pv_move(&board, &captured_pieces, player, depth, pv_move.clone(), 100);
 
         // Order moves with all heuristics
-        let moves = vec![
-            regular_move.clone(),
-            history_move.clone(),
-            killer_move.clone(),
-            pv_move.clone(),
-        ];
+        let moves =
+            vec![regular_move.clone(), history_move.clone(), killer_move.clone(), pv_move.clone()];
         // Task 3.0: No IID move context for this test
         let ordered = orderer.order_moves_with_all_heuristics(
             &moves,

@@ -39,16 +39,9 @@ fn test_sliding_generator_initialization() {
 
     // Initialize sliding generator
     let result = board.init_sliding_generator();
-    assert!(
-        result.is_ok(),
-        "Failed to initialize sliding generator: {:?}",
-        result.err()
-    );
+    assert!(result.is_ok(), "Failed to initialize sliding generator: {:?}", result.err());
 
-    assert!(
-        board.is_sliding_generator_initialized(),
-        "Sliding generator should be initialized"
-    );
+    assert!(board.is_sliding_generator_initialized(), "Sliding generator should be initialized");
 }
 
 #[test]
@@ -62,10 +55,7 @@ fn test_magic_sliding_moves_generation() {
 
     // Place a rook in the center
     let rook_pos = Position::new(4, 4);
-    let rook = Piece {
-        piece_type: PieceType::Rook,
-        player: Player::Black,
-    };
+    let rook = Piece { piece_type: PieceType::Rook, player: Player::Black };
     board.place_piece(rook, rook_pos);
 
     // Generate magic sliding moves
@@ -76,17 +66,9 @@ fn test_magic_sliding_moves_generation() {
 
         // Verify moves are valid
         for move_ in moves {
-            assert_eq!(
-                move_.from,
-                Some(rook_pos),
-                "Move should start from rook position"
-            );
+            assert_eq!(move_.from, Some(rook_pos), "Move should start from rook position");
             assert_eq!(move_.piece_type, PieceType::Rook, "Move should be for rook");
-            assert_eq!(
-                move_.player,
-                Player::Black,
-                "Move should be for black player"
-            );
+            assert_eq!(move_.player, Player::Black, "Move should be for black player");
         }
     }
 }
@@ -98,10 +80,7 @@ fn test_magic_vs_raycast_consistency() {
 
     // Place a bishop
     let bishop_pos = Position::new(3, 3);
-    let bishop = Piece {
-        piece_type: PieceType::Bishop,
-        player: Player::White,
-    };
+    let bishop = Piece { piece_type: PieceType::Bishop, player: Player::White };
     board.place_piece(bishop, bishop_pos);
 
     // Generate magic moves
@@ -109,10 +88,7 @@ fn test_magic_vs_raycast_consistency() {
         board.generate_magic_sliding_moves(bishop_pos, PieceType::Bishop, Player::White);
 
     // Magic moves should be generated
-    assert!(
-        magic_moves.is_some(),
-        "Magic moves should be generated for bishop"
-    );
+    assert!(magic_moves.is_some(), "Magic moves should be generated for bishop");
 
     let moves = magic_moves.unwrap();
     assert!(!moves.is_empty(), "Bishop should have moves");
@@ -125,18 +101,12 @@ fn test_sliding_generator_with_blockers() {
 
     // Place a rook
     let rook_pos = Position::new(4, 4);
-    let rook = Piece {
-        piece_type: PieceType::Rook,
-        player: Player::Black,
-    };
+    let rook = Piece { piece_type: PieceType::Rook, player: Player::Black };
     board.place_piece(rook, rook_pos);
 
     // Place a blocker
     let blocker_pos = Position::new(4, 6);
-    let blocker = Piece {
-        piece_type: PieceType::Pawn,
-        player: Player::White,
-    };
+    let blocker = Piece { piece_type: PieceType::Pawn, player: Player::White };
     board.place_piece(blocker, blocker_pos);
 
     // Generate moves
@@ -160,18 +130,12 @@ fn test_sliding_generator_respects_own_pieces() {
 
     // Place a bishop
     let bishop_pos = Position::new(3, 3);
-    let bishop = Piece {
-        piece_type: PieceType::Bishop,
-        player: Player::Black,
-    };
+    let bishop = Piece { piece_type: PieceType::Bishop, player: Player::Black };
     board.place_piece(bishop, bishop_pos);
 
     // Place own piece in diagonal
     let own_piece_pos = Position::new(5, 5);
-    let own_piece = Piece {
-        piece_type: PieceType::Pawn,
-        player: Player::Black,
-    };
+    let own_piece = Piece { piece_type: PieceType::Pawn, player: Player::Black };
     board.place_piece(own_piece, own_piece_pos);
 
     // Generate moves
@@ -234,14 +198,8 @@ fn test_performance_stats() {
 
     // Should have entries for all squares and piece types
     assert_eq!(stats.total_rook_entries, 81, "Should have 81 rook entries");
-    assert_eq!(
-        stats.total_bishop_entries, 81,
-        "Should have 81 bishop entries"
-    );
-    assert!(
-        stats.total_attack_patterns > 0,
-        "Should have attack patterns"
-    );
+    assert_eq!(stats.total_bishop_entries, 81, "Should have 81 bishop entries");
+    assert!(stats.total_attack_patterns > 0, "Should have attack patterns");
 }
 
 #[test]
@@ -249,15 +207,9 @@ fn test_magic_initialization_progress() {
     let table = MagicTable::new().unwrap();
 
     let (initialized, total) = table.initialization_progress();
-    assert_eq!(
-        initialized, total,
-        "Fully initialized table should show all entries initialized"
-    );
+    assert_eq!(initialized, total, "Fully initialized table should show all entries initialized");
 
-    assert!(
-        table.is_fully_initialized(),
-        "Table should be fully initialized"
-    );
+    assert!(table.is_fully_initialized(), "Table should be fully initialized");
 }
 
 #[test]
@@ -267,24 +219,15 @@ fn test_multiple_pieces_with_magic() {
 
     // Place multiple sliding pieces
     board.place_piece(
-        Piece {
-            piece_type: PieceType::Rook,
-            player: Player::Black,
-        },
+        Piece { piece_type: PieceType::Rook, player: Player::Black },
         Position::new(0, 0),
     );
     board.place_piece(
-        Piece {
-            piece_type: PieceType::Bishop,
-            player: Player::White,
-        },
+        Piece { piece_type: PieceType::Bishop, player: Player::White },
         Position::new(2, 2),
     );
     board.place_piece(
-        Piece {
-            piece_type: PieceType::Rook,
-            player: Player::White,
-        },
+        Piece { piece_type: PieceType::Rook, player: Player::White },
         Position::new(4, 4),
     );
 
@@ -310,10 +253,7 @@ fn test_promoted_pieces_preparation() {
     // This test prepares for future promoted piece integration
 
     let generator = board.get_sliding_generator();
-    assert!(
-        generator.is_some(),
-        "Sliding generator should be available for promoted pieces"
-    );
+    assert!(generator.is_some(), "Sliding generator should be available for promoted pieces");
 }
 
 #[test]
@@ -335,28 +275,14 @@ fn test_edge_case_positions() {
     board.init_sliding_generator().ok();
 
     // Test corners
-    let corners = [
-        Position::new(0, 0),
-        Position::new(0, 8),
-        Position::new(8, 0),
-        Position::new(8, 8),
-    ];
+    let corners =
+        [Position::new(0, 0), Position::new(0, 8), Position::new(8, 0), Position::new(8, 8)];
 
     for corner in corners {
-        board.place_piece(
-            Piece {
-                piece_type: PieceType::Rook,
-                player: Player::Black,
-            },
-            corner,
-        );
+        board.place_piece(Piece { piece_type: PieceType::Rook, player: Player::Black }, corner);
 
         let moves = board.generate_magic_sliding_moves(corner, PieceType::Rook, Player::Black);
-        assert!(
-            moves.is_some(),
-            "Should generate moves from corner {:?}",
-            corner
-        );
+        assert!(moves.is_some(), "Should generate moves from corner {:?}", corner);
 
         board.remove_piece(corner);
     }
@@ -368,53 +294,48 @@ fn test_memory_efficiency() {
     let stats = table.performance_stats();
 
     // Memory efficiency should be reasonable
-    assert!(
-        stats.memory_efficiency > 0.0,
-        "Memory efficiency should be positive"
-    );
-    assert!(
-        stats.memory_efficiency <= 1.0,
-        "Memory efficiency should not exceed 100%"
-    );
+    assert!(stats.memory_efficiency > 0.0, "Memory efficiency should be positive");
+    assert!(stats.memory_efficiency <= 1.0, "Memory efficiency should not exceed 100%");
 }
 
 #[test]
 #[ignore] // Ignore by default - generation takes 60+ seconds
 fn test_precomputed_table_loads_correctly() {
     use std::time::Instant;
-    
+
     let temp_dir = std::env::temp_dir();
     let test_file = temp_dir.join("test_precomputed_magic_table.bin");
-    
+
     // Clean up if file exists
     let _ = fs::remove_file(&test_file);
-    
+
     // Generate a table and save it
     println!("Generating magic table for precomputed test...");
     let gen_start = Instant::now();
     let generated_table = MagicTable::new().unwrap();
     let gen_time = gen_start.elapsed();
     println!("Generation took: {:?}", gen_time);
-    
+
     // Validate generated table
     generated_table.validate().expect("Generated table should be valid");
-    
+
     // Save to file
-    generated_table.save_to_file(&test_file)
+    generated_table
+        .save_to_file(&test_file)
         .expect("Failed to save generated table");
     assert!(test_file.exists(), "Precomputed file should exist");
-    
+
     // Load from file
     println!("Loading precomputed table...");
     let load_start = Instant::now();
-    let loaded_table = MagicTable::load_from_file(&test_file)
-        .expect("Failed to load precomputed table");
+    let loaded_table =
+        MagicTable::load_from_file(&test_file).expect("Failed to load precomputed table");
     let load_time = load_start.elapsed();
     println!("Load took: {:?}", load_time);
-    
+
     // Validate loaded table
     loaded_table.validate().expect("Loaded table should be valid");
-    
+
     // Verify loaded table matches generated table
     assert_eq!(
         generated_table.attack_storage.len(),
@@ -422,47 +343,36 @@ fn test_precomputed_table_loads_correctly() {
         "Attack storage length should match"
     );
     assert_eq!(
-        generated_table.attack_storage,
-        loaded_table.attack_storage,
+        generated_table.attack_storage, loaded_table.attack_storage,
         "Attack storage data should match"
     );
-    
+
     // Verify magic entries match
     for i in 0..81 {
         assert_eq!(
-            generated_table.rook_magics[i],
-            loaded_table.rook_magics[i],
+            generated_table.rook_magics[i], loaded_table.rook_magics[i],
             "Rook magic entry {} should match",
             i
         );
         assert_eq!(
-            generated_table.bishop_magics[i],
-            loaded_table.bishop_magics[i],
+            generated_table.bishop_magics[i], loaded_table.bishop_magics[i],
             "Bishop magic entry {} should match",
             i
         );
     }
-    
+
     // Verify lookup results match for sample positions
     for square in (0..81).step_by(10) {
         let test_occupied = 0x1234567890ABCDEF; // Sample occupied bitboard
         let gen_rook = generated_table.get_attacks(square, PieceType::Rook, test_occupied);
         let load_rook = loaded_table.get_attacks(square, PieceType::Rook, test_occupied);
-        assert_eq!(
-            gen_rook, load_rook,
-            "Rook attacks should match for square {}",
-            square
-        );
-        
+        assert_eq!(gen_rook, load_rook, "Rook attacks should match for square {}", square);
+
         let gen_bishop = generated_table.get_attacks(square, PieceType::Bishop, test_occupied);
         let load_bishop = loaded_table.get_attacks(square, PieceType::Bishop, test_occupied);
-        assert_eq!(
-            gen_bishop, load_bishop,
-            "Bishop attacks should match for square {}",
-            square
-        );
+        assert_eq!(gen_bishop, load_bishop, "Bishop attacks should match for square {}", square);
     }
-    
+
     // Verify load time is much faster than generation time
     // (This is the main benefit of precomputed tables)
     if gen_time.as_millis() > 0 {
@@ -477,7 +387,7 @@ fn test_precomputed_table_loads_correctly() {
             gen_time
         );
     }
-    
+
     // Clean up
     let _ = fs::remove_file(&test_file);
 }
@@ -486,16 +396,16 @@ fn test_precomputed_table_loads_correctly() {
 #[ignore] // Ignore by default - compression takes time
 fn test_compressed_table_produces_identical_results() {
     use shogi_engine::bitboards::magic::compressed_table::CompressedMagicTable;
-    
+
     // Generate a magic table
     let table = MagicTable::new().unwrap();
     table.validate().expect("Table should be valid");
-    
+
     // Create compressed and uncompressed versions
-    let compressed = CompressedMagicTable::from_table(table.clone())
-        .expect("Should create compressed table");
+    let compressed =
+        CompressedMagicTable::from_table(table.clone()).expect("Should create compressed table");
     let uncompressed = CompressedMagicTable::uncompressed(table.clone());
-    
+
     // Test various positions
     let test_cases = vec![
         (0u8, PieceType::Rook, 0u128),
@@ -506,13 +416,13 @@ fn test_compressed_table_produces_identical_results() {
         (20u8, PieceType::Rook, 0xFFFFFFFFFFFFFFFFu128),
         (60u8, PieceType::Bishop, 0x1234567890ABCDEFu128),
     ];
-    
+
     // Verify compressed and uncompressed produce identical results
     for (square, piece_type, occupied) in test_cases {
         let base_attacks = table.get_attacks(square, piece_type, occupied);
         let compressed_attacks = compressed.get_attacks(square, piece_type, occupied);
         let uncompressed_attacks = uncompressed.get_attacks(square, piece_type, occupied);
-        
+
         assert_eq!(
             base_attacks, compressed_attacks,
             "Compressed attacks should match base for square {} piece {:?}",
@@ -524,14 +434,14 @@ fn test_compressed_table_produces_identical_results() {
             square, piece_type
         );
     }
-    
+
     // Test all squares systematically (sample)
     for square in (0..81).step_by(5) {
         for piece_type in [PieceType::Rook, PieceType::Bishop] {
             let test_occupied = (square as u128) * 0x1234567890ABCDEF;
             let base_attacks = table.get_attacks(square, piece_type, test_occupied);
             let compressed_attacks = compressed.get_attacks(square, piece_type, test_occupied);
-            
+
             assert_eq!(
                 base_attacks, compressed_attacks,
                 "Compressed attacks should match base for square {} piece {:?}",
@@ -546,20 +456,20 @@ fn test_compressed_table_produces_identical_results() {
 fn test_compression_memory_usage_comparison() {
     use shogi_engine::bitboards::magic::compressed_table::CompressedMagicTable;
     use std::alloc::{GlobalAlloc, Layout, System};
-    
+
     // Generate a magic table
     let table = MagicTable::new().unwrap();
-    
+
     // Measure original size
     let original_size = table.attack_storage.len() * std::mem::size_of::<u128>();
-    
+
     // Create compressed version
-    let compressed = CompressedMagicTable::from_table(table.clone())
-        .expect("Should create compressed table");
-    
+    let compressed =
+        CompressedMagicTable::from_table(table.clone()).expect("Should create compressed table");
+
     // Get compression statistics
     let stats = compressed.stats();
-    
+
     // Verify compression achieved some savings (if enabled)
     if compressed.is_compressed() {
         assert!(
@@ -567,26 +477,31 @@ fn test_compression_memory_usage_comparison() {
             "Compression ratio should be >= 1.0, got {}",
             stats.compression_ratio
         );
-        
+
         // Print compression results
         println!("\n=== Compression Memory Usage ===");
-        println!("Original size: {} bytes ({:.2} MB)", 
-                 stats.original_size, 
-                 stats.original_size as f64 / 1_000_000.0);
-        println!("Compressed size: {} bytes ({:.2} MB)", 
-                 stats.compressed_size, 
-                 stats.compressed_size as f64 / 1_000_000.0);
+        println!(
+            "Original size: {} bytes ({:.2} MB)",
+            stats.original_size,
+            stats.original_size as f64 / 1_000_000.0
+        );
+        println!(
+            "Compressed size: {} bytes ({:.2} MB)",
+            stats.compressed_size,
+            stats.compressed_size as f64 / 1_000_000.0
+        );
         println!("Compression ratio: {:.2}x", stats.compression_ratio);
-        println!("Memory saved: {} bytes ({:.2} MB)", 
-                 stats.memory_saved, 
-                 stats.memory_saved as f64 / 1_000_000.0);
-        println!("Memory reduction: {:.1}%", 
-                 (1.0 - 1.0 / stats.compression_ratio) * 100.0);
+        println!(
+            "Memory saved: {} bytes ({:.2} MB)",
+            stats.memory_saved,
+            stats.memory_saved as f64 / 1_000_000.0
+        );
+        println!("Memory reduction: {:.1}%", (1.0 - 1.0 / stats.compression_ratio) * 100.0);
         println!("Deduplication: {} patterns", stats.dedup_count);
         println!("RLE encoded: {} patterns", stats.rle_count);
         println!("Delta encoded: {} patterns", stats.delta_count);
         println!("Raw storage: {} patterns", stats.raw_count);
-        
+
         // Verify we achieved some memory savings (at least 5% reduction)
         let reduction = (1.0 - 1.0 / stats.compression_ratio) * 100.0;
         assert!(
@@ -601,25 +516,23 @@ fn test_compression_memory_usage_comparison() {
 #[ignore] // Long-running test
 fn test_progress_reporting() {
     use shogi_engine::bitboards::magic::MagicTable;
-    
+
     let mut progress_values = Vec::new();
     let table = MagicTable::new_with_progress(Some(move |progress| {
         progress_values.push(progress);
-    })).unwrap();
-    
+    }))
+    .unwrap();
+
     // Verify progress was reported
     assert!(!progress_values.is_empty());
     assert!(progress_values[0] >= 0.0);
     assert!(*progress_values.last().unwrap() >= 1.0);
-    
+
     // Verify progress is monotonic
     for i in 1..progress_values.len() {
-        assert!(
-            progress_values[i] >= progress_values[i - 1],
-            "Progress should be monotonic"
-        );
+        assert!(progress_values[i] >= progress_values[i - 1], "Progress should be monotonic");
     }
-    
+
     // Verify table is fully initialized
     assert!(table.is_fully_initialized());
 }
@@ -628,23 +541,23 @@ fn test_progress_reporting() {
 #[ignore] // Long-running test
 fn test_parallel_initialization() {
     use shogi_engine::bitboards::magic::parallel_init::ParallelInitializer;
-    
+
     let initializer = ParallelInitializer::new();
     let table = initializer.initialize().unwrap();
-    
+
     // Verify table is fully initialized
     assert!(table.is_fully_initialized());
-    
+
     // Verify correctness by comparing with sequential
     let seq_table = initializer.initialize_sequential().unwrap();
-    
+
     // Compare attack patterns for sample positions
     for square in (0..81).step_by(10) {
         for piece_type in [PieceType::Rook, PieceType::Bishop] {
             let test_occupied = (square as u128) * 0x1234567890ABCDEF;
             let par_attacks = table.get_attacks(square, piece_type, test_occupied);
             let seq_attacks = seq_table.get_attacks(square, piece_type, test_occupied);
-            
+
             assert_eq!(
                 par_attacks, seq_attacks,
                 "Parallel and sequential should produce identical results for square {} piece {:?}",
@@ -658,19 +571,18 @@ fn test_parallel_initialization() {
 #[ignore] // Long-running test
 fn test_parallel_initialization_with_progress() {
     use shogi_engine::bitboards::magic::parallel_init::ParallelInitializer;
-    
+
     let mut progress_values = Vec::new();
-    let initializer = ParallelInitializer::new()
-        .with_progress_callback(move |progress| {
-            progress_values.push(progress);
-        });
-    
+    let initializer = ParallelInitializer::new().with_progress_callback(move |progress| {
+        progress_values.push(progress);
+    });
+
     let table = initializer.initialize().unwrap();
-    
+
     // Verify progress was reported
     assert!(!progress_values.is_empty());
     assert!(*progress_values.last().unwrap() >= 1.0);
-    
+
     // Verify table is fully initialized
     assert!(table.is_fully_initialized());
 }
@@ -678,20 +590,20 @@ fn test_parallel_initialization_with_progress() {
 #[test]
 fn test_lazy_initialization() {
     use shogi_engine::bitboards::magic::lazy_init::LazyMagicTable;
-    
+
     let table = LazyMagicTable::new().unwrap();
-    
+
     // Initially no squares initialized
     assert!(!table.is_square_initialized(0, PieceType::Rook));
     assert!(!table.is_square_initialized(40, PieceType::Bishop));
-    
+
     // Access triggers initialization
     let _attacks1 = table.get_attacks(0, PieceType::Rook, 0);
     assert!(table.is_square_initialized(0, PieceType::Rook));
-    
+
     let _attacks2 = table.get_attacks(40, PieceType::Bishop, 0);
     assert!(table.is_square_initialized(40, PieceType::Bishop));
-    
+
     // Verify stats
     let stats = table.stats();
     assert!(stats.lazy_init_count >= 2);
@@ -703,18 +615,18 @@ fn test_lazy_initialization() {
 fn test_lazy_vs_full_initialization() {
     use shogi_engine::bitboards::magic::lazy_init::LazyMagicTable;
     use shogi_engine::bitboards::magic::MagicTable;
-    
+
     // Test that lazy initialization produces same results as full initialization
     let lazy_table = LazyMagicTable::new().unwrap();
     let full_table = MagicTable::new().unwrap();
-    
+
     // Access all squares in lazy table
     for square in 0..81 {
         for piece_type in [PieceType::Rook, PieceType::Bishop] {
             let test_occupied = (square as u128) * 0x1234567890ABCDEF;
             let lazy_attacks = lazy_table.get_attacks(square, piece_type, test_occupied);
             let full_attacks = full_table.get_attacks(square, piece_type, test_occupied);
-            
+
             assert_eq!(
                 lazy_attacks, full_attacks,
                 "Lazy and full initialization should produce identical results for square {} piece {:?}",
@@ -722,7 +634,7 @@ fn test_lazy_vs_full_initialization() {
             );
         }
     }
-    
+
     // Verify all squares are now initialized
     for square in 0..81 {
         assert!(lazy_table.is_square_initialized(square, PieceType::Rook));
@@ -733,21 +645,21 @@ fn test_lazy_vs_full_initialization() {
 #[test]
 fn test_bounds_checking_and_fallback() {
     use shogi_engine::bitboards::magic::MagicTable;
-    
+
     // Create a partially initialized table
     let mut table = MagicTable::default();
-    
+
     // Initialize only one square
     table.initialize_rook_square(40).unwrap();
-    
+
     // Access initialized square - should work
     let attacks1 = table.get_attacks(40, PieceType::Rook, 0);
     assert_ne!(attacks1, 0, "Initialized square should return attacks");
-    
+
     // Access uninitialized square - should fallback to ray-casting
     let attacks2 = table.get_attacks(0, PieceType::Rook, 0);
     assert_ne!(attacks2, 0, "Uninitialized square should fallback to ray-casting");
-    
+
     // Access invalid piece type - should return empty
     let attacks3 = table.get_attacks(40, PieceType::Pawn, 0);
     assert_eq!(attacks3, 0, "Invalid piece type should return empty");
@@ -756,10 +668,10 @@ fn test_bounds_checking_and_fallback() {
 #[test]
 fn test_validate_integrity() {
     use shogi_engine::bitboards::magic::MagicTable;
-    
+
     // Create and initialize a table
     let table = MagicTable::new().unwrap();
-    
+
     // Validate integrity should pass
     let result = table.validate_integrity();
     assert!(result.is_ok(), "Valid table should pass integrity check");
@@ -767,17 +679,19 @@ fn test_validate_integrity() {
 
 #[test]
 fn test_lru_cache_eviction() {
-    use shogi_engine::bitboards::magic::attack_generator::{AttackGenerator, AttackGeneratorConfig};
-    
+    use shogi_engine::bitboards::magic::attack_generator::{
+        AttackGenerator, AttackGeneratorConfig,
+    };
+
     // Create generator with small cache size
     let config = AttackGeneratorConfig { cache_size: 5 };
     let mut generator = AttackGenerator::with_config(config);
-    
+
     // Fill cache beyond capacity
     for i in 0..10 {
         let _ = generator.generate_attack_pattern(0, PieceType::Rook, i);
     }
-    
+
     // Check cache stats
     let stats = generator.cache_stats();
     assert_eq!(stats.cache_size, 5, "Cache should be at capacity");
@@ -788,14 +702,14 @@ fn test_lru_cache_eviction() {
 #[test]
 fn test_lru_cache_hit_rate() {
     use shogi_engine::bitboards::magic::attack_generator::AttackGenerator;
-    
+
     let mut generator = AttackGenerator::new();
-    
+
     // Generate same pattern multiple times
     for _ in 0..100 {
         let _ = generator.generate_attack_pattern(40, PieceType::Rook, 0);
     }
-    
+
     let stats = generator.cache_stats();
     assert!(stats.hits > 0, "Should have cache hits");
     assert!(stats.hit_rate > 0.5, "Hit rate should be high for repeated patterns");
@@ -804,20 +718,20 @@ fn test_lru_cache_hit_rate() {
 #[test]
 fn test_cache_clear() {
     use shogi_engine::bitboards::magic::attack_generator::AttackGenerator;
-    
+
     let mut generator = AttackGenerator::new();
-    
+
     // Generate some patterns
     for i in 0..10 {
         let _ = generator.generate_attack_pattern(0, PieceType::Rook, i);
     }
-    
+
     let stats_before = generator.cache_stats();
     assert!(stats_before.cache_size > 0, "Cache should have entries");
-    
+
     // Clear cache
     generator.clear_cache();
-    
+
     let stats_after = generator.cache_stats();
     assert_eq!(stats_after.cache_size, 0, "Cache should be empty after clear");
     assert_eq!(stats_after.hits, 0, "Stats should be reset");
@@ -829,17 +743,17 @@ fn test_cache_clear() {
 fn test_fallback_on_corrupted_table() {
     use shogi_engine::bitboards::magic::MagicTable;
     use shogi_engine::types::MagicBitboard;
-    
+
     // Create a table and corrupt it
     let mut table = MagicTable::new().unwrap();
-    
+
     // Corrupt an entry by setting invalid attack_base
     table.rook_magics[40].attack_base = 999999999;
-    
+
     // Access should fallback to ray-casting
     let attacks = table.get_attacks(40, PieceType::Rook, 0);
     assert_ne!(attacks, 0, "Should fallback to ray-casting on corruption");
-    
+
     // Verify fallback produces correct results by comparing with fresh generator
     use shogi_engine::bitboards::magic::attack_generator::AttackGenerator;
     let mut generator = AttackGenerator::new();
@@ -850,15 +764,20 @@ fn test_fallback_on_corrupted_table() {
 #[test]
 fn test_improved_heuristics_find_valid_magic() {
     use shogi_engine::bitboards::magic::magic_finder::MagicFinder;
-    
+
     let mut finder = MagicFinder::new();
-    
+
     // Test that improved heuristics can find magic numbers
     for square in [0, 40, 80] {
         for piece_type in [PieceType::Rook, PieceType::Bishop] {
             let result = finder.find_magic_number(square, piece_type);
-            assert!(result.is_ok(), "Should find magic number for square {} piece {:?}", square, piece_type);
-            
+            assert!(
+                result.is_ok(),
+                "Should find magic number for square {} piece {:?}",
+                square,
+                piece_type
+            );
+
             let magic_result = result.unwrap();
             assert_ne!(magic_result.magic_number, 0, "Magic number should be non-zero");
             assert!(magic_result.table_size > 0, "Table size should be positive");
@@ -870,15 +789,15 @@ fn test_improved_heuristics_find_valid_magic() {
 fn test_lookup_engine_caching() {
     use shogi_engine::bitboards::magic::lookup_engine::LookupEngine;
     use shogi_engine::types::MagicTable;
-    
+
     let table = MagicTable::new().unwrap();
     let engine = LookupEngine::new(table);
-    
+
     // First access (cache miss)
     let _attacks1 = engine.get_attacks(40, PieceType::Rook, 0);
     let metrics1 = engine.get_metrics();
     assert_eq!(metrics1.cache_misses, 1);
-    
+
     // Second access (cache hit)
     let _attacks2 = engine.get_attacks(40, PieceType::Rook, 0);
     let metrics2 = engine.get_metrics();
@@ -891,25 +810,25 @@ fn test_memory_mapped_table() {
     use shogi_engine::bitboards::magic::memory_mapped::MemoryMappedMagicTable;
     use shogi_engine::bitboards::magic::MagicTable;
     use std::fs;
-    
+
     let temp_dir = std::env::temp_dir();
     let test_file = temp_dir.join("test_mmap_magic_table.bin");
-    
+
     // Generate and save a table
     let table = MagicTable::new().unwrap();
     table.save_to_file(&test_file).unwrap();
-    
+
     // Load as memory-mapped
     let mmap_table = MemoryMappedMagicTable::from_file(&test_file).unwrap();
-    
+
     // Verify it works
     let attacks = mmap_table.get_attacks(40, PieceType::Rook, 0);
     assert_ne!(attacks, 0);
-    
+
     // Verify stats
     let stats = mmap_table.memory_stats();
     assert!(stats.file_size > 0);
-    
+
     // Cleanup
     let _ = fs::remove_file(&test_file);
 }

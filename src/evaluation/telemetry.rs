@@ -23,20 +23,14 @@ impl EvaluationTelemetry {
 
         // Export weight contributions
         for (component, contribution) in &self.weight_contributions {
-            tuning_data.insert(
-                format!("weight_contribution_{}", component),
-                *contribution as f64,
-            );
+            tuning_data.insert(format!("weight_contribution_{}", component), *contribution as f64);
         }
 
         // Export component scores if available
         // Note: TaperedEvaluationSnapshot doesn't have mg/eg fields, so we skip them
 
         if let Some(material) = &self.material {
-            tuning_data.insert(
-                "material_score".to_string(),
-                material.phase_weighted_total as f64,
-            );
+            tuning_data.insert("material_score".to_string(), material.phase_weighted_total as f64);
         }
 
         if let Some(position_features) = &self.position_features {
@@ -48,10 +42,8 @@ impl EvaluationTelemetry {
                 "pawn_structure_evals".to_string(),
                 position_features.pawn_structure_evals as f64,
             );
-            tuning_data.insert(
-                "mobility_evals".to_string(),
-                position_features.mobility_evals as f64,
-            );
+            tuning_data
+                .insert("mobility_evals".to_string(), position_features.mobility_evals as f64);
         }
 
         tuning_data
@@ -112,9 +104,7 @@ impl EvaluationTelemetry {
         let mut parts: Vec<String> = self
             .weight_contributions
             .iter()
-            .map(|(component, contribution)| {
-                format!("{}: {:.2}%", component, contribution * 100.0)
-            })
+            .map(|(component, contribution)| format!("{}: {:.2}%", component, contribution * 100.0))
             .collect();
 
         parts.sort();
@@ -136,9 +126,7 @@ pub struct TelemetryAggregator {
 impl TelemetryAggregator {
     /// Create a new telemetry aggregator
     pub fn new() -> Self {
-        Self {
-            snapshots: Vec::new(),
-        }
+        Self { snapshots: Vec::new() }
     }
 
     /// Add a telemetry snapshot
@@ -223,9 +211,7 @@ pub struct TelemetryCollector {
 impl TelemetryCollector {
     /// Create a new telemetry collector
     pub fn new() -> Self {
-        Self {
-            component_contributions: HashMap::new(),
-        }
+        Self { component_contributions: HashMap::new() }
     }
 
     /// Record a component contribution
@@ -305,4 +291,3 @@ mod tests {
         assert_eq!(collector.contributions().get("material"), Some(&0.3));
     }
 }
-

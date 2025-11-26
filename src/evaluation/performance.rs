@@ -102,11 +102,7 @@ impl OptimizedEvaluator {
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> i32 {
-        let start = if self.profiler.enabled {
-            Some(Instant::now())
-        } else {
-            None
-        };
+        let start = if self.profiler.enabled { Some(Instant::now()) } else { None };
 
         // 1. Calculate phase (with caching)
         let phase = self.calculate_phase_optimized(board, captured_pieces);
@@ -118,8 +114,7 @@ impl OptimizedEvaluator {
         let final_score = self.interpolate_optimized(total_score, phase);
 
         if let Some(start_time) = start {
-            self.profiler
-                .record_evaluation(start_time.elapsed().as_nanos() as u64);
+            self.profiler.record_evaluation(start_time.elapsed().as_nanos() as u64);
         }
 
         final_score
@@ -132,19 +127,12 @@ impl OptimizedEvaluator {
         board: &BitboardBoard,
         captured_pieces: &CapturedPieces,
     ) -> i32 {
-        let start = if self.profiler.enabled {
-            Some(Instant::now())
-        } else {
-            None
-        };
+        let start = if self.profiler.enabled { Some(Instant::now()) } else { None };
 
-        let phase = self
-            .tapered_eval
-            .calculate_game_phase(board, captured_pieces);
+        let phase = self.tapered_eval.calculate_game_phase(board, captured_pieces);
 
         if let Some(start_time) = start {
-            self.profiler
-                .record_phase_calculation(start_time.elapsed().as_nanos() as u64);
+            self.profiler.record_phase_calculation(start_time.elapsed().as_nanos() as u64);
         }
 
         phase
@@ -161,9 +149,7 @@ impl OptimizedEvaluator {
         let mut total = TaperedScore::default();
 
         // Material evaluation (fast)
-        total += self
-            .material_eval
-            .evaluate_material(board, player, captured_pieces);
+        total += self.material_eval.evaluate_material(board, player, captured_pieces);
 
         // Piece-square tables (ultra-fast O(1) lookups)
         total += self.evaluate_pst_optimized(board, player);
@@ -174,11 +160,7 @@ impl OptimizedEvaluator {
     /// Optimized piece-square table evaluation
     #[inline(always)]
     fn evaluate_pst_optimized(&mut self, board: &BitboardBoard, player: Player) -> TaperedScore {
-        let start = if self.profiler.enabled {
-            Some(Instant::now())
-        } else {
-            None
-        };
+        let start = if self.profiler.enabled { Some(Instant::now()) } else { None };
 
         let mut score = TaperedScore::default();
 
@@ -199,8 +181,7 @@ impl OptimizedEvaluator {
         }
 
         if let Some(start_time) = start {
-            self.profiler
-                .record_pst_lookup(start_time.elapsed().as_nanos() as u64);
+            self.profiler.record_pst_lookup(start_time.elapsed().as_nanos() as u64);
         }
 
         self.profiler.record_pst_score(score.mg, score.eg);
@@ -211,20 +192,13 @@ impl OptimizedEvaluator {
     /// Optimized interpolation (fast path)
     #[inline(always)]
     fn interpolate_optimized(&mut self, score: TaperedScore, phase: i32) -> i32 {
-        let start = if self.profiler.enabled {
-            Some(Instant::now())
-        } else {
-            None
-        };
+        let start = if self.profiler.enabled { Some(Instant::now()) } else { None };
 
         // Use fast linear interpolation
-        let result = self
-            .phase_transition
-            .interpolate(score, phase, InterpolationMethod::Linear);
+        let result = self.phase_transition.interpolate(score, phase, InterpolationMethod::Linear);
 
         if let Some(start_time) = start {
-            self.profiler
-                .record_interpolation(start_time.elapsed().as_nanos() as u64);
+            self.profiler.record_interpolation(start_time.elapsed().as_nanos() as u64);
         }
 
         result
@@ -322,10 +296,7 @@ impl PerformanceProfiler {
 
     /// Create a new profiler with sample rate (Task 3.0)
     pub fn with_sample_rate(sample_rate: u32) -> Self {
-        Self {
-            sample_rate,
-            ..Self::new()
-        }
+        Self { sample_rate, ..Self::new() }
     }
 
     /// Set sample rate (Task 3.0)
@@ -356,7 +327,7 @@ impl PerformanceProfiler {
         }
 
         let overhead_start = std::time::Instant::now();
-        
+
         self.operation_timings
             .entry(operation.to_string())
             .or_insert_with(Vec::new)
@@ -370,7 +341,8 @@ impl PerformanceProfiler {
 
     /// Get hot path summary - top N slowest operations (Task 3.0)
     pub fn get_hot_path_summary(&self, top_n: usize) -> Vec<HotPathEntry> {
-        let mut entries: Vec<HotPathEntry> = self.operation_timings
+        let mut entries: Vec<HotPathEntry> = self
+            .operation_timings
             .iter()
             .map(|(name, timings)| {
                 let avg = if timings.is_empty() {
@@ -393,8 +365,12 @@ impl PerformanceProfiler {
             .collect();
 
         // Sort by average time (descending)
-        entries.sort_by(|a, b| b.average_time_ns.partial_cmp(&a.average_time_ns).unwrap_or(std::cmp::Ordering::Equal));
-        
+        entries.sort_by(|a, b| {
+            b.average_time_ns
+                .partial_cmp(&a.average_time_ns)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         entries.into_iter().take(top_n).collect()
     }
 
@@ -483,10 +459,9 @@ impl PerformanceProfiler {
             return 0.0;
         }
         // Estimate total time profiled (sum of all operation times)
-        let total_profiled_time: u64 = self.operation_timings.values()
-            .flat_map(|timings| timings.iter())
-            .sum();
-        
+        let total_profiled_time: u64 =
+            self.operation_timings.values().flat_map(|timings| timings.iter()).sum();
+
         if total_profiled_time == 0 {
             return 0.0;
         }
@@ -668,10 +643,7 @@ impl PerformanceProfiler {
     pub fn scoped_enable(&mut self) -> PerformanceProfilerGuard<'_> {
         let previous_state = self.enabled;
         self.enabled = true;
-        PerformanceProfilerGuard {
-            profiler: self,
-            previous_state,
-        }
+        PerformanceProfilerGuard { profiler: self, previous_state }
     }
 }
 

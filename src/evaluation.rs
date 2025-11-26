@@ -4,25 +4,24 @@ use crate::moves::MoveGenerator;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{PieceType, Player, Position};
 use crate::types::evaluation::{
-    CENTER_CONTROL_CENTER_SQUARES_INDEX, CENTER_CONTROL_OUTPOST_INDEX, CENTER_CONTROL_SPACE_INDEX,
-    COORDINATION_ATTACK_PATTERNS_INDEX, COORDINATION_BISHOP_PAIR_INDEX,
-    COORDINATION_CONNECTED_ROOKS_INDEX, COORDINATION_PIECE_SUPPORT_INDEX,
-    DEVELOPMENT_CASTLING_INDEX, DEVELOPMENT_MAJOR_PIECES_INDEX, DEVELOPMENT_MINOR_PIECES_INDEX,
-    GAME_PHASE_MAX, KingSafetyConfig, KING_SAFETY_ATTACK_INDEX, KING_SAFETY_CASTLE_INDEX,
-    KING_SAFETY_EXPOSURE_INDEX, KING_SAFETY_SHIELD_INDEX, KING_SAFETY_THREAT_INDEX,
-    MATERIAL_BISHOP_INDEX, MATERIAL_GOLD_INDEX, MATERIAL_KING_INDEX, MATERIAL_KNIGHT_INDEX,
-    MATERIAL_LANCE_INDEX, MATERIAL_PAWN_INDEX, MATERIAL_PROMOTED_BISHOP_INDEX,
-    MATERIAL_PROMOTED_KNIGHT_INDEX, MATERIAL_PROMOTED_LANCE_INDEX, MATERIAL_PROMOTED_PAWN_INDEX,
-    MATERIAL_PROMOTED_ROOK_INDEX, MATERIAL_PROMOTED_SILVER_INDEX, MATERIAL_ROOK_INDEX,
-    MATERIAL_SILVER_INDEX, MOBILITY_ATTACK_MOVES_INDEX, MOBILITY_DEFENSE_MOVES_INDEX,
-    MOBILITY_PIECE_MOVES_INDEX, MOBILITY_TOTAL_MOVES_INDEX, NUM_EVAL_FEATURES,
-    NUM_MG_FEATURES, PAWN_STRUCTURE_ADVANCEMENT_INDEX, PAWN_STRUCTURE_BACKWARD_INDEX,
-    PAWN_STRUCTURE_CHAINS_INDEX, PAWN_STRUCTURE_ISOLATION_INDEX, PAWN_STRUCTURE_PASSED_INDEX,
-    PIECE_PHASE_VALUES, PST_BISHOP_EG_START, PST_BISHOP_MG_START, PST_GOLD_EG_START,
-    PST_GOLD_MG_START, PST_KNIGHT_EG_START, PST_KNIGHT_MG_START, PST_LANCE_EG_START,
-    PST_LANCE_MG_START, PST_PAWN_EG_START, PST_PAWN_MG_START, PST_ROOK_EG_START,
-    PST_ROOK_MG_START, PST_SILVER_EG_START, PST_SILVER_MG_START, TaperedEvaluationConfig,
-    TaperedScore,
+    KingSafetyConfig, TaperedEvaluationConfig, TaperedScore, CENTER_CONTROL_CENTER_SQUARES_INDEX,
+    CENTER_CONTROL_OUTPOST_INDEX, CENTER_CONTROL_SPACE_INDEX, COORDINATION_ATTACK_PATTERNS_INDEX,
+    COORDINATION_BISHOP_PAIR_INDEX, COORDINATION_CONNECTED_ROOKS_INDEX,
+    COORDINATION_PIECE_SUPPORT_INDEX, DEVELOPMENT_CASTLING_INDEX, DEVELOPMENT_MAJOR_PIECES_INDEX,
+    DEVELOPMENT_MINOR_PIECES_INDEX, GAME_PHASE_MAX, KING_SAFETY_ATTACK_INDEX,
+    KING_SAFETY_CASTLE_INDEX, KING_SAFETY_EXPOSURE_INDEX, KING_SAFETY_SHIELD_INDEX,
+    KING_SAFETY_THREAT_INDEX, MATERIAL_BISHOP_INDEX, MATERIAL_GOLD_INDEX, MATERIAL_KING_INDEX,
+    MATERIAL_KNIGHT_INDEX, MATERIAL_LANCE_INDEX, MATERIAL_PAWN_INDEX,
+    MATERIAL_PROMOTED_BISHOP_INDEX, MATERIAL_PROMOTED_KNIGHT_INDEX, MATERIAL_PROMOTED_LANCE_INDEX,
+    MATERIAL_PROMOTED_PAWN_INDEX, MATERIAL_PROMOTED_ROOK_INDEX, MATERIAL_PROMOTED_SILVER_INDEX,
+    MATERIAL_ROOK_INDEX, MATERIAL_SILVER_INDEX, MOBILITY_ATTACK_MOVES_INDEX,
+    MOBILITY_DEFENSE_MOVES_INDEX, MOBILITY_PIECE_MOVES_INDEX, MOBILITY_TOTAL_MOVES_INDEX,
+    NUM_EVAL_FEATURES, NUM_MG_FEATURES, PAWN_STRUCTURE_ADVANCEMENT_INDEX,
+    PAWN_STRUCTURE_BACKWARD_INDEX, PAWN_STRUCTURE_CHAINS_INDEX, PAWN_STRUCTURE_ISOLATION_INDEX,
+    PAWN_STRUCTURE_PASSED_INDEX, PIECE_PHASE_VALUES, PST_BISHOP_EG_START, PST_BISHOP_MG_START,
+    PST_GOLD_EG_START, PST_GOLD_MG_START, PST_KNIGHT_EG_START, PST_KNIGHT_MG_START,
+    PST_LANCE_EG_START, PST_LANCE_MG_START, PST_PAWN_EG_START, PST_PAWN_MG_START,
+    PST_ROOK_EG_START, PST_ROOK_MG_START, PST_SILVER_EG_START, PST_SILVER_MG_START,
 };
 use crate::weights::{WeightError, WeightManager};
 
@@ -51,6 +50,8 @@ pub mod tuning;
 // Compatibility module removed - no longer needed
 pub mod advanced_integration;
 pub mod eval_cache;
+#[cfg(feature = "simd")]
+pub mod evaluation_simd;
 pub mod pattern_advanced;
 pub mod pattern_cache;
 pub mod pattern_comprehensive_tests;
@@ -62,8 +63,6 @@ pub mod positional_patterns;
 pub mod tactical_patterns;
 #[cfg(feature = "simd")]
 pub mod tactical_patterns_simd;
-#[cfg(feature = "simd")]
-pub mod evaluation_simd;
 
 // Newly extracted modules (Task 1.0: File Modularization)
 pub mod component_coordinator;
@@ -265,16 +264,12 @@ impl PositionEvaluator {
     pub fn get_integrated_statistics(
         &self,
     ) -> Option<crate::evaluation::statistics::EvaluationStatistics> {
-        self.integrated_evaluator
-            .as_ref()
-            .map(|e| e.get_statistics())
+        self.integrated_evaluator.as_ref().map(|e| e.get_statistics())
     }
 
     /// Get the latest telemetry snapshot from the integrated evaluator.
     pub fn get_evaluation_telemetry(&self) -> Option<EvaluationTelemetry> {
-        self.integrated_evaluator
-            .as_ref()
-            .and_then(|e| e.telemetry_snapshot())
+        self.integrated_evaluator.as_ref().and_then(|e| e.telemetry_snapshot())
     }
 
     /// Get reference to advanced integration
@@ -477,7 +472,8 @@ impl PositionEvaluator {
         // Cache miss or cache disabled - evaluate normally
         let score = if self.use_integrated_eval {
             if let Some(ref mut integrated) = self.integrated_evaluator {
-                let result = integrated.evaluate_with_move_count(board, player, captured_pieces, None);
+                let result =
+                    integrated.evaluate_with_move_count(board, player, captured_pieces, None);
                 result.score
             } else {
                 self.evaluate_with_context(
@@ -554,7 +550,6 @@ impl PositionEvaluator {
         has_check: bool,
         is_quiescence: bool,
     ) -> i32 {
-        
         // Try cache first (with depth information)
         if self.use_cache && depth > 0 {
             if let Some(ref cache) = self.eval_cache {
@@ -604,8 +599,6 @@ impl PositionEvaluator {
         has_check: bool,
         is_quiescence: bool,
     ) -> i32 {
-
-
         // Check if tapered evaluation is enabled
         if !self.config.enabled {
             // Fall back to simple evaluation (just material and basic positional)
@@ -655,8 +648,6 @@ impl PositionEvaluator {
 
         // 4. Return score from perspective of current player
         // Note: The evaluation is already calculated from the perspective of the given player
-        
-
 
         final_score
     }
@@ -712,8 +703,7 @@ impl PositionEvaluator {
                 if let Some(piece) = board.get_piece(pos) {
                     let piece_value = piece.piece_type.base_value();
                     let positional_value =
-                        self.piece_square_tables
-                            .get_value(piece.piece_type, pos, piece.player);
+                        self.piece_square_tables.get_value(piece.piece_type, pos, piece.player);
 
                     // Material values are the same in all phases
                     let material_score = TaperedScore::new(piece_value);
@@ -846,8 +836,7 @@ impl PositionEvaluator {
 
             let result = if is_quiescence {
                 // Skip king safety in quiescence search
-                self.king_safety_evaluator
-                    .evaluate_quiescence(board, player)
+                self.king_safety_evaluator.evaluate_quiescence(board, player)
             } else {
                 // Use selective evaluation for better performance
                 self.king_safety_evaluator.evaluate_selective(
@@ -890,16 +879,7 @@ impl PositionEvaluator {
         let king_pos = king_pos.unwrap();
 
         // King shield: reward for having friendly pieces nearby (more important in middlegame)
-        let shield_offsets = [
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, -1),
-            (0, 1),
-            (1, -1),
-            (1, 0),
-            (1, 1),
-        ];
+        let shield_offsets = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
 
         for (dr, dc) in shield_offsets.iter() {
             let new_row = king_pos.row as i8 + dr;
@@ -1866,30 +1846,12 @@ mod tests {
         // Test pieces that don't contribute to game phase
         assert_eq!(evaluator.get_piece_phase_value(PieceType::Pawn), None);
         assert_eq!(evaluator.get_piece_phase_value(PieceType::King), None);
-        assert_eq!(
-            evaluator.get_piece_phase_value(PieceType::PromotedPawn),
-            Some(2)
-        );
-        assert_eq!(
-            evaluator.get_piece_phase_value(PieceType::PromotedLance),
-            Some(2)
-        );
-        assert_eq!(
-            evaluator.get_piece_phase_value(PieceType::PromotedKnight),
-            Some(2)
-        );
-        assert_eq!(
-            evaluator.get_piece_phase_value(PieceType::PromotedSilver),
-            Some(2)
-        );
-        assert_eq!(
-            evaluator.get_piece_phase_value(PieceType::PromotedBishop),
-            Some(3)
-        );
-        assert_eq!(
-            evaluator.get_piece_phase_value(PieceType::PromotedRook),
-            Some(3)
-        );
+        assert_eq!(evaluator.get_piece_phase_value(PieceType::PromotedPawn), Some(2));
+        assert_eq!(evaluator.get_piece_phase_value(PieceType::PromotedLance), Some(2));
+        assert_eq!(evaluator.get_piece_phase_value(PieceType::PromotedKnight), Some(2));
+        assert_eq!(evaluator.get_piece_phase_value(PieceType::PromotedSilver), Some(2));
+        assert_eq!(evaluator.get_piece_phase_value(PieceType::PromotedBishop), Some(3));
+        assert_eq!(evaluator.get_piece_phase_value(PieceType::PromotedRook), Some(3));
     }
 
     #[test]
@@ -1938,16 +1900,8 @@ mod tests {
     fn test_piece_phase_values_consistency() {
         // Test that all piece types in PIECE_PHASE_VALUES have valid phase values
         for (piece_type, phase_value) in &PIECE_PHASE_VALUES {
-            assert!(
-                *phase_value > 0,
-                "Phase value for {:?} should be positive",
-                piece_type
-            );
-            assert!(
-                *phase_value <= 10,
-                "Phase value for {:?} should be reasonable",
-                piece_type
-            );
+            assert!(*phase_value > 0, "Phase value for {:?} should be positive", piece_type);
+            assert!(*phase_value <= 10, "Phase value for {:?} should be reasonable", piece_type);
         }
 
         // Test that we have the expected number of piece types
@@ -1971,9 +1925,7 @@ mod tests {
 
         for expected_piece in &expected_pieces {
             assert!(
-                PIECE_PHASE_VALUES
-                    .iter()
-                    .any(|(pt, _)| *pt == *expected_piece),
+                PIECE_PHASE_VALUES.iter().any(|(pt, _)| *pt == *expected_piece),
                 "Piece type {:?} should be in PIECE_PHASE_VALUES",
                 expected_piece
             );
@@ -2165,10 +2117,7 @@ mod tests {
             || center_control.mg != center_control.eg
             || development.mg != development.eg;
 
-        assert!(
-            has_differences,
-            "Some evaluation components should have different mg/eg values"
-        );
+        assert!(has_differences, "Some evaluation components should have different mg/eg values");
     }
 
     #[test]
@@ -2181,11 +2130,7 @@ mod tests {
         let score = evaluator.evaluate(&board, Player::Black, &captured_pieces);
 
         // Score should be a reasonable integer value
-        assert!(
-            score.abs() < 10000,
-            "Evaluation score should be reasonable: {}",
-            score
-        );
+        assert!(score.abs() < 10000, "Evaluation score should be reasonable: {}", score);
 
         // Test with different game phases
         let game_phase = evaluator.calculate_game_phase(&board, &captured_pieces);
@@ -2211,16 +2156,8 @@ mod tests {
         // Scores should be opposite (or very close due to rounding)
         // Note: The evaluation is calculated from the perspective of the given player,
         // so both scores should be positive for the starting position
-        assert!(
-            black_score > 0,
-            "Black evaluation should be positive: {}",
-            black_score
-        );
-        assert!(
-            white_score > 0,
-            "White evaluation should be positive: {}",
-            white_score
-        );
+        assert!(black_score > 0, "Black evaluation should be positive: {}", black_score);
+        assert!(white_score > 0, "White evaluation should be positive: {}", white_score);
     }
 
     #[test]
@@ -2342,19 +2279,11 @@ mod tests {
 
         // Test negative phase (should still work)
         let phase_neg = test_score.interpolate(-1);
-        assert!(
-            phase_neg >= 100,
-            "Negative phase should be reasonable: {}",
-            phase_neg
-        );
+        assert!(phase_neg >= 100, "Negative phase should be reasonable: {}", phase_neg);
 
         // Test phase > 256 (should still work)
         let phase_large = test_score.interpolate(300);
-        assert!(
-            phase_large < 100,
-            "Large phase should favor mg even more: {}",
-            phase_large
-        );
+        assert!(phase_large < 100, "Large phase should favor mg even more: {}", phase_large);
     }
 
     #[test]
@@ -2370,10 +2299,7 @@ mod tests {
         let score1 = evaluator.evaluate(&board, Player::Black, &captured_pieces);
         let score2 = evaluator.evaluate(&board, Player::Black, &captured_pieces);
 
-        assert_eq!(
-            score1, score2,
-            "Evaluation should be consistent across calls"
-        );
+        assert_eq!(score1, score2, "Evaluation should be consistent across calls");
 
         // Test that phase calculation is consistent
         let phase1 = evaluator.calculate_game_phase(&board, &captured_pieces);
@@ -2428,16 +2354,8 @@ mod tests {
         let diff_0_1 = (phase_1_score - phase_0_score).abs();
         let diff_255_256 = (phase_256_score - phase_255_score).abs();
 
-        assert!(
-            diff_0_1 <= 1,
-            "Smooth transition at phase 0-1: {}",
-            diff_0_1
-        );
-        assert!(
-            diff_255_256 <= 1,
-            "Smooth transition at phase 255-256: {}",
-            diff_255_256
-        );
+        assert!(diff_0_1 <= 1, "Smooth transition at phase 0-1: {}", diff_0_1);
+        assert!(diff_255_256 <= 1, "Smooth transition at phase 255-256: {}", diff_255_256);
     }
 
     #[test]
@@ -2527,12 +2445,7 @@ mod tests {
 
         // All features should be finite numbers
         for (i, &feature) in features.iter().enumerate() {
-            assert!(
-                feature.is_finite(),
-                "Feature {} should be finite, got {}",
-                i,
-                feature
-            );
+            assert!(feature.is_finite(), "Feature {} should be finite, got {}", i, feature);
         }
     }
 
@@ -2618,18 +2531,9 @@ mod tests {
         assert_eq!(black_features.len(), white_features.len());
 
         // Material features should be opposite for symmetric position
-        assert_eq!(
-            black_features[MATERIAL_PAWN_INDEX],
-            -white_features[MATERIAL_PAWN_INDEX]
-        );
-        assert_eq!(
-            black_features[MATERIAL_ROOK_INDEX],
-            -white_features[MATERIAL_ROOK_INDEX]
-        );
-        assert_eq!(
-            black_features[MATERIAL_KING_INDEX],
-            -white_features[MATERIAL_KING_INDEX]
-        );
+        assert_eq!(black_features[MATERIAL_PAWN_INDEX], -white_features[MATERIAL_PAWN_INDEX]);
+        assert_eq!(black_features[MATERIAL_ROOK_INDEX], -white_features[MATERIAL_ROOK_INDEX]);
+        assert_eq!(black_features[MATERIAL_KING_INDEX], -white_features[MATERIAL_KING_INDEX]);
     }
 
     #[test]
@@ -3219,11 +3123,6 @@ mod tests {
 
         // Scores should be similar (within reasonable tolerance)
         let diff = (coordination_black.mg - coordination_white.mg).abs();
-        assert!(
-            diff < 50,
-            "Black: {:?}, White: {:?}",
-            coordination_black,
-            coordination_white
-        );
+        assert!(diff < 50, "Black: {:?}, White: {:?}", coordination_black, coordination_white);
     }
 }

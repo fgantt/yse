@@ -146,19 +146,12 @@ fn demonstrate_performance_benefits() {
     // Simulate intensive search with prefetching
     let search_hashes = (0..100).map(|i| 0x1000 + i).collect::<Vec<_>>();
 
-    println!(
-        "Simulating intensive search with {} positions...",
-        search_hashes.len()
-    );
+    println!("Simulating intensive search with {} positions...", search_hashes.len());
 
     let start_time = std::time::Instant::now();
 
     for (i, &hash) in search_hashes.iter().enumerate() {
-        let move_info = if i % 3 == 0 {
-            Some(create_sample_move())
-        } else {
-            None
-        };
+        let move_info = if i % 3 == 0 { Some(create_sample_move()) } else { None };
 
         // Predict and prefetch
         let prediction = prefetcher.predict_next_accesses(hash, move_info.clone());
@@ -176,10 +169,7 @@ fn demonstrate_performance_benefits() {
 
     let stats = prefetcher.get_stats();
     println!("Total time: {:?}", total_time);
-    println!(
-        "Predictions: {}, Prefetches: {}",
-        stats.total_predictions, stats.total_prefetches
-    );
+    println!("Predictions: {}, Prefetches: {}", stats.total_predictions, stats.total_prefetches);
     println!("Hit rate: {:.1}%", stats.avg_hit_rate * 100.0);
     println!("Avg prediction time: {:.1}μs", stats.avg_prediction_time_us);
 
@@ -239,18 +229,11 @@ fn demonstrate_pattern_recognition() {
     );
 
     // Check if predicted hashes match the pattern
-    let pattern_matches = prediction
-        .predicted_hashes
-        .iter()
-        .filter(|&&h| pattern1.contains(&h))
-        .count();
+    let pattern_matches =
+        prediction.predicted_hashes.iter().filter(|&&h| pattern1.contains(&h)).count();
 
     if !prediction.predicted_hashes.is_empty() {
-        println!(
-            "Pattern matches: {}/{}",
-            pattern_matches,
-            prediction.predicted_hashes.len()
-        );
+        println!("Pattern matches: {}/{}", pattern_matches, prediction.predicted_hashes.len());
     } else {
         println!("Pattern matches: 0/0 (no predictions yet)");
     }
@@ -266,10 +249,7 @@ fn demonstrate_cache_efficiency() {
     // Test cache hit rates with repeated predictions
     let test_hashes = vec![0x1111, 0x2222, 0x3333, 0x4444, 0x5555];
 
-    println!(
-        "Testing cache efficiency with {} test hashes...",
-        test_hashes.len()
-    );
+    println!("Testing cache efficiency with {} test hashes...", test_hashes.len());
 
     let mut first_pass_metadata = Vec::new();
     for &hash in &test_hashes {
@@ -299,10 +279,7 @@ fn demonstrate_cache_efficiency() {
 
     // Third pass: test cache utilization
     let average_cache_hit_rate = prefetcher.get_stats().avg_hit_rate.max(0.0);
-    println!(
-        "Average cache hit rate across predictions: {:.1}%",
-        average_cache_hit_rate * 100.0
-    );
+    println!("Average cache hit rate across predictions: {:.1}%", average_cache_hit_rate * 100.0);
     println!("Configured cache capacity: {} entries", cache_capacity);
 
     // Test cache eviction
@@ -356,10 +333,7 @@ fn create_knight_move() -> Move {
         player: Player::Black,
         is_promotion: false,
         is_capture: true,
-        captured_piece: Some(Piece {
-            piece_type: PieceType::Pawn,
-            player: Player::White,
-        }),
+        captured_piece: Some(Piece { piece_type: PieceType::Pawn, player: Player::White }),
         gives_check: false,
         is_recapture: false,
     }

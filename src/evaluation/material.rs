@@ -27,11 +27,11 @@
 //! ```
 
 use crate::bitboards::BitboardBoard;
-use crate::utils::telemetry::debug_log;
 use crate::evaluation::material_value_loader::MaterialValueLoader;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{PieceType, Player, Position};
 use crate::types::evaluation::TaperedScore;
+use crate::utils::telemetry::debug_log;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::io::Read;
@@ -166,12 +166,10 @@ impl MaterialValueSet {
 
     pub fn from_reader<R: Read>(mut reader: R) -> Result<Self, MaterialValueSetError> {
         let mut data = Vec::new();
-        reader
-            .read_to_end(&mut data)
-            .map_err(|err| MaterialValueSetError::Io {
-                path: PathBuf::from("<reader>"),
-                message: err.to_string(),
-            })?;
+        reader.read_to_end(&mut data).map_err(|err| MaterialValueSetError::Io {
+            path: PathBuf::from("<reader>"),
+            message: err.to_string(),
+        })?;
         Self::from_json_bytes(&data)
     }
 
@@ -189,12 +187,10 @@ impl MaterialValueSet {
         match extension.as_str() {
             "json" => Self::from_json_bytes(&data),
             "toml" => Self::from_toml_bytes(&data),
-            "" => Err(MaterialValueSetError::UnsupportedFormat {
-                extension: "<missing>".to_string(),
-            }),
-            other => Err(MaterialValueSetError::UnsupportedFormat {
-                extension: other.to_string(),
-            }),
+            "" => {
+                Err(MaterialValueSetError::UnsupportedFormat { extension: "<missing>".to_string() })
+            }
+            other => Err(MaterialValueSetError::UnsupportedFormat { extension: other.to_string() }),
         }
     }
 
@@ -206,9 +202,7 @@ impl MaterialValueSet {
     fn from_json_bytes(bytes: &[u8]) -> Result<Self, MaterialValueSetError> {
         let value_set: MaterialValueSet = serde_json::from_slice(bytes)
             .map_err(|err| MaterialValueSetError::Parse(err.to_string()))?;
-        value_set
-            .validate()
-            .map_err(MaterialValueSetError::Validation)?;
+        value_set.validate().map_err(MaterialValueSetError::Validation)?;
         Ok(value_set)
     }
 
@@ -217,9 +211,7 @@ impl MaterialValueSet {
             .map_err(|err| MaterialValueSetError::Parse(err.to_string()))?;
         let value_set: MaterialValueSet =
             toml::from_str(text).map_err(|err| MaterialValueSetError::Parse(err.to_string()))?;
-        value_set
-            .validate()
-            .map_err(MaterialValueSetError::Validation)?;
+        value_set.validate().map_err(MaterialValueSetError::Validation)?;
         Ok(value_set)
     }
 
@@ -305,10 +297,7 @@ pub enum MaterialValueSetError {
     #[error("Unsupported material value file format: `{extension}`")]
     UnsupportedFormat { extension: String },
     #[error("Unable to read material value file `{path:?}`: {message}")]
-    Io {
-        path: std::path::PathBuf,
-        message: String,
-    },
+    Io { path: std::path::PathBuf, message: String },
     #[error("Failed to parse material value set: {0}")]
     Parse(String),
     #[error("Invalid material value set: {0}")]
@@ -448,11 +437,7 @@ impl MaterialEvaluator {
     /// Create a new MaterialEvaluator with custom configuration
     pub fn with_config(config: MaterialEvaluationConfig) -> Self {
         let value_set = Self::select_value_set(&config);
-        Self {
-            config,
-            stats: MaterialEvaluationStats::default(),
-            value_set,
-        }
+        Self { config, stats: MaterialEvaluationStats::default(), value_set }
     }
 
     /// Get the current configuration
@@ -538,12 +523,12 @@ impl MaterialEvaluator {
     }
 
     /// Evaluate material for pieces on the board
-    /// 
+    ///
     /// Uses SIMD-optimized batch evaluation when the `simd` feature is enabled
     /// and `enable_simd` config flag is true, falling back to scalar implementation otherwise.
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// When SIMD is enabled, uses batch operations to process multiple piece types
     /// simultaneously, achieving 2-3x speedup over scalar implementation.
     fn evaluate_board_material(
@@ -558,10 +543,10 @@ impl MaterialEvaluator {
             if self.config.enable_simd {
                 // Record SIMD evaluation call
                 crate::utils::telemetry::SIMD_TELEMETRY.record_simd_evaluation();
-                
+
                 // Use SIMD batch evaluation
                 let simd_evaluator = SimdEvaluator::new();
-                
+
                 // Build piece values list for batch evaluation
                 let piece_values: Vec<_> = (0..PieceType::COUNT)
                     .map(|i| {
@@ -569,9 +554,9 @@ impl MaterialEvaluator {
                         (piece_type, self.get_piece_value(piece_type))
                     })
                     .collect();
-                
+
                 let score = simd_evaluator.evaluate_material_batch(board, &piece_values, player);
-                
+
                 // Build contribution for telemetry (still needed for statistics)
                 // This is a single pass and much cheaper than the score calculation
                 for row in 0..9 {
@@ -587,12 +572,12 @@ impl MaterialEvaluator {
                         }
                     }
                 }
-                
+
                 return score;
             }
             // Fall through to scalar implementation if SIMD disabled at runtime
         }
-        
+
         #[cfg(feature = "material_fast_loop")]
         if self.config.enable_fast_loop {
             return self.evaluate_board_material_fast(board, player, contribution);
@@ -603,7 +588,7 @@ impl MaterialEvaluator {
             // Record scalar evaluation call
             #[cfg(feature = "simd")]
             crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_evaluation();
-            
+
             let mut score = TaperedScore::default();
 
             for row in 0..9 {
@@ -670,12 +655,12 @@ impl MaterialEvaluator {
 
     /// Evaluate material for captured pieces (pieces in hand)
     /// Evaluate hand material (captured pieces)
-    /// 
+    ///
     /// Uses SIMD-optimized batch evaluation when the `simd` feature is enabled
     /// and `enable_simd` config flag is true, falling back to scalar implementation otherwise.
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// When SIMD is enabled, uses batch operations to process multiple piece types
     /// simultaneously, achieving 2-3x speedup over scalar implementation.
     fn evaluate_hand_material(
@@ -690,10 +675,10 @@ impl MaterialEvaluator {
             if self.config.enable_simd {
                 // Record SIMD evaluation call
                 crate::utils::telemetry::SIMD_TELEMETRY.record_simd_evaluation();
-                
+
                 // Use SIMD batch evaluation
                 let simd_evaluator = SimdEvaluator::new();
-                
+
                 // Build piece values list for batch evaluation
                 let piece_values: Vec<_> = (0..PieceType::COUNT)
                     .map(|i| {
@@ -701,9 +686,13 @@ impl MaterialEvaluator {
                         (piece_type, self.get_hand_piece_value(piece_type))
                     })
                     .collect();
-                
-                let score = simd_evaluator.evaluate_hand_material_batch(captured_pieces, &piece_values, player);
-                
+
+                let score = simd_evaluator.evaluate_hand_material_batch(
+                    captured_pieces,
+                    &piece_values,
+                    player,
+                );
+
                 // Build contribution for telemetry (still needed for statistics)
                 // This is a single pass and much cheaper than the score calculation
                 let player_captures = match player {
@@ -714,7 +703,7 @@ impl MaterialEvaluator {
                     Player::Black => &captured_pieces.white,
                     Player::White => &captured_pieces.black,
                 };
-                
+
                 for &piece_type in player_captures {
                     let value = self.get_hand_piece_value(piece_type);
                     contribution.add_hand(piece_type, value, true);
@@ -723,12 +712,12 @@ impl MaterialEvaluator {
                     let value = self.get_hand_piece_value(piece_type);
                     contribution.add_hand(piece_type, value, false);
                 }
-                
+
                 return score;
             }
             // Fall through to scalar implementation if SIMD disabled at runtime
         }
-        
+
         #[cfg(feature = "material_fast_loop")]
         if self.config.enable_fast_loop {
             return self.evaluate_hand_material_fast(captured_pieces, player, contribution);
@@ -739,7 +728,7 @@ impl MaterialEvaluator {
             // Record scalar evaluation call
             #[cfg(feature = "simd")]
             crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_evaluation();
-            
+
             let mut score = TaperedScore::default();
 
             // Get captured pieces for this player
@@ -907,7 +896,7 @@ pub struct MaterialEvaluationConfig {
     #[serde(default)]
     pub enable_fast_loop: bool,
     /// Enable SIMD-optimized material evaluation
-    /// 
+    ///
     /// Only effective when the `simd` feature is enabled at compile time.
     #[cfg(feature = "simd")]
     #[serde(default = "default_simd_enabled")]
@@ -1185,10 +1174,7 @@ mod tests {
         let research_rook = research_eval.get_piece_value(PieceType::Rook);
         let classic_rook = classic_eval.get_piece_value(PieceType::Rook);
 
-        assert_ne!(
-            (research_rook.mg, research_rook.eg),
-            (classic_rook.mg, classic_rook.eg)
-        );
+        assert_ne!((research_rook.mg, research_rook.eg), (classic_rook.mg, classic_rook.eg));
     }
 
     #[test]
@@ -1210,24 +1196,15 @@ mod tests {
         let research_score = research_eval.evaluate_material(&board, Player::Black, &captured);
         let classic_score = classic_eval.evaluate_material(&board, Player::Black, &captured);
 
-        assert_ne!(
-            (research_score.mg, research_score.eg),
-            (classic_score.mg, classic_score.eg)
-        );
+        assert_ne!((research_score.mg, research_score.eg), (classic_score.mg, classic_score.eg));
     }
 
     #[test]
     fn test_material_stats_track_contributions() {
         let mut evaluator = MaterialEvaluator::new();
         let mut board = BitboardBoard::empty();
-        board.place_piece(
-            Piece::new(PieceType::Rook, Player::Black),
-            Position::new(4, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Bishop, Player::White),
-            Position::new(4, 5),
-        );
+        board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 4));
+        board.place_piece(Piece::new(PieceType::Bishop, Player::White), Position::new(4, 5));
 
         let mut captured = CapturedPieces::new();
         captured.add_piece(PieceType::Pawn, Player::Black);
@@ -1259,14 +1236,8 @@ mod tests {
         assert_eq!(silver_contrib.eg, -(silver_value.eg as i64));
 
         let hand_balance = stats.hand_balance();
-        assert_eq!(
-            hand_balance.mg,
-            pawn_value.mg as i64 - silver_value.mg as i64
-        );
-        assert_eq!(
-            hand_balance.eg,
-            pawn_value.eg as i64 - silver_value.eg as i64
-        );
+        assert_eq!(hand_balance.mg, pawn_value.mg as i64 - silver_value.mg as i64);
+        assert_eq!(hand_balance.eg, pawn_value.eg as i64 - silver_value.eg as i64);
     }
 
     #[test]
@@ -1284,9 +1255,7 @@ mod tests {
         custom_set.id = "custom".into();
         custom_set.board_values[PieceType::Pawn.as_index()].mg += 10;
         let mut temp_file = NamedTempFile::new().expect("temp material file");
-        custom_set
-            .to_writer(&mut temp_file)
-            .expect("write custom material file");
+        custom_set.to_writer(&mut temp_file).expect("write custom material file");
 
         let mut config = MaterialEvaluationConfig::default();
         config.use_research_values = true;
@@ -1300,28 +1269,17 @@ mod tests {
     #[test]
     fn test_material_delta_matches_full_evaluation() {
         let mut base_board = BitboardBoard::empty();
-        base_board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(8, 4),
-        );
-        base_board.place_piece(
-            Piece::new(PieceType::King, Player::White),
-            Position::new(0, 4),
-        );
+        base_board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
+        base_board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
         let base_captured = CapturedPieces::new();
 
         let mut full_evaluator = MaterialEvaluator::new();
         let _ = full_evaluator.evaluate_material(&base_board, Player::Black, &base_captured);
 
         let mut updated_board = base_board.clone();
-        updated_board.place_piece(
-            Piece::new(PieceType::Rook, Player::Black),
-            Position::new(4, 4),
-        );
-        updated_board.place_piece(
-            Piece::new(PieceType::Silver, Player::White),
-            Position::new(3, 3),
-        );
+        updated_board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 4));
+        updated_board
+            .place_piece(Piece::new(PieceType::Silver, Player::White), Position::new(3, 3));
 
         let mut updated_captured = CapturedPieces::new();
         updated_captured.add_piece(PieceType::Pawn, Player::Black);
@@ -1413,10 +1371,7 @@ mod tests {
         assert!(rook.eg > rook.mg, "Rook should be more valuable in endgame");
 
         let bishop = evaluator.get_piece_value(PieceType::Bishop);
-        assert!(
-            bishop.eg > bishop.mg,
-            "Bishop should be more valuable in endgame"
-        );
+        assert!(bishop.eg > bishop.mg, "Bishop should be more valuable in endgame");
 
         let pawn = evaluator.get_piece_value(PieceType::Pawn);
         assert!(pawn.eg > pawn.mg, "Pawn should be more valuable in endgame");

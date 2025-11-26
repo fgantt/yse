@@ -148,10 +148,7 @@ mod tests {
         assert_eq!(evaluator.patterns.len(), 3);
 
         let rook_pin = evaluator.patterns.iter().find(|p| p.name == "Rook Pin");
-        let bishop_skewer = evaluator
-            .patterns
-            .iter()
-            .find(|p| p.name == "Bishop Skewer");
+        let bishop_skewer = evaluator.patterns.iter().find(|p| p.name == "Bishop Skewer");
         let knight_fork = evaluator.patterns.iter().find(|p| p.name == "Knight Fork");
 
         assert!(rook_pin.is_some());

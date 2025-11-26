@@ -18,114 +18,69 @@ mod end_to_end_tests {
 
         // Black Mino castle
         board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::King, player: Player::Black },
             Position::new(8, 4),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Gold,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Gold, player: Player::Black },
             Position::new(7, 3),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Silver,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Silver, player: Player::Black },
             Position::new(6, 3),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Pawn,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Pawn, player: Player::Black },
             Position::new(6, 2),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Pawn,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Pawn, player: Player::Black },
             Position::new(7, 2),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Pawn,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Pawn, player: Player::Black },
             Position::new(8, 2),
         );
 
         // White Anaguma castle
         board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::King, player: Player::White },
             Position::new(0, 4),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Gold,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Gold, player: Player::White },
             Position::new(1, 4),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Silver,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Silver, player: Player::White },
             Position::new(2, 4),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Pawn,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Pawn, player: Player::White },
             Position::new(2, 3),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Pawn,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Pawn, player: Player::White },
             Position::new(2, 5),
         );
 
         // White attacking pieces
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Rook,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Rook, player: Player::White },
             Position::new(5, 4),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Bishop,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Bishop, player: Player::White },
             Position::new(4, 3),
         );
 
         // Black attacking pieces
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Rook,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Rook, player: Player::Black },
             Position::new(3, 4),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Bishop,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Bishop, player: Player::Black },
             Position::new(4, 5),
         );
 
@@ -138,53 +93,35 @@ mod end_to_end_tests {
 
         // Black king
         board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::King, player: Player::Black },
             Position::new(8, 4),
         );
 
         // Black piece that will be pinned
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Gold,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Gold, player: Player::Black },
             Position::new(7, 4),
         );
 
         // White rook pinning the gold
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Rook,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Rook, player: Player::White },
             Position::new(6, 4),
         );
 
         // White knight creating a fork threat
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Knight,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Knight, player: Player::White },
             Position::new(6, 2),
         );
 
         // Black pieces that could be forked
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Silver,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Silver, player: Player::Black },
             Position::new(7, 3),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Gold,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Gold, player: Player::Black },
             Position::new(7, 5),
         );
 
@@ -268,75 +205,45 @@ mod real_game_position_tests {
         // Set up a typical middlegame position
         // Black pieces
         board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::King, player: Player::Black },
             Position::new(8, 4),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Gold,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Gold, player: Player::Black },
             Position::new(7, 3),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Silver,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Silver, player: Player::Black },
             Position::new(6, 3),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Rook,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Rook, player: Player::Black },
             Position::new(5, 4),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Bishop,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Bishop, player: Player::Black },
             Position::new(4, 5),
         );
 
         // White pieces
         board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::King, player: Player::White },
             Position::new(0, 4),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Gold,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Gold, player: Player::White },
             Position::new(1, 4),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Silver,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Silver, player: Player::White },
             Position::new(2, 4),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Rook,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Rook, player: Player::White },
             Position::new(3, 4),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Bishop,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Bishop, player: Player::White },
             Position::new(4, 3),
         );
 
@@ -387,11 +294,7 @@ mod performance_tests {
         let duration = start.elapsed();
 
         // Should complete 1000 evaluations in reasonable time
-        assert!(
-            duration.as_millis() < 1000,
-            "Evaluation too slow: {}ms",
-            duration.as_millis()
-        );
+        assert!(duration.as_millis() < 1000, "Evaluation too slow: {}ms", duration.as_millis());
     }
 
     #[test]
@@ -426,11 +329,7 @@ mod performance_tests {
         let duration = start.elapsed();
 
         // Should complete 1000 evaluations in reasonable time
-        assert!(
-            duration.as_millis() < 500,
-            "Attack analysis too slow: {}ms",
-            duration.as_millis()
-        );
+        assert!(duration.as_millis() < 500, "Attack analysis too slow: {}ms", duration.as_millis());
     }
 
     #[test]
@@ -532,10 +431,7 @@ mod edge_case_tests {
         // Move king to corner
         let mut board = BitboardBoard::empty();
         board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::King, player: Player::Black },
             Position::new(8, 0),
         );
 
@@ -553,10 +449,7 @@ mod edge_case_tests {
         // Move king to center
         let mut board = BitboardBoard::empty();
         board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::King, player: Player::Black },
             Position::new(4, 4),
         );
 

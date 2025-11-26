@@ -44,65 +44,57 @@ fn validate_nmp_performance_improvements(c: &mut Criterion) {
     // Test at different depths
     for depth in [3, 4, 5, 6] {
         // Compare NMP enabled vs disabled
-        group.bench_with_input(
-            BenchmarkId::new("nmp_enabled", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = SearchEngine::new(None, 16);
-                    let mut config = engine.get_null_move_config().clone();
-                    config.enabled = true;
-                    engine.update_null_move_config(config).unwrap();
-                    engine.reset_null_move_stats();
+        group.bench_with_input(BenchmarkId::new("nmp_enabled", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = SearchEngine::new(None, 16);
+                let mut config = engine.get_null_move_config().clone();
+                config.enabled = true;
+                engine.update_null_move_config(config).unwrap();
+                engine.reset_null_move_stats();
 
-                    let start = Instant::now();
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        5000,
-                    );
-                    let elapsed = start.elapsed();
+                let start = Instant::now();
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    5000,
+                );
+                let elapsed = start.elapsed();
 
-                    let stats = engine.get_null_move_stats().clone();
-                    let nodes = engine.get_nodes_searched();
+                let stats = engine.get_null_move_stats().clone();
+                let nodes = engine.get_nodes_searched();
 
-                    black_box((result, elapsed, nodes, stats))
-                });
-            },
-        );
+                black_box((result, elapsed, nodes, stats))
+            });
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("nmp_disabled", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = SearchEngine::new(None, 16);
-                    let mut config = engine.get_null_move_config().clone();
-                    config.enabled = false;
-                    engine.update_null_move_config(config).unwrap();
-                    engine.reset_null_move_stats();
+        group.bench_with_input(BenchmarkId::new("nmp_disabled", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = SearchEngine::new(None, 16);
+                let mut config = engine.get_null_move_config().clone();
+                config.enabled = false;
+                engine.update_null_move_config(config).unwrap();
+                engine.reset_null_move_stats();
 
-                    let start = Instant::now();
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        5000,
-                    );
-                    let elapsed = start.elapsed();
+                let start = Instant::now();
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    5000,
+                );
+                let elapsed = start.elapsed();
 
-                    let stats = engine.get_null_move_stats().clone();
-                    let nodes = engine.get_nodes_searched();
+                let stats = engine.get_null_move_stats().clone();
+                let nodes = engine.get_nodes_searched();
 
-                    black_box((result, elapsed, nodes, stats))
-                });
-            },
-        );
+                black_box((result, elapsed, nodes, stats))
+            });
+        });
     }
 
     group.finish();
@@ -125,9 +117,7 @@ fn benchmark_nodes_reduction(c: &mut Criterion) {
     let mut engine_enabled = SearchEngine::new(None, 16);
     let mut config_enabled = engine_enabled.get_null_move_config().clone();
     config_enabled.enabled = true;
-    engine_enabled
-        .update_null_move_config(config_enabled)
-        .unwrap();
+    engine_enabled.update_null_move_config(config_enabled).unwrap();
     engine_enabled.reset_null_move_stats();
 
     let start = Instant::now();
@@ -147,9 +137,7 @@ fn benchmark_nodes_reduction(c: &mut Criterion) {
     let mut engine_disabled = SearchEngine::new(None, 16);
     let mut config_disabled = engine_disabled.get_null_move_config().clone();
     config_disabled.enabled = false;
-    engine_disabled
-        .update_null_move_config(config_disabled)
-        .unwrap();
+    engine_disabled.update_null_move_config(config_disabled).unwrap();
     engine_disabled.reset_null_move_stats();
 
     let start = Instant::now();

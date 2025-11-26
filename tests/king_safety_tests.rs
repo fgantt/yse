@@ -23,29 +23,18 @@ mod test_utils {
         };
 
         // King at 8,4 (Black) or 0,4 (White)
-        board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player,
-            },
-            Position::new(king_row, 4),
-        );
+        board
+            .place_piece(Piece { piece_type: PieceType::King, player }, Position::new(king_row, 4));
 
         // Gold at 7,3 (Black) or 1,3 (White)
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Gold,
-                player,
-            },
+            Piece { piece_type: PieceType::Gold, player },
             Position::new(king_row - 1, 3),
         );
 
         // Silver at 6,3 (Black) or 2,3 (White)
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Silver,
-                player,
-            },
+            Piece { piece_type: PieceType::Silver, player },
             Position::new(king_row - 2, 3),
         );
 
@@ -53,10 +42,7 @@ mod test_utils {
         for i in 0..3 {
             let pawn_row = king_row - 2 + i;
             board.place_piece(
-                Piece {
-                    piece_type: PieceType::Pawn,
-                    player,
-                },
+                Piece { piece_type: PieceType::Pawn, player },
                 Position::new(pawn_row, 2),
             );
         }
@@ -76,28 +62,19 @@ mod test_utils {
 
         // Defender's king
         board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player: defender,
-            },
+            Piece { piece_type: PieceType::King, player: defender },
             Position::new(king_row, 4),
         );
 
         // Attacker's rook
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Rook,
-                player: attacker,
-            },
+            Piece { piece_type: PieceType::Rook, player: attacker },
             Position::new(king_row - 3, 4),
         );
 
         // Attacker's bishop
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Bishop,
-                player: attacker,
-            },
+            Piece { piece_type: PieceType::Bishop, player: attacker },
             Position::new(king_row - 2, 3),
         );
 
@@ -116,28 +93,19 @@ mod test_utils {
 
         // Defender's king
         board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player: defender,
-            },
+            Piece { piece_type: PieceType::King, player: defender },
             Position::new(king_row, 4),
         );
 
         // Defender's piece that will be pinned
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Gold,
-                player: defender,
-            },
+            Piece { piece_type: PieceType::Gold, player: defender },
             Position::new(king_row - 1, 4),
         );
 
         // Attacker's rook
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Rook,
-                player: attacker,
-            },
+            Piece { piece_type: PieceType::Rook, player: attacker },
             Position::new(king_row - 2, 4),
         );
 
@@ -175,10 +143,7 @@ mod king_safety_evaluator_tests {
 
     #[test]
     fn test_king_safety_evaluation_disabled() {
-        let config = KingSafetyConfig {
-            enabled: false,
-            ..Default::default()
-        };
+        let config = KingSafetyConfig { enabled: false, ..Default::default() };
 
         let evaluator = KingSafetyEvaluator::with_config(config);
         let board = BitboardBoard::empty();
@@ -232,26 +197,17 @@ mod castle_recognition_tests {
 
         // Set up Anaguma castle for Black
         board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::King, player: Player::Black },
             Position::new(8, 4),
         );
 
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Gold,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Gold, player: Player::Black },
             Position::new(7, 4),
         );
 
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Silver,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Silver, player: Player::Black },
             Position::new(6, 4),
         );
 
@@ -269,34 +225,22 @@ mod castle_recognition_tests {
 
         // Set up Yagura castle for Black
         board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::King, player: Player::Black },
             Position::new(8, 4),
         );
 
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Gold,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Gold, player: Player::Black },
             Position::new(7, 3),
         );
 
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Silver,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Silver, player: Player::Black },
             Position::new(6, 3),
         );
 
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Lance,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Lance, player: Player::Black },
             Position::new(8, 7),
         );
 
@@ -314,18 +258,12 @@ mod castle_recognition_tests {
 
         // Set up partial Mino castle (missing some pieces)
         board.place_piece(
-            Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::King, player: Player::Black },
             Position::new(8, 4),
         );
 
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Gold,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Gold, player: Player::Black },
             Position::new(7, 3),
         );
 
@@ -449,10 +387,7 @@ mod threat_evaluation_tests {
 
     #[test]
     fn test_threat_evaluation_disabled() {
-        let config = ThreatConfig {
-            enabled: false,
-            ..Default::default()
-        };
+        let config = ThreatConfig { enabled: false, ..Default::default() };
 
         let evaluator = ThreatEvaluator::with_config(config);
         let board = test_utils::create_pin_position(Player::White);
@@ -523,27 +458,18 @@ mod pattern_tests {
         let mino_pattern = get_mino_castle();
 
         // Gold should have highest weight
-        let gold_piece = mino_pattern
-            .pieces
-            .iter()
-            .find(|p| p.piece_type == PieceType::Gold)
-            .unwrap();
+        let gold_piece =
+            mino_pattern.pieces.iter().find(|p| p.piece_type == PieceType::Gold).unwrap();
         assert_eq!(gold_piece.weight, 10);
 
         // Silver should have second highest weight
-        let silver_piece = mino_pattern
-            .pieces
-            .iter()
-            .find(|p| p.piece_type == PieceType::Silver)
-            .unwrap();
+        let silver_piece =
+            mino_pattern.pieces.iter().find(|p| p.piece_type == PieceType::Silver).unwrap();
         assert_eq!(silver_piece.weight, 9);
 
         // Pawns should have lower weights
-        let pawn_pieces: Vec<_> = mino_pattern
-            .pieces
-            .iter()
-            .filter(|p| p.piece_type == PieceType::Pawn)
-            .collect();
+        let pawn_pieces: Vec<_> =
+            mino_pattern.pieces.iter().filter(|p| p.piece_type == PieceType::Pawn).collect();
         for pawn in pawn_pieces {
             assert!(pawn.weight < 9);
         }

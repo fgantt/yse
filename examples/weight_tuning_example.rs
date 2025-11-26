@@ -29,11 +29,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let position = TuningPosition {
             board: BitboardBoard::new(),
             captured_pieces: CapturedPieces::new(),
-            player: if i % 2 == 0 {
-                Player::Black
-            } else {
-                Player::White
-            },
+            player: if i % 2 == 0 { Player::Black } else { Player::White },
             expected_score: if i % 3 == 0 {
                 0.0 // Draw
             } else if i % 3 == 1 {
@@ -93,10 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("   Iterations: {}", result.iterations);
     println!("   Final error: {:.6}", result.final_error);
     println!("   Convergence: {:?}", result.convergence_reason);
-    println!(
-        "   Optimization time: {:.2}s",
-        result.optimization_time.as_secs_f64()
-    );
+    println!("   Optimization time: {:.2}s", result.optimization_time.as_secs_f64());
     println!();
 
     // Display optimized weights

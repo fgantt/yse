@@ -5,8 +5,8 @@
 
 use crate::types::core::PieceType;
 use crate::types::{Bitboard, MagicError, MagicTable};
-use std::sync::{Arc, Mutex};
 use std::collections::HashSet;
+use std::sync::{Arc, Mutex};
 
 /// Lazy magic table that initializes squares on-demand
 pub struct LazyMagicTable {
@@ -82,7 +82,7 @@ impl LazyMagicTable {
     /// Initialize a specific square
     fn initialize_square(&self, square: u8, piece_type: PieceType) -> Result<(), MagicError> {
         let mut table = self.table.lock().unwrap();
-        
+
         match piece_type {
             PieceType::Rook | PieceType::PromotedRook => {
                 table.initialize_rook_square(square)?;
@@ -129,7 +129,7 @@ impl LazyMagicTable {
     /// Pre-initialize all squares (convert to fully initialized table)
     pub fn pre_initialize_all(&self) -> Result<(), MagicError> {
         let mut table = self.table.lock().unwrap();
-        
+
         // Initialize all rook squares
         for square in 0..81 {
             if !self.is_square_initialized(square, PieceType::Rook) {
@@ -179,13 +179,13 @@ mod tests {
     #[test]
     fn test_lazy_initialization() {
         let table = LazyMagicTable::new().unwrap();
-        
+
         // Initially not initialized
         assert!(!table.is_square_initialized(0, PieceType::Rook));
-        
+
         // Access triggers initialization
         let _attacks = table.get_attacks(0, PieceType::Rook, Bitboard::from_u128(0));
-        
+
         // Now initialized
         assert!(table.is_square_initialized(0, PieceType::Rook));
     }
@@ -193,14 +193,13 @@ mod tests {
     #[test]
     fn test_lazy_stats() {
         let table = LazyMagicTable::new().unwrap();
-        
+
         // Access a few squares
         let _ = table.get_attacks(0, PieceType::Rook, Bitboard::from_u128(0));
         let _ = table.get_attacks(40, PieceType::Bishop, Bitboard::from_u128(0));
-        
+
         let stats = table.stats();
         assert!(stats.lazy_init_count >= 2);
         assert!(stats.accessed_squares.len() >= 2);
     }
 }
-

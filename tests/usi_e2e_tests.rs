@@ -88,8 +88,5 @@ fn usi_parallel_options_flow() {
     assert_eq!(options.ybwc_deep_divisor, 2);
 
     let mv = engine.get_best_move(1, 200, None);
-    assert!(
-        mv.is_some(),
-        "Engine should still return a move after parallel configuration"
-    );
+    assert!(mv.is_some(), "Engine should still return a move after parallel configuration");
 }

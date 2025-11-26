@@ -4,9 +4,9 @@
 //! storing them in a resource file for use by the engine. This allows the engine
 //! to use pre-optimized magic numbers instead of generating them at runtime.
 
+use serde::{Deserialize, Serialize};
 use shogi_engine::bitboards::magic::magic_finder::MagicFinder;
 use shogi_engine::types::{MagicGenerationResult, PieceType};
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufWriter, Write};
@@ -72,12 +72,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Save to file
     let output_path = "resources/magic_tables/optimized_magics.json";
     std::fs::create_dir_all("resources/magic_tables")?;
-    
-    let optimized = OptimizedMagics {
-        magics,
-        generated_at: chrono::Utc::now().to_rfc3339(),
-        total_table_size,
-    };
+
+    let optimized =
+        OptimizedMagics { magics, generated_at: chrono::Utc::now().to_rfc3339(), total_table_size };
 
     let file = File::create(output_path)?;
     let mut writer = BufWriter::new(file);
@@ -88,4 +85,3 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     Ok(())
 }
-

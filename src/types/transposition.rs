@@ -43,15 +43,7 @@ impl TranspositionEntry {
         age: u32,
         source: EntrySource,
     ) -> Self {
-        Self {
-            score,
-            depth,
-            flag,
-            best_move,
-            hash_key,
-            age,
-            source,
-        }
+        Self { score, depth, flag, best_move, hash_key, age, source }
     }
 
     /// Create a new entry with default age (0) and MainSearch source
@@ -62,15 +54,7 @@ impl TranspositionEntry {
         best_move: Option<Move>,
         hash_key: u64,
     ) -> Self {
-        Self::new(
-            score,
-            depth,
-            flag,
-            best_move,
-            hash_key,
-            0,
-            EntrySource::MainSearch,
-        )
+        Self::new(score, depth, flag, best_move, hash_key, 0, EntrySource::MainSearch)
     }
 
     /// Check if this entry is valid for the given search depth
@@ -168,12 +152,7 @@ pub struct QuiescenceEntry {
 
 impl QuiescenceEntry {
     /// Create a new quiescence entry
-    pub fn new(
-        score: i32,
-        depth: u8,
-        flag: TranspositionFlag,
-        best_move: Option<Move>,
-    ) -> Self {
+    pub fn new(score: i32, depth: u8, flag: TranspositionFlag, best_move: Option<Move>) -> Self {
         Self {
             score,
             depth,
@@ -285,12 +264,7 @@ mod tests {
 
     #[test]
     fn test_quiescence_entry() {
-        let entry = QuiescenceEntry::new(
-            50,
-            3,
-            TranspositionFlag::Exact,
-            None,
-        );
+        let entry = QuiescenceEntry::new(50, 3, TranspositionFlag::Exact, None);
         assert_eq!(entry.score, 50);
         assert_eq!(entry.depth, 3);
         assert!(!entry.has_stand_pat_score());
@@ -298,29 +272,17 @@ mod tests {
 
     #[test]
     fn test_quiescence_entry_with_stand_pat() {
-        let entry = QuiescenceEntry::new_with_stand_pat(
-            50,
-            3,
-            TranspositionFlag::Exact,
-            None,
-            45,
-        );
+        let entry = QuiescenceEntry::new_with_stand_pat(50, 3, TranspositionFlag::Exact, None, 45);
         assert!(entry.has_stand_pat_score());
         assert_eq!(entry.get_stand_pat_score(), Some(45));
     }
 
     #[test]
     fn test_quiescence_entry_access_tracking() {
-        let mut entry = QuiescenceEntry::new(
-            50,
-            3,
-            TranspositionFlag::Exact,
-            None,
-        );
+        let mut entry = QuiescenceEntry::new(50, 3, TranspositionFlag::Exact, None);
         assert_eq!(entry.access_count, 0);
         entry.record_access(10);
         assert_eq!(entry.access_count, 1);
         assert_eq!(entry.last_access_age, 10);
     }
 }
-

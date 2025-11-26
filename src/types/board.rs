@@ -3,8 +3,8 @@
 //! This module contains types related to board representation: CapturedPieces and GamePhase.
 //! Extracted from `types.rs` as part of Task 1.0: File Modularization and Structure Improvements.
 
-use serde::{Deserialize, Serialize};
 use super::core::{PieceType, Player};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapturedPieces {
@@ -14,10 +14,7 @@ pub struct CapturedPieces {
 
 impl CapturedPieces {
     pub fn new() -> Self {
-        Self {
-            black: Vec::new(),
-            white: Vec::new(),
-        }
+        Self { black: Vec::new(), white: Vec::new() }
     }
 
     pub fn add_piece(&mut self, piece_type: PieceType, player: Player) {
@@ -98,4 +95,3 @@ mod tests {
         assert_eq!(GamePhase::from_piece_count(10), GamePhase::Endgame);
     }
 }
-

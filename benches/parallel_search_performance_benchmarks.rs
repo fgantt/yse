@@ -63,22 +63,14 @@ fn bench_root_search(c: &mut Criterion) {
     let depths_env = std::env::var("SHOGI_BENCH_DEPTHS").ok();
     let depths: Vec<u8> = depths_env
         .as_deref()
-        .map(|s| {
-            s.split(',')
-                .filter_map(|p| p.trim().parse::<u8>().ok())
-                .collect()
-        })
+        .map(|s| s.split(',').filter_map(|p| p.trim().parse::<u8>().ok()).collect())
         .filter(|v: &Vec<u8>| !v.is_empty())
         .unwrap_or_else(|| vec![3u8, 5u8, 6u8, 7u8, 8u8]);
 
     let threads_env = std::env::var("SHOGI_BENCH_THREADS").ok();
     let thread_counts: Vec<usize> = threads_env
         .as_deref()
-        .map(|s| {
-            s.split(',')
-                .filter_map(|p| p.trim().parse::<usize>().ok())
-                .collect()
-        })
+        .map(|s| s.split(',').filter_map(|p| p.trim().parse::<usize>().ok()).collect())
         .filter(|v: &Vec<usize>| !v.is_empty())
         .unwrap_or_else(|| vec![1usize, 2, 4, 8]);
 

@@ -58,32 +58,28 @@ fn benchmark_lmr_with_pruning_manager(c: &mut Criterion) {
 
     // Test across different depths
     for depth in [3, 4, 5, 6] {
-        group.bench_with_input(
-            BenchmarkId::new("search_depth", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine();
-                    engine.reset_lmr_stats();
+        group.bench_with_input(BenchmarkId::new("search_depth", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine();
+                engine.reset_lmr_stats();
 
-                    let mut board_mut = board.clone();
-                    let start_time = std::time::Instant::now();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        1000,
-                    );
-                    let search_time = start_time.elapsed();
+                let mut board_mut = board.clone();
+                let start_time = std::time::Instant::now();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    1000,
+                );
+                let search_time = start_time.elapsed();
 
-                    let stats = engine.get_lmr_stats().clone();
-                    let pruning_stats = engine.get_pruning_statistics().clone();
+                let stats = engine.get_lmr_stats().clone();
+                let pruning_stats = engine.get_pruning_statistics().clone();
 
-                    black_box((result, stats, pruning_stats, search_time))
-                });
-            },
-        );
+                black_box((result, stats, pruning_stats, search_time))
+            });
+        });
     }
 
     group.finish();
@@ -176,38 +172,34 @@ fn benchmark_pruning_manager_reduction_formula(c: &mut Criterion) {
 
     // Test different depth configurations
     for depth in [3, 4, 5, 6, 8, 10] {
-        group.bench_with_input(
-            BenchmarkId::new("search_depth", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine();
-                    engine.reset_lmr_stats();
-                    engine.reset_pruning_statistics();
+        group.bench_with_input(BenchmarkId::new("search_depth", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine();
+                engine.reset_lmr_stats();
+                engine.reset_pruning_statistics();
 
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        1000,
-                    );
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    1000,
+                );
 
-                    let stats = engine.get_lmr_stats().clone();
-                    let pruning_stats = engine.get_pruning_statistics().clone();
+                let stats = engine.get_lmr_stats().clone();
+                let pruning_stats = engine.get_pruning_statistics().clone();
 
-                    // Calculate reduction statistics
-                    let avg_reduction = if stats.reductions_applied > 0 {
-                        stats.total_depth_saved as f64 / stats.reductions_applied as f64
-                    } else {
-                        0.0
-                    };
+                // Calculate reduction statistics
+                let avg_reduction = if stats.reductions_applied > 0 {
+                    stats.total_depth_saved as f64 / stats.reductions_applied as f64
+                } else {
+                    0.0
+                };
 
-                    black_box((result, stats, pruning_stats, avg_reduction))
-                });
-            },
-        );
+                black_box((result, stats, pruning_stats, avg_reduction))
+            });
+        });
     }
 
     group.finish();
@@ -333,63 +325,59 @@ fn benchmark_performance_regression_validation(c: &mut Criterion) {
 
     // Test at multiple depths to ensure no regression
     for depth in [3, 4, 5, 6] {
-        group.bench_with_input(
-            BenchmarkId::new("validation_depth", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine();
-                    engine.reset_lmr_stats();
-                    engine.reset_pruning_statistics();
+        group.bench_with_input(BenchmarkId::new("validation_depth", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine();
+                engine.reset_lmr_stats();
+                engine.reset_pruning_statistics();
 
-                    let mut board_mut = board.clone();
-                    let start_time = std::time::Instant::now();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        2000,
-                    );
-                    let search_time = start_time.elapsed();
+                let mut board_mut = board.clone();
+                let start_time = std::time::Instant::now();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    2000,
+                );
+                let search_time = start_time.elapsed();
 
-                    let stats = engine.get_lmr_stats().clone();
-                    let pruning_stats = engine.get_pruning_statistics().clone();
+                let stats = engine.get_lmr_stats().clone();
+                let pruning_stats = engine.get_pruning_statistics().clone();
 
-                    // Calculate key metrics
-                    let efficiency = stats.efficiency();
-                    let research_rate = stats.research_rate();
-                    let cutoff_rate = stats.cutoff_rate();
+                // Calculate key metrics
+                let efficiency = stats.efficiency();
+                let research_rate = stats.research_rate();
+                let cutoff_rate = stats.cutoff_rate();
 
-                    // Validate metrics meet requirements
-                    assert!(
-                        efficiency >= 25.0 || stats.moves_considered == 0,
-                        "LMR efficiency should be >= 25% (got {:.2}%)",
-                        efficiency
-                    );
-                    assert!(
-                        research_rate <= 30.0 || stats.reductions_applied == 0,
-                        "Re-search rate should be <= 30% (got {:.2}%)",
-                        research_rate
-                    );
-                    assert!(
-                        cutoff_rate >= 10.0 || stats.moves_considered == 0,
-                        "Cutoff rate should be >= 10% (got {:.2}%)",
-                        cutoff_rate
-                    );
+                // Validate metrics meet requirements
+                assert!(
+                    efficiency >= 25.0 || stats.moves_considered == 0,
+                    "LMR efficiency should be >= 25% (got {:.2}%)",
+                    efficiency
+                );
+                assert!(
+                    research_rate <= 30.0 || stats.reductions_applied == 0,
+                    "Re-search rate should be <= 30% (got {:.2}%)",
+                    research_rate
+                );
+                assert!(
+                    cutoff_rate >= 10.0 || stats.moves_considered == 0,
+                    "Cutoff rate should be >= 10% (got {:.2}%)",
+                    cutoff_rate
+                );
 
-                    black_box((
-                        result,
-                        stats,
-                        pruning_stats,
-                        search_time,
-                        efficiency,
-                        research_rate,
-                        cutoff_rate,
-                    ))
-                });
-            },
-        );
+                black_box((
+                    result,
+                    stats,
+                    pruning_stats,
+                    search_time,
+                    efficiency,
+                    research_rate,
+                    cutoff_rate,
+                ))
+            });
+        });
     }
 
     group.finish();

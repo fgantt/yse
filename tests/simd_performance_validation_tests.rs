@@ -14,8 +14,8 @@ use shogi_engine::{
     bitboards::BitboardBoard,
     config::{EngineConfig, SimdConfig},
     evaluation::{
-        integration::{IntegratedEvaluator, IntegratedEvaluationConfig},
-        tactical_patterns::{TacticalPatternRecognizer, TacticalConfig},
+        integration::{IntegratedEvaluationConfig, IntegratedEvaluator},
+        tactical_patterns::{TacticalConfig, TacticalPatternRecognizer},
     },
     moves::MoveGenerator,
     types::{Player, Position},
@@ -157,7 +157,7 @@ fn test_pattern_matching_performance_simd_vs_scalar() {
     let iterations = 1000;
 
     let captured = shogi_engine::types::board::CapturedPieces::new();
-    
+
     // Benchmark SIMD pattern matching
     let start = Instant::now();
     for _ in 0..iterations {
@@ -408,11 +408,7 @@ fn test_performance_regression_detection() {
         let simd_ns = simd_time.as_nanos() as f64;
         let scalar_ns = scalar_time.as_nanos() as f64;
 
-        let ratio = if scalar_ns > 0.0 {
-            simd_ns / scalar_ns
-        } else {
-            1.0
-        };
+        let ratio = if scalar_ns > 0.0 { simd_ns / scalar_ns } else { 1.0 };
 
         // In release builds, check for regression threshold
         #[cfg(not(debug_assertions))]
@@ -513,11 +509,7 @@ fn generate_performance_report(
 ) -> String {
     let simd_ns = simd_time.as_nanos() as f64;
     let scalar_ns = scalar_time.as_nanos() as f64;
-    let speedup = if simd_ns > 0.0 {
-        scalar_ns / simd_ns
-    } else {
-        1.0
-    };
+    let speedup = if simd_ns > 0.0 { scalar_ns / simd_ns } else { 1.0 };
 
     format!(
         r#"
@@ -541,11 +533,7 @@ Telemetry Statistics:
 ========================================
 "#,
         iterations,
-        if cfg!(debug_assertions) {
-            "Debug"
-        } else {
-            "Release"
-        },
+        if cfg!(debug_assertions) { "Debug" } else { "Release" },
         simd_ns / 1_000_000.0,
         simd_ns / iterations as f64 / 1000.0,
         scalar_ns / 1_000_000.0,
@@ -584,4 +572,3 @@ fn test_timing_measurements_enabled() {
         "Telemetry should record evaluation calls"
     );
 }
-

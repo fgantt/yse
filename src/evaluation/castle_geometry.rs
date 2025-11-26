@@ -14,10 +14,7 @@ impl RelativeOffset {
 
     /// Mirror the offset across the king's file (left/right swap).
     pub const fn mirrored(self) -> Self {
-        Self {
-            rank: self.rank,
-            file: -self.file,
-        }
+        Self { rank: self.rank, file: -self.file }
     }
 
     /// Convert the offset into an absolute board position for the given player and king square.
@@ -87,11 +84,8 @@ pub const KING_ZONE_RING: [RelativeOffset; 8] = [
     RelativeOffset::new(1, 1),
 ];
 
-pub const FORWARD_SHIELD_ARC: [RelativeOffset; 3] = [
-    RelativeOffset::new(-1, -1),
-    RelativeOffset::new(-1, 0),
-    RelativeOffset::new(-1, 1),
-];
+pub const FORWARD_SHIELD_ARC: [RelativeOffset; 3] =
+    [RelativeOffset::new(-1, -1), RelativeOffset::new(-1, 0), RelativeOffset::new(-1, 1)];
 
 pub const BUFFER_RING: [RelativeOffset; 9] = [
     RelativeOffset::new(-2, -2),
@@ -105,11 +99,8 @@ pub const BUFFER_RING: [RelativeOffset; 9] = [
     RelativeOffset::new(0, 2),
 ];
 
-pub const PAWN_WALL_ARC: [RelativeOffset; 3] = [
-    RelativeOffset::new(-2, -2),
-    RelativeOffset::new(-1, -2),
-    RelativeOffset::new(0, -2),
-];
+pub const PAWN_WALL_ARC: [RelativeOffset; 3] =
+    [RelativeOffset::new(-2, -2), RelativeOffset::new(-1, -2), RelativeOffset::new(0, -2)];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CastlePieceRole {
@@ -137,13 +128,7 @@ impl CastlePieceDescriptor {
         weight: u8,
         role: CastlePieceRole,
     ) -> Self {
-        Self {
-            class,
-            offset,
-            required,
-            weight,
-            role,
-        }
+        Self { class, offset, required, weight, role }
     }
 
     pub const fn mirrored(self) -> Self {

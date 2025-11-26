@@ -276,11 +276,8 @@ pub fn validate_4bit_lookup_tables() -> bool {
         let pattern = i as u8;
         let expected_positions: Vec<u8> = (0..4).filter(|&bit| (pattern >> bit) & 1 != 0).collect();
 
-        let table_positions: Vec<u8> = BIT_POSITION_4BIT[i]
-            .iter()
-            .filter(|&&pos| pos != 255)
-            .copied()
-            .collect();
+        let table_positions: Vec<u8> =
+            BIT_POSITION_4BIT[i].iter().filter(|&&pos| pos != 255).copied().collect();
 
         if expected_positions != table_positions {
             return false;
@@ -410,10 +407,7 @@ mod tests {
     #[test]
     fn test_4bit_lookup_tables_validation() {
         // Validate that our 4-bit lookup tables are correctly configured
-        assert!(
-            validate_4bit_lookup_tables(),
-            "4-bit lookup tables validation failed"
-        );
+        assert!(validate_4bit_lookup_tables(), "4-bit lookup tables validation failed");
     }
 
     #[test]
@@ -432,7 +426,10 @@ mod tests {
         // Test edge cases
         assert_eq!(popcount_4bit_lookup(Bitboard::from_u128(0x8000000000000000)), 1);
         assert_eq!(popcount_4bit_lookup(Bitboard::from_u128(0x10000000000000000)), 1);
-        assert_eq!(popcount_4bit_lookup(Bitboard::from_u128(0x80000000000000000000000000000000)), 1);
+        assert_eq!(
+            popcount_4bit_lookup(Bitboard::from_u128(0x80000000000000000000000000000000)),
+            1
+        );
 
         // Test patterns
         assert_eq!(popcount_4bit_lookup(Bitboard::from_u128(0x5555555555555555)), 32); // Alternating bits
@@ -440,7 +437,10 @@ mod tests {
 
         // Test single 4-bit chunks
         for i in 0..16 {
-            assert_eq!(popcount_4bit_lookup(Bitboard::from_u128(i as u128)), POPCOUNT_4BIT[i] as u32);
+            assert_eq!(
+                popcount_4bit_lookup(Bitboard::from_u128(i as u128)),
+                POPCOUNT_4BIT[i] as u32
+            );
         }
     }
 
@@ -504,14 +504,8 @@ mod tests {
     #[test]
     fn test_popcount_4bit_small() {
         // Test small bitboard optimization
-        let test_cases = [
-            0u128,
-            1u128,
-            0xFFu128,
-            0xFFFFu128,
-            0xFFFFFFFFu128,
-            0xFFFFFFFFFFFFFFFFu128,
-        ];
+        let test_cases =
+            [0u128, 1u128, 0xFFu128, 0xFFFFu128, 0xFFFFFFFFu128, 0xFFFFFFFFFFFFFFFFu128];
 
         for bb_u128 in test_cases {
             let bb = Bitboard::from_u128(bb_u128);
@@ -590,11 +584,7 @@ mod tests {
         let total_size = popcount_size + position_size;
 
         // Total memory usage should be less than 32 bytes as specified
-        assert!(
-            total_size < 32,
-            "Memory usage too high: {} bytes",
-            total_size
-        );
+        assert!(total_size < 32, "Memory usage too high: {} bytes", total_size);
 
         // Population count table should be 16 bytes (16 entries × 1 byte each)
         assert_eq!(popcount_size, 16);
@@ -613,39 +603,15 @@ mod tests {
             benchmark_4bit_lookup_performance(1000);
 
         // Times should be reasonable (less than 1 second for 1000 iterations)
-        assert!(
-            popcount_time < 1_000_000_000,
-            "Popcount too slow: {}ns",
-            popcount_time
-        );
-        assert!(
-            positions_time < 1_000_000_000,
-            "Positions too slow: {}ns",
-            positions_time
-        );
-        assert!(
-            optimized_time < 1_000_000_000,
-            "Optimized too slow: {}ns",
-            optimized_time
-        );
+        assert!(popcount_time < 1_000_000_000, "Popcount too slow: {}ns", popcount_time);
+        assert!(positions_time < 1_000_000_000, "Positions too slow: {}ns", positions_time);
+        assert!(optimized_time < 1_000_000_000, "Optimized too slow: {}ns", optimized_time);
 
         // Print performance info
         println!("4-bit Lookup Performance (1000 iterations):");
-        println!(
-            "  Popcount: {}ns total, {}ns per call",
-            popcount_time,
-            popcount_time / 1000
-        );
-        println!(
-            "  Positions: {}ns total, {}ns per call",
-            positions_time,
-            positions_time / 1000
-        );
-        println!(
-            "  Optimized: {}ns total, {}ns per call",
-            optimized_time,
-            optimized_time / 1000
-        );
+        println!("  Popcount: {}ns total, {}ns per call", popcount_time, popcount_time / 1000);
+        println!("  Positions: {}ns total, {}ns per call", positions_time, positions_time / 1000);
+        println!("  Optimized: {}ns total, {}ns per call", optimized_time, optimized_time / 1000);
     }
 
     #[test]
@@ -654,10 +620,7 @@ mod tests {
         let (vs_software, vs_swar) = compare_4bit_lookup_performance(1000);
 
         // 4-bit lookup should be faster than software implementation
-        assert!(
-            vs_software > 1.0,
-            "4-bit lookup should be faster than software"
-        );
+        assert!(vs_software > 1.0, "4-bit lookup should be faster than software");
 
         // Print comparison info
         println!("4-bit Lookup Performance Comparison (1000 iterations):");
@@ -728,11 +691,7 @@ mod tests {
             // Test bit positions consistency
             let positions1 = bit_positions_4bit_lookup(bb);
             let positions2 = bit_positions_4bit_lookup(bb);
-            assert_eq!(
-                positions1, positions2,
-                "Positions inconsistent for 0x{:X}",
-                bb_u128
-            );
+            assert_eq!(positions1, positions2, "Positions inconsistent for 0x{:X}", bb_u128);
 
             // Test optimized implementation consistency
             let optimized1 = popcount_4bit_optimized(bb);

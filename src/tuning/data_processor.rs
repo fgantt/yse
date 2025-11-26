@@ -60,11 +60,7 @@ pub struct ProcessingProgress {
 impl DataProcessor {
     /// Create a new data processor
     pub fn new(filter: PositionFilter) -> Self {
-        Self {
-            feature_extractor: FeatureExtractor::new(),
-            filter,
-            progress_callback: None,
-        }
+        Self { feature_extractor: FeatureExtractor::new(), filter, progress_callback: None }
     }
 
     /// Create a new data processor with progress callback
@@ -140,8 +136,7 @@ impl DataProcessor {
 
             // Extract position features
             let features =
-                self.feature_extractor
-                    .extract_features(&board, player, &captured_pieces);
+                self.feature_extractor.extract_features(&board, player, &captured_pieces);
 
             // Validate features
             if let Err(_) = self.feature_extractor.validate_features(&features) {
@@ -315,7 +310,7 @@ impl DataProcessor {
                         in_game = true;
                     }
                     Ok(None) => {} // Not a move line, skip
-                    Err(_) => {} // Parse error, skip this line
+                    Err(_) => {}   // Parse error, skip this line
                 }
             }
         }
@@ -367,7 +362,7 @@ impl DataProcessor {
                         current_game.moves.push(move_);
                     }
                     Ok(None) => {} // Not a move line, skip
-                    Err(_) => {} // Parse error, skip this line
+                    Err(_) => {}   // Parse error, skip this line
                 }
             }
         }
@@ -484,9 +479,13 @@ impl DataProcessor {
     /// Returns a Move if parsing succeeds, or None if the line doesn't contain a valid move.
     fn parse_kif_move(&self, line: &str) -> Result<Option<Move>, String> {
         let trimmed = line.trim();
-        
+
         // Skip empty lines or header lines
-        if trimmed.is_empty() || trimmed.starts_with("手数") || trimmed.starts_with("先手") || trimmed.starts_with("後手") {
+        if trimmed.is_empty()
+            || trimmed.starts_with("手数")
+            || trimmed.starts_with("先手")
+            || trimmed.starts_with("後手")
+        {
             return Ok(None);
         }
 
@@ -498,7 +497,7 @@ impl DataProcessor {
 
         // Skip move number
         let move_text = parts[1];
-        
+
         // Handle USI-style drops in KIF (e.g., "P*7e")
         if move_text.contains('*') {
             return match self.parse_usi_move(move_text) {
@@ -514,8 +513,12 @@ impl DataProcessor {
             if let Some(end) = move_text.find(')') {
                 let coord_str = &move_text[start + 1..end];
                 if coord_str.len() == 2 {
-                    if let (Some(file_char), Some(rank_char)) = (coord_str.chars().nth(0), coord_str.chars().nth(1)) {
-                        if let (Some(file), Some(rank)) = (file_char.to_digit(10), rank_char.to_digit(10)) {
+                    if let (Some(file_char), Some(rank_char)) =
+                        (coord_str.chars().nth(0), coord_str.chars().nth(1))
+                    {
+                        if let (Some(file), Some(rank)) =
+                            (file_char.to_digit(10), rank_char.to_digit(10))
+                        {
                             let file = file as u8;
                             let rank = rank as u8;
                             // Convert to internal coordinates: file 1-9 -> col 8-0, rank 1-9 -> row 0-8
@@ -557,7 +560,8 @@ impl DataProcessor {
             Ok(Some(Move::new_drop(piece_type, to_pos, Player::Black))) // Player will be set correctly by caller
         } else if let Some(from) = from_pos {
             // Normal move
-            Ok(Some(Move::new_move(from, to_pos, piece_type, Player::Black, is_promotion))) // Player will be set correctly
+            Ok(Some(Move::new_move(from, to_pos, piece_type, Player::Black, is_promotion)))
+        // Player will be set correctly
         } else {
             Ok(None)
         }
@@ -579,7 +583,7 @@ impl DataProcessor {
     /// **Implementation Status:** ✅ Fully implemented - supports all CSA move formats including drops
     fn parse_csa_move(&self, line: &str) -> Result<Option<Move>, String> {
         let trimmed = line.trim();
-        
+
         // Skip empty lines or comments
         if trimmed.is_empty() || trimmed.starts_with("'") || trimmed.starts_with("#") {
             return Ok(None);
@@ -611,7 +615,7 @@ impl DataProcessor {
         let from_rank_char = trimmed.chars().nth(2).ok_or("Invalid CSA move format")?;
         let to_file_char = trimmed.chars().nth(3).ok_or("Invalid CSA move format")?;
         let to_rank_char = trimmed.chars().nth(4).ok_or("Invalid CSA move format")?;
-        
+
         let from_file = from_file_char.to_digit(10).ok_or("Invalid file in CSA move")? as u8;
         let from_rank = from_rank_char.to_digit(10).ok_or("Invalid rank in CSA move")? as u8;
         let to_file = to_file_char.to_digit(10).ok_or("Invalid file in CSA move")? as u8;
@@ -652,17 +656,20 @@ impl DataProcessor {
     ///   For full support, maintain board state during parsing and use Move::from_usi_string()
     fn parse_pgn_move(&self, move_str: &str) -> Result<Option<Move>, String> {
         let trimmed = move_str.trim();
-        
+
         // Skip move numbers, annotations, etc.
         if trimmed.is_empty() || trimmed.chars().next().unwrap_or(' ').is_ascii_digit() {
             return Ok(None);
         }
 
         // Remove annotations like "!", "?", "!!", etc.
-        let cleaned = trimmed.trim_end_matches(|c: char| c == '!' || c == '?' || c == '+' || c == '#');
+        let cleaned =
+            trimmed.trim_end_matches(|c: char| c == '!' || c == '?' || c == '+' || c == '#');
 
         // Handle USI-style notation (most common in shogi PGN)
-        if cleaned.contains('*') || (cleaned.len() >= 4 && cleaned.chars().all(|c| c.is_alphanumeric() || c == '*')) {
+        if cleaned.contains('*')
+            || (cleaned.len() >= 4 && cleaned.chars().all(|c| c.is_alphanumeric() || c == '*'))
+        {
             return match self.parse_usi_move(cleaned) {
                 Ok(Some(mv)) => Ok(Some(mv)),
                 Ok(None) => Ok(None),
@@ -687,7 +694,7 @@ impl DataProcessor {
     /// Move::from_usi_string() with the board.
     fn parse_usi_move(&self, usi_str: &str) -> Result<Option<Move>, String> {
         let trimmed = usi_str.trim();
-        
+
         // Handle drop moves: "P*5e"
         if trimmed.contains('*') {
             let parts: Vec<&str> = trimmed.split('*').collect();
@@ -708,7 +715,7 @@ impl DataProcessor {
 
             let to = Position::from_usi_string(parts[1])
                 .map_err(|_| "Invalid position in drop move".to_string())?;
-            
+
             // Default to Black - caller should set correct player
             return Ok(Some(Move::new_drop(piece_type, to, Player::Black)));
         }
@@ -729,7 +736,7 @@ impl DataProcessor {
         player: Player,
     ) -> Result<Option<Move>, String> {
         let trimmed = usi_str.trim();
-        
+
         // Handle drop moves: "P*5e"
         if trimmed.contains('*') {
             return self.parse_usi_move(trimmed);
@@ -753,11 +760,15 @@ impl DataProcessor {
     /// a Japanese character recognition library.
     fn parse_kif_position(&self, move_text: &str) -> Result<Position, String> {
         // Try to find USI-style coordinates (e.g., "7g7f", "P*5e")
-        if let Some(usi_start) = move_text.find(|c: char| c.is_ascii_digit() && c >= '1' && c <= '9') {
+        if let Some(usi_start) =
+            move_text.find(|c: char| c.is_ascii_digit() && c >= '1' && c <= '9')
+        {
             let remaining = &move_text[usi_start..];
             // Look for pattern like "7g" or "7g7f"
             if remaining.len() >= 2 {
-                if let (Some(file_char), Some(rank_char)) = (remaining.chars().nth(0), remaining.chars().nth(1)) {
+                if let (Some(file_char), Some(rank_char)) =
+                    (remaining.chars().nth(0), remaining.chars().nth(1))
+                {
                     if file_char.is_ascii_digit() && rank_char.is_ascii_alphabetic() {
                         // Try to parse as USI position
                         let usi_pos = format!("{}{}", file_char, rank_char);
@@ -772,7 +783,8 @@ impl DataProcessor {
         // If no USI-style found, try to extract from parentheses format
         // This is a fallback - in real KIF files, the destination is in Japanese characters
         // For now, return an error indicating we need better parsing
-        Err("KIF position parsing requires Japanese character recognition or USI-style coordinates".to_string())
+        Err("KIF position parsing requires Japanese character recognition or USI-style coordinates"
+            .to_string())
     }
 
     /// Parse piece type from KIF Japanese notation
@@ -780,7 +792,7 @@ impl DataProcessor {
         // Simplified - would need Japanese character recognition
         // For now, try to detect from common patterns
         let is_promotion = move_text.contains('成') || move_text.contains('+');
-        
+
         // Try to match piece names (simplified)
         let piece_type = if move_text.contains('歩') || move_text.contains("P") {
             if is_promotion {
@@ -820,7 +832,8 @@ impl DataProcessor {
             } else {
                 PieceType::Rook
             }
-        } else if move_text.contains('王') || move_text.contains('玉') || move_text.contains("K") {
+        } else if move_text.contains('王') || move_text.contains('玉') || move_text.contains("K")
+        {
             PieceType::King
         } else {
             return Err("Unknown piece type in KIF notation".to_string());
@@ -840,12 +853,12 @@ impl DataProcessor {
             "KA" => (PieceType::Bishop, false),
             "HI" => (PieceType::Rook, false),
             "OU" => (PieceType::King, false),
-            "TO" => (PieceType::Pawn, true),      // Promoted Pawn
-            "NY" => (PieceType::Lance, true),     // Promoted Lance
-            "NK" => (PieceType::Knight, true),   // Promoted Knight
-            "NG" => (PieceType::Silver, true),     // Promoted Silver
-            "UM" => (PieceType::Bishop, true),    // Promoted Bishop (Dragon Horse)
-            "RY" => (PieceType::Rook, true),      // Promoted Rook (Dragon King)
+            "TO" => (PieceType::Pawn, true),   // Promoted Pawn
+            "NY" => (PieceType::Lance, true),  // Promoted Lance
+            "NK" => (PieceType::Knight, true), // Promoted Knight
+            "NG" => (PieceType::Silver, true), // Promoted Silver
+            "UM" => (PieceType::Bishop, true), // Promoted Bishop (Dragon Horse)
+            "RY" => (PieceType::Rook, true),   // Promoted Rook (Dragon King)
             _ => return Err(format!("Unknown CSA piece type: {}", piece_str)),
         };
 
@@ -905,11 +918,7 @@ impl Clone for DataProcessor {
 impl GameDatabase {
     /// Create a new game database
     pub fn new() -> Self {
-        Self {
-            games: Vec::new(),
-            metadata: HashMap::new(),
-            total_positions: 0,
-        }
+        Self { games: Vec::new(), metadata: HashMap::new(), total_positions: 0 }
     }
 
     /// Add games to the database
@@ -942,10 +951,7 @@ impl GameDatabase {
 impl PositionSelector {
     /// Create a new position selector
     pub fn new(filter: PositionFilter) -> Self {
-        Self {
-            filter,
-            seen_positions: HashSet::new(),
-        }
+        Self { filter, seen_positions: HashSet::new() }
     }
 
     /// Select positions from a game record
@@ -1136,7 +1142,7 @@ mod tests {
     #[test]
     fn test_csa_move_parsing() {
         let processor = DataProcessor::new(PositionFilter::default());
-        
+
         // Test normal CSA move
         let move1 = processor.parse_csa_move("+7776FU").unwrap();
         assert!(move1.is_some());
@@ -1144,26 +1150,26 @@ mod tests {
         assert_eq!(mv1.player, Player::Black);
         assert_eq!(mv1.piece_type, PieceType::Pawn);
         assert!(!mv1.is_promotion);
-        
+
         // Test white move
         let move2 = processor.parse_csa_move("-3334FU").unwrap();
         assert!(move2.is_some());
         let mv2 = move2.unwrap();
         assert_eq!(mv2.player, Player::White);
-        
+
         // Test promoted piece
         let move3 = processor.parse_csa_move("+2726TO").unwrap();
         assert!(move3.is_some());
         let mv3 = move3.unwrap();
         assert_eq!(mv3.piece_type, PieceType::PromotedPawn);
-        
+
         // Test drop move
         let move4 = processor.parse_csa_move("P*5e").unwrap();
         assert!(move4.is_some());
         let mv4 = move4.unwrap();
         assert!(mv4.is_drop());
         assert_eq!(mv4.piece_type, PieceType::Pawn);
-        
+
         // Test invalid move
         let move5 = processor.parse_csa_move("invalid").unwrap();
         assert!(move5.is_none());
@@ -1172,18 +1178,18 @@ mod tests {
     #[test]
     fn test_pgn_move_parsing() {
         let processor = DataProcessor::new(PositionFilter::default());
-        
+
         // Test drop move
         let move1 = processor.parse_pgn_move("P*7e").unwrap();
         assert!(move1.is_some());
         let mv1 = move1.unwrap();
         assert!(mv1.is_drop());
         assert_eq!(mv1.piece_type, PieceType::Pawn);
-        
+
         // Test with annotations
         let move2 = processor.parse_pgn_move("P*5e!").unwrap();
         assert!(move2.is_some());
-        
+
         // Test invalid/non-move
         let move3 = processor.parse_pgn_move("1.").unwrap();
         assert!(move3.is_none());
@@ -1192,17 +1198,17 @@ mod tests {
     #[test]
     fn test_kif_move_parsing() {
         let processor = DataProcessor::new(PositionFilter::default());
-        
+
         // Test USI-style drop in KIF
         let move1 = processor.parse_kif_move("1 P*7e").unwrap();
         assert!(move1.is_some());
         let mv1 = move1.unwrap();
         assert!(mv1.is_drop());
-        
+
         // Test header line (should return None)
         let move2 = processor.parse_kif_move("手数----指手").unwrap();
         assert!(move2.is_none());
-        
+
         // Test empty line
         let move3 = processor.parse_kif_move("").unwrap();
         assert!(move3.is_none());
@@ -1211,7 +1217,7 @@ mod tests {
     #[test]
     fn test_csa_piece_type_parsing() {
         let processor = DataProcessor::new(PositionFilter::default());
-        
+
         // Test all piece types
         let pieces = vec![
             ("FU", PieceType::Pawn, false),
@@ -1229,13 +1235,13 @@ mod tests {
             ("UM", PieceType::PromotedBishop, true),
             ("RY", PieceType::PromotedRook, true),
         ];
-        
+
         for (csa_str, expected_type, expected_promoted) in pieces {
             let (piece_type, is_promoted) = processor.parse_csa_piece_type(csa_str).unwrap();
             assert_eq!(piece_type, expected_type, "Failed for CSA piece: {}", csa_str);
             assert_eq!(is_promoted, expected_promoted, "Promotion mismatch for: {}", csa_str);
         }
-        
+
         // Test invalid piece type
         assert!(processor.parse_csa_piece_type("XX").is_err());
     }
@@ -1244,14 +1250,14 @@ mod tests {
     fn test_usi_move_with_board() {
         let processor = DataProcessor::new(PositionFilter::default());
         let board = BitboardBoard::new();
-        
+
         // Test normal move with board context
         let move1 = processor.parse_usi_move_with_board("7g7f", &board, Player::Black).unwrap();
         assert!(move1.is_some());
         let mv1 = move1.unwrap();
         assert!(!mv1.is_drop());
         assert_eq!(mv1.player, Player::Black);
-        
+
         // Test drop move (doesn't need board but works)
         let move2 = processor.parse_usi_move_with_board("P*5e", &board, Player::Black).unwrap();
         assert!(move2.is_some());
@@ -1262,7 +1268,7 @@ mod tests {
     #[test]
     fn test_format_detection() {
         let processor = DataProcessor::new(PositionFilter::default());
-        
+
         // Test that load_dataset routes to correct parser based on extension
         // This is tested indirectly - if wrong format, we'd get an error
         // For now, just verify the method exists and handles extensions

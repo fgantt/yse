@@ -3,9 +3,9 @@
 //! This re-exports existing debug utilities behind a stable path and can be
 //! extended with higher-level helpers without touching call sites.
 
-pub use crate::debug_utils::{is_debug_enabled, set_debug_enabled, trace_log, debug_log};
-use std::sync::atomic::{AtomicU64, Ordering};
+pub use crate::debug_utils::{debug_log, is_debug_enabled, set_debug_enabled, trace_log};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 /// SIMD telemetry statistics
 ///
@@ -367,5 +367,3 @@ mod tests {
         debug_log("ok");
     }
 }
-
-

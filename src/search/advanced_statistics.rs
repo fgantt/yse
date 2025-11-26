@@ -69,12 +69,8 @@ impl HitRateByDepth {
     pub fn new(max_depth: u8) -> Self {
         Self {
             max_depth,
-            hit_counts: (0..=max_depth as usize)
-                .map(|_| AtomicU64::new(0))
-                .collect(),
-            probe_counts: (0..=max_depth as usize)
-                .map(|_| AtomicU64::new(0))
-                .collect(),
+            hit_counts: (0..=max_depth as usize).map(|_| AtomicU64::new(0)).collect(),
+            probe_counts: (0..=max_depth as usize).map(|_| AtomicU64::new(0)).collect(),
             hit_rates: vec![0.0; max_depth as usize + 1],
         }
     }
@@ -94,11 +90,7 @@ impl HitRateByDepth {
             let probes = self.probe_counts[depth].load(Ordering::Acquire);
             let hits = self.hit_counts[depth].load(Ordering::Acquire);
 
-            self.hit_rates[depth] = if probes > 0 {
-                hits as f64 / probes as f64
-            } else {
-                0.0
-            };
+            self.hit_rates[depth] = if probes > 0 { hits as f64 / probes as f64 } else { 0.0 };
         }
     }
 
@@ -110,23 +102,13 @@ impl HitRateByDepth {
 
     /// Get all hit rates
     pub fn get_all_hit_rates(&self) -> Vec<(u8, f64)> {
-        (0..=self.max_depth)
-            .map(|depth| (depth, self.get_hit_rate(depth)))
-            .collect()
+        (0..=self.max_depth).map(|depth| (depth, self.get_hit_rate(depth))).collect()
     }
 
     /// Get total hit rate across all depths
     pub fn get_total_hit_rate(&self) -> f64 {
-        let total_hits: u64 = self
-            .hit_counts
-            .iter()
-            .map(|c| c.load(Ordering::Acquire))
-            .sum();
-        let total_probes: u64 = self
-            .probe_counts
-            .iter()
-            .map(|c| c.load(Ordering::Acquire))
-            .sum();
+        let total_hits: u64 = self.hit_counts.iter().map(|c| c.load(Ordering::Acquire)).sum();
+        let total_probes: u64 = self.probe_counts.iter().map(|c| c.load(Ordering::Acquire)).sum();
 
         if total_probes > 0 {
             total_hits as f64 / total_probes as f64
@@ -194,11 +176,8 @@ impl CollisionMonitor {
 
         // Calculate hash distribution quality
         let total_entries: u64 = histogram.iter().map(|&count| count as u64).sum();
-        let avg_entries_per_slot = if self.table_size > 0 {
-            total_entries as f64 / self.table_size as f64
-        } else {
-            0.0
-        };
+        let avg_entries_per_slot =
+            if self.table_size > 0 { total_entries as f64 / self.table_size as f64 } else { 0.0 };
 
         let variance = histogram
             .iter()
@@ -272,10 +251,7 @@ pub struct StatisticsExporter {
 impl StatisticsExporter {
     /// Create a new statistics exporter
     pub fn new(format: ExportFormat, include_details: bool) -> Self {
-        Self {
-            format,
-            include_details,
-        }
+        Self { format, include_details }
     }
 
     /// Export detailed cache statistics
@@ -428,14 +404,9 @@ impl StatisticsExporter {
             if !rates.is_empty() {
                 let avg_rate =
                     rates.iter().map(|(_, rate)| *rate).sum::<f64>() / rates.len() as f64;
-                let min_rate = rates
-                    .iter()
-                    .map(|(_, rate)| *rate)
-                    .fold(f64::INFINITY, |a, b| a.min(b));
-                let max_rate = rates
-                    .iter()
-                    .map(|(_, rate)| *rate)
-                    .fold(0.0f64, |a, b| a.max(b));
+                let min_rate =
+                    rates.iter().map(|(_, rate)| *rate).fold(f64::INFINITY, |a, b| a.min(b));
+                let max_rate = rates.iter().map(|(_, rate)| *rate).fold(0.0f64, |a, b| a.max(b));
                 text.push_str(&format!(
                     "Average: {:.2}%, Min: {:.2}%, Max: {:.2}%\n",
                     avg_rate * 100.0,
@@ -604,11 +575,8 @@ impl PerformanceTrendAnalyzer {
 
         // Calculate performance score (higher is better)
         let recent_avg_hit_rate = recent_points.iter().map(|p| p.hit_rate).sum::<f64>() / n as f64;
-        let recent_avg_probe_time = recent_points
-            .iter()
-            .map(|p| p.avg_probe_time_us)
-            .sum::<f64>()
-            / n as f64;
+        let recent_avg_probe_time =
+            recent_points.iter().map(|p| p.avg_probe_time_us).sum::<f64>() / n as f64;
         let performance_score = (recent_avg_hit_rate * 100.0) - (recent_avg_probe_time / 10.0);
 
         PerformanceTrends {
@@ -636,11 +604,7 @@ impl PerformanceTrendAnalyzer {
         let n = points.len() as f64;
         let sum_x: f64 = (0..points.len()).map(|i| i as f64).sum();
         let sum_y: f64 = points.iter().map(|p| get_value(p)).sum();
-        let sum_xy: f64 = points
-            .iter()
-            .enumerate()
-            .map(|(i, p)| i as f64 * get_value(p))
-            .sum();
+        let sum_xy: f64 = points.iter().enumerate().map(|(i, p)| i as f64 * get_value(p)).sum();
         let sum_x2: f64 = (0..points.len()).map(|i| (i as f64).powi(2)).sum();
 
         // Linear regression slope
@@ -662,11 +626,8 @@ impl PerformanceTrendAnalyzer {
         }
 
         let mean = points.iter().map(|p| get_value(p)).sum::<f64>() / n;
-        let variance = points
-            .iter()
-            .map(|p| (get_value(p) - mean).powi(2))
-            .sum::<f64>()
-            / (n - 1.0);
+        let variance =
+            points.iter().map(|p| (get_value(p) - mean).powi(2)).sum::<f64>() / (n - 1.0);
 
         variance.sqrt()
     }
@@ -745,10 +706,7 @@ impl AdvancedStatisticsManager {
             (stats.avg_probe_time_us * (total_probes - 1.0) + probe_time_us) / total_probes;
 
         // Record in hit rate tracker
-        self.hit_rate_tracker
-            .lock()
-            .unwrap()
-            .record_probe(depth, hit);
+        self.hit_rate_tracker.lock().unwrap().record_probe(depth, hit);
     }
 
     /// Record a store operation
@@ -776,11 +734,8 @@ impl AdvancedStatisticsManager {
     /// Update occupancy rate
     pub fn update_occupancy(&self, occupied_entries: usize, total_entries: usize) {
         let mut stats = self.cache_stats.lock().unwrap();
-        stats.occupancy_rate = if total_entries > 0 {
-            occupied_entries as f64 / total_entries as f64
-        } else {
-            0.0
-        };
+        stats.occupancy_rate =
+            if total_entries > 0 { occupied_entries as f64 / total_entries as f64 } else { 0.0 };
     }
 
     /// Update memory usage
@@ -801,10 +756,7 @@ impl AdvancedStatisticsManager {
         let hit_rate_tracker = self.hit_rate_tracker.lock().unwrap();
 
         let data_point = PerformanceDataPoint {
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
             hit_rate: hit_rate_tracker.get_total_hit_rate(),
             avg_probe_time_us: cache_stats.avg_probe_time_us,
             avg_store_time_us: cache_stats.avg_store_time_us,
@@ -829,10 +781,7 @@ impl AdvancedStatisticsManager {
             hit_rates,
             collision_stats,
             trends,
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
         }
     }
 
@@ -843,9 +792,7 @@ impl AdvancedStatisticsManager {
         ExportedStatistics {
             cache_stats: self.exporter.export_cache_stats(&report.cache_stats),
             hit_rates: self.exporter.export_hit_rates(&HitRateByDepth::new(20)), // Dummy for export
-            collision_stats: self
-                .exporter
-                .export_collision_stats(&report.collision_stats),
+            collision_stats: self.exporter.export_collision_stats(&report.collision_stats),
             trends: format!(
                 r#"{{
     "hit_rate_trend": {:.6},

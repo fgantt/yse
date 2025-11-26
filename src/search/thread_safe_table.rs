@@ -132,9 +132,7 @@ pub struct AtomicPackedEntry {
 
 impl Clone for AtomicPackedEntry {
     fn clone(&self) -> Self {
-        Self {
-            data: AtomicU64::new(self.data.load(Ordering::Relaxed)),
-        }
+        Self { data: AtomicU64::new(self.data.load(Ordering::Relaxed)) }
     }
 }
 
@@ -195,10 +193,7 @@ impl AtomicPackedEntry {
         data |= (flag_bits & Self::FLAG_MASK) << Self::FLAG_SHIFT;
 
         if let Some(mv) = best_move {
-            let from_idx = mv
-                .from
-                .map(|pos| pos.to_index())
-                .unwrap_or(Self::DROP_SENTINEL);
+            let from_idx = mv.from.map(|pos| pos.to_index()).unwrap_or(Self::DROP_SENTINEL);
             let to_idx = mv.to.to_index();
             let piece_idx = mv.piece_type.to_u8();
             let player_bit = match mv.player {
@@ -229,9 +224,7 @@ impl AtomicPackedEntry {
     /// Create a new packed entry
     pub fn new(score: i32, depth: u8, flag: TranspositionFlag, best_move: Option<Move>) -> Self {
         let packed = Self::pack(score, depth, flag, best_move);
-        Self {
-            data: AtomicU64::new(packed),
-        }
+        Self { data: AtomicU64::new(packed) }
     }
 
     /// Extract score from packed data
@@ -309,18 +302,11 @@ impl AtomicPackedEntry {
 
     /// Create an empty/invalid entry
     pub fn empty() -> Self {
-        Self {
-            data: AtomicU64::new(0),
-        }
+        Self { data: AtomicU64::new(0) }
     }
 
     pub fn store_entry(&self, entry: &TranspositionEntry) {
-        let packed = Self::pack(
-            entry.score,
-            entry.depth,
-            entry.flag,
-            entry.best_move.clone(),
-        );
+        let packed = Self::pack(entry.score, entry.depth, entry.flag, entry.best_move.clone());
         self.store_raw(packed, Ordering::Release);
     }
 
@@ -405,9 +391,8 @@ impl ThreadSafeTranspositionTable {
 
         // Create bucketed locks for reduced write contention
         let bucket_count = config.bucket_count.next_power_of_two();
-        let bucket_locks: Vec<Arc<RwLock<()>>> = (0..bucket_count)
-            .map(|_| Arc::new(RwLock::new(())))
-            .collect();
+        let bucket_locks: Vec<Arc<RwLock<()>>> =
+            (0..bucket_count).map(|_| Arc::new(RwLock::new(()))).collect();
         let bucket_shift = 64 - bucket_count.trailing_zeros();
         #[cfg(feature = "tt-prefetch")]
         let prefetch_enabled = config.enable_prefetching;
@@ -576,10 +561,7 @@ impl ThreadSafeTranspositionTable {
     }
 
     fn record_poison_recovery(&self, context: &str) {
-        warn!(
-            "ThreadSafeTranspositionTable recovered from poisoned {}",
-            context
-        );
+        warn!("ThreadSafeTranspositionTable recovered from poisoned {}", context);
 
         if self.statistics_enabled {
             self.poison_recoveries.fetch_add(1, Ordering::Relaxed);
@@ -750,9 +732,7 @@ impl ThreadSafeTranspositionTable {
     #[inline(always)]
     fn store_atomic_entry_static(table_entry: &ThreadSafeEntry, entry: &TranspositionEntry) {
         // Atomic write of hash key
-        table_entry
-            .hash_key
-            .store(entry.hash_key, Ordering::Release);
+        table_entry.hash_key.store(entry.hash_key, Ordering::Release);
 
         // Atomic write of packed data
         table_entry.packed_data.store_entry(entry);
@@ -761,9 +741,7 @@ impl ThreadSafeTranspositionTable {
         table_entry.age.store(entry.age, Ordering::Release);
 
         // Atomic write of entry source metadata
-        table_entry
-            .source
-            .store(entry.source.to_discriminant(), Ordering::SeqCst);
+        table_entry.source.store(entry.source.to_discriminant(), Ordering::SeqCst);
     }
 
     /// Reconstruct entry from atomic data (static helper)
@@ -818,11 +796,7 @@ impl ThreadSafeTranspositionTable {
     /// Acquires all bucket locks to ensure no concurrent writes during clear.
     fn clear_with_synchronization(&mut self) {
         // Clone all bucket locks and acquire them to prevent writes during clear
-        let locks: Vec<_> = self
-            .bucket_locks
-            .iter()
-            .map(|lock| Arc::clone(lock))
-            .collect();
+        let locks: Vec<_> = self.bucket_locks.iter().map(|lock| Arc::clone(lock)).collect();
         let _guards: Vec<_> = locks
             .iter()
             .enumerate()
@@ -905,11 +879,8 @@ impl ThreadSafeTranspositionTable {
         let stores = stats.stores.load(Ordering::Acquire);
         let replacements = stats.replacements.load(Ordering::Acquire);
         let atomic_operations = stats.atomic_operations.load(Ordering::Acquire);
-        let hit_rate = if total_probes == 0 {
-            0.0
-        } else {
-            (hits as f64 / total_probes as f64) * 100.0
-        };
+        let hit_rate =
+            if total_probes == 0 { 0.0 } else { (hits as f64 / total_probes as f64) * 100.0 };
 
         ThreadSafeStatsSnapshot {
             total_probes,
@@ -1026,10 +997,7 @@ unsafe fn prefetch_entry_ptr(entry: &ThreadSafeEntry) {
     _mm_prefetch(entry as *const _ as *const i8, _MM_HINT_T2);
 }
 
-#[cfg(all(
-    feature = "tt-prefetch",
-    not(any(target_arch = "x86", target_arch = "x86_64"))
-))]
+#[cfg(all(feature = "tt-prefetch", not(any(target_arch = "x86", target_arch = "x86_64"))))]
 #[inline(always)]
 unsafe fn prefetch_entry_ptr(_entry: &ThreadSafeEntry) {}
 
@@ -1072,10 +1040,7 @@ pub struct ThreadSafeTableBuilder {
 impl ThreadSafeTableBuilder {
     /// Create a new builder
     pub fn new(config: TranspositionConfig) -> Self {
-        Self {
-            config,
-            thread_mode: None,
-        }
+        Self { config, thread_mode: None }
     }
 
     /// Set thread safety mode
@@ -1375,15 +1340,10 @@ mod tests {
         table.store(replacement_entry.clone());
 
         let stats = table.get_stats();
-        assert!(
-            stats.poison_recoveries >= 1,
-            "expected poison recovery to be recorded"
-        );
+        assert!(stats.poison_recoveries >= 1, "expected poison recovery to be recorded");
 
         // Verify store still succeeds after recovery
-        assert!(table
-            .probe(replacement_entry.hash_key, replacement_entry.depth)
-            .is_some());
+        assert!(table.probe(replacement_entry.hash_key, replacement_entry.depth).is_some());
     }
 
     #[test]
@@ -1494,12 +1454,8 @@ mod tests {
         );
         table.store(entry);
 
-        let retrieved = table
-            .probe(hash_key, 7)
-            .expect("Expected entry to be present");
-        let retrieved_move = retrieved
-            .best_move
-            .expect("Expected best move to be present");
+        let retrieved = table.probe(hash_key, 7).expect("Expected entry to be present");
+        let retrieved_move = retrieved.best_move.expect("Expected best move to be present");
 
         assert_eq!(retrieved_move.from, best_move.from);
         assert_eq!(retrieved_move.to, best_move.to);

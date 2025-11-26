@@ -101,7 +101,8 @@ fn benchmark_lookup_engine_vs_simple(c: &mut Criterion) {
     println!("Cache hits: {}", metrics.cache_hits);
     println!("Cache misses: {}", metrics.cache_misses);
     if metrics.cache_hits + metrics.cache_misses > 0 {
-        let hit_rate = metrics.cache_hits as f64 / (metrics.cache_hits + metrics.cache_misses) as f64;
+        let hit_rate =
+            metrics.cache_hits as f64 / (metrics.cache_hits + metrics.cache_misses) as f64;
         println!("Hit rate: {:.1}%", hit_rate * 100.0);
     }
 }
@@ -148,4 +149,3 @@ criterion_group!(
     benchmark_memory_mapped_vs_in_memory
 );
 criterion_main!(benches);
-

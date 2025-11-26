@@ -47,28 +47,24 @@ fn benchmark_lmr_without_margin(c: &mut Criterion) {
 
     // Test across different depths
     for depth in [3, 4, 5, 6] {
-        group.bench_with_input(
-            BenchmarkId::new("search_depth", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine_with_margin(0);
-                    engine.reset_lmr_stats();
+        group.bench_with_input(BenchmarkId::new("search_depth", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine_with_margin(0);
+                engine.reset_lmr_stats();
 
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        1000,
-                    );
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    1000,
+                );
 
-                    let stats = engine.get_lmr_stats().clone();
-                    black_box((result, stats))
-                });
-            },
-        );
+                let stats = engine.get_lmr_stats().clone();
+                black_box((result, stats))
+            });
+        });
     }
 
     group.finish();

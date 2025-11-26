@@ -195,36 +195,15 @@ impl PieceType {
                 (0, 1),
                 (-direction, 0),
             ],
-            PieceType::King => vec![
-                (1, 0),
-                (-1, 0),
-                (0, 1),
-                (0, -1),
-                (1, 1),
-                (1, -1),
-                (-1, 1),
-                (-1, -1),
-            ],
-            PieceType::PromotedBishop => vec![
-                (1, 1),
-                (1, -1),
-                (-1, 1),
-                (-1, -1),
-                (1, 0),
-                (-1, 0),
-                (0, 1),
-                (0, -1),
-            ],
-            PieceType::PromotedRook => vec![
-                (1, 0),
-                (-1, 0),
-                (0, 1),
-                (0, -1),
-                (1, 1),
-                (1, -1),
-                (-1, 1),
-                (-1, -1),
-            ],
+            PieceType::King => {
+                vec![(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
+            }
+            PieceType::PromotedBishop => {
+                vec![(1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (0, 1), (0, -1)]
+            }
+            PieceType::PromotedRook => {
+                vec![(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
+            }
             _ => vec![], // Pawn, Lance, Knight, Rook, Bishop are handled by sliding logic
         }
     }
@@ -261,10 +240,7 @@ impl Position {
 
     /// Create a Position from a 0-based index (0-80)
     pub fn from_index(index: u8) -> Self {
-        Self {
-            row: index / 9,
-            col: index % 9,
-        }
+        Self { row: index / 9, col: index % 9 }
     }
 
     pub fn is_valid(self) -> bool {
@@ -272,16 +248,8 @@ impl Position {
     }
 
     pub fn distance_to(self, other: Position) -> u8 {
-        let dr = if self.row > other.row {
-            self.row - other.row
-        } else {
-            other.row - self.row
-        };
-        let dc = if self.col > other.col {
-            self.col - other.col
-        } else {
-            other.col - self.col
-        };
+        let dr = if self.row > other.row { self.row - other.row } else { other.row - self.row };
+        let dc = if self.col > other.col { self.col - other.col } else { other.col - self.col };
         dr + dc
     }
 
@@ -335,10 +303,7 @@ impl Piece {
                 "[PIECE::NEW ERROR] Invalid piece_type with to_u8() = {}. Defaulting to Pawn.",
                 piece_idx
             ));
-            return Self {
-                piece_type: PieceType::Pawn,
-                player,
-            };
+            return Self { piece_type: PieceType::Pawn, player };
         }
         Self { piece_type, player }
     }
@@ -625,4 +590,3 @@ mod tests {
         assert!(parsed.is_ok());
     }
 }
-

@@ -100,9 +100,7 @@ impl AdvancedIntegration {
         }
 
         // Regular tapered evaluation
-        let result = self
-            .evaluator
-            .evaluate_with_move_count(board, player, captured_pieces, None);
+        let result = self.evaluator.evaluate_with_move_count(board, player, captured_pieces, None);
         let phase = result.phase;
 
         AdvancedEvaluationResult {
@@ -121,9 +119,7 @@ impl AdvancedIntegration {
         captured_pieces: &CapturedPieces,
     ) -> AnalysisEvaluation {
         // Get overall score
-        let result =
-            self.evaluator
-                .evaluate_with_move_count(board, player, captured_pieces, None);
+        let result = self.evaluator.evaluate_with_move_count(board, player, captured_pieces, None);
         let phase = result.phase;
 
         AnalysisEvaluation {
@@ -324,7 +320,8 @@ impl ParallelEvaluator {
                 let mut scores = Vec::new();
 
                 for (board, player, captured) in chunk_owned {
-                    let result = evaluator.evaluate_with_move_count(&board, player, &captured, None);
+                    let result =
+                        evaluator.evaluate_with_move_count(&board, player, &captured, None);
                     scores.push(result.score);
                 }
 

@@ -259,9 +259,7 @@ impl ComprehensiveTestSuite {
         if self.test_tt_basic_operations() {
             unit_results.tests_passed += 1;
         } else {
-            unit_results
-                .failures
-                .push("TT basic operations failed".to_string());
+            unit_results.failures.push("TT basic operations failed".to_string());
         }
 
         // Test 2: Hash calculation consistency
@@ -269,9 +267,7 @@ impl ComprehensiveTestSuite {
         if self.test_hash_consistency() {
             unit_results.tests_passed += 1;
         } else {
-            unit_results
-                .failures
-                .push("Hash consistency failed".to_string());
+            unit_results.failures.push("Hash consistency failed".to_string());
         }
 
         // Test 3: Entry storage and retrieval
@@ -279,9 +275,7 @@ impl ComprehensiveTestSuite {
         if self.test_entry_storage() {
             unit_results.tests_passed += 1;
         } else {
-            unit_results
-                .failures
-                .push("Entry storage/retrieval failed".to_string());
+            unit_results.failures.push("Entry storage/retrieval failed".to_string());
         }
 
         // Test 4: Replacement policies
@@ -289,9 +283,7 @@ impl ComprehensiveTestSuite {
         if self.test_replacement_policies() {
             unit_results.tests_passed += 1;
         } else {
-            unit_results
-                .failures
-                .push("Replacement policies failed".to_string());
+            unit_results.failures.push("Replacement policies failed".to_string());
         }
 
         // Test 5: Move ordering integration
@@ -299,9 +291,7 @@ impl ComprehensiveTestSuite {
         if self.test_move_ordering_integration() {
             unit_results.tests_passed += 1;
         } else {
-            unit_results
-                .failures
-                .push("Move ordering integration failed".to_string());
+            unit_results.failures.push("Move ordering integration failed".to_string());
         }
 
         self.results.unit_tests = unit_results;
@@ -333,9 +323,7 @@ impl ComprehensiveTestSuite {
         if self.test_full_search_pipeline() {
             integration_results.tests_passed += 1;
         } else {
-            integration_results
-                .failures
-                .push("Full search pipeline failed".to_string());
+            integration_results.failures.push("Full search pipeline failed".to_string());
         }
 
         // Test 3: Performance optimization integration
@@ -392,10 +380,9 @@ impl ComprehensiveTestSuite {
         if speed_improvement >= self.config.performance_targets.min_speed_improvement {
             performance_results.benchmarks_passed += 1;
         } else {
-            performance_results.failures.push(format!(
-                "Speed improvement too low: {:.1}%",
-                speed_improvement
-            ));
+            performance_results
+                .failures
+                .push(format!("Speed improvement too low: {:.1}%", speed_improvement));
         }
 
         self.results.performance_tests = performance_results;
@@ -418,9 +405,7 @@ impl ComprehensiveTestSuite {
         if self.test_high_load_operations() {
             stress_results.tests_passed += 1;
         } else {
-            stress_results
-                .failures
-                .push("High-load operations failed".to_string());
+            stress_results.failures.push("High-load operations failed".to_string());
         }
 
         // Test 2: Thread safety
@@ -428,9 +413,7 @@ impl ComprehensiveTestSuite {
         if self.test_thread_safety() {
             stress_results.tests_passed += 1;
         } else {
-            stress_results
-                .failures
-                .push("Thread safety failed".to_string());
+            stress_results.failures.push("Thread safety failed".to_string());
         }
 
         // Test 3: Memory pressure
@@ -438,9 +421,7 @@ impl ComprehensiveTestSuite {
         if self.test_memory_pressure() {
             stress_results.tests_passed += 1;
         } else {
-            stress_results
-                .failures
-                .push("Memory pressure test failed".to_string());
+            stress_results.failures.push("Memory pressure test failed".to_string());
         }
 
         self.results.stress_tests = stress_results;
@@ -462,9 +443,7 @@ impl ComprehensiveTestSuite {
         if self.test_basic_memory_leaks() {
             memory_results.tests_passed += 1;
         } else {
-            memory_results
-                .failures
-                .push("Basic memory leak detected".to_string());
+            memory_results.failures.push("Basic memory leak detected".to_string());
         }
 
         // Test 2: Long-running memory stability
@@ -472,9 +451,7 @@ impl ComprehensiveTestSuite {
         if self.test_long_running_memory() {
             memory_results.tests_passed += 1;
         } else {
-            memory_results
-                .failures
-                .push("Long-running memory instability".to_string());
+            memory_results.failures.push("Long-running memory instability".to_string());
         }
 
         self.results.memory_tests = memory_results;
@@ -496,9 +473,7 @@ impl ComprehensiveTestSuite {
         if self.test_search_consistency() {
             regression_results.tests_passed += 1;
         } else {
-            regression_results
-                .failures
-                .push("Search result inconsistency".to_string());
+            regression_results.failures.push("Search result inconsistency".to_string());
         }
 
         // Test 2: Performance regression detection
@@ -506,9 +481,7 @@ impl ComprehensiveTestSuite {
         if self.test_performance_regression() {
             regression_results.tests_passed += 1;
         } else {
-            regression_results
-                .failures
-                .push("Performance regression detected".to_string());
+            regression_results.failures.push("Performance regression detected".to_string());
         }
 
         self.results.regression_tests = regression_results;
@@ -656,15 +629,8 @@ impl ComprehensiveTestSuite {
 
         // Test that search engine can use the integrated move ordering
         let mut test_board = board.clone();
-        let result = engine.search_at_depth(
-            &mut test_board,
-            &captured,
-            Player::Black,
-            2,
-            1000,
-            -1000,
-            1000,
-        );
+        let result =
+            engine.search_at_depth(&mut test_board, &captured, Player::Black, 2, 1000, -1000, 1000);
         result.is_some()
     }
 
@@ -675,22 +641,14 @@ impl ComprehensiveTestSuite {
 
         // Test iterative deepening with transposition table
         let mut test_board = board.clone();
-        let result = engine.search_at_depth(
-            &mut test_board,
-            &captured,
-            Player::Black,
-            3,
-            1000,
-            -1000,
-            1000,
-        );
+        let result =
+            engine.search_at_depth(&mut test_board, &captured, Player::Black, 3, 1000, -1000, 1000);
         result.is_some()
     }
 
     fn test_performance_optimization_integration(&self) -> bool {
         // Test that performance optimizations are working
-        let tt =
-            ThreadSafeTranspositionTable::new(TranspositionConfig::performance_optimized());
+        let tt = ThreadSafeTranspositionTable::new(TranspositionConfig::performance_optimized());
 
         // Store and retrieve operations should be fast
         let start = Instant::now();

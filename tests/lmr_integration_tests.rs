@@ -188,10 +188,7 @@ mod lmr_quiescence_integration_tests {
             player: Player::Black,
             is_capture: true,
             is_promotion: false,
-            captured_piece: Some(Piece {
-                piece_type: PieceType::Pawn,
-                player: Player::White,
-            }),
+            captured_piece: Some(Piece { piece_type: PieceType::Pawn, player: Player::White }),
             gives_check: false,
             is_recapture: false,
         };
@@ -551,10 +548,7 @@ mod iid_lmr_coordination_tests {
 
         // Check that IID was performed
         let iid_stats = engine.get_iid_stats();
-        assert!(
-            iid_stats.iid_searches_performed > 0,
-            "IID should have been performed"
-        );
+        assert!(iid_stats.iid_searches_performed > 0, "IID should have been performed");
 
         // Check that IID move explicit exemption counter was incremented
         let lmr_stats = engine.get_lmr_stats();
@@ -566,14 +560,8 @@ mod iid_lmr_coordination_tests {
             lmr_stats.iid_move_explicitly_exempted
         );
 
-        println!(
-            "IID searches performed: {}",
-            iid_stats.iid_searches_performed
-        );
-        println!(
-            "IID moves explicitly exempted: {}",
-            lmr_stats.iid_move_explicitly_exempted
-        );
+        println!("IID searches performed: {}", iid_stats.iid_searches_performed);
+        println!("IID moves explicitly exempted: {}", lmr_stats.iid_move_explicitly_exempted);
         println!("Total moves considered: {}", lmr_stats.moves_considered);
         println!("Reductions applied: {}", lmr_stats.reductions_applied);
     }
@@ -612,10 +600,7 @@ mod iid_lmr_coordination_tests {
         let lmr_stats = engine.get_lmr_stats();
 
         // Verify IID was performed
-        assert!(
-            iid_stats.iid_searches_performed > 0,
-            "IID should have been performed"
-        );
+        assert!(iid_stats.iid_searches_performed > 0, "IID should have been performed");
 
         // Verify IID move was ordered first (when IID finds a move)
         if iid_stats.iid_move_position_tracked > 0 {
@@ -623,14 +608,8 @@ mod iid_lmr_coordination_tests {
                 iid_stats.iid_move_position_sum as f64 / iid_stats.iid_move_position_tracked as f64;
 
             println!("IID move average position: {:.2}", avg_position);
-            println!(
-                "IID moves ordered first: {}",
-                iid_stats.iid_move_ordered_first
-            );
-            println!(
-                "IID moves not ordered first: {}",
-                iid_stats.iid_move_not_ordered_first
-            );
+            println!("IID moves ordered first: {}", iid_stats.iid_move_ordered_first);
+            println!("IID moves not ordered first: {}", iid_stats.iid_move_not_ordered_first);
 
             // IID move should be ordered first most of the time
             assert!(
@@ -686,10 +665,7 @@ mod iid_lmr_coordination_tests {
         let iid_stats = engine.get_iid_stats();
 
         // Verify various exemptions work together
-        println!(
-            "IID moves exempted: {}",
-            lmr_stats.iid_move_explicitly_exempted
-        );
+        println!("IID moves exempted: {}", lmr_stats.iid_move_explicitly_exempted);
         println!("TT moves exempted: {}", lmr_stats.tt_move_exempted);
         println!("Total moves considered: {}", lmr_stats.moves_considered);
         println!("Reductions applied: {}", lmr_stats.reductions_applied);
@@ -809,9 +785,6 @@ mod lmr_position_type_adaptation_tests {
         );
 
         // Test that adaptation is working
-        assert!(
-            lmr_stats.reductions_applied > 0,
-            "LMR should have been applied"
-        );
+        assert!(lmr_stats.reductions_applied > 0, "LMR should have been applied");
     }
 }

@@ -108,26 +108,13 @@ pub enum TuningAction {
     /// Adjust table size
     AdjustTableSize { new_size: usize, reason: String },
     /// Change replacement policy
-    ChangeReplacementPolicy {
-        new_policy: ReplacementPolicy,
-        reason: String,
-    },
+    ChangeReplacementPolicy { new_policy: ReplacementPolicy, reason: String },
     /// Enable/disable feature
-    ToggleFeature {
-        feature: String,
-        enabled: bool,
-        reason: String,
-    },
+    ToggleFeature { feature: String, enabled: bool, reason: String },
     /// Use template
-    UseTemplate {
-        template_name: String,
-        reason: String,
-    },
+    UseTemplate { template_name: String, reason: String },
     /// Custom configuration
-    CustomConfiguration {
-        config: TranspositionConfig,
-        reason: String,
-    },
+    CustomConfiguration { config: TranspositionConfig, reason: String },
 }
 
 /// Tuning session record
@@ -156,9 +143,8 @@ pub struct TuningSession {
 impl PerformanceTuningManager {
     /// Create a new performance tuning manager
     pub fn new(initial_config: TranspositionConfig) -> Self {
-        let adaptive_manager = Arc::new(Mutex::new(AdaptiveConfigurationManager::new(
-            initial_config.clone(),
-        )));
+        let adaptive_manager =
+            Arc::new(Mutex::new(AdaptiveConfigurationManager::new(initial_config.clone())));
         let profiler = Arc::new(Mutex::new(PerformanceProfiler::new()));
 
         let mut manager = Self {
@@ -313,29 +299,22 @@ impl PerformanceTuningManager {
 
         let current_config = runtime_manager.get_active_config();
         let new_config = match &recommendation.action {
-            TuningAction::AdjustTableSize { new_size, .. } => TranspositionConfig {
-                table_size: *new_size,
-                ..current_config
-            },
-            TuningAction::ChangeReplacementPolicy { new_policy, .. } => TranspositionConfig {
-                replacement_policy: new_policy.clone(),
-                ..current_config
-            },
-            TuningAction::ToggleFeature {
-                feature, enabled, ..
-            } => match feature.as_str() {
-                "statistics" => TranspositionConfig {
-                    enable_statistics: *enabled,
-                    ..current_config
-                },
-                "memory_mapping" => TranspositionConfig {
-                    enable_memory_mapping: *enabled,
-                    ..current_config
-                },
-                "prefetching" => TranspositionConfig {
-                    enable_prefetching: *enabled,
-                    ..current_config
-                },
+            TuningAction::AdjustTableSize { new_size, .. } => {
+                TranspositionConfig { table_size: *new_size, ..current_config }
+            }
+            TuningAction::ChangeReplacementPolicy { new_policy, .. } => {
+                TranspositionConfig { replacement_policy: new_policy.clone(), ..current_config }
+            }
+            TuningAction::ToggleFeature { feature, enabled, .. } => match feature.as_str() {
+                "statistics" => {
+                    TranspositionConfig { enable_statistics: *enabled, ..current_config }
+                }
+                "memory_mapping" => {
+                    TranspositionConfig { enable_memory_mapping: *enabled, ..current_config }
+                }
+                "prefetching" => {
+                    TranspositionConfig { enable_prefetching: *enabled, ..current_config }
+                }
                 _ => return Err(format!("Unknown feature: {}", feature)),
             },
             TuningAction::UseTemplate { template_name, .. } => runtime_manager
@@ -349,9 +328,7 @@ impl PerformanceTuningManager {
 
         // Record applied recommendation
         if let Some(session) = self.tuning_history.last_mut() {
-            session
-                .applied_recommendations
-                .push(recommendation_id.to_string());
+            session.applied_recommendations.push(recommendation_id.to_string());
         }
 
         Ok(())
@@ -629,10 +606,7 @@ impl BaselineManager {
 
     /// Create a baseline manager with custom directory
     pub fn with_directory<P: AsRef<Path>>(dir: P) -> Self {
-        Self {
-            baseline_dir: dir.as_ref().to_path_buf(),
-            regression_threshold: 5.0,
-        }
+        Self { baseline_dir: dir.as_ref().to_path_buf(), regression_threshold: 5.0 }
     }
 
     /// Set regression threshold (percentage)
@@ -646,7 +620,11 @@ impl BaselineManager {
     }
 
     /// Save baseline to file
-    pub fn save_baseline(&self, baseline: &PerformanceBaseline, filename: &str) -> Result<(), String> {
+    pub fn save_baseline(
+        &self,
+        baseline: &PerformanceBaseline,
+        filename: &str,
+    ) -> Result<(), String> {
         // Ensure directory exists
         fs::create_dir_all(&self.baseline_dir)
             .map_err(|e| format!("Failed to create baseline directory: {}", e))?;
@@ -655,8 +633,7 @@ impl BaselineManager {
         let json = serde_json::to_string_pretty(baseline)
             .map_err(|e| format!("Failed to serialize baseline: {}", e))?;
 
-        fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write baseline file: {}", e))?;
+        fs::write(&file_path, json).map_err(|e| format!("Failed to write baseline file: {}", e))?;
 
         Ok(())
     }
@@ -672,8 +649,7 @@ impl BaselineManager {
         let content = fs::read_to_string(&file_path)
             .map_err(|e| format!("Failed to read baseline file: {}", e))?;
 
-        serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse baseline JSON: {}", e))
+        serde_json::from_str(&content).map_err(|e| format!("Failed to parse baseline JSON: {}", e))
     }
 
     /// Compare two baselines and calculate percentage differences
@@ -683,12 +659,27 @@ impl BaselineManager {
         baseline: &PerformanceBaseline,
     ) -> BaselineComparison {
         BaselineComparison {
-            search_metrics_diff: compare_search_metrics(&current.search_metrics, &baseline.search_metrics),
-            evaluation_metrics_diff: compare_evaluation_metrics(&current.evaluation_metrics, &baseline.evaluation_metrics),
+            search_metrics_diff: compare_search_metrics(
+                &current.search_metrics,
+                &baseline.search_metrics,
+            ),
+            evaluation_metrics_diff: compare_evaluation_metrics(
+                &current.evaluation_metrics,
+                &baseline.evaluation_metrics,
+            ),
             tt_metrics_diff: compare_tt_metrics(&current.tt_metrics, &baseline.tt_metrics),
-            move_ordering_metrics_diff: compare_move_ordering_metrics(&current.move_ordering_metrics, &baseline.move_ordering_metrics),
-            parallel_search_metrics_diff: compare_parallel_search_metrics(&current.parallel_search_metrics, &baseline.parallel_search_metrics),
-            memory_metrics_diff: compare_memory_metrics(&current.memory_metrics, &baseline.memory_metrics),
+            move_ordering_metrics_diff: compare_move_ordering_metrics(
+                &current.move_ordering_metrics,
+                &baseline.move_ordering_metrics,
+            ),
+            parallel_search_metrics_diff: compare_parallel_search_metrics(
+                &current.parallel_search_metrics,
+                &baseline.parallel_search_metrics,
+            ),
+            memory_metrics_diff: compare_memory_metrics(
+                &current.memory_metrics,
+                &baseline.memory_metrics,
+            ),
         }
     }
 
@@ -731,13 +722,17 @@ impl BaselineManager {
         }
 
         // Check evaluation metrics
-        if comparison.evaluation_metrics_diff.average_evaluation_time_ns_change > self.regression_threshold {
+        if comparison.evaluation_metrics_diff.average_evaluation_time_ns_change
+            > self.regression_threshold
+        {
             regressions.push(Regression {
                 category: "evaluation_metrics".to_string(),
                 metric: "average_evaluation_time_ns".to_string(),
                 baseline_value: baseline.evaluation_metrics.average_evaluation_time_ns,
                 current_value: current.evaluation_metrics.average_evaluation_time_ns,
-                change_percent: comparison.evaluation_metrics_diff.average_evaluation_time_ns_change,
+                change_percent: comparison
+                    .evaluation_metrics_diff
+                    .average_evaluation_time_ns_change,
             });
         }
         if comparison.evaluation_metrics_diff.cache_hit_rate_change < -self.regression_threshold {
@@ -762,7 +757,9 @@ impl BaselineManager {
         }
 
         // Check move ordering metrics
-        if comparison.move_ordering_metrics_diff.average_cutoff_index_change > self.regression_threshold {
+        if comparison.move_ordering_metrics_diff.average_cutoff_index_change
+            > self.regression_threshold
+        {
             regressions.push(Regression {
                 category: "move_ordering_metrics".to_string(),
                 metric: "average_cutoff_index".to_string(),
@@ -880,51 +877,111 @@ fn calculate_percent_change(baseline: f64, current: f64) -> f64 {
 
 fn compare_search_metrics(current: &SearchMetrics, baseline: &SearchMetrics) -> SearchMetricsDiff {
     SearchMetricsDiff {
-        nodes_per_second_change: calculate_percent_change(baseline.nodes_per_second, current.nodes_per_second),
-        average_cutoff_rate_change: calculate_percent_change(baseline.average_cutoff_rate, current.average_cutoff_rate),
-        average_cutoff_index_change: calculate_percent_change(baseline.average_cutoff_index, current.average_cutoff_index),
+        nodes_per_second_change: calculate_percent_change(
+            baseline.nodes_per_second,
+            current.nodes_per_second,
+        ),
+        average_cutoff_rate_change: calculate_percent_change(
+            baseline.average_cutoff_rate,
+            current.average_cutoff_rate,
+        ),
+        average_cutoff_index_change: calculate_percent_change(
+            baseline.average_cutoff_index,
+            current.average_cutoff_index,
+        ),
     }
 }
 
-fn compare_evaluation_metrics(current: &EvaluationMetrics, baseline: &EvaluationMetrics) -> EvaluationMetricsDiff {
+fn compare_evaluation_metrics(
+    current: &EvaluationMetrics,
+    baseline: &EvaluationMetrics,
+) -> EvaluationMetricsDiff {
     EvaluationMetricsDiff {
-        average_evaluation_time_ns_change: calculate_percent_change(baseline.average_evaluation_time_ns, current.average_evaluation_time_ns),
-        cache_hit_rate_change: calculate_percent_change(baseline.cache_hit_rate, current.cache_hit_rate),
-        phase_calc_time_ns_change: calculate_percent_change(baseline.phase_calc_time_ns, current.phase_calc_time_ns),
+        average_evaluation_time_ns_change: calculate_percent_change(
+            baseline.average_evaluation_time_ns,
+            current.average_evaluation_time_ns,
+        ),
+        cache_hit_rate_change: calculate_percent_change(
+            baseline.cache_hit_rate,
+            current.cache_hit_rate,
+        ),
+        phase_calc_time_ns_change: calculate_percent_change(
+            baseline.phase_calc_time_ns,
+            current.phase_calc_time_ns,
+        ),
     }
 }
 
 fn compare_tt_metrics(current: &TTMetrics, baseline: &TTMetrics) -> TTMetricsDiff {
     TTMetricsDiff {
         hit_rate_change: calculate_percent_change(baseline.hit_rate, current.hit_rate),
-        exact_entry_rate_change: calculate_percent_change(baseline.exact_entry_rate, current.exact_entry_rate),
-        occupancy_rate_change: calculate_percent_change(baseline.occupancy_rate, current.occupancy_rate),
+        exact_entry_rate_change: calculate_percent_change(
+            baseline.exact_entry_rate,
+            current.exact_entry_rate,
+        ),
+        occupancy_rate_change: calculate_percent_change(
+            baseline.occupancy_rate,
+            current.occupancy_rate,
+        ),
     }
 }
 
-fn compare_move_ordering_metrics(current: &BaselineMoveOrderingMetrics, baseline: &BaselineMoveOrderingMetrics) -> MoveOrderingMetricsDiff {
+fn compare_move_ordering_metrics(
+    current: &BaselineMoveOrderingMetrics,
+    baseline: &BaselineMoveOrderingMetrics,
+) -> MoveOrderingMetricsDiff {
     MoveOrderingMetricsDiff {
-        average_cutoff_index_change: calculate_percent_change(baseline.average_cutoff_index, current.average_cutoff_index),
+        average_cutoff_index_change: calculate_percent_change(
+            baseline.average_cutoff_index,
+            current.average_cutoff_index,
+        ),
         pv_hit_rate_change: calculate_percent_change(baseline.pv_hit_rate, current.pv_hit_rate),
-        killer_hit_rate_change: calculate_percent_change(baseline.killer_hit_rate, current.killer_hit_rate),
-        cache_hit_rate_change: calculate_percent_change(baseline.cache_hit_rate, current.cache_hit_rate),
+        killer_hit_rate_change: calculate_percent_change(
+            baseline.killer_hit_rate,
+            current.killer_hit_rate,
+        ),
+        cache_hit_rate_change: calculate_percent_change(
+            baseline.cache_hit_rate,
+            current.cache_hit_rate,
+        ),
     }
 }
 
-fn compare_parallel_search_metrics(current: &ParallelSearchMetrics, baseline: &ParallelSearchMetrics) -> ParallelSearchMetricsDiff {
+fn compare_parallel_search_metrics(
+    current: &ParallelSearchMetrics,
+    baseline: &ParallelSearchMetrics,
+) -> ParallelSearchMetricsDiff {
     ParallelSearchMetricsDiff {
-        speedup_4_cores_change: calculate_percent_change(baseline.speedup_4_cores, current.speedup_4_cores),
-        speedup_8_cores_change: calculate_percent_change(baseline.speedup_8_cores, current.speedup_8_cores),
-        efficiency_4_cores_change: calculate_percent_change(baseline.efficiency_4_cores, current.efficiency_4_cores),
-        efficiency_8_cores_change: calculate_percent_change(baseline.efficiency_8_cores, current.efficiency_8_cores),
+        speedup_4_cores_change: calculate_percent_change(
+            baseline.speedup_4_cores,
+            current.speedup_4_cores,
+        ),
+        speedup_8_cores_change: calculate_percent_change(
+            baseline.speedup_8_cores,
+            current.speedup_8_cores,
+        ),
+        efficiency_4_cores_change: calculate_percent_change(
+            baseline.efficiency_4_cores,
+            current.efficiency_4_cores,
+        ),
+        efficiency_8_cores_change: calculate_percent_change(
+            baseline.efficiency_8_cores,
+            current.efficiency_8_cores,
+        ),
     }
 }
 
 fn compare_memory_metrics(current: &MemoryMetrics, baseline: &MemoryMetrics) -> MemoryMetricsDiff {
     MemoryMetricsDiff {
         tt_memory_mb_change: calculate_percent_change(baseline.tt_memory_mb, current.tt_memory_mb),
-        cache_memory_mb_change: calculate_percent_change(baseline.cache_memory_mb, current.cache_memory_mb),
-        peak_memory_mb_change: calculate_percent_change(baseline.peak_memory_mb, current.peak_memory_mb),
+        cache_memory_mb_change: calculate_percent_change(
+            baseline.cache_memory_mb,
+            current.cache_memory_mb,
+        ),
+        peak_memory_mb_change: calculate_percent_change(
+            baseline.peak_memory_mb,
+            current.peak_memory_mb,
+        ),
     }
 }
 
@@ -964,10 +1021,7 @@ pub fn detect_hardware_info() -> HardwareInfo {
     let cores = num_cpus::get() as u32;
 
     // Try to detect RAM (simplified - may not work on all platforms)
-    let ram_gb = std::env::var("RAM_GB")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(0);
+    let ram_gb = std::env::var("RAM_GB").ok().and_then(|s| s.parse().ok()).unwrap_or(0);
 
     HardwareInfo { cpu, cores, ram_gb }
 }
@@ -1076,9 +1130,7 @@ impl BenchmarkAggregator {
     pub fn new() -> Self {
         Self {
             reports_dir: PathBuf::from("docs/performance/reports"),
-            baseline_path: std::env::var("BENCHMARK_BASELINE_PATH")
-                .ok()
-                .map(PathBuf::from),
+            baseline_path: std::env::var("BENCHMARK_BASELINE_PATH").ok().map(PathBuf::from),
             regression_threshold: 5.0,
         }
     }
@@ -1087,9 +1139,7 @@ impl BenchmarkAggregator {
     pub fn with_directory<P: AsRef<Path>>(dir: P) -> Self {
         Self {
             reports_dir: dir.as_ref().to_path_buf(),
-            baseline_path: std::env::var("BENCHMARK_BASELINE_PATH")
-                .ok()
-                .map(PathBuf::from),
+            baseline_path: std::env::var("BENCHMARK_BASELINE_PATH").ok().map(PathBuf::from),
             regression_threshold: 5.0,
         }
     }
@@ -1141,27 +1191,19 @@ impl BenchmarkAggregator {
         let content = fs::read_to_string(&estimates_file)
             .map_err(|e| format!("Failed to read estimates file: {}", e))?;
 
-        let estimates: CriterionEstimates = serde_json::from_str(&content)
-            .map_err(|e| format!("Failed to parse JSON: {}", e))?;
+        let estimates: CriterionEstimates =
+            serde_json::from_str(&content).map_err(|e| format!("Failed to parse JSON: {}", e))?;
 
         // Extract benchmark name from path
         // Path format: .../criterion/{benchmark_name}/{id}/base/estimates.json
-        let benchmark_name = extract_benchmark_name(&estimates_file)
-            .unwrap_or_else(|| "unknown".to_string());
+        let benchmark_name =
+            extract_benchmark_name(&estimates_file).unwrap_or_else(|| "unknown".to_string());
 
         // Get mean time (in nanoseconds)
-        let mean_time_ns = estimates
-            .mean
-            .as_ref()
-            .map(|m| m.point_estimate)
-            .unwrap_or(0.0);
+        let mean_time_ns = estimates.mean.as_ref().map(|m| m.point_estimate).unwrap_or(0.0);
 
         // Get standard deviation (from standard error or confidence interval)
-        let std_dev_ns = estimates
-            .mean
-            .as_ref()
-            .and_then(|m| m.standard_error)
-            .unwrap_or(0.0);
+        let std_dev_ns = estimates.mean.as_ref().and_then(|m| m.standard_error).unwrap_or(0.0);
 
         // Get throughput (operations per second)
         let throughput_ops_per_sec = estimates
@@ -1205,17 +1247,13 @@ impl BenchmarkAggregator {
         let total_throughput_ops_per_sec = reports.iter().map(|r| r.throughput_ops_per_sec).sum();
         let regressions_detected = reports
             .iter()
-            .filter(|r| {
-                r.baseline_comparison
-                    .as_ref()
-                    .map(|c| c.has_regression)
-                    .unwrap_or(false)
-            })
+            .filter(|r| r.baseline_comparison.as_ref().map(|c| c.has_regression).unwrap_or(false))
             .count();
 
         AggregatedBenchmarkReport {
             timestamp: chrono::Utc::now().to_rfc3339(),
-            git_commit: crate::types::get_git_commit_hash().unwrap_or_else(|| "unknown".to_string()),
+            git_commit: crate::types::get_git_commit_hash()
+                .unwrap_or_else(|| "unknown".to_string()),
             hardware: detect_hardware_info(),
             benchmarks: reports.to_vec(),
             summary: BenchmarkSummary {
@@ -1241,8 +1279,7 @@ impl BenchmarkAggregator {
         let json = serde_json::to_string_pretty(report)
             .map_err(|e| format!("Failed to serialize report: {}", e))?;
 
-        fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write report file: {}", e))?;
+        fs::write(&file_path, json).map_err(|e| format!("Failed to write report file: {}", e))?;
 
         Ok(())
     }
@@ -1273,15 +1310,26 @@ impl BenchmarkAggregator {
         md.push_str("# Benchmark Report\n\n");
         md.push_str(&format!("**Generated:** {}\n", report.timestamp));
         md.push_str(&format!("**Git Commit:** {}\n", report.git_commit));
-        md.push_str(&format!("**Hardware:** {} ({} cores, {} GB RAM)\n\n", 
-            report.hardware.cpu, report.hardware.cores, report.hardware.ram_gb));
+        md.push_str(&format!(
+            "**Hardware:** {} ({} cores, {} GB RAM)\n\n",
+            report.hardware.cpu, report.hardware.cores, report.hardware.ram_gb
+        ));
 
         // Summary
         md.push_str("## Summary\n\n");
         md.push_str(&format!("- **Total Benchmarks:** {}\n", report.summary.total_benchmarks));
-        md.push_str(&format!("- **Average Mean Time:** {:.2} ns\n", report.summary.average_mean_time_ns));
-        md.push_str(&format!("- **Total Throughput:** {:.2} ops/sec\n", report.summary.total_throughput_ops_per_sec));
-        md.push_str(&format!("- **Regressions Detected:** {}\n\n", report.summary.regressions_detected));
+        md.push_str(&format!(
+            "- **Average Mean Time:** {:.2} ns\n",
+            report.summary.average_mean_time_ns
+        ));
+        md.push_str(&format!(
+            "- **Total Throughput:** {:.2} ops/sec\n",
+            report.summary.total_throughput_ops_per_sec
+        ));
+        md.push_str(&format!(
+            "- **Regressions Detected:** {}\n\n",
+            report.summary.regressions_detected
+        ));
 
         // Benchmarks table
         md.push_str("## Benchmarks\n\n");
@@ -1407,11 +1455,11 @@ fn find_estimates_files<P: AsRef<Path>>(criterion_dir: P) -> Result<Vec<PathBuf>
     }
 
     // Walk through directory structure: criterion/{benchmark}/{id}/base/estimates.json
-    for benchmark_entry in fs::read_dir(dir)
-        .map_err(|e| format!("Failed to read criterion directory: {}", e))?
+    for benchmark_entry in
+        fs::read_dir(dir).map_err(|e| format!("Failed to read criterion directory: {}", e))?
     {
-        let benchmark_entry = benchmark_entry
-            .map_err(|e| format!("Failed to read directory entry: {}", e))?;
+        let benchmark_entry =
+            benchmark_entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
         let benchmark_path = benchmark_entry.path();
 
         if !benchmark_path.is_dir() {
@@ -1422,8 +1470,8 @@ fn find_estimates_files<P: AsRef<Path>>(criterion_dir: P) -> Result<Vec<PathBuf>
         for id_entry in fs::read_dir(&benchmark_path)
             .map_err(|e| format!("Failed to read benchmark directory: {}", e))?
         {
-            let id_entry = id_entry
-                .map_err(|e| format!("Failed to read directory entry: {}", e))?;
+            let id_entry =
+                id_entry.map_err(|e| format!("Failed to read directory entry: {}", e))?;
             let id_path = id_entry.path();
 
             if !id_path.is_dir() {
@@ -1471,13 +1519,13 @@ use crate::search::search_engine::SearchEngine;
 /// Load standard benchmark positions from JSON file (Task 26.0 - Task 5.0)
 pub fn load_standard_positions() -> Result<Vec<BenchmarkPosition>, String> {
     let path = PathBuf::from("resources/benchmark_positions/standard_positions.json");
-    
+
     let content = fs::read_to_string(&path)
         .map_err(|e| format!("Failed to read standard positions file: {}", e))?;
-    
+
     let positions: Vec<BenchmarkPosition> = serde_json::from_str(&content)
         .map_err(|e| format!("Failed to parse standard positions JSON: {}", e))?;
-    
+
     Ok(positions)
 }
 
@@ -1509,9 +1557,9 @@ impl RegressionTestResult {
         } else {
             0.0
         };
-        
+
         let regression_detected = regression_percentage > regression_threshold;
-        
+
         Self {
             position_name,
             baseline_time_ms,
@@ -1619,7 +1667,7 @@ impl BenchmarkRunner {
 
         for position in &positions {
             let benchmark_result = self.run_position_benchmark(position, engine)?;
-            
+
             // Compare with baseline if available
             if let Some(ref baseline) = baseline_results {
                 if let Some(baseline_time) = baseline.get(&position.name) {
@@ -1656,11 +1704,7 @@ impl BenchmarkRunner {
         &self,
         results: &[RegressionTestResult],
     ) -> Vec<RegressionTestResult> {
-        results
-            .iter()
-            .filter(|r| r.regression_detected)
-            .cloned()
-            .collect()
+        results.iter().filter(|r| r.regression_detected).cloned().collect()
     }
 
     /// Load baseline results from file
@@ -1672,8 +1716,8 @@ impl BenchmarkRunner {
             return Ok(None);
         }
 
-        let content = fs::read_to_string(path)
-            .map_err(|e| format!("Failed to read baseline file: {}", e))?;
+        let content =
+            fs::read_to_string(path).map_err(|e| format!("Failed to read baseline file: {}", e))?;
 
         let baseline: HashMap<String, u64> = serde_json::from_str(&content)
             .map_err(|e| format!("Failed to parse baseline JSON: {}", e))?;
@@ -1747,18 +1791,12 @@ pub struct TelemetryExporter {
 impl TelemetryExporter {
     /// Create a new telemetry exporter
     pub fn new<P: AsRef<Path>>(export_path: P) -> Self {
-        Self {
-            export_path: export_path.as_ref().to_path_buf(),
-            enabled: true,
-        }
+        Self { export_path: export_path.as_ref().to_path_buf(), enabled: true }
     }
 
     /// Create exporter with enabled flag
     pub fn with_enabled<P: AsRef<Path>>(export_path: P, enabled: bool) -> Self {
-        Self {
-            export_path: export_path.as_ref().to_path_buf(),
-            enabled,
-        }
+        Self { export_path: export_path.as_ref().to_path_buf(), enabled }
     }
 
     /// Set export enabled status
@@ -1809,8 +1847,7 @@ impl TelemetryExporter {
         let json = serde_json::to_string_pretty(&telemetry)
             .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
 
-        fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write JSON file: {}", e))?;
+        fs::write(&file_path, json).map_err(|e| format!("Failed to write JSON file: {}", e))?;
 
         Ok(file_path)
     }
@@ -1837,29 +1874,67 @@ impl TelemetryExporter {
         csv.push_str(&format!("average_window_size,{}\n", metrics.average_window_size));
         csv.push_str(&format!("retry_frequency,{}\n", metrics.retry_frequency));
         csv.push_str(&format!("health_score,{}\n", metrics.health_score));
-        csv.push_str(&format!("search_nodes_per_second,{}\n", baseline.search_metrics.nodes_per_second));
-        csv.push_str(&format!("search_cutoff_rate,{}\n", baseline.search_metrics.average_cutoff_rate));
-        csv.push_str(&format!("search_cutoff_index,{}\n", baseline.search_metrics.average_cutoff_index));
-        csv.push_str(&format!("eval_time_ns,{}\n", baseline.evaluation_metrics.average_evaluation_time_ns));
-        csv.push_str(&format!("eval_cache_hit_rate,{}\n", baseline.evaluation_metrics.cache_hit_rate));
+        csv.push_str(&format!(
+            "search_nodes_per_second,{}\n",
+            baseline.search_metrics.nodes_per_second
+        ));
+        csv.push_str(&format!(
+            "search_cutoff_rate,{}\n",
+            baseline.search_metrics.average_cutoff_rate
+        ));
+        csv.push_str(&format!(
+            "search_cutoff_index,{}\n",
+            baseline.search_metrics.average_cutoff_index
+        ));
+        csv.push_str(&format!(
+            "eval_time_ns,{}\n",
+            baseline.evaluation_metrics.average_evaluation_time_ns
+        ));
+        csv.push_str(&format!(
+            "eval_cache_hit_rate,{}\n",
+            baseline.evaluation_metrics.cache_hit_rate
+        ));
         csv.push_str(&format!("tt_hit_rate,{}\n", baseline.tt_metrics.hit_rate));
         csv.push_str(&format!("tt_exact_entry_rate,{}\n", baseline.tt_metrics.exact_entry_rate));
         csv.push_str(&format!("tt_occupancy_rate,{}\n", baseline.tt_metrics.occupancy_rate));
-        csv.push_str(&format!("move_ordering_cutoff_index,{}\n", baseline.move_ordering_metrics.average_cutoff_index));
-        csv.push_str(&format!("move_ordering_pv_hit_rate,{}\n", baseline.move_ordering_metrics.pv_hit_rate));
-        csv.push_str(&format!("move_ordering_killer_hit_rate,{}\n", baseline.move_ordering_metrics.killer_hit_rate));
-        csv.push_str(&format!("move_ordering_cache_hit_rate,{}\n", baseline.move_ordering_metrics.cache_hit_rate));
-        csv.push_str(&format!("parallel_speedup_4_cores,{}\n", baseline.parallel_search_metrics.speedup_4_cores));
-        csv.push_str(&format!("parallel_speedup_8_cores,{}\n", baseline.parallel_search_metrics.speedup_8_cores));
-        csv.push_str(&format!("parallel_efficiency_4_cores,{}\n", baseline.parallel_search_metrics.efficiency_4_cores));
-        csv.push_str(&format!("parallel_efficiency_8_cores,{}\n", baseline.parallel_search_metrics.efficiency_8_cores));
+        csv.push_str(&format!(
+            "move_ordering_cutoff_index,{}\n",
+            baseline.move_ordering_metrics.average_cutoff_index
+        ));
+        csv.push_str(&format!(
+            "move_ordering_pv_hit_rate,{}\n",
+            baseline.move_ordering_metrics.pv_hit_rate
+        ));
+        csv.push_str(&format!(
+            "move_ordering_killer_hit_rate,{}\n",
+            baseline.move_ordering_metrics.killer_hit_rate
+        ));
+        csv.push_str(&format!(
+            "move_ordering_cache_hit_rate,{}\n",
+            baseline.move_ordering_metrics.cache_hit_rate
+        ));
+        csv.push_str(&format!(
+            "parallel_speedup_4_cores,{}\n",
+            baseline.parallel_search_metrics.speedup_4_cores
+        ));
+        csv.push_str(&format!(
+            "parallel_speedup_8_cores,{}\n",
+            baseline.parallel_search_metrics.speedup_8_cores
+        ));
+        csv.push_str(&format!(
+            "parallel_efficiency_4_cores,{}\n",
+            baseline.parallel_search_metrics.efficiency_4_cores
+        ));
+        csv.push_str(&format!(
+            "parallel_efficiency_8_cores,{}\n",
+            baseline.parallel_search_metrics.efficiency_8_cores
+        ));
         csv.push_str(&format!("memory_tt_mb,{}\n", baseline.memory_metrics.tt_memory_mb));
         csv.push_str(&format!("memory_cache_mb,{}\n", baseline.memory_metrics.cache_memory_mb));
         csv.push_str(&format!("memory_peak_mb,{}\n", baseline.memory_metrics.peak_memory_mb));
 
         let file_path = self.export_path.join(filename);
-        fs::write(&file_path, csv)
-            .map_err(|e| format!("Failed to write CSV file: {}", e))?;
+        fs::write(&file_path, csv).map_err(|e| format!("Failed to write CSV file: {}", e))?;
 
         Ok(file_path)
     }
@@ -1882,63 +1957,119 @@ impl TelemetryExporter {
         let mut md = String::new();
         md.push_str("# Performance Metrics Report\n\n");
         md.push_str(&format!("**Generated:** {}\n\n", chrono::Utc::now().to_rfc3339()));
-        
+
         md.push_str("## Performance Metrics\n\n");
         md.push_str("| Metric | Value |\n");
         md.push_str("|--------|-------|\n");
         md.push_str(&format!("| Nodes per Second | {:.2} |\n", metrics.nodes_per_second));
-        md.push_str(&format!("| Aspiration Success Rate | {:.2}% |\n", metrics.aspiration_success_rate * 100.0));
+        md.push_str(&format!(
+            "| Aspiration Success Rate | {:.2}% |\n",
+            metrics.aspiration_success_rate * 100.0
+        ));
         md.push_str(&format!("| Average Window Size | {:.2} |\n", metrics.average_window_size));
         md.push_str(&format!("| Retry Frequency | {:.2}% |\n", metrics.retry_frequency * 100.0));
         md.push_str(&format!("| Health Score | {:.2} |\n", metrics.health_score));
-        
+
         md.push_str("\n## Search Metrics\n\n");
         md.push_str("| Metric | Value |\n");
         md.push_str("|--------|-------|\n");
-        md.push_str(&format!("| Nodes per Second | {:.2} |\n", baseline.search_metrics.nodes_per_second));
-        md.push_str(&format!("| Average Cutoff Rate | {:.2}% |\n", baseline.search_metrics.average_cutoff_rate * 100.0));
-        md.push_str(&format!("| Average Cutoff Index | {:.2} |\n", baseline.search_metrics.average_cutoff_index));
-        
+        md.push_str(&format!(
+            "| Nodes per Second | {:.2} |\n",
+            baseline.search_metrics.nodes_per_second
+        ));
+        md.push_str(&format!(
+            "| Average Cutoff Rate | {:.2}% |\n",
+            baseline.search_metrics.average_cutoff_rate * 100.0
+        ));
+        md.push_str(&format!(
+            "| Average Cutoff Index | {:.2} |\n",
+            baseline.search_metrics.average_cutoff_index
+        ));
+
         md.push_str("\n## Evaluation Metrics\n\n");
         md.push_str("| Metric | Value |\n");
         md.push_str("|--------|-------|\n");
-        md.push_str(&format!("| Average Evaluation Time | {:.2} ns |\n", baseline.evaluation_metrics.average_evaluation_time_ns));
-        md.push_str(&format!("| Cache Hit Rate | {:.2}% |\n", baseline.evaluation_metrics.cache_hit_rate * 100.0));
-        md.push_str(&format!("| Phase Calc Time | {:.2} ns |\n", baseline.evaluation_metrics.phase_calc_time_ns));
-        
+        md.push_str(&format!(
+            "| Average Evaluation Time | {:.2} ns |\n",
+            baseline.evaluation_metrics.average_evaluation_time_ns
+        ));
+        md.push_str(&format!(
+            "| Cache Hit Rate | {:.2}% |\n",
+            baseline.evaluation_metrics.cache_hit_rate * 100.0
+        ));
+        md.push_str(&format!(
+            "| Phase Calc Time | {:.2} ns |\n",
+            baseline.evaluation_metrics.phase_calc_time_ns
+        ));
+
         md.push_str("\n## Transposition Table Metrics\n\n");
         md.push_str("| Metric | Value |\n");
         md.push_str("|--------|-------|\n");
         md.push_str(&format!("| Hit Rate | {:.2}% |\n", baseline.tt_metrics.hit_rate * 100.0));
-        md.push_str(&format!("| Exact Entry Rate | {:.2}% |\n", baseline.tt_metrics.exact_entry_rate * 100.0));
-        md.push_str(&format!("| Occupancy Rate | {:.2}% |\n", baseline.tt_metrics.occupancy_rate * 100.0));
-        
+        md.push_str(&format!(
+            "| Exact Entry Rate | {:.2}% |\n",
+            baseline.tt_metrics.exact_entry_rate * 100.0
+        ));
+        md.push_str(&format!(
+            "| Occupancy Rate | {:.2}% |\n",
+            baseline.tt_metrics.occupancy_rate * 100.0
+        ));
+
         md.push_str("\n## Move Ordering Metrics\n\n");
         md.push_str("| Metric | Value |\n");
         md.push_str("|--------|-------|\n");
-        md.push_str(&format!("| Average Cutoff Index | {:.2} |\n", baseline.move_ordering_metrics.average_cutoff_index));
-        md.push_str(&format!("| PV Hit Rate | {:.2}% |\n", baseline.move_ordering_metrics.pv_hit_rate * 100.0));
-        md.push_str(&format!("| Killer Hit Rate | {:.2}% |\n", baseline.move_ordering_metrics.killer_hit_rate * 100.0));
-        md.push_str(&format!("| Cache Hit Rate | {:.2}% |\n", baseline.move_ordering_metrics.cache_hit_rate * 100.0));
-        
+        md.push_str(&format!(
+            "| Average Cutoff Index | {:.2} |\n",
+            baseline.move_ordering_metrics.average_cutoff_index
+        ));
+        md.push_str(&format!(
+            "| PV Hit Rate | {:.2}% |\n",
+            baseline.move_ordering_metrics.pv_hit_rate * 100.0
+        ));
+        md.push_str(&format!(
+            "| Killer Hit Rate | {:.2}% |\n",
+            baseline.move_ordering_metrics.killer_hit_rate * 100.0
+        ));
+        md.push_str(&format!(
+            "| Cache Hit Rate | {:.2}% |\n",
+            baseline.move_ordering_metrics.cache_hit_rate * 100.0
+        ));
+
         md.push_str("\n## Parallel Search Metrics\n\n");
         md.push_str("| Metric | Value |\n");
         md.push_str("|--------|-------|\n");
-        md.push_str(&format!("| Speedup (4 cores) | {:.2}x |\n", baseline.parallel_search_metrics.speedup_4_cores));
-        md.push_str(&format!("| Speedup (8 cores) | {:.2}x |\n", baseline.parallel_search_metrics.speedup_8_cores));
-        md.push_str(&format!("| Efficiency (4 cores) | {:.2}% |\n", baseline.parallel_search_metrics.efficiency_4_cores * 100.0));
-        md.push_str(&format!("| Efficiency (8 cores) | {:.2}% |\n", baseline.parallel_search_metrics.efficiency_8_cores * 100.0));
-        
+        md.push_str(&format!(
+            "| Speedup (4 cores) | {:.2}x |\n",
+            baseline.parallel_search_metrics.speedup_4_cores
+        ));
+        md.push_str(&format!(
+            "| Speedup (8 cores) | {:.2}x |\n",
+            baseline.parallel_search_metrics.speedup_8_cores
+        ));
+        md.push_str(&format!(
+            "| Efficiency (4 cores) | {:.2}% |\n",
+            baseline.parallel_search_metrics.efficiency_4_cores * 100.0
+        ));
+        md.push_str(&format!(
+            "| Efficiency (8 cores) | {:.2}% |\n",
+            baseline.parallel_search_metrics.efficiency_8_cores * 100.0
+        ));
+
         md.push_str("\n## Memory Metrics\n\n");
         md.push_str("| Metric | Value |\n");
         md.push_str("|--------|-------|\n");
         md.push_str(&format!("| TT Memory | {:.2} MB |\n", baseline.memory_metrics.tt_memory_mb));
-        md.push_str(&format!("| Cache Memory | {:.2} MB |\n", baseline.memory_metrics.cache_memory_mb));
-        md.push_str(&format!("| Peak Memory | {:.2} MB |\n", baseline.memory_metrics.peak_memory_mb));
+        md.push_str(&format!(
+            "| Cache Memory | {:.2} MB |\n",
+            baseline.memory_metrics.cache_memory_mb
+        ));
+        md.push_str(&format!(
+            "| Peak Memory | {:.2} MB |\n",
+            baseline.memory_metrics.peak_memory_mb
+        ));
 
         let file_path = self.export_path.join(filename);
-        fs::write(&file_path, md)
-            .map_err(|e| format!("Failed to write Markdown file: {}", e))?;
+        fs::write(&file_path, md).map_err(|e| format!("Failed to write Markdown file: {}", e))?;
 
         Ok(file_path)
     }
@@ -1990,8 +2121,7 @@ impl TelemetryExporter {
         let json = serde_json::to_string_pretty(&efficiency_data)
             .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
 
-        fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write JSON file: {}", e))?;
+        fs::write(&file_path, json).map_err(|e| format!("Failed to write JSON file: {}", e))?;
 
         Ok(file_path)
     }
@@ -2040,8 +2170,7 @@ impl TelemetryExporter {
         let json = serde_json::to_string_pretty(&distribution)
             .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
 
-        fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write JSON file: {}", e))?;
+        fs::write(&file_path, json).map_err(|e| format!("Failed to write JSON file: {}", e))?;
 
         Ok(file_path)
     }
@@ -2083,8 +2212,7 @@ impl TelemetryExporter {
         let json = serde_json::to_string_pretty(&hit_rate_data)
             .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
 
-        fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write JSON file: {}", e))?;
+        fs::write(&file_path, json).map_err(|e| format!("Failed to write JSON file: {}", e))?;
 
         Ok(file_path)
     }
@@ -2120,8 +2248,7 @@ impl TelemetryExporter {
         let json = serde_json::to_string_pretty(&scalability_data)
             .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
 
-        fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write JSON file: {}", e))?;
+        fs::write(&file_path, json).map_err(|e| format!("Failed to write JSON file: {}", e))?;
 
         Ok(file_path)
     }
@@ -2160,8 +2287,7 @@ impl TelemetryExporter {
         let json = serde_json::to_string_pretty(&cache_data)
             .map_err(|e| format!("Failed to serialize JSON: {}", e))?;
 
-        fs::write(&file_path, json)
-            .map_err(|e| format!("Failed to write JSON file: {}", e))?;
+        fs::write(&file_path, json).map_err(|e| format!("Failed to write JSON file: {}", e))?;
 
         Ok(file_path)
     }
@@ -2183,22 +2309,22 @@ use std::time::Instant;
 pub trait ExternalProfiler: Send + Sync {
     /// Enable profiling
     fn enable(&self);
-    
+
     /// Disable profiling
     fn disable(&self);
 
     /// Start profiling a region with the given name
     fn start_region(&self, name: &str);
-    
+
     /// End profiling a region with the given name
     fn end_region(&self, name: &str);
-    
+
     /// Mark a point in time with the given label
     fn mark(&self, label: &str);
-    
+
     /// Export profiling markers to JSON
     fn export_markers(&self) -> Result<serde_json::Value, String>;
-    
+
     /// Check if profiling is enabled
     fn is_enabled(&self) -> bool;
 }
@@ -2244,17 +2370,17 @@ impl PerfProfiler {
             start_time: Instant::now(),
         }
     }
-    
+
     /// Enable profiling
     pub fn enable(&self) {
         self.enabled.store(true, std::sync::atomic::Ordering::SeqCst);
     }
-    
+
     /// Disable profiling
     pub fn disable(&self) {
         self.enabled.store(false, std::sync::atomic::Ordering::SeqCst);
     }
-    
+
     /// Get markers (for testing)
     pub fn get_markers(&self) -> Vec<ProfilerMarker> {
         self.markers.lock().unwrap().clone()
@@ -2271,11 +2397,11 @@ impl ExternalProfiler for PerfProfiler {
     fn enable(&self) {
         self.enabled.store(true, std::sync::atomic::Ordering::SeqCst);
     }
-    
+
     fn disable(&self) {
         self.enabled.store(false, std::sync::atomic::Ordering::SeqCst);
     }
-    
+
     fn is_enabled(&self) -> bool {
         self.enabled.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -2284,56 +2410,56 @@ impl ExternalProfiler for PerfProfiler {
         if !self.enabled.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        
+
         let elapsed = self.start_time.elapsed();
         let timestamp_ns = elapsed.as_nanos() as u64;
-        
+
         let marker = ProfilerMarker {
             name: name.to_string(),
             timestamp_ns,
             marker_type: MarkerType::RegionStart,
         };
-        
+
         self.markers.lock().unwrap().push(marker);
     }
-    
+
     fn end_region(&self, name: &str) {
         if !self.enabled.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        
+
         let elapsed = self.start_time.elapsed();
         let timestamp_ns = elapsed.as_nanos() as u64;
-        
+
         let marker = ProfilerMarker {
             name: name.to_string(),
             timestamp_ns,
             marker_type: MarkerType::RegionEnd,
         };
-        
+
         self.markers.lock().unwrap().push(marker);
     }
-    
+
     fn mark(&self, label: &str) {
         if !self.enabled.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        
+
         let elapsed = self.start_time.elapsed();
         let timestamp_ns = elapsed.as_nanos() as u64;
-        
+
         let marker = ProfilerMarker {
             name: label.to_string(),
             timestamp_ns,
             marker_type: MarkerType::Point,
         };
-        
+
         self.markers.lock().unwrap().push(marker);
     }
-    
+
     fn export_markers(&self) -> Result<serde_json::Value, String> {
         let markers = self.markers.lock().unwrap();
-        
+
         let markers_json: Vec<serde_json::Value> = markers
             .iter()
             .map(|m| {
@@ -2348,15 +2474,13 @@ impl ExternalProfiler for PerfProfiler {
                 })
             })
             .collect();
-        
+
         Ok(serde_json::json!({
             "profiler": "perf",
             "markers": markers_json,
             "total_markers": markers.len(),
         }))
     }
-    
-
 }
 
 /// Instruments-compatible profiler for macOS (Task 26.0 - Task 8.0)
@@ -2378,17 +2502,17 @@ impl InstrumentsProfiler {
             start_time: Instant::now(),
         }
     }
-    
+
     /// Enable profiling
     pub fn enable(&self) {
         self.enabled.store(true, std::sync::atomic::Ordering::SeqCst);
     }
-    
+
     /// Disable profiling
     pub fn disable(&self) {
         self.enabled.store(false, std::sync::atomic::Ordering::SeqCst);
     }
-    
+
     /// Get markers (for testing)
     pub fn get_markers(&self) -> Vec<ProfilerMarker> {
         self.markers.lock().unwrap().clone()
@@ -2405,11 +2529,11 @@ impl ExternalProfiler for InstrumentsProfiler {
     fn enable(&self) {
         self.enabled.store(true, std::sync::atomic::Ordering::SeqCst);
     }
-    
+
     fn disable(&self) {
         self.enabled.store(false, std::sync::atomic::Ordering::SeqCst);
     }
-    
+
     fn is_enabled(&self) -> bool {
         self.enabled.load(std::sync::atomic::Ordering::SeqCst)
     }
@@ -2418,56 +2542,56 @@ impl ExternalProfiler for InstrumentsProfiler {
         if !self.enabled.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        
+
         let elapsed = self.start_time.elapsed();
         let timestamp_ns = elapsed.as_nanos() as u64;
-        
+
         let marker = ProfilerMarker {
             name: name.to_string(),
             timestamp_ns,
             marker_type: MarkerType::RegionStart,
         };
-        
+
         self.markers.lock().unwrap().push(marker);
     }
-    
+
     fn end_region(&self, name: &str) {
         if !self.enabled.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        
+
         let elapsed = self.start_time.elapsed();
         let timestamp_ns = elapsed.as_nanos() as u64;
-        
+
         let marker = ProfilerMarker {
             name: name.to_string(),
             timestamp_ns,
             marker_type: MarkerType::RegionEnd,
         };
-        
+
         self.markers.lock().unwrap().push(marker);
     }
-    
+
     fn mark(&self, label: &str) {
         if !self.enabled.load(std::sync::atomic::Ordering::SeqCst) {
             return;
         }
-        
+
         let elapsed = self.start_time.elapsed();
         let timestamp_ns = elapsed.as_nanos() as u64;
-        
+
         let marker = ProfilerMarker {
             name: label.to_string(),
             timestamp_ns,
             marker_type: MarkerType::Point,
         };
-        
+
         self.markers.lock().unwrap().push(marker);
     }
-    
+
     fn export_markers(&self) -> Result<serde_json::Value, String> {
         let markers = self.markers.lock().unwrap();
-        
+
         let markers_json: Vec<serde_json::Value> = markers
             .iter()
             .map(|m| {
@@ -2482,15 +2606,13 @@ impl ExternalProfiler for InstrumentsProfiler {
                 })
             })
             .collect();
-        
+
         Ok(serde_json::json!({
             "profiler": "instruments",
             "markers": markers_json,
             "total_markers": markers.len(),
         }))
     }
-    
-
 }
 
 #[cfg(test)]

@@ -265,14 +265,8 @@ fn benchmark_configurations(c: &mut Criterion) {
 
     let configs = vec![
         ("default", TaperedEvaluationConfig::default()),
-        (
-            "performance_optimized",
-            TaperedEvaluationConfig::performance_optimized(),
-        ),
-        (
-            "memory_optimized",
-            TaperedEvaluationConfig::memory_optimized(),
-        ),
+        ("performance_optimized", TaperedEvaluationConfig::performance_optimized()),
+        ("memory_optimized", TaperedEvaluationConfig::memory_optimized()),
         ("disabled", TaperedEvaluationConfig::disabled()),
     ];
 
@@ -294,17 +288,15 @@ fn benchmark_memory_patterns(c: &mut Criterion) {
 
     group.bench_function("create_many_scores", |b| {
         b.iter(|| {
-            let scores: Vec<TaperedScore> = (0..1000)
-                .map(|i| TaperedScore::new_tapered(i as i32, (i * 2) as i32))
-                .collect();
+            let scores: Vec<TaperedScore> =
+                (0..1000).map(|i| TaperedScore::new_tapered(i as i32, (i * 2) as i32)).collect();
             black_box(scores);
         });
     });
 
     group.bench_function("accumulate_scores", |b| {
-        let scores: Vec<TaperedScore> = (0..1000)
-            .map(|i| TaperedScore::new_tapered(i as i32, (i * 2) as i32))
-            .collect();
+        let scores: Vec<TaperedScore> =
+            (0..1000).map(|i| TaperedScore::new_tapered(i as i32, (i * 2) as i32)).collect();
 
         b.iter(|| {
             let mut total = TaperedScore::default();

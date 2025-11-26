@@ -124,14 +124,8 @@ fn demonstrate_warming_sessions() {
     println!("  Total sessions: {}", stats.total_sessions);
     println!("  Total entries warmed: {}", stats.total_entries_warmed);
     println!("  Average warming time: {:.1}μs", stats.avg_warming_time_us);
-    println!(
-        "  Average success rate: {:.1}%",
-        stats.avg_success_rate * 100.0
-    );
-    println!(
-        "  Warming efficiency: {:.1} entries/ms",
-        stats.warming_efficiency
-    );
+    println!("  Average success rate: {:.1}%", stats.avg_success_rate * 100.0);
+    println!("  Warming efficiency: {:.1} entries/ms", stats.warming_efficiency);
 }
 
 fn demonstrate_position_based_warming() {
@@ -159,10 +153,7 @@ fn demonstrate_position_based_warming() {
         };
 
         warmer.add_position(hash, analysis);
-        println!(
-            "Added position analysis for {:X} (phase: {:?})",
-            hash, phase
-        );
+        println!("Added position analysis for {:X} (phase: {:?})", hash, phase);
     }
 
     // Perform position-based warming
@@ -208,11 +199,7 @@ fn demonstrate_entry_types() {
             depth: 10 + (i % 5) as u8,
             score: -100 + (i * 50) as i32,
             flag: TranspositionFlag::Exact,
-            best_move: if i % 2 == 0 {
-                Some(create_sample_move())
-            } else {
-                None
-            },
+            best_move: if i % 2 == 0 { Some(create_sample_move()) } else { None },
             priority: 0.8 - (i as f64 * 0.1),
             entry_type: WarmingEntryType::Endgame,
         };
@@ -304,10 +291,7 @@ struct MockTranspositionTable {
 
 impl MockTranspositionTable {
     fn new(max_size: usize) -> Self {
-        Self {
-            entries: std::collections::HashMap::new(),
-            max_size,
-        }
+        Self { entries: std::collections::HashMap::new(), max_size }
     }
 }
 

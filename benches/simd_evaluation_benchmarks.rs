@@ -114,9 +114,8 @@ fn bench_evaluate_hand_material_batch(c: &mut Criterion) {
 
 fn bench_accumulate_scores_batch(c: &mut Criterion) {
     let evaluator = SimdEvaluator::new();
-    let scores: Vec<TaperedScore> = (0..100)
-        .map(|i| TaperedScore::new_tapered(i * 10, i * 5))
-        .collect();
+    let scores: Vec<TaperedScore> =
+        (0..100).map(|i| TaperedScore::new_tapered(i * 10, i * 5)).collect();
 
     c.bench_function("simd_accumulate_scores_batch", |b| {
         b.iter(|| {
@@ -135,4 +134,3 @@ criterion_group!(
     bench_accumulate_scores_batch
 );
 criterion_main!(benches);
-

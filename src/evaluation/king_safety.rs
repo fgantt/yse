@@ -257,10 +257,7 @@ impl KingSafetyEvaluator {
             if self.debug_logging {
                 crate::utils::telemetry::trace_log(
                     "KING_SAFETY",
-                    &format!(
-                        "Evaluation cache hit for player {:?} at depth {}",
-                        player, depth
-                    ),
+                    &format!("Evaluation cache hit for player {:?} at depth {}", player, depth),
                 );
             }
             return *cached_score;
@@ -278,9 +275,7 @@ impl KingSafetyEvaluator {
             // Full evaluation
             // Castle structure evaluation
             if let Some(king_pos) = self.find_king_position(board, player) {
-                let castle_eval = self
-                    .castle_recognizer
-                    .evaluate_castle(board, player, king_pos);
+                let castle_eval = self.castle_recognizer.evaluate_castle(board, player, king_pos);
 
                 // Track castle evaluation statistics
                 {
@@ -433,9 +428,7 @@ impl KingSafetyEvaluator {
         // Cache the result (limit cache size) - very small for performance
         if self.evaluation_cache.borrow().len() < 100 {
             // Reduced from 1000 to 100
-            self.evaluation_cache
-                .borrow_mut()
-                .insert((board_hash, player), final_score);
+            self.evaluation_cache.borrow_mut().insert((board_hash, player), final_score);
         }
 
         final_score
@@ -454,9 +447,7 @@ impl KingSafetyEvaluator {
         score += self.evaluate_basic_attacks(board, player);
 
         // Basic threat evaluation (pins only) with very reduced weight
-        let threat_score = self
-            .threat_evaluator
-            .evaluate_threats_with_mode(board, player, true);
+        let threat_score = self.threat_evaluator.evaluate_threats_with_mode(board, player, true);
         score += threat_score * 0.1; // Reduced from 0.3 to 0.1
 
         score
@@ -472,16 +463,8 @@ impl KingSafetyEvaluator {
         let mut score = 0;
 
         // Check for basic defensive pieces around king
-        let defensive_offsets = [
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, -1),
-            (0, 1),
-            (1, -1),
-            (1, 0),
-            (1, 1),
-        ];
+        let defensive_offsets =
+            [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
 
         for (dr, dc) in defensive_offsets.iter() {
             let new_row = king_pos.row as i8 + dr;
@@ -575,9 +558,7 @@ impl KingSafetyEvaluator {
     /// Evaluate castle structure for the given player
     pub fn evaluate_castle_structure(&self, board: &BitboardBoard, player: Player) -> TaperedScore {
         if let Some(king_pos) = self.find_king_position(board, player) {
-            self.castle_recognizer
-                .evaluate_castle(board, player, king_pos)
-                .score()
+            self.castle_recognizer.evaluate_castle(board, player, king_pos).score()
         } else {
             TaperedScore::default()
         }
@@ -760,30 +741,12 @@ mod tests {
         let mut board = BitboardBoard::empty();
         let king_pos = Position::new(8, 6);
         board.place_piece(Piece::new(PieceType::King, Player::Black), king_pos);
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 6),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(6, 6),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 5),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 7),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(7, 5),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(7, 7),
-        );
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 6));
+        board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 6));
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 5));
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 7));
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(7, 5));
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(7, 7));
 
         let score = evaluator.evaluate(&board, Player::Black);
         assert!(score.mg > 0);
@@ -800,10 +763,7 @@ mod tests {
         let evaluator = KingSafetyEvaluator::with_config(config);
 
         let mut board = BitboardBoard::empty();
-        board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(8, 4),
-        );
+        board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
 
         let score = evaluator.evaluate(&board, Player::Black);
         assert!(score.mg < 0);
@@ -821,30 +781,12 @@ mod tests {
 
         // Full castle setup (basic Mino shape)
         let mut full_board = BitboardBoard::empty();
-        full_board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(8, 4),
-        );
-        full_board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 3),
-        );
-        full_board.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(6, 3),
-        );
-        full_board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 2),
-        );
-        full_board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(7, 2),
-        );
-        full_board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(8, 2),
-        );
+        full_board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
+        full_board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 3));
+        full_board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 3));
+        full_board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 2));
+        full_board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(7, 2));
+        full_board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(8, 2));
 
         let full_score = evaluator.evaluate(&full_board, Player::Black);
         let recognizer = crate::evaluation::castles::CastleRecognizer::new();
@@ -852,23 +794,12 @@ mod tests {
 
         // Partial castle missing pawn shield
         let mut partial_board = BitboardBoard::empty();
-        partial_board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(8, 4),
-        );
-        partial_board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 3),
-        );
-        partial_board.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(6, 3),
-        );
+        partial_board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
+        partial_board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 3));
+        partial_board
+            .place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 3));
         // Only one pawn defending
-        partial_board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(7, 2),
-        );
+        partial_board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(7, 2));
 
         assert!(partial_board.get_piece(Position::new(6, 2)).is_none());
         assert!(partial_board.get_piece(Position::new(8, 2)).is_none());
@@ -877,10 +808,7 @@ mod tests {
         let partial_eval =
             recognizer.evaluate_castle(&partial_board, Player::Black, Position::new(8, 4));
 
-        assert!(
-            full_eval.matched_pattern.is_some(),
-            "full castle should match a pattern"
-        );
+        assert!(full_eval.matched_pattern.is_some(), "full castle should match a pattern");
         assert!(
             partial_eval.matched_pattern.is_some(),
             "partial castle should still register the base castle"
@@ -896,10 +824,7 @@ mod tests {
 
         // Bare king
         let mut bare_board = BitboardBoard::empty();
-        bare_board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(8, 4),
-        );
+        bare_board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
 
         let bare_score = evaluator.evaluate(&bare_board, Player::Black);
 
@@ -930,30 +855,20 @@ mod tests {
         let mut protected_board = BitboardBoard::empty();
         let king_pos = Position::new(8, 4);
         protected_board.place_piece(Piece::new(PieceType::King, Player::Black), king_pos);
-        protected_board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 4),
-        );
-        protected_board.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(6, 4),
-        );
-        protected_board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 3),
-        );
-        protected_board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 5),
-        );
+        protected_board
+            .place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 4));
+        protected_board
+            .place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 4));
+        protected_board
+            .place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 3));
+        protected_board
+            .place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 5));
 
         let protected_score = evaluator.evaluate(&protected_board, Player::Black);
 
         let mut contested_board = protected_board.clone();
-        contested_board.place_piece(
-            Piece::new(PieceType::Knight, Player::White),
-            Position::new(7, 3),
-        );
+        contested_board
+            .place_piece(Piece::new(PieceType::Knight, Player::White), Position::new(7, 3));
 
         let contested_score = evaluator.evaluate(&contested_board, Player::Black);
         assert!(
@@ -990,22 +905,10 @@ mod tests {
         let mut board = BitboardBoard::empty();
         let king_pos = Position::new(8, 6);
         board.place_piece(Piece::new(PieceType::King, Player::Black), king_pos);
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 6),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(6, 6),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 5),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 7),
-        );
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 6));
+        board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 6));
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 5));
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 7));
 
         evaluator.evaluate(&board, Player::Black);
 
@@ -1020,20 +923,14 @@ mod tests {
         let evaluator = KingSafetyEvaluator::with_config(config);
 
         let mut board = BitboardBoard::empty();
-        board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(8, 4),
-        );
+        board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
         // Bare king - no defenders
 
         evaluator.evaluate(&board, Player::Black);
 
         let stats = evaluator.stats();
         assert!(stats.bare_kings > 0, "Should detect bare king");
-        assert!(
-            stats.total_missing_required > 0,
-            "Should track missing defenders"
-        );
+        assert!(stats.total_missing_required > 0, "Should track missing defenders");
     }
 
     #[test]
@@ -1045,23 +942,14 @@ mod tests {
         let mut board = BitboardBoard::empty();
         let king_pos = Position::new(8, 4);
         board.place_piece(Piece::new(PieceType::King, Player::Black), king_pos);
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 4),
-        );
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 4));
         // Add opponent piece infiltrating
-        board.place_piece(
-            Piece::new(PieceType::Knight, Player::White),
-            Position::new(7, 3),
-        );
+        board.place_piece(Piece::new(PieceType::Knight, Player::White), Position::new(7, 3));
 
         evaluator.evaluate(&board, Player::Black);
 
         let stats = evaluator.stats();
-        assert!(
-            stats.infiltration_penalties > 0,
-            "Should track infiltration penalties"
-        );
+        assert!(stats.infiltration_penalties > 0, "Should track infiltration penalties");
     }
 
     #[test]

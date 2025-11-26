@@ -417,11 +417,7 @@ impl AdvancedCacheWarmer {
         };
 
         // Update session
-        if let Some(session) = self
-            .sessions
-            .iter_mut()
-            .find(|s| s.session_id == session_id)
-        {
+        if let Some(session) = self.sessions.iter_mut().find(|s| s.session_id == session_id) {
             session.end_time = Some(Instant::now());
             session.entries_warmed = results.total_entries;
             session.results = results.clone();
@@ -483,11 +479,7 @@ impl AdvancedCacheWarmer {
                     1 => TranspositionFlag::LowerBound,
                     _ => TranspositionFlag::UpperBound,
                 },
-                best_move: if i % 2 == 0 {
-                    Some(create_sample_move())
-                } else {
-                    None
-                },
+                best_move: if i % 2 == 0 { Some(create_sample_move()) } else { None },
                 priority,
                 entry_type: WarmingEntryType::PositionBased,
             });
@@ -531,11 +523,7 @@ impl AdvancedCacheWarmer {
                 depth: 8 + (i % 12) as u8,
                 score: (i as i32 % 500) - 250,
                 flag: TranspositionFlag::Exact,
-                best_move: if i % 3 == 0 {
-                    Some(create_sample_move())
-                } else {
-                    None
-                },
+                best_move: if i % 3 == 0 { Some(create_sample_move()) } else { None },
                 priority,
                 entry_type: WarmingEntryType::Endgame,
             });
@@ -685,10 +673,7 @@ mod tests {
 
     impl MockTranspositionTable {
         fn new(max_size: usize) -> Self {
-            Self {
-                entries: HashMap::new(),
-                max_size,
-            }
+            Self { entries: HashMap::new(), max_size }
         }
     }
 

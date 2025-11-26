@@ -500,10 +500,7 @@ fn test_parallel_search_with_opening_book() {
 
     // Opening book is usually checked at a higher level (in lib.rs),
     // so this test just verifies parallel search doesn't interfere
-    assert!(
-        engine_result.is_ok(),
-        "Opening book integration should remain functional"
-    );
+    assert!(engine_result.is_ok(), "Opening book integration should remain functional");
 }
 
 #[test]

@@ -27,7 +27,10 @@ fn benchmark_parallel_initialization(c: &mut Criterion) {
     // Test with different thread counts
     for threads in [0, 2, 4, 8].iter() {
         group.bench_with_input(
-            BenchmarkId::from_parameter(format!("{}_threads", if *threads == 0 { "auto" } else { &threads.to_string() })),
+            BenchmarkId::from_parameter(format!(
+                "{}_threads",
+                if *threads == 0 { "auto" } else { &threads.to_string() }
+            )),
             threads,
             |b, &thread_count| {
                 b.iter(|| {
@@ -104,7 +107,7 @@ fn benchmark_lazy_initialization_overhead(c: &mut Criterion) {
         let table = LazyMagicTable::new().unwrap();
         // Pre-initialize
         let _ = table.get_attacks(40, PieceType::Rook, 0);
-        
+
         b.iter(|| {
             let attacks = table.get_attacks(40, PieceType::Rook, 0);
             black_box(attacks);
@@ -144,7 +147,8 @@ fn benchmark_progress_reporting_overhead(c: &mut Criterion) {
             let mut progress_values = Vec::new();
             let table = MagicTable::new_with_progress(Some(move |p| {
                 progress_values.push(p);
-            })).unwrap();
+            }))
+            .unwrap();
             black_box(table);
             black_box(progress_values);
         });
@@ -162,4 +166,3 @@ criterion_group!(
     benchmark_progress_reporting_overhead
 );
 criterion_main!(benches);
-

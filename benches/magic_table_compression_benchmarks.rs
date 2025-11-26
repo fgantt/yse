@@ -42,8 +42,16 @@ fn benchmark_compression_ratio(c: &mut Criterion) {
 
     // Print compression results
     println!("\n=== Compression Results ===");
-    println!("Original size: {} bytes ({:.2} MB)", original_size, original_size as f64 / 1_000_000.0);
-    println!("Compressed size: {} bytes ({:.2} MB)", stats.compressed_size, stats.compressed_size as f64 / 1_000_000.0);
+    println!(
+        "Original size: {} bytes ({:.2} MB)",
+        original_size,
+        original_size as f64 / 1_000_000.0
+    );
+    println!(
+        "Compressed size: {} bytes ({:.2} MB)",
+        stats.compressed_size,
+        stats.compressed_size as f64 / 1_000_000.0
+    );
     println!("Compression ratio: {:.2}x", ratio);
     println!("Memory saved: {} bytes ({:.2} MB)", savings, savings as f64 / 1_000_000.0);
     println!("Memory reduction: {:.1}%", (1.0 - 1.0 / ratio) * 100.0);
@@ -100,7 +108,7 @@ fn benchmark_lookup_performance(c: &mut Criterion) {
 
     // Measure actual performance difference
     let iterations = 10000;
-    
+
     // Uncompressed
     let start = Instant::now();
     for _ in 0..iterations {
@@ -120,10 +128,18 @@ fn benchmark_lookup_performance(c: &mut Criterion) {
     let compressed_time = start.elapsed();
 
     let slowdown = (compressed_time.as_secs_f64() / uncompressed_time.as_secs_f64() - 1.0) * 100.0;
-    
+
     println!("\n=== Lookup Performance ===");
-    println!("Uncompressed: {:?} ({:.2} ns/lookup)", uncompressed_time, uncompressed_time.as_nanos() as f64 / (iterations * test_cases.len()) as f64);
-    println!("Compressed: {:?} ({:.2} ns/lookup)", compressed_time, compressed_time.as_nanos() as f64 / (iterations * test_cases.len()) as f64);
+    println!(
+        "Uncompressed: {:?} ({:.2} ns/lookup)",
+        uncompressed_time,
+        uncompressed_time.as_nanos() as f64 / (iterations * test_cases.len()) as f64
+    );
+    println!(
+        "Compressed: {:?} ({:.2} ns/lookup)",
+        compressed_time,
+        compressed_time.as_nanos() as f64 / (iterations * test_cases.len()) as f64
+    );
     println!("Slowdown: {:.2}%", slowdown);
 }
 
@@ -135,30 +151,19 @@ fn benchmark_compression_with_config(c: &mut Criterion) {
     // Test different configurations
     let configs = vec![
         ("default", CompressionConfig::default()),
-        ("no_cache", CompressionConfig {
-            enable_hot_cache: false,
-            ..Default::default()
-        }),
-        ("large_cache", CompressionConfig {
-            cache_size_limit: 5000,
-            ..Default::default()
-        }),
+        ("no_cache", CompressionConfig { enable_hot_cache: false, ..Default::default() }),
+        ("large_cache", CompressionConfig { cache_size_limit: 5000, ..Default::default() }),
     ];
 
     for (name, config) in configs {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(name),
-            &config,
-            |b, config| {
-                b.iter(|| {
-                    let compressed = CompressedMagicTable::from_table_with_config(
-                        black_box(table.clone()),
-                        *config,
-                    ).unwrap();
-                    black_box(compressed);
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(name), &config, |b, config| {
+            b.iter(|| {
+                let compressed =
+                    CompressedMagicTable::from_table_with_config(black_box(table.clone()), *config)
+                        .unwrap();
+                black_box(compressed);
+            });
+        });
     }
 
     group.finish();
@@ -171,4 +176,3 @@ criterion_group!(
     benchmark_compression_with_config
 );
 criterion_main!(benches);
-

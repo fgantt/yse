@@ -79,18 +79,12 @@ mod time_pressure_calculation_tests {
             TimePressure::from_remaining_time_percent(35.0, &thresholds),
             TimePressure::None
         );
-        assert_eq!(
-            TimePressure::from_remaining_time_percent(25.0, &thresholds),
-            TimePressure::Low
-        );
+        assert_eq!(TimePressure::from_remaining_time_percent(25.0, &thresholds), TimePressure::Low);
         assert_eq!(
             TimePressure::from_remaining_time_percent(15.0, &thresholds),
             TimePressure::Medium
         );
-        assert_eq!(
-            TimePressure::from_remaining_time_percent(5.0, &thresholds),
-            TimePressure::High
-        );
+        assert_eq!(TimePressure::from_remaining_time_percent(5.0, &thresholds), TimePressure::High);
     }
 }
 
@@ -135,10 +129,7 @@ mod time_pressure_integration_tests {
         let nmp_stats = engine.get_null_move_stats();
 
         println!("NMP attempts: {}", nmp_stats.attempts);
-        println!(
-            "NMP skipped (time pressure): {}",
-            nmp_stats.skipped_time_pressure
-        );
+        println!("NMP skipped (time pressure): {}", nmp_stats.skipped_time_pressure);
 
         // NMP should have been skipped at least once due to time pressure
         // (may not always trigger depending on search speed, so we just verify the counter works)
@@ -171,14 +162,8 @@ mod time_pressure_integration_tests {
         // Check that IID was skipped due to time pressure
         let iid_stats = engine.get_iid_stats();
 
-        println!(
-            "IID searches performed: {}",
-            iid_stats.iid_searches_performed
-        );
-        println!(
-            "IID skipped (time pressure): {}",
-            iid_stats.positions_skipped_time_pressure
-        );
+        println!("IID searches performed: {}", iid_stats.iid_searches_performed);
+        println!("IID skipped (time pressure): {}", iid_stats.positions_skipped_time_pressure);
 
         // IID should have been skipped at least once due to time pressure
         assert!(
@@ -218,15 +203,9 @@ mod time_pressure_integration_tests {
 
         println!("=== Time Pressure Coordination ===");
         println!("NMP attempts: {}", nmp_stats.attempts);
-        println!(
-            "NMP skipped (time pressure): {}",
-            nmp_stats.skipped_time_pressure
-        );
+        println!("NMP skipped (time pressure): {}", nmp_stats.skipped_time_pressure);
         println!("IID performed: {}", iid_stats.iid_searches_performed);
-        println!(
-            "IID skipped (time pressure): {}",
-            iid_stats.positions_skipped_time_pressure
-        );
+        println!("IID skipped (time pressure): {}", iid_stats.positions_skipped_time_pressure);
 
         // Verify that coordination is working (counters should be initialized)
         assert!(nmp_stats.skipped_time_pressure >= 0);
@@ -264,15 +243,9 @@ mod time_pressure_integration_tests {
 
         println!("=== Normal Operation (No Time Pressure) ===");
         println!("NMP attempts: {}", nmp_stats.attempts);
-        println!(
-            "NMP skipped (time pressure): {}",
-            nmp_stats.skipped_time_pressure
-        );
+        println!("NMP skipped (time pressure): {}", nmp_stats.skipped_time_pressure);
         println!("IID performed: {}", iid_stats.iid_searches_performed);
-        println!(
-            "IID skipped (time pressure): {}",
-            iid_stats.positions_skipped_time_pressure
-        );
+        println!("IID skipped (time pressure): {}", iid_stats.positions_skipped_time_pressure);
 
         // With generous time, both should operate normally
         // NMP and IID should have attempted their operations

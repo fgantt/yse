@@ -88,10 +88,7 @@ impl ShogiPositionTests {
         let mut captured_after = CapturedPieces::new();
 
         // Set up a capture scenario
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::White),
-            Position::new(5, 5),
-        );
+        board.place_piece(Piece::new(PieceType::Pawn, Player::White), Position::new(5, 5));
 
         // Create a capture move
         let capture_move = Move {
@@ -129,10 +126,7 @@ impl ShogiPositionTests {
         let captured_pieces = CapturedPieces::new();
 
         // Set up a promotion scenario
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(1, 1),
-        );
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(1, 1));
 
         // Create a promotion move
         let promotion_move = Move::new_move(
@@ -253,10 +247,7 @@ impl ShogiPositionTests {
         let captured_pieces = CapturedPieces::new();
 
         // Set up capture scenario
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::White),
-            Position::new(5, 5),
-        );
+        board.place_piece(Piece::new(PieceType::Pawn, Player::White), Position::new(5, 5));
 
         // Valid capture move
         let valid_capture = Move {

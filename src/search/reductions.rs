@@ -20,10 +20,7 @@ pub struct ReductionsHelper {
 impl ReductionsHelper {
     /// Create a new ReductionsHelper with the given IID configuration
     pub fn new(iid_config: IIDConfig) -> Self {
-        Self {
-            iid_config,
-            iid_stats: IIDStats::default(),
-        }
+        Self { iid_config, iid_stats: IIDStats::default() }
     }
 
     /// Calculate IID depth based on strategy and position characteristics
@@ -75,9 +72,7 @@ impl ReductionsHelper {
                         .entry(calculated_depth)
                         .or_insert(0) += 1;
                     match complexity {
-                        PositionComplexity::Low => {
-                            self.iid_stats.dynamic_depth_low_complexity += 1
-                        }
+                        PositionComplexity::Low => self.iid_stats.dynamic_depth_low_complexity += 1,
                         PositionComplexity::Medium => {
                             self.iid_stats.dynamic_depth_medium_complexity += 1
                         }
@@ -147,7 +142,10 @@ impl ReductionsHelper {
     /// Get the position complexity for adaptive LMR
     ///
     /// This analyzes LMR statistics to determine position complexity
-    pub fn get_position_complexity_from_lmr_stats(&self, lmr_stats: &LMRStats) -> PositionComplexity {
+    pub fn get_position_complexity_from_lmr_stats(
+        &self,
+        lmr_stats: &LMRStats,
+    ) -> PositionComplexity {
         if lmr_stats.moves_considered == 0 {
             return PositionComplexity::Unknown;
         }
@@ -270,10 +268,8 @@ mod tests {
 
     #[test]
     fn test_relative_depth_strategy() {
-        let config = IIDConfig {
-            depth_strategy: IIDDepthStrategy::Relative,
-            ..IIDConfig::default()
-        };
+        let config =
+            IIDConfig { depth_strategy: IIDDepthStrategy::Relative, ..IIDConfig::default() };
         let mut helper = ReductionsHelper::new(config);
         let depth = helper.calculate_iid_depth(5, None, None, None);
         // Relative: max(2, 5-2) = 3, capped at 4
@@ -297,12 +293,8 @@ mod tests {
     fn test_config_update() {
         let config = IIDConfig::default();
         let mut helper = ReductionsHelper::new(config);
-        let new_config = IIDConfig {
-            iid_depth_ply: 4,
-            ..IIDConfig::default()
-        };
+        let new_config = IIDConfig { iid_depth_ply: 4, ..IIDConfig::default() };
         helper.update_iid_config(new_config);
         assert_eq!(helper.get_iid_config().iid_depth_ply, 4);
     }
 }
-

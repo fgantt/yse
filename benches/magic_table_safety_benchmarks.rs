@@ -20,7 +20,7 @@ fn benchmark_bounded_vs_unbounded_cache_memory(c: &mut Criterion) {
             |b, &size| {
                 let config = AttackGeneratorConfig { cache_size: size };
                 let mut generator = AttackGenerator::with_config(config);
-                
+
                 // Generate many patterns to fill cache
                 b.iter(|| {
                     for i in 0..(size * 2) {
@@ -103,4 +103,3 @@ criterion_group!(
     benchmark_integrity_validation
 );
 criterion_main!(benches);
-

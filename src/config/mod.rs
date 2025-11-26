@@ -133,10 +133,7 @@ impl SearchConfig {
             return Err(ConfigurationError::invalid_value(
                 "min_time_per_move_ms",
                 self.min_time_per_move_ms.to_string(),
-                format!(
-                    "must be <= max_time_per_move_ms ({})",
-                    self.max_time_per_move_ms
-                ),
+                format!("must be <= max_time_per_move_ms ({})", self.max_time_per_move_ms),
             )
             .into());
         }
@@ -346,9 +343,7 @@ impl EngineConfig {
     pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let path = path.as_ref();
         let json = serde_json::to_string_pretty(self).map_err(|e| {
-            ShogiEngineError::Configuration(ConfigurationError::serialization_failed(
-                e.to_string(),
-            ))
+            ShogiEngineError::Configuration(ConfigurationError::serialization_failed(e.to_string()))
         })?;
 
         std::fs::write(path, json).map_err(|e| {
@@ -402,10 +397,7 @@ impl EngineConfig {
             return Err(ShogiEngineError::Configuration(ConfigurationError::invalid_value(
                 "time_management.min_time_ms",
                 self.time_management.min_time_ms.to_string(),
-                format!(
-                    "must be <= max_time_ms ({})",
-                    self.time_management.max_time_ms
-                ),
+                format!("must be <= max_time_ms ({})", self.time_management.max_time_ms),
             )));
         }
 
@@ -425,7 +417,7 @@ impl EngineConfig {
             )));
         }
 
-            // Validate SIMD configuration
+        // Validate SIMD configuration
         self.simd.validate()?;
 
         Ok(())
@@ -442,10 +434,10 @@ impl EngineConfig {
 pub struct SimdConfig {
     /// Enable SIMD-optimized evaluation (PST evaluation)
     pub enable_simd_evaluation: bool,
-    
+
     /// Enable SIMD-optimized pattern matching (fork detection)
     pub enable_simd_pattern_matching: bool,
-    
+
     /// Enable SIMD-optimized move generation (sliding pieces)
     pub enable_simd_move_generation: bool,
 }
@@ -461,7 +453,7 @@ impl Default for SimdConfig {
                 enable_simd_move_generation: true,
             }
         }
-        
+
         #[cfg(not(feature = "simd"))]
         {
             // When SIMD feature is disabled, flags are false (no effect anyway)
@@ -489,4 +481,3 @@ impl SimdConfig {
 }
 
 // Task 4.0 (Task 4.20): serde Serialize/Deserialize are automatically derived
-

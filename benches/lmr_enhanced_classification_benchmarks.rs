@@ -322,10 +322,7 @@ fn benchmark_performance_regression_validation(c: &mut Criterion) {
             let overhead_percentage = 0.5; // Placeholder - actual measurement would compare with/without
 
             // Requirement: overhead < 2%
-            assert!(
-                overhead_percentage < 2.0,
-                "Classification overhead exceeds 2%"
-            );
+            assert!(overhead_percentage < 2.0, "Classification overhead exceeds 2%");
 
             black_box((elapsed, stats, overhead_percentage))
         });

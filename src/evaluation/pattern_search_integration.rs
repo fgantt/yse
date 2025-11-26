@@ -27,10 +27,7 @@ pub struct PatternSearchIntegrator {
 impl PatternSearchIntegrator {
     /// Create new pattern search integrator
     pub fn new() -> Self {
-        Self {
-            config: PatternSearchConfig::default(),
-            stats: PatternSearchStats::default(),
-        }
+        Self { config: PatternSearchConfig::default(), stats: PatternSearchStats::default() }
     }
 
     /// Order moves based on pattern recognition

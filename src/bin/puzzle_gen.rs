@@ -207,9 +207,7 @@ impl PuzzleGenerator {
             patterns_detected.first().cloned().or_else(|| {
                 let all_patterns =
                     vec!["fork", "pin", "skewer", "discovered_attack", "knight_fork"];
-                all_patterns
-                    .choose(&mut thread_rng())
-                    .map(|s| s.to_string())
+                all_patterns.choose(&mut thread_rng()).map(|s| s.to_string())
             })
         } else {
             // Fallback to simulated pattern
@@ -410,19 +408,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Some(Commands::Extract {
-            input,
-            output,
-            count,
-        }) => {
+        Some(Commands::Extract { input, output, count }) => {
             let mut generator = PuzzleGenerator::new();
             generator.extract_puzzles(input, output, *count, None, cli.verbose)?;
         }
-        Some(Commands::ByPattern {
-            pattern,
-            count,
-            output,
-        }) => {
+        Some(Commands::ByPattern { pattern, count, output }) => {
             let mut generator = PuzzleGenerator::new();
             let puzzles = generator.extract_puzzles(
                 &cli.input,

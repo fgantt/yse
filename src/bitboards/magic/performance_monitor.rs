@@ -188,11 +188,7 @@ pub struct AdaptiveOptimizer {
 impl AdaptiveOptimizer {
     /// Create a new adaptive optimizer
     pub fn new(monitor: PerformanceMonitor) -> Self {
-        Self {
-            monitor,
-            optimization_threshold: Duration::from_nanos(100),
-            check_interval: 10_000,
-        }
+        Self { monitor, optimization_threshold: Duration::from_nanos(100), check_interval: 10_000 }
     }
 
     /// Check if optimization should be triggered

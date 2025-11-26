@@ -85,12 +85,7 @@ fn benchmark_adaptive_reduction_with_without_pruning_manager(c: &mut Criterion) 
                 let stats_adaptive = engine_adaptive.get_lmr_stats().clone();
                 let stats_no_adaptive = engine_no_adaptive.get_lmr_stats().clone();
 
-                black_box((
-                    result_adaptive,
-                    result_no_adaptive,
-                    stats_adaptive,
-                    stats_no_adaptive,
-                ))
+                black_box((result_adaptive, result_no_adaptive, stats_adaptive, stats_no_adaptive))
             });
         });
     }

@@ -43,14 +43,8 @@ fn demotes_low_depth_entries_into_l2() {
     }
 
     let snapshot = table.snapshot();
-    assert!(
-        snapshot.stats.demotions >= 8,
-        "expected demotions when L1 capacity exceeded"
-    );
-    assert!(
-        snapshot.l2_stats.stored_entries > 0,
-        "compressed L2 should contain demoted entries"
-    );
+    assert!(snapshot.stats.demotions >= 8, "expected demotions when L1 capacity exceeded");
+    assert!(snapshot.l2_stats.stored_entries > 0, "compressed L2 should contain demoted entries");
 }
 
 #[test]
@@ -76,16 +70,10 @@ fn probing_l2_entry_promotes_back_to_l1() {
     assert_eq!(snapshot_after_probe.stats.promotions, 1);
 
     let final_snapshot = table.snapshot();
-    assert!(
-        final_snapshot.stats.l2_hits >= 1,
-        "expected at least one L2 hit recorded"
-    );
+    assert!(final_snapshot.stats.l2_hits >= 1, "expected at least one L2 hit recorded");
     assert!(
         final_snapshot.stats.promotions >= 1,
         "expected promotion counter to increase after probe"
     );
-    assert!(
-        final_snapshot.stats.demotions >= 1,
-        "demotions should be recorded from initial store"
-    );
+    assert!(final_snapshot.stats.demotions >= 1, "demotions should be recorded from initial store");
 }

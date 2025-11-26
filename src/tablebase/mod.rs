@@ -122,33 +122,17 @@ impl TablebaseResult {
             _ => None,
         };
 
-        Self {
-            best_move,
-            distance_to_mate,
-            moves_to_mate,
-            outcome,
-            confidence,
-        }
+        Self { best_move, distance_to_mate, moves_to_mate, outcome, confidence }
     }
 
     /// Create a winning result
     pub fn win(best_move: Option<Move>, moves_to_mate: u8) -> Self {
-        Self::new(
-            best_move,
-            Some(moves_to_mate as i32),
-            TablebaseOutcome::Win,
-            1.0,
-        )
+        Self::new(best_move, Some(moves_to_mate as i32), TablebaseOutcome::Win, 1.0)
     }
 
     /// Create a losing result
     pub fn loss(moves_to_mate: u8) -> Self {
-        Self::new(
-            None,
-            Some(-(moves_to_mate as i32)),
-            TablebaseOutcome::Loss,
-            1.0,
-        )
+        Self::new(None, Some(-(moves_to_mate as i32)), TablebaseOutcome::Loss, 1.0)
     }
 
     /// Create a draw result

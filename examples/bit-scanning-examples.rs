@@ -43,18 +43,12 @@ fn performance_optimized_examples() {
     // Use branch-optimized functions for common cases
     let count = popcount_branch_optimized(bitboard);
     let first_pos = bit_scan_forward_optimized(bitboard);
-    println!(
-        "Branch-optimized - Count: {}, First: {:?}",
-        count, first_pos
-    );
+    println!("Branch-optimized - Count: {}, First: {:?}", count, first_pos);
 
     // Use cache-optimized functions for memory-intensive operations
     let count = popcount_cache_optimized(bitboard);
     let positions = get_bit_positions_cache_optimized(bitboard);
-    println!(
-        "Cache-optimized - Count: {}, Positions: {:?}",
-        count, positions
-    );
+    println!("Cache-optimized - Count: {}, Positions: {:?}", count, positions);
 }
 
 /// Common case optimization examples
@@ -110,10 +104,7 @@ fn bit_manipulation_examples() {
     println!("Intersection: 0b{:b}", intersection(bitboard, other));
     println!("Union: 0b{:b}", union(bitboard, other));
     println!("Difference: 0b{:b}", difference(bitboard, other));
-    println!(
-        "Symmetric difference: 0b{:b}",
-        symmetric_difference(bitboard, other)
-    );
+    println!("Symmetric difference: 0b{:b}", symmetric_difference(bitboard, other));
 }
 
 /// Bit iterator examples
@@ -138,10 +129,7 @@ fn bit_iterator_examples() {
     let first_pos = bits(bitboard).next();
     let last_pos = bits(bitboard).last();
     let count = bits(bitboard).count();
-    println!(
-        "First: {:?}, Last: {:?}, Count: {}",
-        first_pos, last_pos, count
-    );
+    println!("First: {:?}, Last: {:?}, Count: {}", first_pos, last_pos, count);
 
     // Skip and take
     let positions: Vec<u8> = bits(bitboard).skip(1).take(3).collect();
@@ -155,39 +143,24 @@ fn square_coordinate_examples() {
     // Convert between bit positions and squares
     let bit_pos = 40; // Center of 9x9 board
     let square = bit_to_square(bit_pos);
-    println!(
-        "Bit position {} -> Square ({}, {})",
-        bit_pos, square.row, square.col
-    );
+    println!("Bit position {} -> Square ({}, {})", bit_pos, square.row, square.col);
 
     let back_to_bit = square_to_bit(square);
-    println!(
-        "Square ({}, {}) -> Bit position {}",
-        square.row, square.col, back_to_bit
-    );
+    println!("Square ({}, {}) -> Bit position {}", square.row, square.col, back_to_bit);
 
     // Algebraic notation
     let square_name = bit_to_square_name(bit_pos);
-    println!(
-        "Bit position {} -> Algebraic notation: {}",
-        bit_pos, square_name
-    );
+    println!("Bit position {} -> Algebraic notation: {}", bit_pos, square_name);
 
     let from_name = square_name_to_bit(&square_name);
-    println!(
-        "Algebraic notation {} -> Bit position: {}",
-        square_name, from_name
-    );
+    println!("Algebraic notation {} -> Bit position: {}", square_name, from_name);
 
     // Coordinate conversion
     let (file, rank) = bit_to_coords(bit_pos);
     println!("Bit position {} -> File: {}, Rank: {}", bit_pos, file, rank);
 
     let from_coords = coords_to_bit(file, rank);
-    println!(
-        "File: {}, Rank: {} -> Bit position: {}",
-        file, rank, from_coords
-    );
+    println!("File: {}, Rank: {} -> Bit position: {}", file, rank, from_coords);
 }
 
 /// Shogi-specific examples
@@ -207,10 +180,7 @@ fn shogi_specific_examples() {
         "Rank 1 is promotion zone for White: {}",
         is_promotion_zone(rank_1_square, Player::White)
     );
-    println!(
-        "Center is promotion zone: {}",
-        is_promotion_zone(center_square, Player::Black)
-    );
+    println!("Center is promotion zone: {}", is_promotion_zone(center_square, Player::Black));
 
     // Square validation
     println!("Valid Shogi squares:");
@@ -262,11 +232,7 @@ fn platform_optimization_examples() {
 fn cache_optimization_examples() {
     println!("\n=== Cache Optimization Examples ===");
 
-    let bitboards = vec![
-        0b1010_1010_1010_1010,
-        0b1100_1100_1100_1100,
-        0b1111_0000_1111_0000,
-    ];
+    let bitboards = vec![0b1010_1010_1010_1010, 0b1100_1100_1100_1100, 0b1111_0000_1111_0000];
 
     // Batch processing with prefetching
     unsafe {
@@ -312,10 +278,7 @@ fn api_integration_examples() {
     let count = api::compat::count_bits(bitboard);
     let first = api::compat::find_first_bit(bitboard);
     let last = api::compat::find_last_bit(bitboard);
-    println!(
-        "API compat - Count: {}, First: {:?}, Last: {:?}",
-        count, first, last
-    );
+    println!("API compat - Count: {}, First: {:?}, Last: {:?}", count, first, last);
 
     // Use analysis functions
     let analysis = api::analysis::analyze_geometry(bitboard);
@@ -336,10 +299,7 @@ fn global_optimizer_examples() {
     let pos = integration::GlobalOptimizer::bit_scan_forward(bitboard);
     let positions = integration::GlobalOptimizer::get_all_bit_positions(bitboard);
 
-    println!(
-        "GlobalOptimizer - Count: {}, First: {:?}, Positions: {:?}",
-        count, pos, positions
-    );
+    println!("GlobalOptimizer - Count: {}, First: {:?}, Positions: {:?}", count, pos, positions);
 
     // Geometric analysis
     let geometry = integration::GlobalOptimizer::analyze_geometry(bitboard);

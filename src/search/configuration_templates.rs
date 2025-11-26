@@ -216,11 +216,7 @@ impl ConfigurationTemplateManager {
             description: "High-performance configuration optimized for speed".to_string(),
             config: TranspositionConfig::performance_optimized(),
             category: TemplateCategory::Performance,
-            tags: vec![
-                "fast".to_string(),
-                "speed".to_string(),
-                "optimized".to_string(),
-            ],
+            tags: vec!["fast".to_string(), "speed".to_string(), "optimized".to_string()],
             performance_profile: PerformanceProfile {
                 hit_rate_range: (0.35, 0.55),
                 operation_time_range: (20.0, 50.0),
@@ -243,11 +239,7 @@ impl ConfigurationTemplateManager {
             description: "Memory-efficient configuration for constrained environments".to_string(),
             config: TranspositionConfig::memory_optimized(),
             category: TemplateCategory::Memory,
-            tags: vec![
-                "memory".to_string(),
-                "efficient".to_string(),
-                "small".to_string(),
-            ],
+            tags: vec!["memory".to_string(), "efficient".to_string(), "small".to_string()],
             performance_profile: PerformanceProfile {
                 hit_rate_range: (0.15, 0.30),
                 operation_time_range: (60.0, 120.0),
@@ -284,11 +276,7 @@ impl ConfigurationTemplateManager {
                 age_weight: 1.0,
             },
             category: TemplateCategory::Performance,
-            tags: vec![
-                "maximum".to_string(),
-                "high-end".to_string(),
-                "server".to_string(),
-            ],
+            tags: vec!["maximum".to_string(), "high-end".to_string(), "server".to_string()],
             performance_profile: PerformanceProfile {
                 hit_rate_range: (0.45, 0.65),
                 operation_time_range: (15.0, 35.0),
@@ -325,11 +313,7 @@ impl ConfigurationTemplateManager {
                 age_weight: 1.0,
             },
             category: TemplateCategory::Development,
-            tags: vec![
-                "development".to_string(),
-                "debug".to_string(),
-                "testing".to_string(),
-            ],
+            tags: vec!["development".to_string(), "debug".to_string(), "testing".to_string()],
             performance_profile: PerformanceProfile {
                 hit_rate_range: (0.20, 0.35),
                 operation_time_range: (50.0, 100.0),
@@ -367,11 +351,7 @@ impl ConfigurationTemplateManager {
                 age_weight: 1.0,
             },
             category: TemplateCategory::Production,
-            tags: vec![
-                "production".to_string(),
-                "stable".to_string(),
-                "reliable".to_string(),
-            ],
+            tags: vec!["production".to_string(), "stable".to_string(), "reliable".to_string()],
             performance_profile: PerformanceProfile {
                 hit_rate_range: (0.30, 0.45),
                 operation_time_range: (30.0, 60.0),
@@ -414,9 +394,7 @@ impl ConfigurationTemplateManager {
 
     /// Get a template by name
     pub fn get_template(&self, name: &str) -> Option<&ConfigurationTemplate> {
-        self.builtin_templates
-            .get(name)
-            .or_else(|| self.custom_templates.get(name))
+        self.builtin_templates.get(name).or_else(|| self.custom_templates.get(name))
     }
 
     /// Get all templates in a category
@@ -566,10 +544,7 @@ impl ConfigurationTemplateManager {
 
             // Check if template already exists
             if self.builtin_templates.contains_key(&name) {
-                return Err(format!(
-                    "Cannot import template '{}': built-in template exists",
-                    name
-                ));
+                return Err(format!("Cannot import template '{}': built-in template exists", name));
             }
 
             if self.custom_templates.contains_key(&name) && !overwrite {
@@ -594,10 +569,8 @@ impl ConfigurationTemplateManager {
 impl ConfigurationValidator {
     /// Create a new configuration validator
     pub fn new() -> Self {
-        let mut validator = Self {
-            validation_rules: Vec::new(),
-            performance_benchmarks: HashMap::new(),
-        };
+        let mut validator =
+            Self { validation_rules: Vec::new(), performance_benchmarks: HashMap::new() };
 
         // Initialize validation rules
         validator.initialize_validation_rules();
@@ -819,11 +792,7 @@ impl ConfigurationValidator {
         // Simulated benchmark results based on configuration
         let base_operation_time = 50.0;
         let size_factor = (config.table_size as f64 / 65536.0).log2(); // Logarithmic scaling
-        let alignment_factor = if config.enable_memory_mapping {
-            0.8
-        } else {
-            1.0
-        };
+        let alignment_factor = if config.enable_memory_mapping { 0.8 } else { 1.0 };
         let prefetch_factor = if config.enable_prefetching { 0.9 } else { 1.0 };
 
         let avg_operation_time_us =
@@ -890,10 +859,8 @@ mod tests {
         let results = validator.validate_configuration(&valid_config);
         assert!(results.iter().all(|r| r.is_valid));
 
-        let invalid_config = TranspositionConfig {
-            table_size: 0,
-            ..TranspositionConfig::default()
-        };
+        let invalid_config =
+            TranspositionConfig { table_size: 0, ..TranspositionConfig::default() };
         let results = validator.validate_configuration(&invalid_config);
         assert!(results.iter().any(|r| !r.is_valid));
     }

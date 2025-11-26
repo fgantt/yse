@@ -560,26 +560,11 @@ mod coordinate_conversion_tests {
     #[test]
     fn test_string_to_position() {
         // Test valid USI coordinates (format: "file+rank" like "1a", "5e", "9i")
-        assert_eq!(
-            coordinate_utils::string_to_position("1a").unwrap(),
-            Position::new(0, 8)
-        );
-        assert_eq!(
-            coordinate_utils::string_to_position("5e").unwrap(),
-            Position::new(4, 4)
-        );
-        assert_eq!(
-            coordinate_utils::string_to_position("9i").unwrap(),
-            Position::new(8, 0)
-        );
-        assert_eq!(
-            coordinate_utils::string_to_position("1i").unwrap(),
-            Position::new(8, 8)
-        );
-        assert_eq!(
-            coordinate_utils::string_to_position("9a").unwrap(),
-            Position::new(0, 0)
-        );
+        assert_eq!(coordinate_utils::string_to_position("1a").unwrap(), Position::new(0, 8));
+        assert_eq!(coordinate_utils::string_to_position("5e").unwrap(), Position::new(4, 4));
+        assert_eq!(coordinate_utils::string_to_position("9i").unwrap(), Position::new(8, 0));
+        assert_eq!(coordinate_utils::string_to_position("1i").unwrap(), Position::new(8, 8));
+        assert_eq!(coordinate_utils::string_to_position("9a").unwrap(), Position::new(0, 0));
     }
 
     #[test]
@@ -596,47 +581,20 @@ mod coordinate_conversion_tests {
     #[test]
     fn test_position_to_string() {
         // Test valid positions (format: "file+rank" like "1a", "5e", "9i")
-        assert_eq!(
-            coordinate_utils::position_to_string(Position::new(0, 0)),
-            "9a"
-        );
-        assert_eq!(
-            coordinate_utils::position_to_string(Position::new(4, 4)),
-            "5e"
-        );
-        assert_eq!(
-            coordinate_utils::position_to_string(Position::new(8, 0)),
-            "9i"
-        );
-        assert_eq!(
-            coordinate_utils::position_to_string(Position::new(8, 8)),
-            "1i"
-        );
-        assert_eq!(
-            coordinate_utils::position_to_string(Position::new(0, 8)),
-            "1a"
-        );
+        assert_eq!(coordinate_utils::position_to_string(Position::new(0, 0)), "9a");
+        assert_eq!(coordinate_utils::position_to_string(Position::new(4, 4)), "5e");
+        assert_eq!(coordinate_utils::position_to_string(Position::new(8, 0)), "9i");
+        assert_eq!(coordinate_utils::position_to_string(Position::new(8, 8)), "1i");
+        assert_eq!(coordinate_utils::position_to_string(Position::new(0, 8)), "1a");
     }
 
     #[test]
     fn test_parse_piece_type() {
         // Test valid piece types
-        assert_eq!(
-            coordinate_utils::parse_piece_type("Pawn").unwrap(),
-            PieceType::Pawn
-        );
-        assert_eq!(
-            coordinate_utils::parse_piece_type("Rook").unwrap(),
-            PieceType::Rook
-        );
-        assert_eq!(
-            coordinate_utils::parse_piece_type("Bishop").unwrap(),
-            PieceType::Bishop
-        );
-        assert_eq!(
-            coordinate_utils::parse_piece_type("King").unwrap(),
-            PieceType::King
-        );
+        assert_eq!(coordinate_utils::parse_piece_type("Pawn").unwrap(), PieceType::Pawn);
+        assert_eq!(coordinate_utils::parse_piece_type("Rook").unwrap(), PieceType::Rook);
+        assert_eq!(coordinate_utils::parse_piece_type("Bishop").unwrap(), PieceType::Bishop);
+        assert_eq!(coordinate_utils::parse_piece_type("King").unwrap(), PieceType::King);
     }
 
     #[test]
@@ -693,10 +651,7 @@ mod binary_format_tests {
         // Verify data integrity
         let original_stats = book.get_stats();
         let deserialized_stats = deserialized_book.get_stats();
-        assert_eq!(
-            deserialized_stats.position_count,
-            original_stats.position_count
-        );
+        assert_eq!(deserialized_stats.position_count, original_stats.position_count);
         assert_eq!(deserialized_stats.move_count, original_stats.move_count);
         assert_eq!(deserialized_book.is_loaded(), book.is_loaded());
 
@@ -716,12 +671,8 @@ mod binary_format_tests {
         assert_eq!(&binary_data[0..4], b"SBOB");
 
         // Test version validation
-        let version = u32::from_le_bytes([
-            binary_data[4],
-            binary_data[5],
-            binary_data[6],
-            binary_data[7],
-        ]);
+        let version =
+            u32::from_le_bytes([binary_data[4], binary_data[5], binary_data[6], binary_data[7]]);
         assert_eq!(version, 1);
     }
 

@@ -483,9 +483,7 @@ impl MLReplacementPolicy {
 
         if self.config.feature_settings.enable_position_features {
             features.extend(
-                self.feature_extractors
-                    .position_extractor
-                    .extract(&context.position_features),
+                self.feature_extractors.position_extractor.extract(&context.position_features),
             );
         }
 
@@ -498,11 +496,7 @@ impl MLReplacementPolicy {
         }
 
         if self.config.feature_settings.enable_entry_features {
-            features.extend(
-                self.feature_extractors
-                    .entry_extractor
-                    .extract(&context.new_entry),
-            );
+            features.extend(self.feature_extractors.entry_extractor.extract(&context.new_entry));
             if let Some(ref existing) = context.existing_entry {
                 features.extend(self.feature_extractors.entry_extractor.extract(existing));
             } else {
@@ -511,11 +505,8 @@ impl MLReplacementPolicy {
         }
 
         if self.config.feature_settings.enable_temporal_features {
-            features.extend(
-                self.feature_extractors
-                    .temporal_extractor
-                    .extract(&context.temporal_info),
-            );
+            features
+                .extend(self.feature_extractors.temporal_extractor.extract(&context.temporal_info));
         }
 
         features
@@ -541,11 +532,7 @@ impl MLReplacementPolicy {
 
             // Scale features
             let scaled_features = if self.config.feature_settings.normalize_features {
-                dataset
-                    .features
-                    .iter()
-                    .map(|f| self.feature_scaler.scale(f))
-                    .collect()
+                dataset.features.iter().map(|f| self.feature_scaler.scale(f)).collect()
             } else {
                 dataset.features
             };
@@ -657,10 +644,7 @@ impl TemporalFeatureExtractor {
     }
 
     pub fn extract(&self, info: &TemporalInfo) -> Vec<f64> {
-        vec![
-            info.existing_age.as_secs() as f64,
-            info.time_since_access.as_secs() as f64,
-        ]
+        vec![info.existing_age.as_secs() as f64, info.time_since_access.as_secs() as f64]
     }
 }
 
@@ -683,10 +667,7 @@ pub struct LinearRegressionModel {
 
 impl LinearRegressionModel {
     pub fn new() -> Self {
-        Self {
-            weights: Vec::new(),
-            bias: 0.0,
-        }
+        Self { weights: Vec::new(), bias: 0.0 }
     }
 }
 
@@ -702,12 +683,7 @@ impl MLModel for LinearRegressionModel {
             };
         }
 
-        let score = features
-            .iter()
-            .zip(&self.weights)
-            .map(|(f, w)| f * w)
-            .sum::<f64>()
-            + self.bias;
+        let score = features.iter().zip(&self.weights).map(|(f, w)| f * w).sum::<f64>() + self.bias;
         let confidence = (score / (score.abs() + 1.0) + 1.0) / 2.0; // Sigmoid-like
 
         let decision = if score > 0.0 {
@@ -911,11 +887,7 @@ impl MLModel for RLModel {
 // Training data collector implementation
 impl TrainingDataCollector {
     pub fn new() -> Self {
-        Self {
-            samples: VecDeque::new(),
-            sample_count: 0,
-            last_training: Instant::now(),
-        }
+        Self { samples: VecDeque::new(), sample_count: 0, last_training: Instant::now() }
     }
 
     pub fn add_sample(&mut self, sample: TrainingSample) {
@@ -942,11 +914,7 @@ impl TrainingDataCollector {
             .map(|s| if s.outcome.beneficial { 1.0 } else { 0.5 })
             .collect();
 
-        Some(TrainingDataset {
-            features,
-            targets,
-            weights,
-        })
+        Some(TrainingDataset { features, targets, weights })
     }
 }
 
@@ -983,11 +951,7 @@ impl MLPerformanceMonitor {
 // Feature scaler implementation
 impl FeatureScaler {
     pub fn new() -> Self {
-        Self {
-            means: Vec::new(),
-            std_devs: Vec::new(),
-            enabled: false,
-        }
+        Self { means: Vec::new(), std_devs: Vec::new(), enabled: false }
     }
 
     pub fn fit(&mut self, features: &[Vec<f64>]) {
@@ -1178,11 +1142,7 @@ mod tests {
     fn test_feature_scaling() {
         let mut scaler = FeatureScaler::new();
 
-        let features = vec![
-            vec![1.0, 2.0, 3.0],
-            vec![2.0, 4.0, 6.0],
-            vec![3.0, 6.0, 9.0],
-        ];
+        let features = vec![vec![1.0, 2.0, 3.0], vec![2.0, 4.0, 6.0], vec![3.0, 6.0, 9.0]];
 
         scaler.fit(&features);
 

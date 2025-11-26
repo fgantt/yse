@@ -43,16 +43,12 @@ fn benchmark_development(c: &mut Criterion) {
 
     // Test at different move counts
     for move_count in [1, 5, 10, 15, 20] {
-        group.bench_with_input(
-            BenchmarkId::from_parameter(move_count),
-            &move_count,
-            |b, &mc| {
-                let mut evaluator = OpeningPrincipleEvaluator::new();
-                b.iter(|| {
-                    black_box(evaluator.evaluate_development(&board, Player::Black, mc));
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::from_parameter(move_count), &move_count, |b, &mc| {
+            let mut evaluator = OpeningPrincipleEvaluator::new();
+            b.iter(|| {
+                black_box(evaluator.evaluate_development(&board, Player::Black, mc));
+            });
+        });
     }
 
     group.finish();

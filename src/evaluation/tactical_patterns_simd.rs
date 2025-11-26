@@ -40,9 +40,9 @@
 
 #![cfg(feature = "simd")]
 
-use crate::bitboards::{SimdBitboard, batch_ops::AlignedBitboardArray, BitboardBoard};
-use crate::types::{Bitboard, set_bit};
+use crate::bitboards::{batch_ops::AlignedBitboardArray, BitboardBoard, SimdBitboard};
 use crate::types::core::{PieceType, Player, Position};
+use crate::types::{set_bit, Bitboard};
 
 /// SIMD-optimized pattern matcher for tactical patterns
 pub struct SimdPatternMatcher {
@@ -72,18 +72,15 @@ struct PinPattern {
 impl SimdPatternMatcher {
     /// Create a new SIMD pattern matcher
     pub fn new() -> Self {
-        Self {
-            fork_patterns: Vec::new(),
-            pin_patterns: Vec::new(),
-        }
+        Self { fork_patterns: Vec::new(), pin_patterns: Vec::new() }
     }
 
     /// Detect forks using SIMD batch operations
-    /// 
+    ///
     /// Processes multiple pieces simultaneously to find forks (double attacks)
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// Uses batch operations to process multiple pieces at once, achieving
     /// 2-4x speedup vs scalar implementation.
     pub fn detect_forks_batch(
@@ -119,7 +116,8 @@ impl SimdPatternMatcher {
             }
 
             // Use batch operations to process attack patterns
-            let attack_array = AlignedBitboardArray::<BATCH_SIZE>::from_slice(&attack_patterns[..BATCH_SIZE]);
+            let attack_array =
+                AlignedBitboardArray::<BATCH_SIZE>::from_slice(&attack_patterns[..BATCH_SIZE]);
 
             // Get opponent pieces bitboard for intersection
             let opponent = player.opposite();
@@ -143,7 +141,7 @@ impl SimdPatternMatcher {
                 }
 
                 let attacks = attack_array.get(i);
-                
+
                 // Intersect attacks with opponent pieces to find targets
                 let targets = *attacks & opponent_simd;
                 let target_count = targets.count_ones();
@@ -159,11 +157,11 @@ impl SimdPatternMatcher {
     }
 
     /// Detect pins using SIMD batch operations
-    /// 
+    ///
     /// Processes multiple pieces simultaneously to find pins using vectorized attack pattern generation.
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// Uses batch operations to process multiple pieces at once, achieving
     /// 2-4x speedup vs scalar implementation.
     pub fn detect_pins_batch(
@@ -180,12 +178,16 @@ impl SimdPatternMatcher {
         const BATCH_SIZE: usize = 4;
 
         // Filter pieces that can create pins (sliding pieces only)
-        let pinning_pieces: Vec<_> = pieces.iter()
+        let pinning_pieces: Vec<_> = pieces
+            .iter()
             .filter(|(_, piece_type)| {
-                matches!(piece_type, 
-                    PieceType::Rook | PieceType::PromotedRook |
-                    PieceType::Bishop | PieceType::PromotedBishop |
-                    PieceType::Lance
+                matches!(
+                    piece_type,
+                    PieceType::Rook
+                        | PieceType::PromotedRook
+                        | PieceType::Bishop
+                        | PieceType::PromotedBishop
+                        | PieceType::Lance
                 )
             })
             .copied()
@@ -215,7 +217,8 @@ impl SimdPatternMatcher {
             }
 
             // Use batch operations to process attack patterns
-            let _attack_array = AlignedBitboardArray::<BATCH_SIZE>::from_slice(&attack_patterns[..BATCH_SIZE]);
+            let _attack_array =
+                AlignedBitboardArray::<BATCH_SIZE>::from_slice(&attack_patterns[..BATCH_SIZE]);
 
             // Check each piece for pins using SIMD operations
             for (i, &(pos, piece_type)) in piece_info.iter().enumerate() {
@@ -224,7 +227,7 @@ impl SimdPatternMatcher {
                 }
 
                 let _attacks = _attack_array.get(i);
-                
+
                 // Get directions for this piece type
                 let directions: &[(i8, i8)] = match piece_type {
                     PieceType::Rook | PieceType::PromotedRook => {
@@ -245,7 +248,9 @@ impl SimdPatternMatcher {
 
                 // Check each direction for pins (using scalar for line scanning, but with SIMD-optimized attack patterns)
                 for &(dr, dc) in directions {
-                    if let Some(pinned_pos) = self.check_pin_direction(board, pos, piece_type, player, dr, dc) {
+                    if let Some(pinned_pos) =
+                        self.check_pin_direction(board, pos, piece_type, player, dr, dc)
+                    {
                         pins.push((pos, piece_type, pinned_pos));
                     }
                 }
@@ -300,7 +305,7 @@ impl SimdPatternMatcher {
     }
 
     /// Count attack targets using SIMD operations
-    /// 
+    ///
     /// Uses SIMD bitwise operations to efficiently count targets
     pub fn count_attack_targets(
         &self,
@@ -313,7 +318,7 @@ impl SimdPatternMatcher {
     }
 
     /// Batch count attack targets for multiple pieces
-    /// 
+    ///
     /// Uses batch operations to count targets for multiple pieces simultaneously
     pub fn count_attack_targets_batch(
         &self,
@@ -336,7 +341,7 @@ impl SimdPatternMatcher {
     }
 
     /// Detect multiple patterns simultaneously using SIMD
-    /// 
+    ///
     /// Checks multiple positions for patterns in parallel
     pub fn detect_patterns_batch(
         &self,
@@ -385,7 +390,8 @@ impl SimdPatternMatcher {
             }
 
             // Use batch operations
-            let attack_array = AlignedBitboardArray::<BATCH_SIZE>::from_slice(&attack_patterns[..BATCH_SIZE]);
+            let attack_array =
+                AlignedBitboardArray::<BATCH_SIZE>::from_slice(&attack_patterns[..BATCH_SIZE]);
             let target_counts = self.count_attack_targets_batch(&attack_array, opponent_simd_mask);
 
             // Collect results
@@ -401,11 +407,11 @@ impl SimdPatternMatcher {
     }
 
     /// Detect skewers using SIMD batch operations
-    /// 
+    ///
     /// Processes multiple pieces simultaneously to find skewers (attacks through less valuable piece to more valuable).
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// Uses batch operations to process multiple pieces at once, achieving
     /// 2-4x speedup vs scalar implementation.
     pub fn detect_skewers_batch(
@@ -422,11 +428,15 @@ impl SimdPatternMatcher {
         const BATCH_SIZE: usize = 4;
 
         // Filter pieces that can create skewers (sliding pieces only)
-        let skewering_pieces: Vec<_> = pieces.iter()
+        let skewering_pieces: Vec<_> = pieces
+            .iter()
             .filter(|(_, piece_type)| {
-                matches!(piece_type, 
-                    PieceType::Rook | PieceType::PromotedRook |
-                    PieceType::Bishop | PieceType::PromotedBishop
+                matches!(
+                    piece_type,
+                    PieceType::Rook
+                        | PieceType::PromotedRook
+                        | PieceType::Bishop
+                        | PieceType::PromotedBishop
                 )
             })
             .copied()
@@ -455,7 +465,8 @@ impl SimdPatternMatcher {
             }
 
             // Use batch operations to process attack patterns
-            let _attack_array = AlignedBitboardArray::<BATCH_SIZE>::from_slice(&attack_patterns[..BATCH_SIZE]);
+            let _attack_array =
+                AlignedBitboardArray::<BATCH_SIZE>::from_slice(&attack_patterns[..BATCH_SIZE]);
 
             // Check each piece for skewers
             for (i, &(pos, piece_type)) in piece_info.iter().enumerate() {
@@ -464,7 +475,7 @@ impl SimdPatternMatcher {
                 }
 
                 let _attacks = _attack_array.get(i);
-                
+
                 // Get directions for this piece type
                 let directions: &[(i8, i8)] = match piece_type {
                     PieceType::Rook | PieceType::PromotedRook => {
@@ -478,7 +489,9 @@ impl SimdPatternMatcher {
 
                 // Check each direction for skewers
                 for &(dr, dc) in directions {
-                    if let Some((front_pos, back_pos)) = self.check_skewer_direction(board, pos, piece_type, player, dr, dc) {
+                    if let Some((front_pos, back_pos)) =
+                        self.check_skewer_direction(board, pos, piece_type, player, dr, dc)
+                    {
                         skewers.push((pos, piece_type, front_pos, back_pos));
                     }
                 }
@@ -532,11 +545,11 @@ impl SimdPatternMatcher {
     }
 
     /// Detect discovered attacks using SIMD batch operations
-    /// 
+    ///
     /// Processes multiple pieces simultaneously to find discovered attack potential.
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// Uses batch operations to process multiple pieces at once, achieving
     /// 2-4x speedup vs scalar implementation.
     pub fn detect_discovered_attacks_batch(
@@ -573,7 +586,8 @@ impl SimdPatternMatcher {
             }
 
             // Use batch operations to process attack patterns
-            let attack_array = AlignedBitboardArray::<BATCH_SIZE>::from_slice(&attack_patterns[..BATCH_SIZE]);
+            let attack_array =
+                AlignedBitboardArray::<BATCH_SIZE>::from_slice(&attack_patterns[..BATCH_SIZE]);
 
             // Check each piece for discovered attack potential
             for (i, &(pos, piece_type)) in piece_info.iter().enumerate() {
@@ -582,9 +596,10 @@ impl SimdPatternMatcher {
                 }
 
                 let attacks = attack_array.get(i);
-                
+
                 // Check if this piece can create a discovered attack by moving
-                if self.can_create_discovered_attack_simd(board, pos, target_pos, *attacks, player) {
+                if self.can_create_discovered_attack_simd(board, pos, target_pos, *attacks, player)
+                {
                     discovered.push((pos, piece_type));
                 }
             }
@@ -701,4 +716,3 @@ impl Default for SimdPatternMatcher {
         Self::new()
     }
 }
-

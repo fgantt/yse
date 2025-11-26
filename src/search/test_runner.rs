@@ -52,18 +52,12 @@ pub enum OutputFormat {
 impl TestRunner {
     /// Create a new test runner
     pub fn new() -> Self {
-        Self {
-            test_suite: ComprehensiveTestSuite::new(),
-            config: TestRunnerConfig::default(),
-        }
+        Self { test_suite: ComprehensiveTestSuite::new(), config: TestRunnerConfig::default() }
     }
 
     /// Create a test runner with custom configuration
     pub fn with_config(config: TestRunnerConfig) -> Self {
-        Self {
-            test_suite: ComprehensiveTestSuite::new(),
-            config,
-        }
+        Self { test_suite: ComprehensiveTestSuite::new(), config }
     }
 
     /// Run the comprehensive test suite
@@ -222,10 +216,7 @@ impl TestRunner {
         let mut report = String::new();
 
         report.push_str(&format!("\n📊 COMPREHENSIVE TEST SUITE REPORT\n"));
-        report.push_str(&format!(
-            "Execution Time: {:.2}s\n",
-            execution_time.as_secs_f64()
-        ));
+        report.push_str(&format!("Execution Time: {:.2}s\n", execution_time.as_secs_f64()));
         report.push_str(&format!("=====================================\n\n"));
 
         // Unit Tests
@@ -234,10 +225,7 @@ impl TestRunner {
             results.unit_tests.tests_passed, results.unit_tests.tests_run
         ));
         if !results.unit_tests.failures.is_empty() {
-            report.push_str(&format!(
-                " ❌ {} failures",
-                results.unit_tests.failures.len()
-            ));
+            report.push_str(&format!(" ❌ {} failures", results.unit_tests.failures.len()));
         }
         report.push_str("\n");
 
@@ -247,10 +235,7 @@ impl TestRunner {
             results.integration_tests.tests_passed, results.integration_tests.tests_run
         ));
         if !results.integration_tests.failures.is_empty() {
-            report.push_str(&format!(
-                " ❌ {} failures",
-                results.integration_tests.failures.len()
-            ));
+            report.push_str(&format!(" ❌ {} failures", results.integration_tests.failures.len()));
         }
         report.push_str("\n");
 
@@ -261,10 +246,7 @@ impl TestRunner {
             results.performance_tests.benchmarks_run * 2
         ));
         if !results.performance_tests.failures.is_empty() {
-            report.push_str(&format!(
-                " ❌ {} failures",
-                results.performance_tests.failures.len()
-            ));
+            report.push_str(&format!(" ❌ {} failures", results.performance_tests.failures.len()));
         }
         report.push_str("\n");
 
@@ -274,10 +256,7 @@ impl TestRunner {
             results.stress_tests.tests_passed, results.stress_tests.tests_run
         ));
         if !results.stress_tests.failures.is_empty() {
-            report.push_str(&format!(
-                " ❌ {} failures",
-                results.stress_tests.failures.len()
-            ));
+            report.push_str(&format!(" ❌ {} failures", results.stress_tests.failures.len()));
         }
         report.push_str("\n");
 
@@ -287,10 +266,7 @@ impl TestRunner {
             results.memory_tests.tests_passed, results.memory_tests.tests_run
         ));
         if !results.memory_tests.failures.is_empty() {
-            report.push_str(&format!(
-                " ❌ {} failures",
-                results.memory_tests.failures.len()
-            ));
+            report.push_str(&format!(" ❌ {} failures", results.memory_tests.failures.len()));
         }
         report.push_str("\n");
 
@@ -300,10 +276,7 @@ impl TestRunner {
             results.regression_tests.tests_passed, results.regression_tests.tests_run
         ));
         if !results.regression_tests.failures.is_empty() {
-            report.push_str(&format!(
-                " ❌ {} failures",
-                results.regression_tests.failures.len()
-            ));
+            report.push_str(&format!(" ❌ {} failures", results.regression_tests.failures.len()));
         }
         report.push_str("\n");
 
@@ -314,10 +287,8 @@ impl TestRunner {
             results.position_validation.positions_tested
         ));
         if !results.position_validation.failures.is_empty() {
-            report.push_str(&format!(
-                " ❌ {} failures",
-                results.position_validation.failures.len()
-            ));
+            report
+                .push_str(&format!(" ❌ {} failures", results.position_validation.failures.len()));
         }
         report.push_str("\n");
 
@@ -338,11 +309,8 @@ impl TestRunner {
             + results.regression_tests.tests_passed
             + results.position_validation.positions_passed;
 
-        let success_rate = if total_tests > 0 {
-            (total_passed as f64 / total_tests as f64) * 100.0
-        } else {
-            0.0
-        };
+        let success_rate =
+            if total_tests > 0 { (total_passed as f64 / total_tests as f64) * 100.0 } else { 0.0 };
 
         report.push_str(&format!(
             "\n🎯 OVERALL RESULTS: {}/{} tests passed ({:.1}%)\n",
@@ -440,10 +408,7 @@ pub fn run_all_tests() -> TestExecutionResult {
 
 /// Convenience function to run specific test categories
 pub fn run_test_categories(categories: Vec<TestCategory>) -> TestExecutionResult {
-    let config = TestRunnerConfig {
-        test_categories: categories,
-        ..Default::default()
-    };
+    let config = TestRunnerConfig { test_categories: categories, ..Default::default() };
     let mut runner = TestRunner::with_config(config);
     runner.run_tests()
 }

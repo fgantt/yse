@@ -11,18 +11,12 @@ fn main() {
     let tables = AttackTables::new();
     let creation_time = start_time.elapsed();
 
-    println!(
-        "✓ Attack tables created in {:.2}ms",
-        creation_time.as_secs_f64() * 1000.0
-    );
+    println!("✓ Attack tables created in {:.2}ms", creation_time.as_secs_f64() * 1000.0);
     println!("✓ Memory usage: ~{} bytes", std::mem::size_of_val(&tables));
 
     // Display metadata
     let metadata = tables.memory_stats();
-    println!(
-        "✓ Generation time: {:.2}ms",
-        metadata.initialization_time.as_secs_f64() * 1000.0
-    );
+    println!("✓ Generation time: {:.2}ms", metadata.initialization_time.as_secs_f64() * 1000.0);
     println!("✓ Validation passed: {}\n", metadata.validation_passed);
 
     // Demonstrate O(1) lookup performance
@@ -70,33 +64,20 @@ fn main() {
             2 => PieceType::Gold,
             _ => PieceType::Silver,
         };
-        let player = if total_attacks % 2 == 0 {
-            Player::Black
-        } else {
-            Player::White
-        };
+        let player = if total_attacks % 2 == 0 { Player::Black } else { Player::White };
 
         let pattern = tables.get_attack_pattern(square, piece_type, player);
         total_attacks += pattern.count_ones();
     }
 
     let lookup_time = start_time.elapsed();
-    println!(
-        "✓ 1,000,000 lookups completed in {:.2}ms",
-        lookup_time.as_secs_f64() * 1000.0
-    );
-    println!(
-        "✓ Average lookup time: {:.2}ns",
-        lookup_time.as_nanos() / 1000000
-    );
+    println!("✓ 1,000,000 lookups completed in {:.2}ms", lookup_time.as_secs_f64() * 1000.0);
+    println!("✓ Average lookup time: {:.2}ns", lookup_time.as_nanos() / 1000000);
     println!("✓ Total attacks found: {}", total_attacks);
 
     // Demonstrate memory efficiency
     println!("\nMemory efficiency demonstration:");
-    println!(
-        "✓ AttackTables size: {} bytes",
-        std::mem::size_of::<AttackTables>()
-    );
+    println!("✓ AttackTables size: {} bytes", std::mem::size_of::<AttackTables>());
     println!("✓ Total patterns stored: {}", 81 * 10); // 81 squares × 10 piece types
     println!("✓ Bytes per pattern: {} bytes", std::mem::size_of::<u128>());
     println!(

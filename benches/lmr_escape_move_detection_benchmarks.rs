@@ -86,12 +86,7 @@ fn benchmark_heuristic_vs_threat_based(c: &mut Criterion) {
                 let stats_heuristic = engine_heuristic.get_lmr_stats().clone();
                 let stats_threat = engine_threat.get_lmr_stats().clone();
 
-                black_box((
-                    result_heuristic,
-                    result_threat,
-                    stats_heuristic,
-                    stats_threat,
-                ))
+                black_box((result_heuristic, result_threat, stats_heuristic, stats_threat))
             });
         });
     }
@@ -347,10 +342,7 @@ fn benchmark_performance_regression_validation(c: &mut Criterion) {
             let overhead_percentage = 0.5; // Placeholder - actual measurement would compare with/without
 
             // Requirement: overhead < 1%
-            assert!(
-                overhead_percentage < 1.0,
-                "Escape move detection overhead exceeds 1%"
-            );
+            assert!(overhead_percentage < 1.0, "Escape move detection overhead exceeds 1%");
 
             black_box((elapsed, stats, overhead_percentage))
         });

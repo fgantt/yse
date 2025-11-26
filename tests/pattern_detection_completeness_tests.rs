@@ -7,9 +7,7 @@
 
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::endgame_patterns::EndgamePatternEvaluator;
-use shogi_engine::evaluation::integration::{
-    IntegratedEvaluationConfig, IntegratedEvaluator,
-};
+use shogi_engine::evaluation::integration::{IntegratedEvaluationConfig, IntegratedEvaluator};
 use shogi_engine::types::{CapturedPieces, Player};
 
 #[test]

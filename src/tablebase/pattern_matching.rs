@@ -122,9 +122,7 @@ impl PatternMatcher {
             let attacking_pieces = self.find_attacking_pieces_fast(board, player);
             match attacking_pieces.len() {
                 2 => {
-                    if attacking_pieces
-                        .iter()
-                        .any(|(_, piece_type)| *piece_type == PieceType::Gold)
+                    if attacking_pieces.iter().any(|(_, piece_type)| *piece_type == PieceType::Gold)
                     {
                         return EndgamePattern::KingGoldVsKing;
                     }
@@ -134,9 +132,7 @@ impl PatternMatcher {
                     {
                         return EndgamePattern::KingSilverVsKing;
                     }
-                    if attacking_pieces
-                        .iter()
-                        .any(|(_, piece_type)| *piece_type == PieceType::Rook)
+                    if attacking_pieces.iter().any(|(_, piece_type)| *piece_type == PieceType::Rook)
                     {
                         return EndgamePattern::KingRookVsKing;
                     }
@@ -214,26 +210,21 @@ impl PatternMatcher {
         piece_type: PieceType,
     ) -> bool {
         match piece_type {
-            PieceType::King => {
-                !(self.pattern_masks.king_attacks[attacker.to_u8() as usize] & Bitboard::from_u128(1u128 << target.to_u8()))
-                    .is_empty()
-            }
-            PieceType::Gold => {
-                !(self.pattern_masks.gold_attacks[attacker.to_u8() as usize] & Bitboard::from_u128(1u128 << target.to_u8()))
-                    .is_empty()
-            }
-            PieceType::Silver => {
-                !(self.pattern_masks.silver_attacks[attacker.to_u8() as usize] & Bitboard::from_u128(1u128 << target.to_u8()))
-                    .is_empty()
-            }
-            PieceType::Rook => {
-                !(self.pattern_masks.rook_attacks[attacker.to_u8() as usize] & Bitboard::from_u128(1u128 << target.to_u8()))
-                    .is_empty()
-            }
-            PieceType::Bishop => {
-                !(self.pattern_masks.bishop_attacks[attacker.to_u8() as usize] & Bitboard::from_u128(1u128 << target.to_u8()))
-                    .is_empty()
-            }
+            PieceType::King => !(self.pattern_masks.king_attacks[attacker.to_u8() as usize]
+                & Bitboard::from_u128(1u128 << target.to_u8()))
+            .is_empty(),
+            PieceType::Gold => !(self.pattern_masks.gold_attacks[attacker.to_u8() as usize]
+                & Bitboard::from_u128(1u128 << target.to_u8()))
+            .is_empty(),
+            PieceType::Silver => !(self.pattern_masks.silver_attacks[attacker.to_u8() as usize]
+                & Bitboard::from_u128(1u128 << target.to_u8()))
+            .is_empty(),
+            PieceType::Rook => !(self.pattern_masks.rook_attacks[attacker.to_u8() as usize]
+                & Bitboard::from_u128(1u128 << target.to_u8()))
+            .is_empty(),
+            PieceType::Bishop => !(self.pattern_masks.bishop_attacks[attacker.to_u8() as usize]
+                & Bitboard::from_u128(1u128 << target.to_u8()))
+            .is_empty(),
             _ => false, // Other pieces not implemented yet
         }
     }
@@ -247,11 +238,7 @@ impl PatternMatcher {
     ) -> bool {
         let opponent = player.opposite();
         let (black_king, white_king) = self.find_kings_fast(board);
-        let attacking_king = if player == Player::Black {
-            black_king
-        } else {
-            white_king
-        };
+        let attacking_king = if player == Player::Black { black_king } else { white_king };
 
         if let Some(king_pos) = attacking_king {
             // Check if king is close enough to support mate

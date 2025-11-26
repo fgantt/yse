@@ -14,10 +14,7 @@ fn create_passed_pawn_position() -> (BitboardBoard, CapturedPieces) {
     let captured_pieces = CapturedPieces::new();
 
     // Black king
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(8, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
 
     // Black passed pawn (advanced, no enemy pawns blocking)
     board.place_piece(
@@ -26,10 +23,7 @@ fn create_passed_pawn_position() -> (BitboardBoard, CapturedPieces) {
     );
 
     // White king
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
 
     // Add minimal material to keep phase in endgame range (< 64)
     // Only kings and one pawn = low phase
@@ -43,52 +37,22 @@ fn create_middlegame_position() -> (BitboardBoard, CapturedPieces) {
     let captured_pieces = CapturedPieces::new();
 
     // Black pieces
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(8, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(7, 7),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Bishop, Player::Black),
-        Position::new(7, 1),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::Black),
-        Position::new(8, 5),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::Black),
-        Position::new(8, 3),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(7, 7));
+    board.place_piece(Piece::new(PieceType::Bishop, Player::Black), Position::new(7, 1));
+    board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(8, 5));
+    board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(8, 3));
     board.place_piece(
         Piece::new(PieceType::Pawn, Player::Black),
         Position::new(5, 4), // Passed pawn
     );
 
     // White pieces
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::White),
-        Position::new(1, 1),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Bishop, Player::White),
-        Position::new(1, 7),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::White),
-        Position::new(0, 3),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::White),
-        Position::new(0, 5),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
+    board.place_piece(Piece::new(PieceType::Rook, Player::White), Position::new(1, 1));
+    board.place_piece(Piece::new(PieceType::Bishop, Player::White), Position::new(1, 7));
+    board.place_piece(Piece::new(PieceType::Gold, Player::White), Position::new(0, 3));
+    board.place_piece(Piece::new(PieceType::Silver, Player::White), Position::new(0, 5));
 
     (board, captured_pieces)
 }

@@ -352,15 +352,9 @@ mod cache_tests {
     fn test_position_cache_separates_positions() {
         let mut cache = PositionCache::new();
         let mut board1 = BitboardBoard::empty();
-        board1.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(4, 4),
-        );
+        board1.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(4, 4));
         let mut board2 = board1.clone();
-        board2.place_piece(
-            Piece::new(PieceType::King, Player::White),
-            Position::new(0, 0),
-        );
+        board2.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 0));
 
         let captured = CapturedPieces::new();
         let player = Player::Black;
@@ -383,22 +377,11 @@ mod cache_tests {
     fn test_position_cache_considers_player_to_move() {
         let mut cache = PositionCache::new();
         let mut board = BitboardBoard::empty();
-        board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(4, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::King, Player::White),
-            Position::new(0, 0),
-        );
+        board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(4, 4));
+        board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 0));
         let captured = CapturedPieces::new();
 
-        cache.put(
-            &board,
-            Player::Black,
-            &captured,
-            TablebaseResult::win(None, 1),
-        );
+        cache.put(&board, Player::Black, &captured, TablebaseResult::win(None, 1));
         cache.put(&board, Player::White, &captured, TablebaseResult::loss(2));
 
         let black_result = cache.get(&board, Player::Black, &captured).unwrap();
@@ -412,14 +395,8 @@ mod cache_tests {
     fn test_position_cache_consistency_with_repeated_puts() {
         let mut cache = PositionCache::new();
         let mut board = BitboardBoard::empty();
-        board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(4, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::King, Player::White),
-            Position::new(0, 0),
-        );
+        board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(4, 4));
+        board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 0));
         let captured = CapturedPieces::new();
         let player = Player::Black;
 
@@ -788,11 +765,7 @@ mod endgame_comprehensive_tests {
 
     impl PositionFixture {
         fn new(name: &'static str, player: Player, board: BitboardBoard) -> Self {
-            Self {
-                name,
-                player,
-                board,
-            }
+            Self { name, player, board }
         }
 
         fn components(&self) -> (BitboardBoard, CapturedPieces, Player) {
@@ -936,17 +909,13 @@ mod endgame_comprehensive_tests {
     fn solver_result(kind: SolverKind, fixture: &PositionFixture) -> TablebaseResult {
         let solver = kind.instantiate();
         let (board, captured, player) = fixture.components();
-        solver
-            .solve(&board, player, &captured)
-            .expect("solver result")
+        solver.solve(&board, player, &captured).expect("solver result")
     }
 
     fn tablebase_result(fixture: &PositionFixture) -> TablebaseResult {
         let mut tablebase = MicroTablebase::new();
         let (board, captured, player) = fixture.components();
-        tablebase
-            .probe(&board, player, &captured)
-            .expect("tablebase result")
+        tablebase.probe(&board, player, &captured).expect("tablebase result")
     }
 
     #[test]
@@ -1016,11 +985,7 @@ mod endgame_comprehensive_tests {
             .search_at_depth_legacy(&mut board, &captured, spec.fixture.player, 2, 200)
             .expect("search result")
             .0;
-        assert_eq!(
-            tablebase_move,
-            Some(search_move),
-            "Search engine should adopt tablebase move"
-        );
+        assert_eq!(tablebase_move, Some(search_move), "Search engine should adopt tablebase move");
     }
 
     #[test]
@@ -1069,9 +1034,7 @@ mod endgame_comprehensive_tests {
         let spec = fixtures::gold_mate_in_one();
         let (board, captured, player) = spec.fixture.components();
         assert!(
-            disabled_tablebase
-                .probe(&board, player, &captured)
-                .is_none(),
+            disabled_tablebase.probe(&board, player, &captured).is_none(),
             "Disabled tablebase should not return results"
         );
     }
@@ -1123,10 +1086,7 @@ mod endgame_comprehensive_tests {
 
     #[test]
     fn test_fixture_dataset_is_non_empty() {
-        assert!(
-            !fixtures::all_expected_wins().is_empty(),
-            "Fixture dataset should not be empty"
-        );
+        assert!(!fixtures::all_expected_wins().is_empty(), "Fixture dataset should not be empty");
     }
 
     #[test]

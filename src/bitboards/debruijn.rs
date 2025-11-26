@@ -181,7 +181,8 @@ pub fn get_all_bit_positions_debruijn(bb: Bitboard) -> Vec<u8> {
     while !remaining.is_empty() {
         if let Some(pos) = bit_scan_forward_debruijn(remaining) {
             positions.push(pos);
-            remaining = Bitboard::from_u128(remaining.to_u128() & (remaining.to_u128() - 1)); // Clear the least significant bit
+            remaining = Bitboard::from_u128(remaining.to_u128() & (remaining.to_u128() - 1));
+        // Clear the least significant bit
         } else {
             break;
         }
@@ -329,10 +330,7 @@ mod tests {
     #[test]
     fn test_debruijn_sequence_validation() {
         // Validate that our De Bruijn sequence is correctly configured
-        assert!(
-            validate_debruijn_sequence(),
-            "De Bruijn sequence validation failed"
-        );
+        assert!(validate_debruijn_sequence(), "De Bruijn sequence validation failed");
     }
 
     #[test]
@@ -354,7 +352,8 @@ mod tests {
 
         // Test multiple bits (should return LSB)
         assert_eq!(bit_scan_forward_debruijn(Bitboard::from_u128(0b1010)), Some(1)); // Bits at positions 1 and 3
-        assert_eq!(bit_scan_forward_debruijn(Bitboard::from_u128(0b1100)), Some(2)); // Bits at positions 2 and 3
+        assert_eq!(bit_scan_forward_debruijn(Bitboard::from_u128(0b1100)), Some(2));
+        // Bits at positions 2 and 3
     }
 
     #[test]
@@ -376,7 +375,8 @@ mod tests {
 
         // Test multiple bits (should return MSB)
         assert_eq!(bit_scan_reverse_debruijn(Bitboard::from_u128(0b1010)), Some(3)); // Bits at positions 1 and 3
-        assert_eq!(bit_scan_reverse_debruijn(Bitboard::from_u128(0b1100)), Some(3)); // Bits at positions 2 and 3
+        assert_eq!(bit_scan_reverse_debruijn(Bitboard::from_u128(0b1100)), Some(3));
+        // Bits at positions 2 and 3
     }
 
     #[test]
@@ -386,7 +386,10 @@ mod tests {
 
         // Test single bit
         assert_eq!(get_all_bit_positions_debruijn(Bitboard::from_u128(1)), vec![0]);
-        assert_eq!(get_all_bit_positions_debruijn(Bitboard::from_u128(0x8000000000000000)), vec![63]);
+        assert_eq!(
+            get_all_bit_positions_debruijn(Bitboard::from_u128(0x8000000000000000)),
+            vec![63]
+        );
 
         // Test multiple bits
         assert_eq!(get_all_bit_positions_debruijn(Bitboard::from_u128(0b1010)), vec![1, 3]); // Bits at positions 1 and 3
@@ -453,11 +456,7 @@ mod tests {
         // Table should contain all positions 0-63 exactly once
         let mut positions = [false; 64];
         for &entry in table {
-            assert!(
-                !positions[entry as usize],
-                "Duplicate entry in table: {}",
-                entry
-            );
+            assert!(!positions[entry as usize], "Duplicate entry in table: {}", entry);
             positions[entry as usize] = true;
         }
 
@@ -475,11 +474,7 @@ mod tests {
         let total_size = table_size + sequence_size;
 
         // Total memory usage should stay within our 72-byte budget
-        assert!(
-            total_size <= 72,
-            "Memory usage too high: {} bytes",
-            total_size
-        );
+        assert!(total_size <= 72, "Memory usage too high: {} bytes", total_size);
 
         // Table should be exactly 64 bytes (64 entries × 1 byte each)
         assert_eq!(table_size, 64);
@@ -494,16 +489,8 @@ mod tests {
         let (forward_time, reverse_time, positions_time) = benchmark_debruijn_performance(1000);
 
         // Times should be reasonable (less than 1 second for 1000 iterations)
-        assert!(
-            forward_time < 1_000_000_000,
-            "Forward scan too slow: {}ns",
-            forward_time
-        );
-        assert!(
-            reverse_time < 1_000_000_000,
-            "Reverse scan too slow: {}ns",
-            reverse_time
-        );
+        assert!(forward_time < 1_000_000_000, "Forward scan too slow: {}ns", forward_time);
+        assert!(reverse_time < 1_000_000_000, "Reverse scan too slow: {}ns", reverse_time);
         assert!(
             positions_time < 1_000_000_000,
             "Position enumeration too slow: {}ns",
@@ -512,16 +499,8 @@ mod tests {
 
         // Print performance info
         println!("De Bruijn Performance (1000 iterations):");
-        println!(
-            "  Forward scan: {}ns total, {}ns per call",
-            forward_time,
-            forward_time / 1000
-        );
-        println!(
-            "  Reverse scan: {}ns total, {}ns per call",
-            reverse_time,
-            reverse_time / 1000
-        );
+        println!("  Forward scan: {}ns total, {}ns per call", forward_time, forward_time / 1000);
+        println!("  Reverse scan: {}ns total, {}ns per call", reverse_time, reverse_time / 1000);
         println!(
             "  Position enumeration: {}ns total, {}ns per call",
             positions_time,
@@ -581,20 +560,12 @@ mod tests {
             // Test forward scanning consistency
             let forward1 = bit_scan_forward_debruijn(bb);
             let forward2 = bit_scan_forward_debruijn(bb);
-            assert_eq!(
-                forward1, forward2,
-                "Forward scan inconsistent for 0x{:X}",
-                bb_u128
-            );
+            assert_eq!(forward1, forward2, "Forward scan inconsistent for 0x{:X}", bb_u128);
 
             // Test reverse scanning consistency
             let reverse1 = bit_scan_reverse_debruijn(bb);
             let reverse2 = bit_scan_reverse_debruijn(bb);
-            assert_eq!(
-                reverse1, reverse2,
-                "Reverse scan inconsistent for 0x{:X}",
-                bb_u128
-            );
+            assert_eq!(reverse1, reverse2, "Reverse scan inconsistent for 0x{:X}", bb_u128);
 
             // Test optimized implementation consistency
             let optimized_forward1 = bit_scan_optimized_debruijn(bb, true);

@@ -89,11 +89,7 @@ impl PerformanceMetrics {
     pub fn phase_breakdown(&self) -> String {
         let mut phases = Vec::new();
         for (phase, duration) in &self.phase_times {
-            phases.push(format!(
-                "{}: {:.2}ms",
-                phase,
-                duration.as_secs_f64() * 1000.0
-            ));
+            phases.push(format!("{}: {:.2}ms", phase, duration.as_secs_f64() * 1000.0));
         }
         phases.join(", ")
     }
@@ -164,8 +160,7 @@ impl TablebaseProfiler {
         self.end_operation();
 
         if !self.metrics.contains_key(&operation_name) {
-            self.metrics
-                .insert(operation_name.clone(), PerformanceMetrics::new());
+            self.metrics.insert(operation_name.clone(), PerformanceMetrics::new());
         }
 
         self.current_operation = Some(operation_name);
@@ -300,11 +295,8 @@ impl TablebaseProfiler {
         }
 
         // Remove metrics with the lowest call counts
-        let mut operations: Vec<_> = self
-            .metrics
-            .iter()
-            .map(|(k, v)| (k.clone(), v.call_count))
-            .collect();
+        let mut operations: Vec<_> =
+            self.metrics.iter().map(|(k, v)| (k.clone(), v.call_count)).collect();
         operations.sort_by(|a, b| a.1.cmp(&b.1));
 
         let to_remove = operations.len() - self.max_metrics + 1;
@@ -326,12 +318,7 @@ impl TablebaseProfiler {
     pub fn get_memory_usage(&self) -> usize {
         // Estimate memory usage
         self.metrics.len() * std::mem::size_of::<PerformanceMetrics>()
-            + self
-                .metrics
-                .values()
-                .map(|m| m.phase_times.len())
-                .sum::<usize>()
-                * 64
+            + self.metrics.values().map(|m| m.phase_times.len()).sum::<usize>() * 64
     }
 }
 
@@ -352,10 +339,7 @@ impl<'a> OperationProfiler<'a> {
     /// Create a new operation profiler
     pub fn new(profiler: &'a mut TablebaseProfiler, operation_name: String) -> Self {
         profiler.start_operation(operation_name.clone());
-        Self {
-            profiler,
-            operation_name,
-        }
+        Self { profiler, operation_name }
     }
 
     /// Start timing a phase

@@ -111,14 +111,8 @@ fn test_canonical_vs_partial_quality_ordering() {
     let fixtures = castle_fixtures();
 
     // Find canonical and partial Mino castles
-    let canonical = fixtures
-        .iter()
-        .find(|f| f.name == "mino_canonical_black")
-        .unwrap();
-    let partial = fixtures
-        .iter()
-        .find(|f| f.name == "mino_partial_missing_silver")
-        .unwrap();
+    let canonical = fixtures.iter().find(|f| f.name == "mino_canonical_black").unwrap();
+    let partial = fixtures.iter().find(|f| f.name == "mino_partial_missing_silver").unwrap();
 
     let (canonical_board, canonical_king) = (canonical.builder)(canonical.player);
     let (partial_board, partial_king) = (partial.builder)(partial.player);
@@ -142,14 +136,8 @@ fn test_broken_castle_penalties() {
     let fixtures = castle_fixtures();
 
     // Find broken and canonical castles
-    let broken = fixtures
-        .iter()
-        .find(|f| f.name == "mino_broken_breached_wall")
-        .unwrap();
-    let canonical = fixtures
-        .iter()
-        .find(|f| f.name == "mino_canonical_black")
-        .unwrap();
+    let broken = fixtures.iter().find(|f| f.name == "mino_broken_breached_wall").unwrap();
+    let canonical = fixtures.iter().find(|f| f.name == "mino_canonical_black").unwrap();
 
     let (broken_board, _) = (broken.builder)(broken.player);
     let (canonical_board, _) = (canonical.builder)(canonical.player);
@@ -191,14 +179,8 @@ fn test_mirrored_castle_symmetry() {
     let fixtures = castle_fixtures();
 
     // Find left and right mirrored Mino castles
-    let left = fixtures
-        .iter()
-        .find(|f| f.name == "mino_mirrored_left_black")
-        .unwrap();
-    let right = fixtures
-        .iter()
-        .find(|f| f.name == "mino_mirrored_right_black")
-        .unwrap();
+    let left = fixtures.iter().find(|f| f.name == "mino_mirrored_left_black").unwrap();
+    let right = fixtures.iter().find(|f| f.name == "mino_mirrored_right_black").unwrap();
 
     let (left_board, left_king) = (left.builder)(left.player);
     let (right_board, right_king) = (right.builder)(right.player);
@@ -241,10 +223,7 @@ fn test_castle_cache_effectiveness() {
     let fixtures = castle_fixtures();
 
     // Evaluate same position multiple times
-    let fixture = fixtures
-        .iter()
-        .find(|f| f.name == "mino_canonical_black")
-        .unwrap();
+    let fixture = fixtures.iter().find(|f| f.name == "mino_canonical_black").unwrap();
     let (board, king_pos) = (fixture.builder)(fixture.player);
 
     // First evaluation - cache miss

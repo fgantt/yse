@@ -229,10 +229,7 @@ pub struct PieceSquareTableConfig {
 
 impl Default for PieceSquareTableConfig {
     fn default() -> Self {
-        Self {
-            preset: PieceSquareTablePreset::Builtin,
-            values_path: None,
-        }
+        Self { preset: PieceSquareTablePreset::Builtin, values_path: None }
     }
 }
 
@@ -287,10 +284,7 @@ mod tests {
     #[test]
     fn parse_piece_names() {
         assert_eq!(parse_piece_type("pawn"), Some(PieceType::Pawn));
-        assert_eq!(
-            parse_piece_type("Promoted_Rook"),
-            Some(PieceType::PromotedRook)
-        );
+        assert_eq!(parse_piece_type("Promoted_Rook"), Some(PieceType::PromotedRook));
         assert_eq!(parse_piece_type("unknown"), None);
     }
 
@@ -352,11 +346,7 @@ mod tests {
     #[test]
     fn missing_piece_errors() {
         let mut doc = sample_document();
-        doc.get_mut("tables")
-            .unwrap()
-            .as_object_mut()
-            .unwrap()
-            .remove("lance");
+        doc.get_mut("tables").unwrap().as_object_mut().unwrap().remove("lance");
 
         let mut cursor = Cursor::new(doc.to_string().into_bytes());
         let err = PieceSquareTableLoader::from_reader(&mut cursor).unwrap_err();
@@ -403,36 +393,12 @@ mod tests {
         insert("bishop", &raw.bishop_table_mg, &raw.bishop_table_eg);
         insert("rook", &raw.rook_table_mg, &raw.rook_table_eg);
         insert("king", &zero(), &zero());
-        insert(
-            "promoted_pawn",
-            &raw.promoted_pawn_table_mg,
-            &raw.promoted_pawn_table_eg,
-        );
-        insert(
-            "promoted_lance",
-            &raw.promoted_lance_table_mg,
-            &raw.promoted_lance_table_eg,
-        );
-        insert(
-            "promoted_knight",
-            &raw.promoted_knight_table_mg,
-            &raw.promoted_knight_table_eg,
-        );
-        insert(
-            "promoted_silver",
-            &raw.promoted_silver_table_mg,
-            &raw.promoted_silver_table_eg,
-        );
-        insert(
-            "promoted_bishop",
-            &raw.promoted_bishop_table_mg,
-            &raw.promoted_bishop_table_eg,
-        );
-        insert(
-            "promoted_rook",
-            &raw.promoted_rook_table_mg,
-            &raw.promoted_rook_table_eg,
-        );
+        insert("promoted_pawn", &raw.promoted_pawn_table_mg, &raw.promoted_pawn_table_eg);
+        insert("promoted_lance", &raw.promoted_lance_table_mg, &raw.promoted_lance_table_eg);
+        insert("promoted_knight", &raw.promoted_knight_table_mg, &raw.promoted_knight_table_eg);
+        insert("promoted_silver", &raw.promoted_silver_table_mg, &raw.promoted_silver_table_eg);
+        insert("promoted_bishop", &raw.promoted_bishop_table_mg, &raw.promoted_bishop_table_eg);
+        insert("promoted_rook", &raw.promoted_rook_table_mg, &raw.promoted_rook_table_eg);
 
         let document = json!({
             "version": "1.0.0",

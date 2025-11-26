@@ -65,10 +65,7 @@ fn test_cumulative_weight_validation_accepts_valid_range() {
 
     // This should pass validation (sum = 10.0, within 5.0-15.0 range)
     let result = config.validate_cumulative_weights();
-    assert!(
-        result.is_ok(),
-        "Validation should pass for weights summing to 10.0"
-    );
+    assert!(result.is_ok(), "Validation should pass for weights summing to 10.0");
 }
 
 #[test]
@@ -190,10 +187,7 @@ fn test_weight_balance_recommendations() {
     config.weights.positional_weight = 1.0;
 
     let suggestions = config.suggest_weight_adjustments();
-    assert!(
-        !suggestions.is_empty(),
-        "Should generate suggestions for imbalanced weights"
-    );
+    assert!(!suggestions.is_empty(), "Should generate suggestions for imbalanced weights");
 
     // Should suggest increasing positional weight or reducing tactical weight
     let suggestion_text = suggestions.join(" ");

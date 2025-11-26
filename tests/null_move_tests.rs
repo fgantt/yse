@@ -304,10 +304,7 @@ mod null_move_tests {
         assert!(duration_with_nmp.as_millis() > 0);
         assert!(duration_without_nmp.as_millis() > 0);
 
-        println!(
-            "NMP enabled: {:?}, NMP disabled: {:?}",
-            duration_with_nmp, duration_without_nmp
-        );
+        println!("NMP enabled: {:?}, NMP disabled: {:?}", duration_with_nmp, duration_without_nmp);
     }
 
     #[test]
@@ -386,10 +383,7 @@ mod null_move_tests {
         assert!(stats.disabled_endgame >= 0);
 
         // Total disabled should be sum of individual counters
-        assert_eq!(
-            stats.total_disabled(),
-            stats.disabled_in_check + stats.disabled_endgame
-        );
+        assert_eq!(stats.total_disabled(), stats.disabled_in_check + stats.disabled_endgame);
 
         println!(
             "Enhanced safety mechanisms: {} disabled in check, {} disabled in endgame",
@@ -448,10 +442,7 @@ mod null_move_tests {
         assert!(stats.attempts >= 0);
         assert!(stats.cutoffs >= 0);
 
-        println!(
-            "Tactical safety: {} attempts, {} cutoffs",
-            stats.attempts, stats.cutoffs
-        );
+        println!("Tactical safety: {} attempts, {} cutoffs", stats.attempts, stats.cutoffs);
     }
 
     #[test]
@@ -613,14 +604,8 @@ mod null_move_tests {
         // (this may not always be true depending on position, but structure is correct)
         assert!(stats_large.verification_attempts >= stats_small.verification_attempts);
 
-        println!(
-            "Small margin (10): {} verification attempts",
-            stats_small.verification_attempts
-        );
-        println!(
-            "Large margin (500): {} verification attempts",
-            stats_large.verification_attempts
-        );
+        println!("Small margin (10): {} verification attempts", stats_small.verification_attempts);
+        println!("Large margin (500): {} verification attempts", stats_large.verification_attempts);
     }
 
     #[test]
@@ -755,10 +740,7 @@ mod null_move_tests {
 
         // Test default formula (should be Linear)
         let config = engine.get_null_move_config();
-        assert_eq!(
-            config.dynamic_reduction_formula,
-            DynamicReductionFormula::Linear
-        );
+        assert_eq!(config.dynamic_reduction_formula, DynamicReductionFormula::Linear);
 
         // Test Static formula
         let mut config = config.clone();
@@ -766,10 +748,7 @@ mod null_move_tests {
         engine.update_null_move_config(config).unwrap();
 
         let updated_config = engine.get_null_move_config();
-        assert_eq!(
-            updated_config.dynamic_reduction_formula,
-            DynamicReductionFormula::Static
-        );
+        assert_eq!(updated_config.dynamic_reduction_formula, DynamicReductionFormula::Static);
 
         // Test Linear formula
         let mut config = engine.get_null_move_config().clone();
@@ -777,10 +756,7 @@ mod null_move_tests {
         engine.update_null_move_config(config).unwrap();
 
         let updated_config = engine.get_null_move_config();
-        assert_eq!(
-            updated_config.dynamic_reduction_formula,
-            DynamicReductionFormula::Linear
-        );
+        assert_eq!(updated_config.dynamic_reduction_formula, DynamicReductionFormula::Linear);
 
         // Test Smooth formula
         let mut config = engine.get_null_move_config().clone();
@@ -788,10 +764,7 @@ mod null_move_tests {
         engine.update_null_move_config(config).unwrap();
 
         let updated_config = engine.get_null_move_config();
-        assert_eq!(
-            updated_config.dynamic_reduction_formula,
-            DynamicReductionFormula::Smooth
-        );
+        assert_eq!(updated_config.dynamic_reduction_formula, DynamicReductionFormula::Smooth);
     }
 
     #[test]
@@ -925,11 +898,7 @@ mod null_move_tests {
                 depth,
                 1000,
             );
-            assert!(
-                result.is_some(),
-                "Linear formula should work at depth {}",
-                depth
-            );
+            assert!(result.is_some(), "Linear formula should work at depth {}", depth);
 
             let stats = engine.get_null_move_stats();
             // Verify search completed successfully
@@ -951,11 +920,7 @@ mod null_move_tests {
                 depth,
                 1000,
             );
-            assert!(
-                result.is_some(),
-                "Smooth formula should work at depth {}",
-                depth
-            );
+            assert!(result.is_some(), "Smooth formula should work at depth {}", depth);
 
             let stats = engine.get_null_move_stats();
             // Verify search completed successfully
@@ -1091,11 +1056,7 @@ mod null_move_tests {
                 depth,
                 1000,
             );
-            assert!(
-                result.is_some(),
-                "Search should complete at depth {}",
-                depth
-            );
+            assert!(result.is_some(), "Search should complete at depth {}", depth);
 
             let stats = engine.get_null_move_stats();
             // Verify search completed and stats are tracked
@@ -1302,11 +1263,7 @@ mod null_move_tests {
                 depth,
                 1000,
             );
-            assert!(
-                result.is_some(),
-                "Search should complete at depth {}",
-                depth
-            );
+            assert!(result.is_some(), "Search should complete at depth {}", depth);
 
             let stats = engine.get_null_move_stats();
             // Verify search completed and stats are tracked
@@ -1367,30 +1324,12 @@ mod null_move_tests {
         assert_eq!(balanced.to_string(), "Balanced");
 
         // Test from_str()
-        assert_eq!(
-            NullMovePreset::from_str("conservative"),
-            Some(NullMovePreset::Conservative)
-        );
-        assert_eq!(
-            NullMovePreset::from_str("CONSERVATIVE"),
-            Some(NullMovePreset::Conservative)
-        );
-        assert_eq!(
-            NullMovePreset::from_str("aggressive"),
-            Some(NullMovePreset::Aggressive)
-        );
-        assert_eq!(
-            NullMovePreset::from_str("AGGRESSIVE"),
-            Some(NullMovePreset::Aggressive)
-        );
-        assert_eq!(
-            NullMovePreset::from_str("balanced"),
-            Some(NullMovePreset::Balanced)
-        );
-        assert_eq!(
-            NullMovePreset::from_str("BALANCED"),
-            Some(NullMovePreset::Balanced)
-        );
+        assert_eq!(NullMovePreset::from_str("conservative"), Some(NullMovePreset::Conservative));
+        assert_eq!(NullMovePreset::from_str("CONSERVATIVE"), Some(NullMovePreset::Conservative));
+        assert_eq!(NullMovePreset::from_str("aggressive"), Some(NullMovePreset::Aggressive));
+        assert_eq!(NullMovePreset::from_str("AGGRESSIVE"), Some(NullMovePreset::Aggressive));
+        assert_eq!(NullMovePreset::from_str("balanced"), Some(NullMovePreset::Balanced));
+        assert_eq!(NullMovePreset::from_str("BALANCED"), Some(NullMovePreset::Balanced));
         assert_eq!(NullMovePreset::from_str("invalid"), None);
     }
 
@@ -1409,10 +1348,7 @@ mod null_move_tests {
         assert_eq!(config.material_endgame_threshold, 14);
         assert_eq!(config.king_activity_threshold, 10);
         assert_eq!(config.zugzwang_threshold, 8);
-        assert_eq!(
-            config.dynamic_reduction_formula,
-            DynamicReductionFormula::Linear
-        );
+        assert_eq!(config.dynamic_reduction_formula, DynamicReductionFormula::Linear);
         assert_eq!(config.preset, Some(NullMovePreset::Conservative));
 
         // Verify configuration is valid
@@ -1434,10 +1370,7 @@ mod null_move_tests {
         assert_eq!(config.material_endgame_threshold, 10);
         assert_eq!(config.king_activity_threshold, 6);
         assert_eq!(config.zugzwang_threshold, 4);
-        assert_eq!(
-            config.dynamic_reduction_formula,
-            DynamicReductionFormula::Smooth
-        );
+        assert_eq!(config.dynamic_reduction_formula, DynamicReductionFormula::Smooth);
         assert_eq!(config.preset, Some(NullMovePreset::Aggressive));
 
         // Verify configuration is valid
@@ -1459,10 +1392,7 @@ mod null_move_tests {
         assert_eq!(config.material_endgame_threshold, 12);
         assert_eq!(config.king_activity_threshold, 8);
         assert_eq!(config.zugzwang_threshold, 6);
-        assert_eq!(
-            config.dynamic_reduction_formula,
-            DynamicReductionFormula::Linear
-        );
+        assert_eq!(config.dynamic_reduction_formula, DynamicReductionFormula::Linear);
         assert_eq!(config.preset, Some(NullMovePreset::Balanced));
 
         // Verify configuration is valid
@@ -1470,15 +1400,9 @@ mod null_move_tests {
 
         // Balanced preset should match default
         let default_config = NullMoveConfig::default();
-        assert_eq!(
-            default_config.verification_margin,
-            config.verification_margin
-        );
+        assert_eq!(default_config.verification_margin, config.verification_margin);
         assert_eq!(default_config.reduction_factor, config.reduction_factor);
-        assert_eq!(
-            default_config.max_pieces_threshold,
-            config.max_pieces_threshold
-        );
+        assert_eq!(default_config.max_pieces_threshold, config.max_pieces_threshold);
         assert_eq!(default_config.preset, config.preset);
     }
 
@@ -1773,20 +1697,13 @@ mod null_move_tests {
 
         // Verify board state is identical to initial state
         let final_occupied = board.get_occupied_bitboard();
-        assert_eq!(
-            initial_occupied, final_occupied,
-            "Board occupied squares should be unchanged"
-        );
+        assert_eq!(initial_occupied, final_occupied, "Board occupied squares should be unchanged");
 
         // Verify piece positions are unchanged
         for square in 0..81 {
             let piece_before = initial_pieces[square as usize];
             let piece_after = board.get_piece(square.into());
-            assert_eq!(
-                piece_before, piece_after,
-                "Piece at square {} should be unchanged",
-                square
-            );
+            assert_eq!(piece_before, piece_after, "Piece at square {} should be unchanged", square);
         }
 
         // Verify board is still in the same state as the clone
@@ -1849,10 +1766,7 @@ mod null_move_tests {
         assert_eq!(dynamic_strategy.to_string(), "Dynamic");
         assert_eq!(depth_based_strategy.to_string(), "DepthBased");
         assert_eq!(material_based_strategy.to_string(), "MaterialBased");
-        assert_eq!(
-            position_type_based_strategy.to_string(),
-            "PositionTypeBased"
-        );
+        assert_eq!(position_type_based_strategy.to_string(), "PositionTypeBased");
 
         // Test from_str()
         assert_eq!(
@@ -2037,10 +1951,7 @@ mod null_move_tests {
     fn test_null_move_reduction_strategy_configuration() {
         // Test that reduction strategy is properly configured in default config
         let config = NullMoveConfig::default();
-        assert_eq!(
-            config.reduction_strategy,
-            NullMoveReductionStrategy::Dynamic
-        );
+        assert_eq!(config.reduction_strategy, NullMoveReductionStrategy::Dynamic);
         assert_eq!(config.depth_scaling_factor, 1);
         assert_eq!(config.min_depth_for_scaling, 4);
         assert_eq!(config.material_adjustment_factor, 1);

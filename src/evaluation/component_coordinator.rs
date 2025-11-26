@@ -48,8 +48,7 @@ impl ComponentCoordination {
         let opening_threshold = phase_boundaries.opening_threshold;
 
         // Passed pawn coordination: Skip in position_features when endgame_patterns handles it
-        let skip_passed_pawn_evaluation =
-            components.endgame_patterns && phase < endgame_threshold;
+        let skip_passed_pawn_evaluation = components.endgame_patterns && phase < endgame_threshold;
 
         // Development coordination: Skip in position_features when opening_principles handles it
         let skip_development_in_features =
@@ -68,7 +67,8 @@ impl ComponentCoordination {
             };
 
         // Phase-aware gating for opening principles
-        let evaluate_opening_principles = components.opening_principles && phase >= opening_threshold;
+        let evaluate_opening_principles =
+            components.opening_principles && phase >= opening_threshold;
 
         // Phase-aware gating for endgame patterns
         let evaluate_endgame_patterns = components.endgame_patterns && phase < endgame_threshold;
@@ -112,7 +112,9 @@ impl ComponentCoordination {
             ComponentType::PositionFeaturesPassedPawns => !self.skip_passed_pawn_evaluation,
             ComponentType::PositionFeaturesDevelopment => !self.skip_development_in_features,
             ComponentType::PositionFeaturesCenterControl => !self.skip_center_control_in_features,
-            ComponentType::PositionalPatternsCenterControl => !self.skip_center_control_in_positional,
+            ComponentType::PositionalPatternsCenterControl => {
+                !self.skip_center_control_in_positional
+            }
             ComponentType::OpeningPrinciples => self.evaluate_opening_principles,
             ComponentType::EndgamePatterns => self.evaluate_endgame_patterns,
             _ => true, // Other components are not affected by coordination
@@ -231,10 +233,7 @@ pub struct ComponentContributionTracker {
 impl ComponentContributionTracker {
     /// Create a new contribution tracker
     pub fn new() -> Self {
-        Self {
-            contributions: HashMap::new(),
-            total_absolute: 0,
-        }
+        Self { contributions: HashMap::new(), total_absolute: 0 }
     }
 
     /// Record a component contribution
@@ -311,9 +310,7 @@ impl ConflictResolver {
         phase: i32,
         opening_threshold: i32,
     ) -> bool {
-        components.position_features
-            && components.opening_principles
-            && phase >= opening_threshold
+        components.position_features && components.opening_principles && phase >= opening_threshold
     }
 
     /// Check if there's a passed pawn conflict
@@ -322,9 +319,7 @@ impl ConflictResolver {
         phase: i32,
         endgame_threshold: i32,
     ) -> bool {
-        components.position_features
-            && components.endgame_patterns
-            && phase < endgame_threshold
+        components.position_features && components.endgame_patterns && phase < endgame_threshold
     }
 }
 
@@ -422,4 +417,3 @@ mod tests {
         assert_eq!(order[1], ComponentType::PieceSquareTables);
     }
 }
-

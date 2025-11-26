@@ -16,11 +16,7 @@ fn parse_fen_to_board_captured_player(
         return None;
     }
     let fen3 = format!("{} {} {}", parts[0], parts[1], parts[2]);
-    let player = if parts[1] == "b" {
-        Player::Black
-    } else {
-        Player::White
-    };
+    let player = if parts[1] == "b" { Player::Black } else { Player::White };
     let (board, _p, captured) = BitboardBoard::from_fen(&fen3).ok()?;
     Some((board, captured, player))
 }
@@ -70,11 +66,9 @@ fn param_tablebase_positions_gated() {
 
         if let Some(result) = tb.probe(&board, player, &captured) {
             match expected.as_str() {
-                "win" => assert!(
-                    result.outcome == TablebaseOutcome::Win,
-                    "row {} expected win",
-                    idx + 1
-                ),
+                "win" => {
+                    assert!(result.outcome == TablebaseOutcome::Win, "row {} expected win", idx + 1)
+                }
                 "loss" => assert!(
                     result.outcome == TablebaseOutcome::Loss,
                     "row {} expected loss",

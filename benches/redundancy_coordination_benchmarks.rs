@@ -14,10 +14,7 @@ fn create_passed_pawn_position() -> (BitboardBoard, CapturedPieces) {
     let captured_pieces = CapturedPieces::new();
 
     // Black king
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(8, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
 
     // Black passed pawn (advanced, no enemy pawns blocking)
     board.place_piece(
@@ -26,10 +23,7 @@ fn create_passed_pawn_position() -> (BitboardBoard, CapturedPieces) {
     );
 
     // White king
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
 
     (board, captured_pieces)
 }

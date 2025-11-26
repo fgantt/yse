@@ -69,11 +69,8 @@ fn positional_fixture_names_are_documented() {
         toml::from_str(include_str!("data/positional_pattern_fixtures_index.toml"))
             .expect("fixture index document should parse");
 
-    let documented: std::collections::HashSet<_> = parsed
-        .fixtures
-        .into_iter()
-        .map(|entry| entry.name)
-        .collect();
+    let documented: std::collections::HashSet<_> =
+        parsed.fixtures.into_iter().map(|entry| entry.name).collect();
 
     for fixture in positional_fixtures() {
         assert!(

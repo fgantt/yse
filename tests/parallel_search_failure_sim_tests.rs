@@ -14,10 +14,7 @@ fn case_thread_creation_handling_smoke() {
     std::env::remove_var("SHOGI_FORCE_WORKER_PANIC");
     let config = ParallelSearchConfig::new(2);
     let res = ParallelSearchEngine::new(config);
-    assert!(
-        res.is_ok(),
-        "Expected pool creation to succeed in normal conditions"
-    );
+    assert!(res.is_ok(), "Expected pool creation to succeed in normal conditions");
 }
 
 fn case_fallback_to_single_threaded() {
@@ -37,10 +34,7 @@ fn case_fallback_to_single_threaded() {
     let captured = CapturedPieces::new();
     let player = Player::Black;
     let res = id.search(&mut engine_core, &board, &captured, player);
-    assert!(
-        res.is_some(),
-        "Search should still return using single-threaded fallback"
-    );
+    assert!(res.is_some(), "Search should still return using single-threaded fallback");
     std::env::remove_var("SHOGI_FORCE_POOL_FAIL");
 }
 
@@ -107,11 +101,7 @@ fn case_no_threads_continue_after_stop() {
     let t0 = std::time::Instant::now();
     let _ = handle.join();
     let elapsed = t0.elapsed();
-    assert!(
-        elapsed.as_millis() < 1000,
-        "Search did not stop promptly: {:?}",
-        elapsed
-    );
+    assert!(elapsed.as_millis() < 1000, "Search did not stop promptly: {:?}", elapsed);
 }
 
 #[test]

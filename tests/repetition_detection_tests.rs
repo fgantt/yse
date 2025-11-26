@@ -32,24 +32,15 @@ fn test_hash_based_repetition_detection_basic() {
 
     // Add same position again (second occurrence)
     hash_handler.add_position_to_history(hash1);
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash1),
-        RepetitionState::TwoFold
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash1), RepetitionState::TwoFold);
 
     // Add same position third time
     hash_handler.add_position_to_history(hash1);
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash1),
-        RepetitionState::ThreeFold
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash1), RepetitionState::ThreeFold);
 
     // Add same position fourth time (four-fold = draw)
     hash_handler.add_position_to_history(hash1);
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash1),
-        RepetitionState::FourFold
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash1), RepetitionState::FourFold);
     assert!(hash_handler.is_repetition(hash1));
 }
 
@@ -78,10 +69,7 @@ fn test_repetition_detection_with_moves() {
 
     // Get new position hash
     let hash_after_move = hash_handler.get_position_hash(&board, player, &captured);
-    assert_ne!(
-        initial_hash, hash_after_move,
-        "Hash should change after move"
-    );
+    assert_ne!(initial_hash, hash_after_move, "Hash should change after move");
 
     hash_handler.add_position_to_history(hash_after_move);
 
@@ -94,10 +82,7 @@ fn test_repetition_detection_with_moves() {
 
     // Should be back to initial position
     let hash_after_unmake = hash_handler.get_position_hash(&board, player, &captured);
-    assert_eq!(
-        initial_hash, hash_after_unmake,
-        "Hash should match initial after unmake"
-    );
+    assert_eq!(initial_hash, hash_after_unmake, "Hash should match initial after unmake");
 
     // Adding it again should detect two-fold
     hash_handler.add_position_to_history(hash_after_unmake);
@@ -121,14 +106,8 @@ fn test_four_fold_repetition_draw() {
         hash_handler.add_position_to_history(hash);
     }
 
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash),
-        RepetitionState::FourFold
-    );
-    assert!(
-        hash_handler.is_repetition(hash),
-        "Four-fold repetition should be detected as draw"
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash), RepetitionState::FourFold);
+    assert!(hash_handler.is_repetition(hash), "Four-fold repetition should be detected as draw");
 }
 
 #[test]
@@ -145,20 +124,14 @@ fn test_repetition_history_cleanup() {
     hash_handler.add_position_to_history(hash3);
 
     // Verify hash1 is still tracked (count = 1, so None)
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash1),
-        RepetitionState::None
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash1), RepetitionState::None);
 
     // Add hash1 again to make it two-fold
     hash_handler.add_position_to_history(hash1);
     // Now hash1 appears twice: history = [hash1, hash2, hash3, hash1]
     // After cleanup (len > 3): remove oldest hash1 -> [hash2, hash3, hash1]
     // hash1 now has count = 1 (only one occurrence remains after cleanup)
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash1),
-        RepetitionState::None
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash1), RepetitionState::None);
 
     // Add another position - this triggers cleanup again
     hash_handler.add_position_to_history(hash4);
@@ -169,16 +142,10 @@ fn test_repetition_history_cleanup() {
     assert_eq!(state_hash1, RepetitionState::None);
 
     // hash2 should no longer be tracked (removed by cleanup)
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash2),
-        RepetitionState::None
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash2), RepetitionState::None);
 
     // hash3 should still be tracked (count = 1)
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash3),
-        RepetitionState::None
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash3), RepetitionState::None);
 }
 
 #[test]
@@ -247,10 +214,7 @@ fn test_hash_uniqueness_for_different_positions() {
         let hash2 = hash_handler.get_position_hash(&board2, player.opposite(), &new_captured);
 
         // Hashes should be different
-        assert_ne!(
-            hash1, hash2,
-            "Different positions should have different hashes"
-        );
+        assert_ne!(hash1, hash2, "Different positions should have different hashes");
     }
 }
 
@@ -265,27 +229,15 @@ fn test_repetition_detection_clearing() {
     hash_handler.add_position_to_history(hash2);
 
     // Verify repetition states
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash1),
-        RepetitionState::TwoFold
-    );
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash2),
-        RepetitionState::None
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash1), RepetitionState::TwoFold);
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash2), RepetitionState::None);
 
     // Clear history
     hash_handler.clear_history();
 
     // All repetition states should be None
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash1),
-        RepetitionState::None
-    );
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash2),
-        RepetitionState::None
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash1), RepetitionState::None);
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash2), RepetitionState::None);
 }
 
 #[test]
@@ -294,37 +246,22 @@ fn test_repetition_state_progression() {
     let hash = 0x1234567890ABCDEF;
 
     // Initial: None (hash not in history)
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash),
-        RepetitionState::None
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash), RepetitionState::None);
 
     // After 1st occurrence: None (single occurrence, not repeated yet)
     hash_handler.add_position_to_history(hash);
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash),
-        RepetitionState::None
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash), RepetitionState::None);
 
     // After 2nd occurrence: TwoFold (first repetition)
     hash_handler.add_position_to_history(hash);
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash),
-        RepetitionState::TwoFold
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash), RepetitionState::TwoFold);
 
     // After 3rd occurrence: ThreeFold
     hash_handler.add_position_to_history(hash);
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash),
-        RepetitionState::ThreeFold
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash), RepetitionState::ThreeFold);
 
     // After 4th occurrence: FourFold (draw)
     hash_handler.add_position_to_history(hash);
-    assert_eq!(
-        hash_handler.get_repetition_state_for_hash(hash),
-        RepetitionState::FourFold
-    );
+    assert_eq!(hash_handler.get_repetition_state_for_hash(hash), RepetitionState::FourFold);
     assert!(hash_handler.is_repetition(hash));
 }

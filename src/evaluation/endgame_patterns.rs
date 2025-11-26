@@ -99,11 +99,8 @@ static KING_SQUARE_TABLE_EG: [i32; 81] = {
             0 // Back ranks
         };
 
-        let center_bonus = if center_distance > 4 {
-            (4 - 4) * 15
-        } else {
-            (4 - center_distance) * 15
-        };
+        let center_bonus =
+            if center_distance > 4 { (4 - 4) * 15 } else { (4 - center_distance) * 15 };
         table[idx] = rank_bonus + center_bonus;
         idx += 1;
     }
@@ -174,12 +171,8 @@ impl EndgamePatternEvaluator {
             PieceType::Bishop,
             PieceType::Rook,
         ] {
-            captured_pieces
-                .count(piece_type, Player::Black)
-                .hash(&mut hasher);
-            captured_pieces
-                .count(piece_type, Player::White)
-                .hash(&mut hasher);
+            captured_pieces.count(piece_type, Player::Black).hash(&mut hasher);
+            captured_pieces.count(piece_type, Player::White).hash(&mut hasher);
         }
 
         hasher.finish()
@@ -341,11 +334,8 @@ impl EndgamePatternEvaluator {
         }
 
         // 3. Advanced king bonus (crossing center)
-        let is_advanced = if player == Player::Black {
-            king_pos.row <= 4
-        } else {
-            king_pos.row >= 4
-        };
+        let is_advanced =
+            if player == Player::Black { king_pos.row <= 4 } else { king_pos.row >= 4 };
 
         if is_advanced {
             let mut advancement_bonus = (35.0 * self.config.king_activity_advancement_scale) as i32;
@@ -412,11 +402,7 @@ impl EndgamePatternEvaluator {
 
         for pawn in pawns {
             if self.is_passed_pawn(board, pawn, player) {
-                let advancement = if player == Player::Black {
-                    8 - pawn.row
-                } else {
-                    pawn.row
-                };
+                let advancement = if player == Player::Black { 8 - pawn.row } else { pawn.row };
 
                 // Quadratic growth - passed pawns exponentially valuable
                 let base_mg = (advancement * advancement) as i32 * 8;
@@ -552,12 +538,9 @@ impl EndgamePatternEvaluator {
         let mut eg_score = 0;
 
         // Check major pieces (rook, bishop, promoted pieces)
-        for piece_type in [
-            PieceType::Rook,
-            PieceType::Bishop,
-            PieceType::PromotedRook,
-            PieceType::PromotedBishop,
-        ] {
+        for piece_type in
+            [PieceType::Rook, PieceType::Bishop, PieceType::PromotedRook, PieceType::PromotedBishop]
+        {
             for piece_pos in self.find_pieces(board, player, piece_type) {
                 let distance = self.manhattan_distance(piece_pos, opp_king_pos);
                 if distance <= 3 {
@@ -818,11 +801,7 @@ impl EndgamePatternEvaluator {
             if distance <= 2 {
                 // Check if promoting would create mate threat
                 // Tokin (promoted pawn) attacks like gold
-                let promotion_rank = if player == Player::Black {
-                    0..=2
-                } else {
-                    6..=8
-                };
+                let promotion_rank = if player == Player::Black { 0..=2 } else { 6..=8 };
                 if promotion_rank.contains(&pawn_pos.row) {
                     // Can promote, check if tokin would attack king
                     if self.would_piece_attack_square(
@@ -995,12 +974,9 @@ impl EndgamePatternEvaluator {
         eg_score += bishops_on_diagonal * 40;
 
         // 3. Centralized major pieces
-        for piece_type in [
-            PieceType::Rook,
-            PieceType::Bishop,
-            PieceType::PromotedRook,
-            PieceType::PromotedBishop,
-        ] {
+        for piece_type in
+            [PieceType::Rook, PieceType::Bishop, PieceType::PromotedRook, PieceType::PromotedBishop]
+        {
             for piece_pos in self.find_pieces(board, player, piece_type) {
                 if self.is_centralized(piece_pos) {
                     mg_score += 15;
@@ -1142,9 +1118,7 @@ impl EndgamePatternEvaluator {
         captured_pieces: &CapturedPieces,
     ) -> (i32, i32) {
         // Generate all legal moves (already filtered for safety - no moves that leave king in check)
-        let legal_moves = self
-            .move_generator
-            .generate_legal_moves(board, player, captured_pieces);
+        let legal_moves = self.move_generator.generate_legal_moves(board, player, captured_pieces);
 
         // Separate regular moves from drop moves
         let mut regular_moves = 0;
@@ -1453,11 +1427,7 @@ impl EndgamePatternEvaluator {
                 let pos = Position::new(row, col);
                 if let Some(piece) = board.get_piece(pos) {
                     if piece.player == player && piece.piece_type == PieceType::Pawn {
-                        let advancement = if player == Player::Black {
-                            8 - row
-                        } else {
-                            row
-                        };
+                        let advancement = if player == Player::Black { 8 - row } else { row };
                         max_advancement = max_advancement.max(advancement);
                     }
                 }
@@ -1681,9 +1651,7 @@ impl EndgamePatternEvaluator {
         let pawn_bitboard = pieces[player_idx][PieceType::Pawn.to_u8() as usize];
 
         // Use bit iterator to get all pawn positions
-        bits(pawn_bitboard)
-            .map(|idx| Position::from_u8(idx))
-            .collect()
+        bits(pawn_bitboard).map(|idx| Position::from_u8(idx)).collect()
     }
 
     /// Check if pawn is passed
@@ -1723,9 +1691,7 @@ impl EndgamePatternEvaluator {
         let piece_bitboard = pieces[player_idx][piece_type.to_u8() as usize];
 
         // Use bit iterator to get all piece positions
-        bits(piece_bitboard)
-            .map(|idx| Position::from_u8(idx))
-            .collect()
+        bits(piece_bitboard).map(|idx| Position::from_u8(idx)).collect()
     }
 
     /// Get statistics
@@ -2019,19 +1985,13 @@ mod tests {
         let evaluator = EndgamePatternEvaluator::new();
         let mut captured_pieces = CapturedPieces::new();
 
-        assert_eq!(
-            evaluator.count_pieces_in_hand(&captured_pieces, Player::Black),
-            0
-        );
+        assert_eq!(evaluator.count_pieces_in_hand(&captured_pieces, Player::Black), 0);
 
         captured_pieces.add_piece(PieceType::Rook, Player::Black);
         captured_pieces.add_piece(PieceType::Bishop, Player::Black);
         captured_pieces.add_piece(PieceType::Gold, Player::Black);
 
-        assert_eq!(
-            evaluator.count_pieces_in_hand(&captured_pieces, Player::Black),
-            3
-        );
+        assert_eq!(evaluator.count_pieces_in_hand(&captured_pieces, Player::Black), 3);
     }
 
     #[test]
@@ -2224,10 +2184,7 @@ mod tests {
         // Starting position should have many legal moves
         let (regular, drops) = evaluator.count_safe_moves(&board, Player::Black, &captured_pieces);
         assert!(regular > 0, "Starting position should have regular moves");
-        assert_eq!(
-            drops, 0,
-            "Starting position should have no drop moves (no captured pieces)"
-        );
+        assert_eq!(drops, 0, "Starting position should have no drop moves (no captured pieces)");
     }
 
     #[test]

@@ -102,8 +102,6 @@ impl From<&OpeningPrincipleStats> for OpeningPrincipleBookStats {
 
 impl From<&AdvancedIntegrationStats> for MoveOrderingBookStats {
     fn from(stats: &AdvancedIntegrationStats) -> Self {
-        Self {
-            opening_book_integrations: stats.opening_book_integrations,
-        }
+        Self { opening_book_integrations: stats.opening_book_integrations }
     }
 }

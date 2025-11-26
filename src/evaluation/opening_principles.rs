@@ -33,8 +33,8 @@
 use crate::bitboards::BitboardBoard;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{Move, PieceType, Player, Position};
-use crate::types::Bitboard;
 use crate::types::evaluation::TaperedScore;
+use crate::types::Bitboard;
 use serde::{Deserialize, Serialize};
 
 /// Opening principle evaluator
@@ -48,18 +48,12 @@ pub struct OpeningPrincipleEvaluator {
 impl OpeningPrincipleEvaluator {
     /// Create a new opening principle evaluator
     pub fn new() -> Self {
-        Self {
-            config: OpeningPrincipleConfig::default(),
-            stats: OpeningPrincipleStats::default(),
-        }
+        Self { config: OpeningPrincipleConfig::default(), stats: OpeningPrincipleStats::default() }
     }
 
     /// Create with custom configuration
     pub fn with_config(config: OpeningPrincipleConfig) -> Self {
-        Self {
-            config,
-            stats: OpeningPrincipleStats::default(),
-        }
+        Self { config, stats: OpeningPrincipleStats::default() }
     }
 
     /// Evaluate opening principles
@@ -1043,13 +1037,8 @@ impl OpeningPrincipleEvaluator {
         // Note: After making the move, it's the opponent's turn, so we evaluate for the opponent
         // But we want to evaluate how good the position is for the player who made the move
         // So we evaluate for the original player (the one who made the move)
-        let score = self.evaluate_opening(
-            &temp_board,
-            player,
-            move_count + 1,
-            Some(&temp_captured),
-            None,
-        );
+        let score =
+            self.evaluate_opening(&temp_board, player, move_count + 1, Some(&temp_captured), None);
 
         // Convert TaperedScore to i32 (use interpolated score at opening phase)
         let quality_score = score.interpolate(256); // Phase 256 = opening phase

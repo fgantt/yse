@@ -47,10 +47,7 @@ pub struct KillerMoveManager {
 impl KillerMoveManager {
     /// Create a new killer move manager
     pub fn new() -> Self {
-        Self {
-            killer_moves: HashMap::new(),
-            current_depth: 0,
-        }
+        Self { killer_moves: HashMap::new(), current_depth: 0 }
     }
 
     /// Set the current search depth for killer move management

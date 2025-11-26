@@ -30,12 +30,7 @@ mod unit_tests {
 
         for (bb, expected) in test_cases {
             // Test standard implementation
-            assert_eq!(
-                popcount(bb),
-                expected,
-                "Standard popcount failed for 0x{:X}",
-                bb
-            );
+            assert_eq!(popcount(bb), expected, "Standard popcount failed for 0x{:X}", bb);
 
             // Test cache-optimized implementation
             assert_eq!(
@@ -312,10 +307,7 @@ mod integration_tests {
 
         // Test GlobalOptimizer consistency
         assert_eq!(integration::GlobalOptimizer::popcount(bb), popcount(bb));
-        assert_eq!(
-            integration::GlobalOptimizer::bit_scan_forward(bb),
-            bit_scan_forward(bb)
-        );
+        assert_eq!(integration::GlobalOptimizer::bit_scan_forward(bb), bit_scan_forward(bb));
         assert_eq!(
             integration::GlobalOptimizer::get_all_bit_positions(bb),
             get_all_bit_positions(bb)
@@ -489,10 +481,7 @@ mod performance_tests {
         // Verify correctness
         for &bb in &test_data[..10] {
             assert_eq!(popcount_cache_optimized(bb), bb.count_ones());
-            assert_eq!(
-                get_bit_positions_cache_optimized(bb),
-                get_all_bit_positions(bb)
-            );
+            assert_eq!(get_bit_positions_cache_optimized(bb), get_all_bit_positions(bb));
         }
     }
 
@@ -535,17 +524,10 @@ mod performance_tests {
             assert_eq!(popcount_branch_optimized(bb), bb.count_ones());
             assert_eq!(
                 bit_scan_forward_optimized(bb),
-                if bb == 0 {
-                    None
-                } else {
-                    Some(bb.trailing_zeros() as u8)
-                }
+                if bb == 0 { None } else { Some(bb.trailing_zeros() as u8) }
             );
             assert_eq!(is_empty_optimized(bb), bb == 0);
-            assert_eq!(
-                is_single_piece_optimized(bb),
-                bb != 0 && (bb & (bb - 1) == 0)
-            );
+            assert_eq!(is_single_piece_optimized(bb), bb != 0 && (bb & (bb - 1) == 0));
         }
     }
 
@@ -828,23 +810,10 @@ mod validation_tests {
         for bb in edge_cases {
             // Test all implementations handle edge cases
             let count = bb.count_ones();
-            let forward = if bb == 0 {
-                None
-            } else {
-                Some(bb.trailing_zeros() as u8)
-            };
-            let reverse = if bb == 0 {
-                None
-            } else {
-                Some((127 - bb.leading_zeros()) as u8)
-            };
+            let forward = if bb == 0 { None } else { Some(bb.trailing_zeros() as u8) };
+            let reverse = if bb == 0 { None } else { Some((127 - bb.leading_zeros()) as u8) };
 
-            assert_eq!(
-                popcount(bb),
-                count,
-                "Edge case popcount failed for 0x{:X}",
-                bb
-            );
+            assert_eq!(popcount(bb), count, "Edge case popcount failed for 0x{:X}", bb);
             assert_eq!(
                 popcount_cache_optimized(bb),
                 count,
@@ -906,16 +875,9 @@ mod validation_tests {
             let bb = rand::random::<u128>();
 
             let expected_count = bb.count_ones();
-            let expected_forward = if bb == 0 {
-                None
-            } else {
-                Some(bb.trailing_zeros() as u8)
-            };
-            let expected_reverse = if bb == 0 {
-                None
-            } else {
-                Some((127 - bb.leading_zeros()) as u8)
-            };
+            let expected_forward = if bb == 0 { None } else { Some(bb.trailing_zeros() as u8) };
+            let expected_reverse =
+                if bb == 0 { None } else { Some((127 - bb.leading_zeros()) as u8) };
 
             // Verify all implementations produce correct results
             assert_eq!(popcount(bb), expected_count);
@@ -971,16 +933,8 @@ mod test_helpers {
     /// Validate that all implementations produce consistent results
     pub fn validate_implementation_consistency(bb: Bitboard) -> bool {
         let expected_count = bb.count_ones();
-        let expected_forward = if bb == 0 {
-            None
-        } else {
-            Some(bb.trailing_zeros() as u8)
-        };
-        let expected_reverse = if bb == 0 {
-            None
-        } else {
-            Some((127 - bb.leading_zeros()) as u8)
-        };
+        let expected_forward = if bb == 0 { None } else { Some(bb.trailing_zeros() as u8) };
+        let expected_reverse = if bb == 0 { None } else { Some((127 - bb.leading_zeros()) as u8) };
 
         popcount(bb) == expected_count
             && popcount_cache_optimized(bb) == expected_count

@@ -19,18 +19,12 @@ fn test_game_phase_calculation_comprehensive() {
     let board = BitboardBoard::new();
     let captured_pieces = CapturedPieces::new();
     let phase = evaluator.calculate_game_phase(&board, &captured_pieces);
-    assert_eq!(
-        phase, GAME_PHASE_MAX,
-        "Starting position should have maximum phase"
-    );
+    assert_eq!(phase, GAME_PHASE_MAX, "Starting position should have maximum phase");
 
     // Test phase calculation consistency
     for _ in 0..10 {
         let phase_repeat = evaluator.calculate_game_phase(&board, &captured_pieces);
-        assert_eq!(
-            phase, phase_repeat,
-            "Phase calculation should be consistent"
-        );
+        assert_eq!(phase, phase_repeat, "Phase calculation should be consistent");
     }
 
     // Test phase range
@@ -44,16 +38,8 @@ fn test_tapered_score_interpolation_comprehensive() {
     let test_score = TaperedScore::new_tapered(100, 200);
 
     // Test exact boundaries
-    assert_eq!(
-        test_score.interpolate(0),
-        200,
-        "Phase 0 should return pure eg value"
-    );
-    assert_eq!(
-        test_score.interpolate(256),
-        100,
-        "Phase 256 should return pure mg value"
-    );
+    assert_eq!(test_score.interpolate(0), 200, "Phase 0 should return pure eg value");
+    assert_eq!(test_score.interpolate(256), 100, "Phase 256 should return pure mg value");
 
     // Test midpoint
     let midpoint = test_score.interpolate(128);
@@ -80,16 +66,8 @@ fn test_tapered_score_interpolation_comprehensive() {
         );
 
         // Score should be between mg and eg values
-        assert!(
-            current_score >= 100,
-            "Score should not be below mg value: {}",
-            current_score
-        );
-        assert!(
-            current_score <= 200,
-            "Score should not exceed eg value: {}",
-            current_score
-        );
+        assert!(current_score >= 100, "Score should not be below mg value: {}", current_score);
+        assert!(current_score <= 200, "Score should not exceed eg value: {}", current_score);
 
         prev_score = current_score;
     }
@@ -139,11 +117,7 @@ fn test_evaluation_components_tapered_score() {
     let score = evaluator.evaluate(&board, Player::Black, &captured_pieces);
 
     // Score should be reasonable
-    assert!(
-        score.abs() < 10000,
-        "Evaluation score should be reasonable: {}",
-        score
-    );
+    assert!(score.abs() < 10000, "Evaluation score should be reasonable: {}", score);
 
     // Test that evaluation is consistent
     let score2 = evaluator.evaluate(&board, Player::Black, &captured_pieces);
@@ -160,11 +134,7 @@ fn test_evaluation_phase_differences_comprehensive() {
     let score = evaluator.evaluate(&board, Player::Black, &captured_pieces);
 
     // Score should be reasonable
-    assert!(
-        score.abs() < 10000,
-        "Evaluation score should be reasonable: {}",
-        score
-    );
+    assert!(score.abs() < 10000, "Evaluation score should be reasonable: {}", score);
 
     // Test that evaluation is consistent across multiple calls
     for _ in 0..10 {
@@ -183,19 +153,12 @@ fn test_evaluation_integration_pipeline() {
     let score = evaluator.evaluate(&board, Player::Black, &captured_pieces);
 
     // Score should be reasonable
-    assert!(
-        score.abs() < 10000,
-        "Evaluation score should be reasonable: {}",
-        score
-    );
+    assert!(score.abs() < 10000, "Evaluation score should be reasonable: {}", score);
 
     // Test consistency across multiple calls
     for _ in 0..10 {
         let score_repeat = evaluator.evaluate(&board, Player::Black, &captured_pieces);
-        assert_eq!(
-            score, score_repeat,
-            "Evaluation should be consistent across calls"
-        );
+        assert_eq!(score, score_repeat, "Evaluation should be consistent across calls");
     }
 
     // Test both players
@@ -203,16 +166,8 @@ fn test_evaluation_integration_pipeline() {
     let white_score = evaluator.evaluate(&board, Player::White, &captured_pieces);
 
     // Both scores should be positive for starting position
-    assert!(
-        black_score > 0,
-        "Black evaluation should be positive: {}",
-        black_score
-    );
-    assert!(
-        white_score > 0,
-        "White evaluation should be positive: {}",
-        white_score
-    );
+    assert!(black_score > 0, "Black evaluation should be positive: {}", black_score);
+    assert!(white_score > 0, "White evaluation should be positive: {}", white_score);
 }
 
 #[test]
@@ -240,11 +195,7 @@ fn test_evaluation_performance_benchmark() {
     );
 
     // Average time per evaluation should be reasonable
-    assert!(
-        avg_time < 1000,
-        "Average evaluation time should be < 1ms: {}μs",
-        avg_time
-    );
+    assert!(avg_time < 1000, "Average evaluation time should be < 1ms: {}μs", avg_time);
 }
 
 #[test]
@@ -261,33 +212,17 @@ fn test_evaluation_edge_cases() {
     let phase_large = test_score.interpolate(1000);
 
     // Results should be reasonable (can be negative for extreme values)
-    assert!(
-        phase_neg >= -1000,
-        "Negative phase should produce reasonable result: {}",
-        phase_neg
-    );
-    assert!(
-        phase_large >= -1000,
-        "Large phase should produce reasonable result: {}",
-        phase_large
-    );
+    assert!(phase_neg >= -1000, "Negative phase should produce reasonable result: {}", phase_neg);
+    assert!(phase_large >= -1000, "Large phase should produce reasonable result: {}", phase_large);
 
     // Test zero TaperedScore
     let zero_score = TaperedScore::default();
-    assert_eq!(
-        zero_score.interpolate(128),
-        0,
-        "Zero score should interpolate to zero"
-    );
+    assert_eq!(zero_score.interpolate(128), 0, "Zero score should interpolate to zero");
 
     // Test negative TaperedScore
     let neg_score = TaperedScore::new_tapered(-100, -200);
     let neg_result = neg_score.interpolate(128);
-    assert!(
-        neg_result < 0,
-        "Negative score should interpolate to negative: {}",
-        neg_result
-    );
+    assert!(neg_result < 0, "Negative score should interpolate to negative: {}", neg_result);
 }
 
 #[test]
@@ -301,16 +236,8 @@ fn test_evaluation_symmetry() {
     let white_score = evaluator.evaluate(&board, Player::White, &captured_pieces);
 
     // Both scores should be positive for starting position
-    assert!(
-        black_score > 0,
-        "Black evaluation should be positive: {}",
-        black_score
-    );
-    assert!(
-        white_score > 0,
-        "White evaluation should be positive: {}",
-        white_score
-    );
+    assert!(black_score > 0, "Black evaluation should be positive: {}", black_score);
+    assert!(white_score > 0, "White evaluation should be positive: {}", white_score);
 
     // Scores should be similar (not opposite) since evaluation is from player's perspective
     let score_diff = (black_score - white_score).abs();
@@ -367,19 +294,12 @@ fn test_game_phase_edge_cases() {
 
     // Phase should be in valid range
     assert!(phase >= 0, "Phase should be non-negative: {}", phase);
-    assert!(
-        phase <= GAME_PHASE_MAX,
-        "Phase should not exceed maximum: {}",
-        phase
-    );
+    assert!(phase <= GAME_PHASE_MAX, "Phase should not exceed maximum: {}", phase);
 
     // Test phase calculation consistency
     for _ in 0..100 {
         let phase_repeat = evaluator.calculate_game_phase(&board, &captured_pieces);
-        assert_eq!(
-            phase, phase_repeat,
-            "Phase calculation should be deterministic"
-        );
+        assert_eq!(phase, phase_repeat, "Phase calculation should be deterministic");
     }
 }
 
@@ -430,17 +350,9 @@ fn test_tapered_evaluation_comprehensive() {
     ] {
         let smooth =
             transition.validate_smooth_transitions(TaperedScore::new_tapered(100, 200), method);
-        assert!(
-            smooth,
-            "Interpolation method {:?} should maintain smooth transitions",
-            method
-        );
+        assert!(smooth, "Interpolation method {:?} should maintain smooth transitions", method);
     }
 
     // The final score should be reasonable
-    assert!(
-        score.abs() < 10000,
-        "Final evaluation score should be reasonable: {}",
-        score
-    );
+    assert!(score.abs() < 10000, "Final evaluation score should be reasonable: {}", score);
 }

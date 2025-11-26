@@ -70,10 +70,7 @@ mod lmr_profiling_tests {
 
         println!("LMR Profiling Results:");
         println!("  Total time: {:?}", profile_result.total_time);
-        println!(
-            "  Average time per search: {:?}",
-            profile_result.average_time_per_search
-        );
+        println!("  Average time per search: {:?}", profile_result.average_time_per_search);
         println!("  Moves per second: {:.0}", profile_result.moves_per_second);
         println!("  Reduction rate: {:.1}%", profile_result.reduction_rate);
         println!("  Research rate: {:.1}%", profile_result.research_rate);
@@ -305,10 +302,7 @@ mod lmr_memory_optimization_tests {
         println!("Memory optimization test:");
         println!("  Initial TT size: {}", initial_tt_size);
         println!("  Final TT size: {}", final_tt_size);
-        println!(
-            "  Initial moves considered: {}",
-            initial_stats.moves_considered
-        );
+        println!("  Initial moves considered: {}", initial_stats.moves_considered);
         println!("  Final moves considered: {}", final_stats.moves_considered);
     }
 
@@ -396,10 +390,7 @@ mod lmr_hardware_optimization_tests {
             player: Player::Black,
             is_capture: true,
             is_promotion: false,
-            captured_piece: Some(Piece {
-                piece_type: PieceType::Pawn,
-                player: Player::White,
-            }),
+            captured_piece: Some(Piece { piece_type: PieceType::Pawn, player: Player::White }),
             gives_check: false,
             is_recapture: false,
         };
@@ -517,12 +508,8 @@ mod lmr_performance_regression_tests {
             enable_extended_exemptions: true,
         };
 
-        engine_with_optimization
-            .update_lmr_config(lmr_config.clone())
-            .unwrap();
-        engine_without_optimization
-            .update_lmr_config(lmr_config)
-            .unwrap();
+        engine_with_optimization.update_lmr_config(lmr_config.clone()).unwrap();
+        engine_without_optimization.update_lmr_config(lmr_config).unwrap();
 
         let board = create_test_board();
         let captured_pieces = create_test_captured_pieces();

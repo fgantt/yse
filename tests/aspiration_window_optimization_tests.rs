@@ -53,10 +53,7 @@ mod aspiration_window_optimization_tests {
             assert!(window_size <= 200);
 
             // Different cases should produce different window sizes
-            println!(
-                "Depth: {}, Score: {}, Window: {}",
-                depth, prev_score, window_size
-            );
+            println!("Depth: {}, Score: {}, Window: {}", depth, prev_score, window_size);
         }
     }
 
@@ -316,10 +313,7 @@ mod aspiration_window_optimization_tests {
             let applied_config = engine.get_aspiration_window_config();
             assert_eq!(applied_config.base_window_size, config.base_window_size);
             assert_eq!(applied_config.dynamic_scaling, config.dynamic_scaling);
-            assert_eq!(
-                applied_config.enable_adaptive_sizing,
-                config.enable_adaptive_sizing
-            );
+            assert_eq!(applied_config.enable_adaptive_sizing, config.enable_adaptive_sizing);
         }
     }
 
@@ -350,10 +344,7 @@ mod aspiration_window_optimization_tests {
         }
 
         let calculation_time = start_time.elapsed();
-        println!(
-            "Comprehensive window size calculation time: {:?}",
-            calculation_time
-        );
+        println!("Comprehensive window size calculation time: {:?}", calculation_time);
 
         // Should complete within reasonable time
         assert!(calculation_time.as_millis() < 5000);

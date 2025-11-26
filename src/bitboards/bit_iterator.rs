@@ -56,11 +56,7 @@ impl BitIterator {
     /// ```
     pub fn new(bits: Bitboard) -> Self {
         // Find the first set bit to initialize current position
-        let current = if bits.is_empty() {
-            None
-        } else {
-            GlobalOptimizer::bit_scan_forward(bits)
-        };
+        let current = if bits.is_empty() { None } else { GlobalOptimizer::bit_scan_forward(bits) };
 
         Self { bits, current }
     }
@@ -86,10 +82,7 @@ impl BitIterator {
     /// ```
     pub fn from_position(bits: Bitboard, start_pos: u8) -> Self {
         if start_pos >= 128 {
-            return Self {
-                bits: Bitboard::default(),
-                current: None,
-            };
+            return Self { bits: Bitboard::default(), current: None };
         }
 
         // Create a mask to clear bits before start_pos
@@ -97,19 +90,13 @@ impl BitIterator {
             bits
         } else {
             // Clear all bits before start_pos by shifting left then right
-            (bits << ((128 - start_pos) as usize).try_into().unwrap()) >> ((128 - start_pos) as usize).try_into().unwrap()
+            (bits << ((128 - start_pos) as usize).try_into().unwrap())
+                >> ((128 - start_pos) as usize).try_into().unwrap()
         };
 
-        let current = if mask.is_empty() {
-            None
-        } else {
-            GlobalOptimizer::bit_scan_forward(mask)
-        };
+        let current = if mask.is_empty() { None } else { GlobalOptimizer::bit_scan_forward(mask) };
 
-        Self {
-            bits: mask,
-            current,
-        }
+        Self { bits: mask, current }
     }
 
     /// Get the remaining bits in the bitboard

@@ -1,5 +1,5 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, SamplingMode};
-use shogi_engine::bitboards::{BitboardBoard, get_board_telemetry, reset_board_telemetry};
+use shogi_engine::bitboards::{get_board_telemetry, reset_board_telemetry, BitboardBoard};
 use shogi_engine::moves::MoveGenerator;
 use shogi_engine::types::{CapturedPieces, Player, Position};
 
@@ -57,7 +57,7 @@ fn bench_board_cloning(c: &mut Criterion) {
     });
 
     group.finish();
-    
+
     // Task 5.0.5.1: Report telemetry after cloning benchmarks
     let telemetry = get_board_telemetry();
     println!("Board clone telemetry: {} clones performed", telemetry.clone_count);
@@ -100,7 +100,7 @@ fn bench_attack_detection(c: &mut Criterion) {
     group.sampling_mode(SamplingMode::Auto);
 
     let board = BitboardBoard::new();
-    
+
     // Test different squares
     let test_squares = vec![
         Position::new(4, 4), // Center
@@ -110,15 +110,12 @@ fn bench_attack_detection(c: &mut Criterion) {
 
     for square in test_squares {
         for player in [Player::Black, Player::White] {
-            group.bench_function(
-                format!("is_square_attacked_by_{:?}_{:?}", square, player),
-                |b| {
-                    b.iter(|| {
-                        let result = board.is_square_attacked_by(square, player);
-                        black_box(result);
-                    });
-                },
-            );
+            group.bench_function(format!("is_square_attacked_by_{:?}_{:?}", square, player), |b| {
+                b.iter(|| {
+                    let result = board.is_square_attacked_by(square, player);
+                    black_box(result);
+                });
+            });
         }
     }
 
@@ -147,11 +144,11 @@ fn bench_sliding_moves(c: &mut Criterion) {
     group.sampling_mode(SamplingMode::Auto);
 
     let mut board = BitboardBoard::new();
-    
+
     // Initialize sliding generator if available
     if let Ok(_) = board.init_sliding_generator() {
         use shogi_engine::types::{Piece, PieceType};
-        
+
         // Place a rook and bishop for testing
         let rook_pos = Position::new(4, 4);
         let bishop_pos = Position::new(4, 3);
@@ -161,14 +158,24 @@ fn bench_sliding_moves(c: &mut Criterion) {
         if let Some(generator) = board.get_sliding_generator() {
             group.bench_function("generate_sliding_moves_rook", |b| {
                 b.iter(|| {
-                    let moves = generator.generate_sliding_moves(&board, rook_pos, PieceType::Rook, Player::Black);
+                    let moves = generator.generate_sliding_moves(
+                        &board,
+                        rook_pos,
+                        PieceType::Rook,
+                        Player::Black,
+                    );
                     black_box(moves);
                 });
             });
 
             group.bench_function("generate_sliding_moves_bishop", |b| {
                 b.iter(|| {
-                    let moves = generator.generate_sliding_moves(&board, bishop_pos, PieceType::Bishop, Player::Black);
+                    let moves = generator.generate_sliding_moves(
+                        &board,
+                        bishop_pos,
+                        PieceType::Bishop,
+                        Player::Black,
+                    );
                     black_box(moves);
                 });
             });

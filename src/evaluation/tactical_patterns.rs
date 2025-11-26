@@ -68,14 +68,7 @@ impl<'a> TacticalDetectionContext<'a> {
             }
         }
 
-        Self {
-            board,
-            player,
-            opponent,
-            player_pieces,
-            opponent_pieces,
-            captured_pieces,
-        }
+        Self { board, player, opponent, player_pieces, opponent_pieces, captured_pieces }
     }
 
     fn player_hand(&self) -> &[PieceType] {
@@ -197,11 +190,8 @@ impl<'a> TacticalDetectionContext<'a> {
             | PieceType::PromotedLance
             | PieceType::PromotedKnight
             | PieceType::PromotedSilver => {
-                let offsets = if owner == Player::Black {
-                    GOLD_OFFSETS_BLACK
-                } else {
-                    GOLD_OFFSETS_WHITE
-                };
+                let offsets =
+                    if owner == Player::Black { GOLD_OFFSETS_BLACK } else { GOLD_OFFSETS_WHITE };
                 self.collect_single_steps(origin, &offsets)
             }
             PieceType::Silver => {
@@ -266,16 +256,8 @@ const KNIGHT_OFFSETS_BLACK: &[(i8, i8)] = &[(-2, -1), (-2, 1)];
 const KNIGHT_OFFSETS_WHITE: &[(i8, i8)] = &[(2, -1), (2, 1)];
 const LANCE_DIRECTION_BLACK: (i8, i8) = (-1, 0);
 const LANCE_DIRECTION_WHITE: (i8, i8) = (1, 0);
-const KING_OFFSETS: &[(i8, i8)] = &[
-    (-1, -1),
-    (-1, 0),
-    (-1, 1),
-    (0, -1),
-    (0, 1),
-    (1, -1),
-    (1, 0),
-    (1, 1),
-];
+const KING_OFFSETS: &[(i8, i8)] =
+    &[(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
 const KING_DIAGONAL_OFFSETS: &[(i8, i8)] = &[(-1, -1), (-1, 1), (1, -1), (1, 1)];
 const ORTHOGONAL_OFFSETS: &[(i8, i8)] = &[(1, 0), (-1, 0), (0, 1), (0, -1)];
 
@@ -317,18 +299,12 @@ impl Default for TacticalPhaseWeights {
 impl TacticalPatternRecognizer {
     /// Create a new tactical pattern recognizer
     pub fn new() -> Self {
-        Self {
-            config: TacticalConfig::default(),
-            stats: TacticalStats::default(),
-        }
+        Self { config: TacticalConfig::default(), stats: TacticalStats::default() }
     }
 
     /// Create with custom configuration
     pub fn with_config(config: TacticalConfig) -> Self {
-        Self {
-            config,
-            stats: TacticalStats::default(),
-        }
+        Self { config, stats: TacticalStats::default() }
     }
 
     /// Update configuration at runtime.
@@ -414,12 +390,12 @@ impl TacticalPatternRecognizer {
     // ===================================================================
 
     /// Detect forks (pieces attacking 2+ valuable targets simultaneously)
-    /// 
+    ///
     /// Uses SIMD-optimized batch detection when the `simd` feature is enabled,
     /// falling back to scalar implementation otherwise.
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// When SIMD is enabled, uses batch operations to process multiple pieces
     /// simultaneously, achieving 2-4x speedup over scalar implementation.
     fn detect_forks(&mut self, ctx: &TacticalDetectionContext) -> TaperedScore {
@@ -433,47 +409,42 @@ impl TacticalPatternRecognizer {
                 crate::utils::telemetry::SIMD_TELEMETRY.record_simd_pattern();
                 // Use SIMD batch detection to quickly identify pieces that fork
                 let simd_matcher = SimdPatternMatcher::new();
-            let pieces: Vec<_> = ctx.player_pieces.iter()
-                .map(|(pos, piece)| (*pos, piece.piece_type))
-                .collect();
-            
-            let simd_forks = simd_matcher.detect_forks_batch(ctx.board, &pieces, ctx.player);
-            
-            // Calculate fork bonuses for pieces identified by SIMD
-            // We still need to get actual target values for proper bonus calculation
-            let mut total_score = 0;
-            for (pos, piece_type, _target_count) in simd_forks {
-                // Verify this is actually a fork and get actual targets for bonus calculation
-                let targets = self.get_attacked_pieces(ctx, pos, piece_type, ctx.player);
-                
-                if targets.len() >= 2 {
-                    let total_value: i32 = targets.iter().map(|(_, value)| *value).sum();
-                    let fork_bonus = (total_value as f32 * self.config.fork_threat_ratio).round() as i32;
-                    
-                    // Forking king is especially valuable
-                    let has_king_fork = targets.iter().any(|(pt, _)| *pt == PieceType::King);
-                    let king_bonus = if has_king_fork {
-                        self.config.king_fork_bonus_cp
-                    } else {
-                        0
-                    };
-                    
-                    self.stats
-                        .forks_found
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    
-                    total_score += fork_bonus + king_bonus;
+                let pieces: Vec<_> =
+                    ctx.player_pieces.iter().map(|(pos, piece)| (*pos, piece.piece_type)).collect();
+
+                let simd_forks = simd_matcher.detect_forks_batch(ctx.board, &pieces, ctx.player);
+
+                // Calculate fork bonuses for pieces identified by SIMD
+                // We still need to get actual target values for proper bonus calculation
+                let mut total_score = 0;
+                for (pos, piece_type, _target_count) in simd_forks {
+                    // Verify this is actually a fork and get actual targets for bonus calculation
+                    let targets = self.get_attacked_pieces(ctx, pos, piece_type, ctx.player);
+
+                    if targets.len() >= 2 {
+                        let total_value: i32 = targets.iter().map(|(_, value)| *value).sum();
+                        let fork_bonus =
+                            (total_value as f32 * self.config.fork_threat_ratio).round() as i32;
+
+                        // Forking king is especially valuable
+                        let has_king_fork = targets.iter().any(|(pt, _)| *pt == PieceType::King);
+                        let king_bonus =
+                            if has_king_fork { self.config.king_fork_bonus_cp } else { 0 };
+
+                        self.stats.forks_found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                        total_score += fork_bonus + king_bonus;
+                    }
                 }
-            }
-            
-            // Preserve existing drop fork threats detection (scalar, not yet vectorized)
-            total_score += self.detect_drop_fork_threats(ctx);
-            
-            return self.apply_phase_weights(total_score, &self.config.phase_weights.forks);
+
+                // Preserve existing drop fork threats detection (scalar, not yet vectorized)
+                total_score += self.detect_drop_fork_threats(ctx);
+
+                return self.apply_phase_weights(total_score, &self.config.phase_weights.forks);
             }
             // Fall through to scalar implementation if SIMD disabled at runtime
         }
-        
+
         // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
         {
             // Record scalar pattern matching call
@@ -506,15 +477,9 @@ impl TacticalPatternRecognizer {
 
             // Forking king is especially valuable
             let has_king_fork = targets.iter().any(|(pt, _)| *pt == PieceType::King);
-            let king_bonus = if has_king_fork {
-                self.config.king_fork_bonus_cp
-            } else {
-                0
-            };
+            let king_bonus = if has_king_fork { self.config.king_fork_bonus_cp } else { 0 };
 
-            self.stats
-                .forks_found
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.stats.forks_found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
             fork_bonus + king_bonus
         } else {
@@ -536,10 +501,7 @@ impl TacticalPatternRecognizer {
         for step in ctx.gather_attacks(pos, piece_type, player) {
             if let Some(target_piece) = step.occupant {
                 if target_piece.player == opponent {
-                    attacked.push((
-                        target_piece.piece_type,
-                        target_piece.piece_type.base_value(),
-                    ));
+                    attacked.push((target_piece.piece_type, target_piece.piece_type.base_value()));
                 }
             }
         }
@@ -753,12 +715,12 @@ impl TacticalPatternRecognizer {
     // ===================================================================
 
     /// Detect pins (pieces that cannot move without exposing valuable piece)
-    /// 
+    ///
     /// Uses SIMD-optimized batch detection when the `simd` feature is enabled,
     /// falling back to scalar implementation otherwise.
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// When SIMD is enabled, uses batch operations to process multiple pieces
     /// simultaneously, achieving 2-4x speedup over scalar implementation.
     fn detect_pins(&mut self, ctx: &TacticalDetectionContext) -> TaperedScore {
@@ -770,33 +732,30 @@ impl TacticalPatternRecognizer {
             if self.config.enable_simd_pattern_matching {
                 // Record SIMD pattern matching call
                 crate::utils::telemetry::SIMD_TELEMETRY.record_simd_pattern();
-                
+
                 // Use SIMD batch detection for pins
                 let simd_matcher = SimdPatternMatcher::new();
-                let pieces: Vec<_> = ctx.player_pieces.iter()
-                    .map(|(pos, piece)| (*pos, piece.piece_type))
-                    .collect();
-                
+                let pieces: Vec<_> =
+                    ctx.player_pieces.iter().map(|(pos, piece)| (*pos, piece.piece_type)).collect();
+
                 let simd_pins = simd_matcher.detect_pins_batch(ctx.board, &pieces, ctx.player);
-                
+
                 // Calculate pin penalties for pieces identified by SIMD
                 let mut total_score = 0;
                 for (_pos, _piece_type, pinned_pos) in simd_pins {
                     if let Some(pinned_piece) = ctx.board.get_piece(pinned_pos) {
                         let pinned_value = pinned_piece.piece_type.base_value();
-                        let penalty = (pinned_value as f32 * self.config.pin_penalty_ratio)
-                            .round() as i32;
+                        let penalty =
+                            (pinned_value as f32 * self.config.pin_penalty_ratio).round() as i32;
                         let penalty = penalty.max(1);
                         total_score -= penalty;
-                        self.stats
-                            .pins_found
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        self.stats.pins_found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
-                
+
                 // Preserve existing drop pin threats detection (scalar)
                 total_score += self.detect_drop_pin_threats(ctx);
-                
+
                 if total_score == 0 {
                     return TaperedScore::default();
                 } else {
@@ -805,13 +764,13 @@ impl TacticalPatternRecognizer {
             }
             // Fall through to scalar implementation if SIMD disabled at runtime
         }
-        
+
         // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
         {
             // Record scalar pattern matching call
             #[cfg(feature = "simd")]
             crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_pattern();
-            
+
             let mut total_score = 0;
             if let Some(king_pos) = self.find_king_position(ctx.board, ctx.player) {
                 total_score += self.check_pins_in_directions(
@@ -913,12 +872,12 @@ impl TacticalPatternRecognizer {
     // ===================================================================
 
     /// Detect skewers (attacking through piece to hit more valuable target)
-    /// 
+    ///
     /// Uses SIMD-optimized batch detection when the `simd` feature is enabled,
     /// falling back to scalar implementation otherwise.
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// When SIMD is enabled, uses batch operations to process multiple pieces
     /// simultaneously, achieving 2-4x speedup over scalar implementation.
     fn detect_skewers(&mut self, ctx: &TacticalDetectionContext) -> TaperedScore {
@@ -930,36 +889,44 @@ impl TacticalPatternRecognizer {
             if self.config.enable_simd_pattern_matching {
                 // Record SIMD pattern matching call
                 crate::utils::telemetry::SIMD_TELEMETRY.record_simd_pattern();
-                
+
                 // Use SIMD batch detection for skewers
                 // Note: We need to check opponent pieces, so we reverse the perspective
                 let simd_matcher = SimdPatternMatcher::new();
-                let pieces: Vec<_> = ctx.opponent_pieces.iter()
+                let pieces: Vec<_> = ctx
+                    .opponent_pieces
+                    .iter()
                     .filter(|(_, piece)| {
-                        matches!(piece.piece_type, 
-                            PieceType::Rook | PieceType::PromotedRook |
-                            PieceType::Bishop | PieceType::PromotedBishop
+                        matches!(
+                            piece.piece_type,
+                            PieceType::Rook
+                                | PieceType::PromotedRook
+                                | PieceType::Bishop
+                                | PieceType::PromotedBishop
                         )
                     })
                     .map(|(pos, piece)| (*pos, piece.piece_type))
                     .collect();
-                
+
                 // Check skewers from opponent's perspective (they're skewering our pieces)
-                let simd_skewers = simd_matcher.detect_skewers_batch(ctx.board, &pieces, ctx.opponent);
-                
+                let simd_skewers =
+                    simd_matcher.detect_skewers_batch(ctx.board, &pieces, ctx.opponent);
+
                 // Calculate skewer penalties
                 let mut total_penalty = 0;
                 for (_, _, front_pos, back_pos) in simd_skewers {
-                    if let (Some(front_piece), Some(back_piece)) = 
-                        (ctx.board.get_piece(front_pos), ctx.board.get_piece(back_pos)) {
+                    if let (Some(front_piece), Some(back_piece)) =
+                        (ctx.board.get_piece(front_pos), ctx.board.get_piece(back_pos))
+                    {
                         if front_piece.player == ctx.player && back_piece.player == ctx.player {
                             let front_value = front_piece.piece_type.base_value();
                             let back_value = back_piece.piece_type.base_value();
-                            
+
                             if back_value > front_value {
                                 let delta = back_value - front_value;
                                 let skew_penalty = (delta as f32 * self.config.skewer_penalty_ratio)
-                                    .round() as i32;
+                                    .round()
+                                    as i32;
                                 let skew_penalty = skew_penalty.max(1);
                                 total_penalty -= skew_penalty;
                                 self.stats
@@ -969,18 +936,18 @@ impl TacticalPatternRecognizer {
                         }
                     }
                 }
-                
+
                 return self.apply_phase_weights(total_penalty, &self.config.phase_weights.skewers);
             }
             // Fall through to scalar implementation if SIMD disabled at runtime
         }
-        
+
         // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
         {
             // Record scalar pattern matching call
             #[cfg(feature = "simd")]
             crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_pattern();
-            
+
             let mut total_penalty = 0;
 
             for &(pos, piece) in &ctx.opponent_pieces {
@@ -1064,12 +1031,12 @@ impl TacticalPatternRecognizer {
     // ===================================================================
 
     /// Detect discovered attack potential
-    /// 
+    ///
     /// Uses SIMD-optimized batch detection when the `simd` feature is enabled,
     /// falling back to scalar implementation otherwise.
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// When SIMD is enabled, uses batch operations to process multiple pieces
     /// simultaneously, achieving 2-4x speedup over scalar implementation.
     fn detect_discovered_attacks(&mut self, ctx: &TacticalDetectionContext) -> TaperedScore {
@@ -1089,20 +1056,19 @@ impl TacticalPatternRecognizer {
             if self.config.enable_simd_pattern_matching {
                 // Record SIMD pattern matching call
                 crate::utils::telemetry::SIMD_TELEMETRY.record_simd_pattern();
-                
+
                 // Use SIMD batch detection for discovered attacks
                 let simd_matcher = SimdPatternMatcher::new();
-                let pieces: Vec<_> = ctx.player_pieces.iter()
-                    .map(|(pos, piece)| (*pos, piece.piece_type))
-                    .collect();
-                
+                let pieces: Vec<_> =
+                    ctx.player_pieces.iter().map(|(pos, piece)| (*pos, piece.piece_type)).collect();
+
                 let simd_discovered = simd_matcher.detect_discovered_attacks_batch(
-                    ctx.board, 
-                    &pieces, 
-                    ctx.player, 
-                    opp_king_pos
+                    ctx.board,
+                    &pieces,
+                    ctx.player,
+                    opp_king_pos,
                 );
-                
+
                 // Calculate discovered attack bonuses
                 let mut total_bonus = 0;
                 for (_, _) in simd_discovered {
@@ -1111,18 +1077,19 @@ impl TacticalPatternRecognizer {
                         .discovered_attacks_found
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
-                
-                return self.apply_phase_weights(total_bonus, &self.config.phase_weights.discovered);
+
+                return self
+                    .apply_phase_weights(total_bonus, &self.config.phase_weights.discovered);
             }
             // Fall through to scalar implementation if SIMD disabled at runtime
         }
-        
+
         // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
         {
             // Record scalar pattern matching call
             #[cfg(feature = "simd")]
             crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_pattern();
-            
+
             // Check if any of our pieces can create discovered attacks by moving
             let mut total_bonus = 0;
             for &(pos, _) in &ctx.player_pieces {
@@ -1227,15 +1194,9 @@ impl TacticalPatternRecognizer {
             let has_king = targets.iter().any(|(pt, _)| *pt == PieceType::King);
 
             let base_bonus = (total_value as f32 * self.config.knight_fork_ratio).round() as i32;
-            let king_bonus = if has_king {
-                self.config.king_fork_bonus_cp * 2
-            } else {
-                0
-            };
+            let king_bonus = if has_king { self.config.king_fork_bonus_cp * 2 } else { 0 };
 
-            self.stats
-                .knight_forks_found
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.stats.knight_forks_found.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             base_bonus + king_bonus
         } else {
             0
@@ -1423,11 +1384,11 @@ pub struct TacticalConfig {
     pub back_rank_penalty_cp: i32,
 
     pub phase_weights: TacticalPhaseWeights,
-    
+
     /// Enable SIMD-optimized pattern matching
-    /// 
+    ///
     /// Only effective when the `simd` feature is enabled at compile time.
-    /// 
+    ///
     /// # Task 4.0 (Task 4.5)
     #[cfg(feature = "simd")]
     pub enable_simd_pattern_matching: bool,

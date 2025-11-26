@@ -4,11 +4,11 @@
 //! calculations for the search engine. Extracted from `search_engine.rs` as part of
 //! Task 1.0: File Modularization and Structure Improvements.
 
-use crate::utils::time::TimeSource;
 use crate::types::search::{
     TimeAllocationStrategy, TimeBudgetStats, TimeManagementConfig, TimePressure,
     TimePressureThresholds,
 };
+use crate::utils::time::TimeSource;
 
 /// Time management functionality for search engine
 #[derive(Debug, Clone)]
@@ -44,18 +44,11 @@ impl TimeManager {
         }
 
         let elapsed_ms = start_time.elapsed_ms();
-        let remaining_ms = if elapsed_ms >= time_limit_ms {
-            0
-        } else {
-            time_limit_ms - elapsed_ms
-        };
+        let remaining_ms = if elapsed_ms >= time_limit_ms { 0 } else { time_limit_ms - elapsed_ms };
 
         let remaining_percent = (remaining_ms as f64 / time_limit_ms as f64) * 100.0;
 
-        TimePressure::from_remaining_time_percent(
-            remaining_percent,
-            &self.time_pressure_thresholds,
-        )
+        TimePressure::from_remaining_time_percent(remaining_percent, &self.time_pressure_thresholds)
     }
 
     /// Check if search should stop due to time limit or stop flag
@@ -123,9 +116,7 @@ impl TimeManager {
 
         if depth == 1 {
             // First depth: use minimum time
-            let budget = config
-                .min_time_per_depth_ms
-                .max(available_time / (max_depth as u32 * 2));
+            let budget = config.min_time_per_depth_ms.max(available_time / (max_depth as u32 * 2));
             return budget.min(available_time);
         }
 
@@ -320,4 +311,3 @@ mod tests {
         assert!(stats.depths_completed >= 2);
     }
 }
-

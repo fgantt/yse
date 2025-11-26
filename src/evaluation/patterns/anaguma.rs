@@ -106,14 +106,8 @@ pub fn get_anaguma_castle() -> CastlePattern {
 
     let mut variants = Vec::new();
     variants.push(CastleVariant::from_descriptors("right-base", &base));
-    variants.push(CastleVariant::from_descriptors(
-        "left-base",
-        &mirror_descriptors(&base),
-    ));
-    variants.push(CastleVariant::from_descriptors(
-        "right-silver-forward",
-        &silver_forward,
-    ));
+    variants.push(CastleVariant::from_descriptors("left-base", &mirror_descriptors(&base)));
+    variants.push(CastleVariant::from_descriptors("right-silver-forward", &silver_forward));
     variants.push(CastleVariant::from_descriptors(
         "left-silver-forward",
         &mirror_descriptors(&silver_forward),

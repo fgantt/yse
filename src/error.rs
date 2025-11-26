@@ -206,11 +206,7 @@ pub enum MoveGenerationError {
 pub enum ConfigurationError {
     /// Invalid configuration value
     #[error("Invalid configuration value for '{field}': {value} (expected: {expected})")]
-    InvalidValue {
-        field: String,
-        value: String,
-        expected: String,
-    },
+    InvalidValue { field: String, value: String, expected: String },
 
     /// Missing required configuration field
     #[error("Missing required configuration field: {field}")]
@@ -247,25 +243,19 @@ impl TranspositionTableError {
 
     /// Create a probe failed error
     pub fn probe_failed<S: Into<String>>(message: S) -> Self {
-        Self::ProbeFailed {
-            message: message.into(),
-        }
+        Self::ProbeFailed { message: message.into() }
     }
 
     /// Create a store failed error
     pub fn store_failed<S: Into<String>>(message: S) -> Self {
-        Self::StoreFailed {
-            message: message.into(),
-        }
+        Self::StoreFailed { message: message.into() }
     }
 }
 
 impl SearchError {
     /// Create a timeout error
     pub fn timeout<S: Into<String>>(message: S) -> Self {
-        Self::Timeout {
-            message: message.into(),
-        }
+        Self::Timeout { message: message.into() }
     }
 
     /// Create an invalid depth error
@@ -280,10 +270,7 @@ impl EvaluationError {
         component: S1,
         message: S2,
     ) -> Self {
-        Self::ComponentFailure {
-            component: component.into(),
-            message: message.into(),
-        }
+        Self::ComponentFailure { component: component.into(), message: message.into() }
     }
 }
 
@@ -294,50 +281,34 @@ impl ConfigurationError {
         value: S2,
         expected: S3,
     ) -> Self {
-        Self::InvalidValue {
-            field: field.into(),
-            value: value.into(),
-            expected: expected.into(),
-        }
+        Self::InvalidValue { field: field.into(), value: value.into(), expected: expected.into() }
     }
 
     /// Create a missing field error
     pub fn missing_field<S: Into<String>>(field: S) -> Self {
-        Self::MissingField {
-            field: field.into(),
-        }
+        Self::MissingField { field: field.into() }
     }
 
     /// Create a file not found error
     pub fn file_not_found<S: Into<String>>(path: S) -> Self {
-        Self::FileNotFound {
-            path: path.into(),
-        }
+        Self::FileNotFound { path: path.into() }
     }
 
     /// Create a parse error
     pub fn parse_error<S1: Into<String>, S2: Into<String>>(path: S1, message: S2) -> Self {
-        Self::ParseError {
-            path: path.into(),
-            message: message.into(),
-        }
+        Self::ParseError { path: path.into(), message: message.into() }
     }
 
     /// Create a validation failed error
     pub fn validation_failed<S: Into<String>>(message: S) -> Self {
-        Self::ValidationFailed {
-            message: message.into(),
-        }
+        Self::ValidationFailed { message: message.into() }
     }
 
     /// Create a serialization failed error
     pub fn serialization_failed<S: Into<String>>(message: S) -> Self {
-        Self::SerializationFailed {
-            message: message.into(),
-        }
+        Self::SerializationFailed { message: message.into() }
     }
 }
 
 /// Convenience type alias for Result with ShogiEngineError
 pub type Result<T, E = ShogiEngineError> = std::result::Result<T, E>;
-

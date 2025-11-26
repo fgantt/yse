@@ -103,16 +103,11 @@ impl RuntimeConfigurationManager {
 
     /// Add default configuration templates
     fn add_default_templates(&mut self) {
+        self.templates.insert("default".to_string(), TranspositionConfig::default());
         self.templates
-            .insert("default".to_string(), TranspositionConfig::default());
-        self.templates.insert(
-            "performance".to_string(),
-            TranspositionConfig::performance_optimized(),
-        );
-        self.templates.insert(
-            "memory".to_string(),
-            TranspositionConfig::memory_optimized(),
-        );
+            .insert("performance".to_string(), TranspositionConfig::performance_optimized());
+        self.templates
+            .insert("memory".to_string(), TranspositionConfig::memory_optimized());
 
         // Add custom templates
         self.templates.insert(
@@ -187,10 +182,7 @@ impl RuntimeConfigurationManager {
         // Validate the new configuration
         let validation = self.validate_configuration(&new_config);
         if !validation.is_valid {
-            return Err(format!(
-                "Configuration validation failed: {:?}",
-                validation.errors
-            ));
+            return Err(format!("Configuration validation failed: {:?}", validation.errors));
         }
 
         // Log warnings if any
@@ -212,15 +204,10 @@ impl RuntimeConfigurationManager {
             ConfigurationUpdateStrategy::Immediate => {
                 *self.active_config.lock().unwrap() = new_config;
             }
-            ConfigurationUpdateStrategy::Gradual {
-                steps,
-                step_duration_ms,
-            } => {
+            ConfigurationUpdateStrategy::Gradual { steps, step_duration_ms } => {
                 self.apply_gradual_update(new_config, steps, step_duration_ms)?;
             }
-            ConfigurationUpdateStrategy::Conditional {
-                min_improvement_threshold,
-            } => {
+            ConfigurationUpdateStrategy::Conditional { min_improvement_threshold } => {
                 self.apply_conditional_update(new_config, min_improvement_threshold)?;
             }
             ConfigurationUpdateStrategy::Adaptive { load_threshold } => {
@@ -292,9 +279,7 @@ impl RuntimeConfigurationManager {
         let performance_impact = self.assess_performance_impact(&new_config, &current_metrics);
 
         match performance_impact {
-            PerformanceImpact::Positive {
-                improvement_percentage,
-            } => {
+            PerformanceImpact::Positive { improvement_percentage } => {
                 if improvement_percentage >= min_improvement_threshold {
                     *self.active_config.lock().unwrap() = new_config;
                     println!(
@@ -312,9 +297,7 @@ impl RuntimeConfigurationManager {
                 *self.active_config.lock().unwrap() = new_config;
                 println!("Configuration updated with neutral impact");
             }
-            PerformanceImpact::Negative {
-                degradation_percentage,
-            } => {
+            PerformanceImpact::Negative { degradation_percentage } => {
                 return Err(format!(
                     "Configuration would degrade performance by {:.1}%",
                     degradation_percentage
@@ -407,21 +390,13 @@ impl RuntimeConfigurationManager {
         let size_ratio = config.table_size as f64 / current_config.table_size as f64;
 
         if size_ratio > 1.5 {
-            PerformanceImpact::Positive {
-                improvement_percentage: 15.0,
-            }
+            PerformanceImpact::Positive { improvement_percentage: 15.0 }
         } else if size_ratio > 1.0 {
-            PerformanceImpact::Positive {
-                improvement_percentage: 5.0,
-            }
+            PerformanceImpact::Positive { improvement_percentage: 5.0 }
         } else if size_ratio < 0.5 {
-            PerformanceImpact::Negative {
-                degradation_percentage: 20.0,
-            }
+            PerformanceImpact::Negative { degradation_percentage: 20.0 }
         } else if size_ratio < 1.0 {
-            PerformanceImpact::Negative {
-                degradation_percentage: 5.0,
-            }
+            PerformanceImpact::Negative { degradation_percentage: 5.0 }
         } else {
             PerformanceImpact::Neutral
         }
@@ -445,10 +420,7 @@ impl RuntimeConfigurationManager {
     ) -> Result<(), String> {
         let validation = self.validate_configuration(&config);
         if !validation.is_valid {
-            return Err(format!(
-                "Template validation failed: {:?}",
-                validation.errors
-            ));
+            return Err(format!("Template validation failed: {:?}", validation.errors));
         }
 
         self.templates.insert(name, config);
@@ -559,9 +531,7 @@ pub struct ConfigurationBuilder {
 impl ConfigurationBuilder {
     /// Create a new configuration builder
     pub fn new() -> Self {
-        Self {
-            config: TranspositionConfig::default(),
-        }
+        Self { config: TranspositionConfig::default() }
     }
 
     /// Set table size
@@ -622,9 +592,7 @@ mod tests {
         let manager = RuntimeConfigurationManager::new(config);
 
         assert!(manager.list_templates().contains(&"default".to_string()));
-        assert!(manager
-            .list_templates()
-            .contains(&"performance".to_string()));
+        assert!(manager.list_templates().contains(&"performance".to_string()));
         assert!(manager.list_templates().contains(&"memory".to_string()));
     }
 
@@ -637,10 +605,8 @@ mod tests {
         let validation = manager.validate_configuration(&valid_config);
         assert!(validation.is_valid);
 
-        let invalid_config = TranspositionConfig {
-            table_size: 0,
-            ..TranspositionConfig::default()
-        };
+        let invalid_config =
+            TranspositionConfig { table_size: 0, ..TranspositionConfig::default() };
         let validation = manager.validate_configuration(&invalid_config);
         assert!(!validation.is_valid);
     }
@@ -663,14 +629,10 @@ mod tests {
         let config = TranspositionConfig::default();
         let mut manager = RuntimeConfigurationManager::new(config);
 
-        let custom_config = TranspositionConfig {
-            table_size: 32768,
-            ..TranspositionConfig::default()
-        };
+        let custom_config =
+            TranspositionConfig { table_size: 32768, ..TranspositionConfig::default() };
 
-        assert!(manager
-            .add_template("custom".to_string(), custom_config)
-            .is_ok());
+        assert!(manager.add_template("custom".to_string(), custom_config).is_ok());
         assert!(manager.get_template("custom").is_some());
         assert!(manager.remove_template("custom"));
         assert!(!manager.remove_template("default")); // Cannot remove built-in

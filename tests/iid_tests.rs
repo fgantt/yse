@@ -475,15 +475,8 @@ fn test_should_apply_iid_time_pressure() {
 
     // Should not apply IID in time pressure (if time pressure detection is enabled)
     // Note: This test might be flaky due to timing, but it tests the logic
-    let result = engine.should_apply_iid(
-        5,
-        None,
-        &legal_moves,
-        &start_time,
-        time_limit_ms,
-        None,
-        None,
-    );
+    let result =
+        engine.should_apply_iid(5, None, &legal_moves, &start_time, time_limit_ms, None, None);
     // The result depends on timing, so we just verify the function doesn't panic
     assert!(result == true || result == false);
 }
@@ -1108,18 +1101,14 @@ fn test_iid_config_preset_management() {
 
     // Test Aggressive preset
     let aggressive_config = EngineConfig::get_preset(EnginePreset::Aggressive);
-    assert!(engine
-        .update_engine_config(aggressive_config.clone())
-        .is_ok());
+    assert!(engine.update_engine_config(aggressive_config.clone()).is_ok());
     let iid_config = engine.get_iid_config();
     assert!(iid_config.enabled);
     assert_eq!(iid_config.min_depth, 3);
 
     // Test Conservative preset
     let conservative_config = EngineConfig::get_preset(EnginePreset::Conservative);
-    assert!(engine
-        .update_engine_config(conservative_config.clone())
-        .is_ok());
+    assert!(engine.update_engine_config(conservative_config.clone()).is_ok());
     let iid_config = engine.get_iid_config();
     assert!(iid_config.enabled);
     assert_eq!(iid_config.min_depth, 5);
@@ -1138,9 +1127,7 @@ fn test_iid_config_engine_integration() {
     new_engine_config.iid.enabled = false;
     new_engine_config.iid.min_depth = 8;
 
-    assert!(engine
-        .update_engine_config(new_engine_config.clone())
-        .is_ok());
+    assert!(engine.update_engine_config(new_engine_config.clone()).is_ok());
 
     // Verify IID config was updated
     let updated_iid_config = engine.get_iid_config();
@@ -1204,19 +1191,10 @@ fn test_iid_config_clone_and_equality() {
     assert_eq!(config1.min_depth, config2.min_depth);
     assert_eq!(config1.iid_depth_ply, config2.iid_depth_ply);
     assert_eq!(config1.max_legal_moves, config2.max_legal_moves);
-    assert_eq!(
-        config1.time_overhead_threshold,
-        config2.time_overhead_threshold
-    );
+    assert_eq!(config1.time_overhead_threshold, config2.time_overhead_threshold);
     assert_eq!(config1.depth_strategy, config2.depth_strategy);
-    assert_eq!(
-        config1.enable_time_pressure_detection,
-        config2.enable_time_pressure_detection
-    );
-    assert_eq!(
-        config1.enable_adaptive_tuning,
-        config2.enable_adaptive_tuning
-    );
+    assert_eq!(config1.enable_time_pressure_detection, config2.enable_time_pressure_detection);
+    assert_eq!(config1.enable_adaptive_tuning, config2.enable_adaptive_tuning);
 }
 
 #[test]
@@ -1662,10 +1640,7 @@ fn test_adaptive_iid_configuration_disabled() {
     let final_config = engine.get_iid_config();
     assert_eq!(initial_config.min_depth, final_config.min_depth);
     assert_eq!(initial_config.iid_depth_ply, final_config.iid_depth_ply);
-    assert_eq!(
-        initial_config.time_overhead_threshold,
-        final_config.time_overhead_threshold
-    );
+    assert_eq!(initial_config.time_overhead_threshold, final_config.time_overhead_threshold);
 }
 
 #[test]
@@ -2260,10 +2235,7 @@ fn test_overhead_monitoring_with_adaptive_tuning_disabled() {
     let final_config = engine.get_iid_config();
 
     // Configuration should remain unchanged when adaptive tuning is disabled
-    assert_eq!(
-        initial_config.time_overhead_threshold,
-        final_config.time_overhead_threshold
-    );
+    assert_eq!(initial_config.time_overhead_threshold, final_config.time_overhead_threshold);
     assert_eq!(initial_config.max_legal_moves, final_config.max_legal_moves);
 }
 
@@ -2736,12 +2708,8 @@ fn test_multi_pv_recommendations() {
 
     let recommendations = engine.get_multi_pv_recommendations(&high_complexity_analysis);
     assert!(!recommendations.is_empty());
-    assert!(recommendations
-        .iter()
-        .any(|r| r.contains("Large score spread")));
-    assert!(recommendations
-        .iter()
-        .any(|r| r.contains("High complexity")));
+    assert!(recommendations.iter().any(|r| r.contains("Large score spread")));
+    assert!(recommendations.iter().any(|r| r.contains("High complexity")));
 }
 
 #[test]
@@ -3305,10 +3273,7 @@ fn test_strength_test_position_creation() {
         difficulty: PositionDifficulty::Easy,
     };
 
-    assert_eq!(
-        position.fen,
-        "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1"
-    );
+    assert_eq!(position.fen, "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1");
     assert_eq!(position.description, "Starting position");
     assert_eq!(position.expected_result, GameResult::Draw);
     assert_eq!(position.difficulty, PositionDifficulty::Easy);
@@ -3527,14 +3492,8 @@ fn test_strength_test_basic() {
 // Helper function to create test moves
 fn create_test_move(from_row: u8, from_col: u8, to_row: u8, to_col: u8) -> Move {
     Move {
-        from: Some(Position {
-            row: from_row,
-            col: from_col,
-        }),
-        to: Position {
-            row: to_row,
-            col: to_col,
-        },
+        from: Some(Position { row: from_row, col: from_col }),
+        to: Position { row: to_row, col: to_col },
         piece_type: PieceType::Pawn,
         captured_piece: None,
         is_promotion: false,
@@ -3784,9 +3743,7 @@ fn test_advanced_ordering_iid_move_prioritization() {
 
     // Check if IID move appears in the ordered moves (should be first)
     if let Some(iid_mv) = iid_move {
-        let iid_pos = ordered_moves
-            .iter()
-            .position(|m| engine.moves_equal(m, iid_mv));
+        let iid_pos = ordered_moves.iter().position(|m| engine.moves_equal(m, iid_mv));
         // IID move should be in the list and ideally first (or at least prioritized)
         assert!(iid_pos.is_some(), "IID move should be in ordered moves");
 
@@ -3851,9 +3808,7 @@ fn test_advanced_ordering_without_iid_move() {
 
     // With IID move, the IID move should be prioritized (first or early in the list)
     if let Some(iid_mv) = iid_move {
-        let iid_pos = ordered_with_iid
-            .iter()
-            .position(|m| engine.moves_equal(m, iid_mv));
+        let iid_pos = ordered_with_iid.iter().position(|m| engine.moves_equal(m, iid_mv));
         assert!(iid_pos.is_some(), "IID move should be in ordered moves");
 
         // IID move position should be better (earlier) with IID than without
@@ -3944,13 +3899,8 @@ fn test_order_moves_for_negamax_iid_move_integration() {
         assert_eq!(ordered.len(), legal_moves.len());
 
         // Verify IID move is in the ordered list
-        let iid_pos = ordered
-            .iter()
-            .position(|m| engine.moves_equal(m, iid_move.unwrap()));
-        assert!(
-            iid_pos.is_some(),
-            "IID move should always be in ordered moves"
-        );
+        let iid_pos = ordered.iter().position(|m| engine.moves_equal(m, iid_move.unwrap()));
+        assert!(iid_pos.is_some(), "IID move should always be in ordered moves");
     }
 }
 
@@ -4587,9 +4537,7 @@ fn test_tt_move_condition_depth_age_checking() {
 
     // Create a TT entry with shallow depth (depth 2 < min_depth 3)
     // IID should still be applied even if TT move exists
-    let position_hash = engine
-        .hash_calculator
-        .get_position_hash(&board, player, &captured_pieces);
+    let position_hash = engine.hash_calculator.get_position_hash(&board, player, &captured_pieces);
     let shallow_entry = TranspositionEntry::new(
         100, // score
         2,   // depth (below threshold)
@@ -4668,9 +4616,7 @@ fn test_tt_move_condition_effectiveness_tracking() {
     let player = Player::Black;
 
     // Create a TT entry with sufficient depth and age
-    let position_hash = engine
-        .hash_calculator
-        .get_position_hash(&board, player, &captured_pieces);
+    let position_hash = engine.hash_calculator.get_position_hash(&board, player, &captured_pieces);
     let good_entry = TranspositionEntry::new(
         100,
         5, // depth (>= 3, sufficient)
@@ -4746,22 +4692,10 @@ fn test_iid_preset_enum() {
     assert_eq!(balanced.to_string(), "Balanced");
 
     // Test from_str parsing
-    assert_eq!(
-        IIDPreset::from_str("conservative"),
-        Some(IIDPreset::Conservative)
-    );
-    assert_eq!(
-        IIDPreset::from_str("CONSERVATIVE"),
-        Some(IIDPreset::Conservative)
-    );
-    assert_eq!(
-        IIDPreset::from_str("aggressive"),
-        Some(IIDPreset::Aggressive)
-    );
-    assert_eq!(
-        IIDPreset::from_str("AGGRESSIVE"),
-        Some(IIDPreset::Aggressive)
-    );
+    assert_eq!(IIDPreset::from_str("conservative"), Some(IIDPreset::Conservative));
+    assert_eq!(IIDPreset::from_str("CONSERVATIVE"), Some(IIDPreset::Conservative));
+    assert_eq!(IIDPreset::from_str("aggressive"), Some(IIDPreset::Aggressive));
+    assert_eq!(IIDPreset::from_str("AGGRESSIVE"), Some(IIDPreset::Aggressive));
     assert_eq!(IIDPreset::from_str("balanced"), Some(IIDPreset::Balanced));
     assert_eq!(IIDPreset::from_str("BALANCED"), Some(IIDPreset::Balanced));
     assert_eq!(IIDPreset::from_str("invalid"), None);

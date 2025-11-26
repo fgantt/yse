@@ -28,7 +28,9 @@
 use crate::bitboards::BitboardBoard;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{PieceType, Position};
-use crate::types::evaluation::{GAME_PHASE_MAX, PIECE_PHASE_VALUES, TaperedEvaluationConfig, TaperedScore};
+use crate::types::evaluation::{
+    TaperedEvaluationConfig, TaperedScore, GAME_PHASE_MAX, PIECE_PHASE_VALUES,
+};
 use serde::{Deserialize, Serialize};
 use std::cmp;
 
@@ -58,11 +60,7 @@ impl TaperedEvaluation {
 
     /// Create a new TaperedEvaluation with custom configuration
     pub fn with_config(config: TaperedEvaluationConfig) -> Self {
-        Self {
-            config,
-            phase_cache: Vec::new(),
-            stats: TaperedEvaluationStats::default(),
-        }
+        Self { config, phase_cache: Vec::new(), stats: TaperedEvaluationStats::default() }
     }
 
     /// Get the current configuration
@@ -205,9 +203,7 @@ impl TaperedEvaluation {
     ///
     /// This provides smooth transitions between game phases without discontinuities.
     pub fn interpolate(&self, score: TaperedScore, phase: i32) -> i32 {
-        self.stats
-            .interpolations
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.stats.interpolations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         score.interpolate(phase)
     }
 
@@ -284,11 +280,7 @@ impl TaperedEvaluation {
             return;
         }
 
-        if let Some(pos) = self
-            .phase_cache
-            .iter()
-            .position(|(existing, _)| *existing == hash)
-        {
+        if let Some(pos) = self.phase_cache.iter().position(|(existing, _)| *existing == hash) {
             self.phase_cache.remove(pos);
         }
 
@@ -338,8 +330,7 @@ impl Clone for TaperedEvaluationStats {
             phase_calculations: self.phase_calculations,
             cache_hits: self.cache_hits,
             interpolations: std::sync::atomic::AtomicU64::new(
-                self.interpolations
-                    .load(std::sync::atomic::Ordering::Relaxed),
+                self.interpolations.load(std::sync::atomic::Ordering::Relaxed),
             ),
         }
     }
@@ -357,8 +348,7 @@ impl TaperedEvaluationStats {
 
     /// Get total interpolations
     pub fn total_interpolations(&self) -> u64 {
-        self.interpolations
-            .load(std::sync::atomic::Ordering::Relaxed)
+        self.interpolations.load(std::sync::atomic::Ordering::Relaxed)
     }
 
     /// Produce an immutable snapshot of current statistics.
@@ -397,10 +387,7 @@ mod tests {
         let captured_pieces = CapturedPieces::new();
 
         let phase = evaluator.calculate_game_phase(&board, &captured_pieces);
-        assert_eq!(
-            phase, GAME_PHASE_MAX,
-            "Starting position should have maximum phase"
-        );
+        assert_eq!(phase, GAME_PHASE_MAX, "Starting position should have maximum phase");
     }
 
     #[test]
@@ -603,10 +590,7 @@ mod tests {
         captured_with.add_piece(PieceType::Rook, Player::Black);
         let phase_with = evaluator.calculate_game_phase(&board, &captured_with);
 
-        assert!(
-            phase_with > phase_without,
-            "Having pieces in hand should increase phase value"
-        );
+        assert!(phase_with > phase_without, "Having pieces in hand should increase phase value");
     }
 
     #[test]
@@ -671,30 +655,12 @@ mod tests {
         assert_eq!(evaluator.get_piece_phase_value(PieceType::Bishop), Some(2));
         assert_eq!(evaluator.get_piece_phase_value(PieceType::Rook), Some(3));
         assert_eq!(evaluator.get_piece_phase_value(PieceType::Lance), Some(1));
-        assert_eq!(
-            evaluator.get_piece_phase_value(PieceType::PromotedPawn),
-            Some(2)
-        );
-        assert_eq!(
-            evaluator.get_piece_phase_value(PieceType::PromotedLance),
-            Some(2)
-        );
-        assert_eq!(
-            evaluator.get_piece_phase_value(PieceType::PromotedKnight),
-            Some(2)
-        );
-        assert_eq!(
-            evaluator.get_piece_phase_value(PieceType::PromotedSilver),
-            Some(2)
-        );
-        assert_eq!(
-            evaluator.get_piece_phase_value(PieceType::PromotedBishop),
-            Some(3)
-        );
-        assert_eq!(
-            evaluator.get_piece_phase_value(PieceType::PromotedRook),
-            Some(3)
-        );
+        assert_eq!(evaluator.get_piece_phase_value(PieceType::PromotedPawn), Some(2));
+        assert_eq!(evaluator.get_piece_phase_value(PieceType::PromotedLance), Some(2));
+        assert_eq!(evaluator.get_piece_phase_value(PieceType::PromotedKnight), Some(2));
+        assert_eq!(evaluator.get_piece_phase_value(PieceType::PromotedSilver), Some(2));
+        assert_eq!(evaluator.get_piece_phase_value(PieceType::PromotedBishop), Some(3));
+        assert_eq!(evaluator.get_piece_phase_value(PieceType::PromotedRook), Some(3));
 
         // Test pieces that don't contribute to phase
         assert_eq!(evaluator.get_piece_phase_value(PieceType::Pawn), None);

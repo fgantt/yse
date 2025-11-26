@@ -1,7 +1,9 @@
 //! Tests for external profiler integration (Task 26.0 - Task 8.0)
 
-use shogi_engine::search::performance_tuning::{ExternalProfiler, InstrumentsProfiler, PerfProfiler, ProfilerMarker, MarkerType};
-use shogi_engine::search::search_engine::{SearchEngine, IterativeDeepening};
+use shogi_engine::search::performance_tuning::{
+    ExternalProfiler, InstrumentsProfiler, MarkerType, PerfProfiler, ProfilerMarker,
+};
+use shogi_engine::search::search_engine::{IterativeDeepening, SearchEngine};
 use shogi_engine::types::*;
 use shogi_engine::BitboardBoard;
 use std::sync::Arc;
@@ -10,25 +12,25 @@ use std::sync::Arc;
 fn test_external_profiler_markers() {
     let perf_profiler = PerfProfiler::new();
     perf_profiler.enable();
-    
+
     let mut engine = SearchEngine::new(None, 16);
     engine.enable_external_profiling(Arc::new(perf_profiler));
-    
+
     // Run a short search to generate markers
     let board = BitboardBoard::new();
     let mut iterative_deepening = IterativeDeepening::new(4, 1000, None);
     let captured = CapturedPieces::new();
     let _ = iterative_deepening.search(&mut engine, &board, &captured, Player::Black);
-    
+
     // Export markers
     let markers_result = engine.export_profiling_markers();
     assert!(markers_result.is_ok());
-    
+
     let markers_json = markers_result.unwrap();
     assert!(markers_json.get("profiler").is_some());
     assert!(markers_json.get("markers").is_some());
     assert!(markers_json.get("total_markers").is_some());
-    
+
     // Verify markers were created
     let total_markers = markers_json.get("total_markers").unwrap().as_u64().unwrap();
     assert!(total_markers > 0);
@@ -38,10 +40,10 @@ fn test_external_profiler_markers() {
 fn test_perf_profiler_region_markers() {
     let profiler = PerfProfiler::new();
     profiler.enable();
-    
+
     profiler.start_region("test_region");
     profiler.end_region("test_region");
-    
+
     let markers = profiler.get_markers();
     assert_eq!(markers.len(), 2);
     assert_eq!(markers[0].name, "test_region");
@@ -54,10 +56,10 @@ fn test_perf_profiler_region_markers() {
 fn test_instruments_profiler_point_markers() {
     let profiler = InstrumentsProfiler::new();
     profiler.enable();
-    
+
     profiler.mark("test_point");
     profiler.mark("another_point");
-    
+
     let markers = profiler.get_markers();
     assert_eq!(markers.len(), 2);
     assert_eq!(markers[0].name, "test_point");
@@ -69,15 +71,15 @@ fn test_instruments_profiler_point_markers() {
 #[test]
 fn test_profiler_disabled() {
     let profiler = PerfProfiler::new();
-    
+
     // Profiler is disabled by default
     assert!(!profiler.is_enabled());
-    
+
     // Markers should not be created when disabled
     profiler.start_region("test");
     profiler.end_region("test");
     profiler.mark("point");
-    
+
     let markers = profiler.get_markers();
     assert_eq!(markers.len(), 0);
 }
@@ -86,18 +88,18 @@ fn test_profiler_disabled() {
 fn test_profiler_export_markers() {
     let profiler = PerfProfiler::new();
     profiler.enable();
-    
+
     profiler.start_region("region1");
     profiler.mark("point1");
     profiler.end_region("region1");
-    
+
     let export_result = profiler.export_markers();
     assert!(export_result.is_ok());
-    
+
     let json = export_result.unwrap();
     assert_eq!(json.get("profiler").unwrap().as_str().unwrap(), "perf");
     assert_eq!(json.get("total_markers").unwrap().as_u64().unwrap(), 3);
-    
+
     let markers_array = json.get("markers").unwrap().as_array().unwrap();
     assert_eq!(markers_array.len(), 3);
 }
@@ -106,13 +108,13 @@ fn test_profiler_export_markers() {
 fn test_instruments_profiler_export() {
     let profiler = InstrumentsProfiler::new();
     profiler.enable();
-    
+
     profiler.start_region("test");
     profiler.end_region("test");
-    
+
     let export_result = profiler.export_markers();
     assert!(export_result.is_ok());
-    
+
     let json = export_result.unwrap();
     assert_eq!(json.get("profiler").unwrap().as_str().unwrap(), "instruments");
     assert_eq!(json.get("total_markers").unwrap().as_u64().unwrap(), 2);
@@ -121,7 +123,7 @@ fn test_instruments_profiler_export() {
 #[test]
 fn test_external_profiler_disabled() {
     let engine = SearchEngine::new(None, 16);
-    
+
     // Try to export markers when profiler is not enabled
     let result = engine.export_profiling_markers();
     assert!(result.is_err());
@@ -132,15 +134,14 @@ fn test_external_profiler_disabled() {
 fn test_profiler_marker_timestamps() {
     let profiler = PerfProfiler::new();
     profiler.enable();
-    
+
     profiler.start_region("region1");
     std::thread::sleep(std::time::Duration::from_millis(10));
     profiler.end_region("region1");
-    
+
     let markers = profiler.get_markers();
     assert_eq!(markers.len(), 2);
-    
+
     // End timestamp should be greater than start timestamp
     assert!(markers[1].timestamp_ns > markers[0].timestamp_ns);
 }
-

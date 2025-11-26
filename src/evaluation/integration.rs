@@ -203,9 +203,7 @@ use crate::evaluation::evaluation_simd::SimdEvaluator;
 
 use crate::evaluation::{
     castles::CastleRecognizer,
-    component_coordinator::{
-        ComponentCoordination, ComponentContributionTracker,
-    },
+    component_coordinator::{ComponentContributionTracker, ComponentCoordination},
     config::EvaluationWeights,
     endgame_patterns::EndgamePatternEvaluator,
     material::{MaterialEvaluationConfig, MaterialEvaluationStats, MaterialEvaluator},
@@ -225,11 +223,11 @@ use crate::types::board::CapturedPieces;
 use crate::types::core::{PieceType, Player, Position};
 use crate::types::evaluation::TaperedScore;
 // use serde::{Deserialize, Serialize}; // Unused
+pub use crate::evaluation::weight_tuning::{
+    ConvergenceReason, TuningConfig, TuningPosition, TuningPositionSet, TuningResult,
+};
 use std::collections::HashMap;
 use std::time::Instant;
-pub use crate::evaluation::weight_tuning::{
-    TuningConfig, TuningResult, ConvergenceReason, TuningPosition, TuningPositionSet,
-};
 
 /// Immutable evaluation result containing the final score, phase, and optional component contributions.
 ///
@@ -248,11 +246,7 @@ pub struct EvaluationResult {
 impl EvaluationResult {
     /// Create a new evaluation result
     pub fn new(score: i32, phase: i32) -> Self {
-        Self {
-            score,
-            phase,
-            component_scores: HashMap::new(),
-        }
+        Self { score, phase, component_scores: HashMap::new() }
     }
 
     /// Create with component scores
@@ -261,11 +255,7 @@ impl EvaluationResult {
         phase: i32,
         component_scores: HashMap<String, TaperedScore>,
     ) -> Self {
-        Self {
-            score,
-            phase,
-            component_scores,
-        }
+        Self { score, phase, component_scores }
     }
 }
 
@@ -340,10 +330,7 @@ impl IntegratedEvaluator {
 
         // Validate configuration (Task 20.0 - Task 5.16)
         if let Err(err) = config.validate() {
-            debug_log!(&format!(
-                "[IntegratedEvaluator] Configuration validation error: {}",
-                err
-            ));
+            debug_log!(&format!("[IntegratedEvaluator] Configuration validation error: {}", err));
         }
 
         let pst_tables = match PieceSquareTableLoader::load(&config.pst) {
@@ -358,10 +345,7 @@ impl IntegratedEvaluator {
         };
 
         let optimized_eval = if config.use_optimized_path {
-            Some(OptimizedEvaluator::with_components(
-                &config.material,
-                pst_tables.clone(),
-            ))
+            Some(OptimizedEvaluator::with_components(&config.material, pst_tables.clone()))
         } else {
             None
         };
@@ -475,13 +459,8 @@ impl IntegratedEvaluator {
         // Cache if enabled
         if self.config.enable_eval_cache {
             let hash = self.compute_position_hash(board, player, captured_pieces);
-            self.eval_cache.insert(
-                hash,
-                CachedEvaluation {
-                    score: result.score,
-                    phase: result.phase,
-                },
-            );
+            self.eval_cache
+                .insert(hash, CachedEvaluation { score: result.score, phase: result.phase });
         }
 
         result
@@ -516,11 +495,7 @@ impl IntegratedEvaluator {
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> EvaluationResult {
-        let start = if self.statistics.is_enabled() {
-            Some(Instant::now())
-        } else {
-            None
-        };
+        let start = if self.statistics.is_enabled() { Some(Instant::now()) } else { None };
 
         let result = self.evaluate(board, player, captured_pieces);
 
@@ -544,7 +519,7 @@ impl IntegratedEvaluator {
         let stats_enabled = self.statistics.is_enabled();
         // Calculate phase
         let phase = self.calculate_phase_cached(board, captured_pieces);
-        
+
         // Track component scores for result
         let mut component_scores = HashMap::new();
 
@@ -584,8 +559,7 @@ impl IntegratedEvaluator {
         // Material
         if self.config.components.material {
             let material_score =
-                self.material_eval
-                    .evaluate_material(board, player, captured_pieces);
+                self.material_eval.evaluate_material(board, player, captured_pieces);
 
             // Task 5.0 - Task 5.5a, 5.5b: Validate zero scores from enabled components
             if self.config.enable_component_validation && material_score == TaperedScore::default()
@@ -733,8 +707,11 @@ impl IntegratedEvaluator {
 
             // Development (Task 20.0 - Task 1.0)
             // Skip development in position_features if opening_principles is enabled in opening phase
-            let dev_score =
-                self.position_features.evaluate_development(board, player, skip_development_in_features);
+            let dev_score = self.position_features.evaluate_development(
+                board,
+                player,
+                skip_development_in_features,
+            );
             let contribution = (dev_score.interpolate(phase) as f32) * weights.development_weight;
             if contribution.abs() > self.config.weight_contribution_threshold {
                 debug_log!(&format!(
@@ -803,11 +780,8 @@ impl IntegratedEvaluator {
                     phase, endgame_threshold
                 ));
             } else {
-                let mut endgame_score = self.endgame_patterns.evaluate_endgame(
-                    board,
-                    player,
-                    captured_pieces,
-                );
+                let mut endgame_score =
+                    self.endgame_patterns.evaluate_endgame(board, player, captured_pieces);
 
                 // Apply gradual fade factor from coordination
                 endgame_score = endgame_score * coordination.endgame_fade_factor;
@@ -869,7 +843,8 @@ impl IntegratedEvaluator {
         if self.config.components.positional_patterns {
             let positional_score = {
                 // Temporarily disable center control if PositionFeatures takes precedence
-                let original_center_control = self.positional_patterns.config_mut().enable_center_control;
+                let original_center_control =
+                    self.positional_patterns.config_mut().enable_center_control;
                 let skip_center_control_in_positional = if self.config.components.position_features
                     && self.config.center_control_precedence
                         == CenterControlPrecedence::PositionFeatures
@@ -880,11 +855,13 @@ impl IntegratedEvaluator {
                     false
                 };
 
-                let score = self.positional_patterns.evaluate_position(board, player, captured_pieces);
+                let score =
+                    self.positional_patterns.evaluate_position(board, player, captured_pieces);
 
                 // Restore original center control setting
                 if skip_center_control_in_positional {
-                    self.positional_patterns.config_mut().enable_center_control = original_center_control;
+                    self.positional_patterns.config_mut().enable_center_control =
+                        original_center_control;
                 }
 
                 if stats_enabled {
@@ -971,9 +948,7 @@ impl IntegratedEvaluator {
         }
 
         // Interpolate to final score
-        let final_score = self
-            .phase_transition
-            .interpolate_default(total, phase);
+        let final_score = self.phase_transition.interpolate_default(total, phase);
 
         // Calculate weight contributions for telemetry (Task 5.0 - Task 5.10)
         // Use ComponentContributionTracker from extracted module
@@ -1031,8 +1006,7 @@ impl IntegratedEvaluator {
         self.telemetry = Some(telemetry.clone());
         if stats_enabled {
             if let Some(stats) = position_feature_stats_snapshot {
-                self.statistics
-                    .record_position_feature_stats(stats);
+                self.statistics.record_position_feature_stats(stats);
             }
             if let Some(stats) = positional_snapshot {
                 self.statistics.record_positional_stats(stats);
@@ -1045,22 +1019,22 @@ impl IntegratedEvaluator {
     }
 
     /// Evaluate piece-square tables
-    /// 
+    ///
     /// Uses SIMD-optimized evaluation when the `simd` feature is enabled,
     /// falling back to scalar implementation otherwise.
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// When SIMD is enabled, uses batch operations for improved cache locality
     /// and potential SIMD acceleration, achieving 2-4x speedup over scalar implementation.
-    /// 
+    ///
     /// # Memory Optimizations (Task 1.10)
-    /// 
+    ///
     /// This method includes several memory optimizations:
     /// - **Prefetching**: Prefetches upcoming PST table entries to reduce cache misses
     /// - **Cache-aligned tables**: PST tables are 64-byte cache-line aligned for optimal access
     /// - **Sequential access pattern**: Iterates row-by-row for better cache locality
-    /// 
+    ///
     /// These optimizations provide an additional 5-10% performance improvement
     /// on top of SIMD optimizations.
     pub(crate) fn evaluate_pst(
@@ -1077,19 +1051,19 @@ impl IntegratedEvaluator {
                 // Use SIMD-optimized evaluation for the total score
                 let simd_evaluator = SimdEvaluator::new();
                 let score = simd_evaluator.evaluate_pst_batch(board, &self.pst, player);
-                
+
                 // Build per-piece telemetry by iterating once (needed for telemetry format)
                 // This is still efficient as it's a single pass and the score calculation
                 // (the expensive part) was done with SIMD batch operations
                 let mut per_piece = [TaperedScore::default(); PieceType::COUNT];
-                
+
                 // Prefetch distance: prefetch 2-3 positions ahead for better cache utilization
                 const PREFETCH_DISTANCE: u8 = 2;
-                
+
                 for row in 0..9 {
                     for col in 0..9 {
                         let pos = Position::new(row, col);
-                        
+
                         // Prefetch upcoming positions for better cache performance
                         // Task 1.10.1: Add prefetching hints for PST table lookups
                         // Prefetch the next position in the same row to improve cache utilization
@@ -1097,30 +1071,40 @@ impl IntegratedEvaluator {
                             let prefetch_pos = Position::new(row, col + PREFETCH_DISTANCE);
                             if let Some(prefetch_piece) = board.get_piece(prefetch_pos) {
                                 // Prefetch the PST table entries we'll access soon
-                                let (mg_table, eg_table) = self.pst.get_tables(prefetch_piece.piece_type);
-                                let (prefetch_row, prefetch_col) = self.pst.get_table_coords(prefetch_pos, prefetch_piece.player);
-                                
+                                let (mg_table, eg_table) =
+                                    self.pst.get_tables(prefetch_piece.piece_type);
+                                let (prefetch_row, prefetch_col) =
+                                    self.pst.get_table_coords(prefetch_pos, prefetch_piece.player);
+
                                 // Prefetch both mg and eg table entries into L1 cache
                                 // This reduces cache misses when we access these values later
                                 unsafe {
                                     #[cfg(target_arch = "x86_64")]
                                     {
                                         use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
-                                        let mg_ptr = &mg_table[prefetch_row as usize][prefetch_col as usize] as *const i32 as *const i8;
-                                        let eg_ptr = &eg_table[prefetch_row as usize][prefetch_col as usize] as *const i32 as *const i8;
+                                        let mg_ptr = &mg_table[prefetch_row as usize]
+                                            [prefetch_col as usize]
+                                            as *const i32
+                                            as *const i8;
+                                        let eg_ptr = &eg_table[prefetch_row as usize]
+                                            [prefetch_col as usize]
+                                            as *const i32
+                                            as *const i8;
                                         _mm_prefetch(mg_ptr, _MM_HINT_T0);
                                         _mm_prefetch(eg_ptr, _MM_HINT_T0);
                                     }
                                     #[cfg(target_arch = "aarch64")]
                                     {
                                         // ARM64 prefetch - use compiler hint
-                                        let _ = (&mg_table[prefetch_row as usize][prefetch_col as usize],
-                                                &eg_table[prefetch_row as usize][prefetch_col as usize]);
+                                        let _ = (
+                                            &mg_table[prefetch_row as usize][prefetch_col as usize],
+                                            &eg_table[prefetch_row as usize][prefetch_col as usize],
+                                        );
                                     }
                                 }
                             }
                         }
-                        
+
                         if let Some(piece) = board.get_piece(pos) {
                             let pst_value = self.pst.get_value(piece.piece_type, pos, piece.player);
                             let idx = piece.piece_type.as_index();
@@ -1133,13 +1117,13 @@ impl IntegratedEvaluator {
                         }
                     }
                 }
-                
+
                 let telemetry = PieceSquareTelemetry::from_contributions(score, &per_piece);
                 return (score, telemetry);
             }
             // Fall through to scalar implementation if SIMD disabled at runtime
         }
-        
+
         // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
         {
             // Record scalar evaluation call
@@ -1155,7 +1139,7 @@ impl IntegratedEvaluator {
             for row in 0..9 {
                 for col in 0..9 {
                     let pos = Position::new(row, col);
-                    
+
                     // Prefetch upcoming positions for better cache performance
                     // Task 1.10.1: Add prefetching hints for PST table lookups
                     // Prefetch the next position in the same row to improve cache utilization
@@ -1163,30 +1147,40 @@ impl IntegratedEvaluator {
                         let prefetch_pos = Position::new(row, col + PREFETCH_DISTANCE);
                         if let Some(prefetch_piece) = board.get_piece(prefetch_pos) {
                             // Prefetch the PST table entries we'll access soon
-                            let (mg_table, eg_table) = self.pst.get_tables(prefetch_piece.piece_type);
-                            let (prefetch_row, prefetch_col) = self.pst.get_table_coords(prefetch_pos, prefetch_piece.player);
-                            
+                            let (mg_table, eg_table) =
+                                self.pst.get_tables(prefetch_piece.piece_type);
+                            let (prefetch_row, prefetch_col) =
+                                self.pst.get_table_coords(prefetch_pos, prefetch_piece.player);
+
                             // Prefetch both mg and eg table entries into L1 cache
                             // This reduces cache misses when we access these values later
                             unsafe {
                                 #[cfg(target_arch = "x86_64")]
                                 {
                                     use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
-                                    let mg_ptr = &mg_table[prefetch_row as usize][prefetch_col as usize] as *const i32 as *const i8;
-                                    let eg_ptr = &eg_table[prefetch_row as usize][prefetch_col as usize] as *const i32 as *const i8;
+                                    let mg_ptr = &mg_table[prefetch_row as usize]
+                                        [prefetch_col as usize]
+                                        as *const i32
+                                        as *const i8;
+                                    let eg_ptr = &eg_table[prefetch_row as usize]
+                                        [prefetch_col as usize]
+                                        as *const i32
+                                        as *const i8;
                                     _mm_prefetch(mg_ptr, _MM_HINT_T0);
                                     _mm_prefetch(eg_ptr, _MM_HINT_T0);
                                 }
                                 #[cfg(target_arch = "aarch64")]
                                 {
                                     // ARM64 prefetch - use compiler hint
-                                    let _ = (&mg_table[prefetch_row as usize][prefetch_col as usize],
-                                            &eg_table[prefetch_row as usize][prefetch_col as usize]);
+                                    let _ = (
+                                        &mg_table[prefetch_row as usize][prefetch_col as usize],
+                                        &eg_table[prefetch_row as usize][prefetch_col as usize],
+                                    );
                                 }
                             }
                         }
                     }
-                    
+
                     if let Some(piece) = board.get_piece(pos) {
                         let pst_value = self.pst.get_value(piece.piece_type, pos, piece.player);
                         let idx = piece.piece_type.as_index();
@@ -1214,9 +1208,7 @@ impl IntegratedEvaluator {
         captured_pieces: &CapturedPieces,
     ) -> i32 {
         if !self.config.enable_phase_cache {
-            return self
-                .tapered_eval
-                .calculate_game_phase(board, captured_pieces);
+            return self.tapered_eval.calculate_game_phase(board, captured_pieces);
         }
 
         let hash = self.compute_phase_hash(board, captured_pieces);
@@ -1225,9 +1217,7 @@ impl IntegratedEvaluator {
             return phase;
         }
 
-        let phase = self
-            .tapered_eval
-            .calculate_game_phase(board, captured_pieces);
+        let phase = self.tapered_eval.calculate_game_phase(board, captured_pieces);
         self.phase_cache.insert(hash, phase);
         phase
     }
@@ -1372,7 +1362,7 @@ impl IntegratedEvaluator {
         {
             material_config.enable_simd = self.config.simd.enable_simd_evaluation;
         }
-        
+
         let mut updated = self.config.clone();
         updated.material = material_config;
         self.set_config(updated);
@@ -1401,7 +1391,7 @@ impl IntegratedEvaluator {
         }
         #[cfg(not(feature = "simd"))]
         let material_config = config.material.clone();
-        
+
         self.config = config.clone();
 
         {
@@ -1451,7 +1441,8 @@ impl IntegratedEvaluator {
         self.clear_caches();
         {
             self.statistics.reset();
-            self.statistics.set_collect_position_feature_stats(config.collect_position_feature_stats);
+            self.statistics
+                .set_collect_position_feature_stats(config.collect_position_feature_stats);
         }
         self.telemetry = None;
     }
@@ -1542,10 +1533,10 @@ pub struct IntegratedEvaluationConfig {
     /// Automatically resolve conflicts when detected (Task 20.0 - Task 5.10)
     pub auto_resolve_conflicts: bool,
     /// SIMD optimization configuration
-    /// 
+    ///
     /// Controls runtime enabling/disabling of SIMD optimizations.
     /// Only effective when the `simd` feature is enabled at compile time.
-    /// 
+    ///
     /// # Task 4.0 (Task 4.2)
     #[cfg(feature = "simd")]
     pub simd: crate::config::SimdConfig,
@@ -2130,17 +2121,6 @@ mod tests {
 ///
 /// Note: BitboardBoard and CapturedPieces are not serializable, so this struct
 
-
-
-
-
-
-
-
-
-
-
-
 // Tuning methods for IntegratedEvaluator (Task 20.0 - Task 4.0)
 impl IntegratedEvaluator {
     /// Tune evaluation weights using training positions (Task 20.0 - Task 4.3, 4.6-4.9)
@@ -2330,9 +2310,7 @@ impl IntegratedEvaluator {
         let mut aggregated_contributions = HashMap::new();
         for telemetry in telemetry_set {
             for (component, contribution) in &telemetry.weight_contributions {
-                *aggregated_contributions
-                    .entry(component.clone())
-                    .or_insert(0.0) += contribution;
+                *aggregated_contributions.entry(component.clone()).or_insert(0.0) += contribution;
             }
         }
 
@@ -2368,13 +2346,7 @@ impl IntegratedEvaluator {
     /// Delegates to the weight_tuning module.
     pub fn telemetry_to_tuning_pipeline(
         &self,
-        telemetry_positions: &[(
-            BitboardBoard,
-            CapturedPieces,
-            Player,
-            EvaluationTelemetry,
-            f64,
-        )],
+        telemetry_positions: &[(BitboardBoard, CapturedPieces, Player, EvaluationTelemetry, f64)],
     ) -> crate::evaluation::weight_tuning::TuningPositionSet {
         // Use the extracted weight_tuning module
         // Note: The weight_tuning module currently has placeholder types that need
@@ -2388,7 +2360,8 @@ impl IntegratedEvaluator {
             // This method needs to be updated to use evaluate() result or a separate phase calculation
             // For now, use a temporary evaluator or extract phase calculation
             let mut temp_evaluator = IntegratedEvaluator::new();
-            let result = temp_evaluator.evaluate_with_move_count(board, *player, captured_pieces, None);
+            let result =
+                temp_evaluator.evaluate_with_move_count(board, *player, captured_pieces, None);
             let game_phase = result.phase;
 
             // Create tuning position

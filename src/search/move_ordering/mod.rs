@@ -30,22 +30,22 @@
 //! println!("Total moves ordered: {}", stats.total_moves_ordered);
 //! ```
 
-use crate::utils::time::TimeSource;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{Move, PieceType, Player, Position};
 use crate::types::transposition::TranspositionEntry;
 use crate::types::TranspositionFlag;
+use crate::utils::time::TimeSource;
 use std::collections::HashMap;
 use std::fmt;
 use std::ptr;
 
 // Task 1.22: Modularized move ordering - submodules are in the same directory
-mod statistics;
 mod cache;
+mod counter_moves;
 mod history_heuristic;
 mod killer_moves;
-mod counter_moves;
 mod pv_ordering;
+mod statistics;
 
 pub use pv_ordering::{
     moves_equal as moves_equal_helper, score_pv_move as score_pv_move_helper, PVMoveStatistics,
@@ -276,11 +276,7 @@ impl ErrorHandler {
 
     /// Get recent errors
     pub fn get_recent_errors(&self, count: usize) -> Vec<&ErrorLogEntry> {
-        let start = if self.error_log.len() > count {
-            self.error_log.len() - count
-        } else {
-            0
-        };
+        let start = if self.error_log.len() > count { self.error_log.len() - count } else { 0 };
         self.error_log.iter().skip(start).collect()
     }
 
@@ -292,14 +288,9 @@ impl ErrorHandler {
     /// Check if errors indicate system instability
     pub fn is_system_unstable(&self) -> bool {
         let recent_errors = self.get_recent_errors(10);
-        let critical_count = recent_errors
-            .iter()
-            .filter(|e| e.severity == ErrorSeverity::Critical)
-            .count();
-        let high_count = recent_errors
-            .iter()
-            .filter(|e| e.severity == ErrorSeverity::High)
-            .count();
+        let critical_count =
+            recent_errors.iter().filter(|e| e.severity == ErrorSeverity::Critical).count();
+        let high_count = recent_errors.iter().filter(|e| e.severity == ErrorSeverity::High).count();
 
         critical_count > 0 || high_count >= 3
     }
@@ -2435,11 +2426,8 @@ impl MoveOrdering {
 
         cache_stats.current_size = size;
         cache_stats.max_size = max_size;
-        cache_stats.utilization = if max_size > 0 {
-            (size as f64 / max_size as f64) * 100.0
-        } else {
-            0.0
-        };
+        cache_stats.utilization =
+            if max_size > 0 { (size as f64 / max_size as f64) * 100.0 } else { 0.0 };
 
         let total_attempts = cache_stats.hits + cache_stats.misses;
         cache_stats.hit_rate = if total_attempts > 0 {
@@ -2808,7 +2796,11 @@ impl MoveOrdering {
         let position_scorer = |pos: &Position| {
             // Use fast center distance calculation for inline version
             let center_distance = self.get_center_distance_fast(*pos);
-            if center_distance <= 1 { 50 } else { 0 }
+            if center_distance <= 1 {
+                50
+            } else {
+                0
+            }
         };
         score_promotion_move_inline(move_, self.config.weights.promotion_weight, position_scorer)
     }
@@ -2847,16 +2839,8 @@ impl MoveOrdering {
     /// Fast center distance calculation (optimized for hot path)
     fn get_center_distance_fast(&self, pos: Position) -> u8 {
         // Distance from center (4,4) using Manhattan distance
-        let dr = if pos.row > 4 {
-            pos.row - 4
-        } else {
-            4 - pos.row
-        };
-        let dc = if pos.col > 4 {
-            pos.col - 4
-        } else {
-            4 - pos.col
-        };
+        let dr = if pos.row > 4 { pos.row - 4 } else { 4 - pos.row };
+        let dc = if pos.col > 4 { pos.col - 4 } else { 4 - pos.col };
         dr + dc
     }
 
@@ -2877,10 +2861,8 @@ impl MoveOrdering {
             + history_table_memory
             + see_cache_memory
             + struct_memory;
-        self.memory_usage.peak_bytes = self
-            .memory_usage
-            .peak_bytes
-            .max(self.memory_usage.current_bytes);
+        self.memory_usage.peak_bytes =
+            self.memory_usage.peak_bytes.max(self.memory_usage.current_bytes);
 
         // Update statistics
         self.stats.memory_usage_bytes = self.memory_usage.current_bytes;
@@ -2991,16 +2973,16 @@ impl MoveOrdering {
             return;
         }
 
-        let entry = self
-            .heuristic_effectiveness
-            .entry(heuristic_name.to_string())
-            .or_insert_with(|| HeuristicEffectivenessMetrics {
-                hit_rate: 0.0,
-                cutoff_count: 0,
-                total_uses: 0,
-                effectiveness_score: 0.0,
-                last_update: self.history_update_counter,
-            });
+        let entry =
+            self.heuristic_effectiveness
+                .entry(heuristic_name.to_string())
+                .or_insert_with(|| HeuristicEffectivenessMetrics {
+                    hit_rate: 0.0,
+                    cutoff_count: 0,
+                    total_uses: 0,
+                    effectiveness_score: 0.0,
+                    last_update: self.history_update_counter,
+                });
 
         entry.total_uses += 1;
         if caused_cutoff {
@@ -3073,11 +3055,7 @@ impl MoveOrdering {
                     return None;
                 }
 
-                Some((
-                    heuristic_name.clone(),
-                    metrics.effectiveness_score,
-                    effectiveness_diff,
-                ))
+                Some((heuristic_name.clone(), metrics.effectiveness_score, effectiveness_diff))
             })
             .collect();
 
@@ -3300,10 +3278,7 @@ impl MoveOrdering {
     /// This method can be used to pre-populate the cache with
     /// frequently occurring moves to improve performance.
     pub fn warm_up_cache(&mut self, moves: &[Move]) {
-        for move_ in moves
-            .iter()
-            .take(self.config.cache_config.max_cache_size / 2)
-        {
+        for move_ in moves.iter().take(self.config.cache_config.max_cache_size / 2) {
             let _ = self.score_move(move_);
         }
     }
@@ -3360,11 +3335,7 @@ impl MoveOrdering {
 
     /// Get cache statistics
     pub fn get_cache_stats(&self) -> (u64, u64, f64) {
-        (
-            self.stats.cache_hits,
-            self.stats.cache_misses,
-            self.stats.cache_hit_rate,
-        )
+        (self.stats.cache_hits, self.stats.cache_misses, self.stats.cache_hit_rate)
     }
 
     /// Set maximum cache size
@@ -3415,9 +3386,7 @@ impl MoveOrdering {
         }
 
         // Calculate position hash
-        let position_hash = self
-            .hash_calculator
-            .get_position_hash(board, player, captured_pieces);
+        let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
 
         // Check cache first (Task 6.0: use PVOrdering module)
         if let Some(cached_move) = self.pv_ordering.get_cached_pv_move(position_hash) {
@@ -3444,12 +3413,8 @@ impl MoveOrdering {
         };
 
         // Cache the result (Task 6.0: use PVOrdering module)
-        if !self
-            .pv_ordering
-            .is_cache_full(self.config.cache_config.max_cache_size)
-        {
-            self.pv_ordering
-                .cache_pv_move(position_hash, pv_move.clone());
+        if !self.pv_ordering.is_cache_full(self.config.cache_config.max_cache_size) {
+            self.pv_ordering.cache_pv_move(position_hash, pv_move.clone());
         }
 
         // Update PV move statistics
@@ -3487,9 +3452,7 @@ impl MoveOrdering {
         }
 
         // Calculate position hash
-        let position_hash = self
-            .hash_calculator
-            .get_position_hash(board, player, captured_pieces);
+        let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
 
         // Create transposition table entry
         let entry = TranspositionEntry {
@@ -3512,12 +3475,8 @@ impl MoveOrdering {
         }
 
         // Update cache (Task 6.0: use PVOrdering module)
-        if !self
-            .pv_ordering
-            .is_cache_full(self.config.cache_config.max_cache_size)
-        {
-            self.pv_ordering
-                .cache_pv_move(position_hash, Some(best_move));
+        if !self.pv_ordering.is_cache_full(self.config.cache_config.max_cache_size) {
+            self.pv_ordering.cache_pv_move(position_hash, Some(best_move));
         }
     }
 
@@ -3693,8 +3652,7 @@ impl MoveOrdering {
     /// This method determines if a given move is stored as a killer move
     /// for the current search depth.
     pub fn is_killer_move(&mut self, move_: &Move) -> bool {
-        self.killer_move_manager
-            .is_killer_move(move_, moves_equal_helper)
+        self.killer_move_manager.is_killer_move(move_, moves_equal_helper)
     }
 
     /// Get all killer moves for a specific depth
@@ -3739,8 +3697,7 @@ impl MoveOrdering {
     /// are stored for each search depth.
     pub fn set_max_killer_moves_per_depth(&mut self, max_moves: usize) {
         self.config.killer_config.max_killer_moves_per_depth = max_moves;
-        self.killer_move_manager
-            .set_max_killer_moves_per_depth(max_moves);
+        self.killer_move_manager.set_max_killer_moves_per_depth(max_moves);
         self.update_memory_usage();
     }
 
@@ -3860,8 +3817,7 @@ impl MoveOrdering {
     ///
     /// This method clears all counter-moves stored for the given opponent move.
     pub fn clear_counter_moves_for_opponent_move(&mut self, opponent_move: &Move) {
-        self.counter_move_manager
-            .clear_counter_moves_for_opponent_move(opponent_move);
+        self.counter_move_manager.clear_counter_moves_for_opponent_move(opponent_move);
         self.update_memory_usage();
     }
 
@@ -3977,10 +3933,7 @@ impl MoveOrdering {
     /// and falling back to regular move scoring for other moves.
     fn score_move_with_killer(&mut self, move_: &Move, killer_moves: &[Move]) -> i32 {
         // Check if this is a killer move
-        if killer_moves
-            .iter()
-            .any(|killer| self.moves_equal(move_, killer))
-        {
+        if killer_moves.iter().any(|killer| self.moves_equal(move_, killer)) {
             self.stats.killer_move_hits += 1;
             return self.score_killer_move(move_);
         }
@@ -4063,10 +4016,7 @@ impl MoveOrdering {
         }
 
         // Check if this is a killer move (high priority)
-        if killer_moves
-            .iter()
-            .any(|killer| self.moves_equal(move_, killer))
-        {
+        if killer_moves.iter().any(|killer| self.moves_equal(move_, killer)) {
             self.stats.killer_move_hits += 1;
             return self.score_killer_move(move_);
         }
@@ -4086,8 +4036,7 @@ impl MoveOrdering {
         board: &crate::bitboards::BitboardBoard,
     ) -> crate::types::GamePhase {
         // Task 6.0: Delegate to history manager
-        self.history_manager
-            .determine_game_phase_from_material(board)
+        self.history_manager.determine_game_phase_from_material(board)
     }
 
     /// Get current timestamp for time-based aging
@@ -4190,8 +4139,7 @@ impl MoveOrdering {
     /// Task 4.0: Enhanced to age all history table types (absolute, relative, quiet, phase-aware)
     pub fn age_history_table(&mut self) {
         // Task 6.0: Delegate to history manager
-        self.history_manager
-            .age_history_table(&self.config.history_config);
+        self.history_manager.age_history_table(&self.config.history_config);
         self.stats.history_aging_operations += 1;
         self.update_memory_usage();
     }
@@ -4437,7 +4385,7 @@ impl MoveOrdering {
                 move_score_cache: self.move_score_cache.len(),
                 fast_cache: 0, // Task 1.22: Fast cache is now part of MoveScoreCache
                 pv_cache: self.pv_ordering.cache_size(), // Task 6.0: use PVOrdering module
-                see_cache: self.see_cache.len(),         // Task 6.0: use SEECache module
+                see_cache: self.see_cache.len(), // Task 6.0: use SEECache module
                 history_table: self.history_manager.absolute_history_size(), // Task 6.0: use HistoryHeuristicManager
             },
         }
@@ -4461,7 +4409,7 @@ impl MoveOrdering {
                 move_score_cache: self.move_score_cache.len(),
                 fast_cache: 0, // Task 1.22: Fast cache is now part of MoveScoreCache
                 pv_cache: self.pv_ordering.cache_size(), // Task 6.0: use PVOrdering module
-                see_cache: self.see_cache.len(),         // Task 6.0: use SEECache module
+                see_cache: self.see_cache.len(), // Task 6.0: use SEECache module
                 history_table: self.history_manager.absolute_history_size(), // Task 6.0: use HistoryHeuristicManager
             },
         };
@@ -4479,22 +4427,13 @@ impl MoveOrdering {
         csv.push_str("Metric,Value,Unit\n");
 
         // Basic statistics
-        csv.push_str(&format!(
-            "Total Moves Ordered,{},\n",
-            self.stats.total_moves_ordered
-        ));
+        csv.push_str(&format!("Total Moves Ordered,{},\n", self.stats.total_moves_ordered));
         csv.push_str(&format!(
             "Average Ordering Time,{:.2},microseconds\n",
             self.stats.avg_ordering_time_us
         ));
-        csv.push_str(&format!(
-            "Cache Hit Rate,{:.2},percent\n",
-            self.stats.cache_hit_rate
-        ));
-        csv.push_str(&format!(
-            "SEE Cache Hit Rate,{:.2},percent\n",
-            self.get_see_cache_hit_rate()
-        ));
+        csv.push_str(&format!("Cache Hit Rate,{:.2},percent\n", self.stats.cache_hit_rate));
+        csv.push_str(&format!("SEE Cache Hit Rate,{:.2},percent\n", self.get_see_cache_hit_rate()));
 
         // Heuristic statistics
         csv.push_str(&format!(
@@ -4543,77 +4482,17 @@ impl MoveOrdering {
     /// Get the most effective heuristic based on best move contributions
     fn get_most_effective_heuristic(&self) -> String {
         let heuristics = [
-            (
-                "capture",
-                self.stats
-                    .heuristic_stats
-                    .capture_stats
-                    .best_move_contributions,
-            ),
-            (
-                "promotion",
-                self.stats
-                    .heuristic_stats
-                    .promotion_stats
-                    .best_move_contributions,
-            ),
-            (
-                "tactical",
-                self.stats
-                    .heuristic_stats
-                    .tactical_stats
-                    .best_move_contributions,
-            ),
-            (
-                "piece_value",
-                self.stats
-                    .heuristic_stats
-                    .piece_value_stats
-                    .best_move_contributions,
-            ),
-            (
-                "position",
-                self.stats
-                    .heuristic_stats
-                    .position_stats
-                    .best_move_contributions,
-            ),
-            (
-                "development",
-                self.stats
-                    .heuristic_stats
-                    .development_stats
-                    .best_move_contributions,
-            ),
-            (
-                "quiet",
-                self.stats
-                    .heuristic_stats
-                    .quiet_stats
-                    .best_move_contributions,
-            ),
-            (
-                "pv",
-                self.stats.heuristic_stats.pv_stats.best_move_contributions,
-            ),
-            (
-                "killer",
-                self.stats
-                    .heuristic_stats
-                    .killer_stats
-                    .best_move_contributions,
-            ),
-            (
-                "history",
-                self.stats
-                    .heuristic_stats
-                    .history_stats
-                    .best_move_contributions,
-            ),
-            (
-                "see",
-                self.stats.heuristic_stats.see_stats.best_move_contributions,
-            ),
+            ("capture", self.stats.heuristic_stats.capture_stats.best_move_contributions),
+            ("promotion", self.stats.heuristic_stats.promotion_stats.best_move_contributions),
+            ("tactical", self.stats.heuristic_stats.tactical_stats.best_move_contributions),
+            ("piece_value", self.stats.heuristic_stats.piece_value_stats.best_move_contributions),
+            ("position", self.stats.heuristic_stats.position_stats.best_move_contributions),
+            ("development", self.stats.heuristic_stats.development_stats.best_move_contributions),
+            ("quiet", self.stats.heuristic_stats.quiet_stats.best_move_contributions),
+            ("pv", self.stats.heuristic_stats.pv_stats.best_move_contributions),
+            ("killer", self.stats.heuristic_stats.killer_stats.best_move_contributions),
+            ("history", self.stats.heuristic_stats.history_stats.best_move_contributions),
+            ("see", self.stats.heuristic_stats.see_stats.best_move_contributions),
         ];
 
         heuristics
@@ -4636,10 +4515,7 @@ impl MoveOrdering {
 
         // Overall Statistics
         report.push_str("OVERALL PERFORMANCE:\n");
-        report.push_str(&format!(
-            "  Total Moves Ordered: {}\n",
-            self.stats.total_moves_ordered
-        ));
+        report.push_str(&format!("  Total Moves Ordered: {}\n", self.stats.total_moves_ordered));
         report.push_str(&format!(
             "  Average Ordering Time: {:.2} μs\n",
             self.stats.avg_ordering_time_us
@@ -4664,10 +4540,7 @@ impl MoveOrdering {
             "  PV Cache Hit Rate: {:.1}%\n",
             self.stats.cache_stats.pv_cache.hit_rate
         ));
-        report.push_str(&format!(
-            "  SEE Cache Hit Rate: {:.1}%\n",
-            self.get_see_cache_hit_rate()
-        ));
+        report.push_str(&format!("  SEE Cache Hit Rate: {:.1}%\n", self.get_see_cache_hit_rate()));
         report.push_str("\n");
 
         // Memory Usage
@@ -4688,26 +4561,17 @@ impl MoveOrdering {
             (
                 "Capture",
                 self.stats.heuristic_stats.capture_stats.applications,
-                self.stats
-                    .heuristic_stats
-                    .capture_stats
-                    .best_move_contributions,
+                self.stats.heuristic_stats.capture_stats.best_move_contributions,
             ),
             (
                 "Promotion",
                 self.stats.heuristic_stats.promotion_stats.applications,
-                self.stats
-                    .heuristic_stats
-                    .promotion_stats
-                    .best_move_contributions,
+                self.stats.heuristic_stats.promotion_stats.best_move_contributions,
             ),
             (
                 "Tactical",
                 self.stats.heuristic_stats.tactical_stats.applications,
-                self.stats
-                    .heuristic_stats
-                    .tactical_stats
-                    .best_move_contributions,
+                self.stats.heuristic_stats.tactical_stats.best_move_contributions,
             ),
             (
                 "PV",
@@ -4717,18 +4581,12 @@ impl MoveOrdering {
             (
                 "Killer",
                 self.stats.heuristic_stats.killer_stats.applications,
-                self.stats
-                    .heuristic_stats
-                    .killer_stats
-                    .best_move_contributions,
+                self.stats.heuristic_stats.killer_stats.best_move_contributions,
             ),
             (
                 "History",
                 self.stats.heuristic_stats.history_stats.applications,
-                self.stats
-                    .heuristic_stats
-                    .history_stats
-                    .best_move_contributions,
+                self.stats.heuristic_stats.history_stats.best_move_contributions,
             ),
         ];
 
@@ -4880,10 +4738,7 @@ impl MoveOrdering {
             }
         }
 
-        BottleneckAnalysis {
-            bottlenecks,
-            overall_score: self.calculate_performance_score(),
-        }
+        BottleneckAnalysis { bottlenecks, overall_score: self.calculate_performance_score() }
     }
 
     /// Calculate overall performance score (0-100)
@@ -4959,11 +4814,7 @@ impl MoveOrdering {
     fn analyze_memory_usage_trend(&self) -> TrendAnalysis {
         let current_usage = self.memory_usage.current_bytes as f64 / 1_000_000.0;
         let peak_usage = self.memory_usage.peak_bytes as f64 / 1_000_000.0;
-        let utilization = if peak_usage > 0.0 {
-            (current_usage / peak_usage) * 100.0
-        } else {
-            0.0
-        };
+        let utilization = if peak_usage > 0.0 { (current_usage / peak_usage) * 100.0 } else { 0.0 };
 
         let trend_direction = if utilization > 90.0 {
             TrendDirection::Declining
@@ -5134,8 +4985,7 @@ impl MoveOrdering {
         context: String,
     ) -> MoveOrderingResult<()> {
         // Log the error
-        self.error_handler
-            .log_error(error.clone(), severity.clone(), context);
+        self.error_handler.log_error(error.clone(), severity.clone(), context);
 
         // Check if graceful degradation should be applied
         if self.error_handler.graceful_degradation_enabled {
@@ -5316,8 +5166,7 @@ impl MoveOrdering {
         size: usize,
         component: String,
     ) {
-        self.memory_tracker
-            .record_allocation(allocation_type, size, component);
+        self.memory_tracker.record_allocation(allocation_type, size, component);
     }
 
     /// Record memory deallocation
@@ -5328,8 +5177,7 @@ impl MoveOrdering {
         size: usize,
         component: String,
     ) {
-        self.memory_tracker
-            .record_deallocation(allocation_type, size, component);
+        self.memory_tracker.record_deallocation(allocation_type, size, component);
     }
 
     /// Check for memory leaks
@@ -5446,18 +5294,12 @@ impl MoveOrdering {
         let strategy = match self.advanced_features.position_strategies.current_phase {
             GamePhase::Opening => &self.advanced_features.position_strategies.opening_strategy,
             GamePhase::Middlegame => {
-                &self
-                    .advanced_features
-                    .position_strategies
-                    .middlegame_strategy
+                &self.advanced_features.position_strategies.middlegame_strategy
             }
             GamePhase::Endgame => &self.advanced_features.position_strategies.endgame_strategy,
             GamePhase::Tactical => &self.advanced_features.position_strategies.tactical_strategy,
             GamePhase::Positional => {
-                &self
-                    .advanced_features
-                    .position_strategies
-                    .positional_strategy
+                &self.advanced_features.position_strategies.positional_strategy
             }
         };
 
@@ -5469,31 +5311,21 @@ impl MoveOrdering {
     pub fn score_move_with_strategy(&mut self, move_: &Move) -> MoveOrderingResult<i32> {
         // Get current strategy (clone to avoid borrowing issues)
         let strategy = match self.advanced_features.position_strategies.current_phase {
-            GamePhase::Opening => self
-                .advanced_features
-                .position_strategies
-                .opening_strategy
-                .clone(),
-            GamePhase::Middlegame => self
-                .advanced_features
-                .position_strategies
-                .middlegame_strategy
-                .clone(),
-            GamePhase::Endgame => self
-                .advanced_features
-                .position_strategies
-                .endgame_strategy
-                .clone(),
-            GamePhase::Tactical => self
-                .advanced_features
-                .position_strategies
-                .tactical_strategy
-                .clone(),
-            GamePhase::Positional => self
-                .advanced_features
-                .position_strategies
-                .positional_strategy
-                .clone(),
+            GamePhase::Opening => {
+                self.advanced_features.position_strategies.opening_strategy.clone()
+            }
+            GamePhase::Middlegame => {
+                self.advanced_features.position_strategies.middlegame_strategy.clone()
+            }
+            GamePhase::Endgame => {
+                self.advanced_features.position_strategies.endgame_strategy.clone()
+            }
+            GamePhase::Tactical => {
+                self.advanced_features.position_strategies.tactical_strategy.clone()
+            }
+            GamePhase::Positional => {
+                self.advanced_features.position_strategies.positional_strategy.clone()
+            }
         };
 
         // Apply strategy-specific scoring
@@ -5596,10 +5428,7 @@ impl MoveOrdering {
         }
 
         // Add training examples
-        self.advanced_features
-            .ml_model
-            .training_data
-            .extend(training_examples);
+        self.advanced_features.ml_model.training_data.extend(training_examples);
 
         // Simple training simulation (in real implementation, this would train the actual model)
         let accuracy = self.simulate_ml_training();
@@ -5666,10 +5495,7 @@ impl MoveOrdering {
             performance_impact: performance_score,
         };
 
-        self.advanced_features
-            .dynamic_weights
-            .adjustment_history
-            .push(adjustment);
+        self.advanced_features.dynamic_weights.adjustment_history.push(adjustment);
         self.advanced_features.dynamic_weights.current_weights = new_weights.clone();
         self.config.weights = new_weights;
 
@@ -5721,11 +5547,7 @@ impl MoveOrdering {
             dynamic_weights: self.advanced_features.dynamic_weights.enabled,
             predictive_ordering: self.advanced_features.predictive_ordering.enabled,
             cache_warming: self.advanced_features.cache_warming.enabled,
-            current_phase: self
-                .advanced_features
-                .position_strategies
-                .current_phase
-                .clone(),
+            current_phase: self.advanced_features.position_strategies.current_phase.clone(),
             ml_accuracy: self.advanced_features.ml_model.accuracy,
             prediction_accuracy: self.advanced_features.predictive_ordering.accuracy,
         }
@@ -5753,9 +5575,7 @@ impl MoveOrdering {
         // Task 6.0: HistoryHeuristicManager manages its own memory (HashMap doesn't have shrink_to_fit)
 
         let after_usage = self.get_current_memory_usage().clone();
-        let memory_freed = before_usage
-            .total_memory
-            .saturating_sub(after_usage.total_memory);
+        let memory_freed = before_usage.total_memory.saturating_sub(after_usage.total_memory);
 
         MemoryCleanupReport {
             before_usage,
@@ -5796,9 +5616,7 @@ impl MoveOrdering {
         }
 
         let after_usage = self.get_current_memory_usage().clone();
-        let memory_freed = before_usage
-            .total_memory
-            .saturating_sub(after_usage.total_memory);
+        let memory_freed = before_usage.total_memory.saturating_sub(after_usage.total_memory);
 
         MemoryCleanupReport {
             before_usage,
@@ -5913,9 +5731,7 @@ impl MoveOrdering {
         // This ensures IID move is properly prioritized even if ordering was cached before
         let skip_cache = iid_move.is_some();
 
-        let position_hash = self
-            .hash_calculator
-            .get_position_hash(board, player, captured_pieces);
+        let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
         let cache_key = (position_hash, depth);
 
         // Check if we have a cached ordering result for this position and depth (Task 6.0: use cache_manager)
@@ -6046,10 +5862,7 @@ impl MoveOrdering {
         }
 
         // Check if this is a killer move (medium-high priority)
-        if killer_moves
-            .iter()
-            .any(|killer| self.moves_equal(move_, killer))
-        {
+        if killer_moves.iter().any(|killer| self.moves_equal(move_, killer)) {
             self.stats.killer_move_hits += 1;
             return self.score_killer_move(move_);
         }
@@ -6176,11 +5989,7 @@ impl MoveOrdering {
     /// Update history heuristic from transposition table data
     fn update_history_from_tt(&mut self, move_: &Move, score: i32, depth: u8) {
         if let (Some(from), Some(to)) = (move_.from, Some(move_.to)) {
-            let history_value = if score > 0 {
-                depth as i32 + 1
-            } else {
-                -(depth as i32 + 1)
-            };
+            let history_value = if score > 0 { depth as i32 + 1 } else { -(depth as i32 + 1) };
             let from_idx = from.row as usize;
             let to_idx = to.row as usize;
             self.simple_history_table[from_idx][to_idx] += history_value;
@@ -6209,8 +6018,7 @@ impl MoveOrdering {
     /// Update PV move from transposition table
     fn update_pv_move_from_tt(&mut self, move_: &Move, _score: i32, depth: u8) {
         // Store as PV move for future reference (Task 6.0: use PVOrdering module)
-        self.pv_ordering
-            .update_pv_move_for_depth(depth, move_.clone());
+        self.pv_ordering.update_pv_move_for_depth(depth, move_.clone());
 
         // Update PV move statistics
         self.stats.pv_moves_from_tt += 1;
@@ -6434,16 +6242,12 @@ impl MoveOrdering {
         // Adjust PV weight based on hit rate
         if self.stats.pv_move_hit_rate > 40.0 && self.config.weights.pv_move_weight < 12000 {
             self.config.weights.pv_move_weight += 1000;
-            adjustments.push(format!(
-                "Increased PV weight to {}",
-                self.config.weights.pv_move_weight
-            ));
+            adjustments
+                .push(format!("Increased PV weight to {}", self.config.weights.pv_move_weight));
         } else if self.stats.pv_move_hit_rate < 20.0 && self.config.weights.pv_move_weight > 8000 {
             self.config.weights.pv_move_weight -= 500;
-            adjustments.push(format!(
-                "Decreased PV weight to {}",
-                self.config.weights.pv_move_weight
-            ));
+            adjustments
+                .push(format!("Decreased PV weight to {}", self.config.weights.pv_move_weight));
         }
 
         // Adjust killer weight based on hit rate
@@ -6662,12 +6466,10 @@ impl MoveOrdering {
 
         // Get the best book move by weight and evaluation
         if let Some(best_book_move) =
-            book_moves
-                .iter()
-                .max_by(|a, b| match a.weight.cmp(&b.weight) {
-                    std::cmp::Ordering::Equal => a.evaluation.cmp(&b.evaluation),
-                    other => other,
-                })
+            book_moves.iter().max_by(|a, b| match a.weight.cmp(&b.weight) {
+                std::cmp::Ordering::Equal => a.evaluation.cmp(&b.evaluation),
+                other => other,
+            })
         {
             // Convert book move to regular move and set as PV
             let pv_move = best_book_move.to_engine_move(player);
@@ -6721,14 +6523,7 @@ impl MoveOrdering {
                 0 // Draw
             };
 
-            self.update_pv_move(
-                board,
-                captured_pieces,
-                player,
-                depth,
-                best_move.clone(),
-                score,
-            );
+            self.update_pv_move(board, captured_pieces, player, depth, best_move.clone(), score);
             self.add_killer_move(best_move.clone());
 
             // Update history with high bonus for tablebase moves
@@ -7059,15 +6854,9 @@ mod tests {
 
     #[test]
     fn test_move_ordering_with_config() {
-        let weights = OrderingWeights {
-            capture_weight: 2000,
-            promotion_weight: 1500,
-            ..Default::default()
-        };
-        let config = MoveOrderingConfig {
-            weights,
-            ..Default::default()
-        };
+        let weights =
+            OrderingWeights { capture_weight: 2000, promotion_weight: 1500, ..Default::default() };
+        let config = MoveOrderingConfig { weights, ..Default::default() };
         let orderer = MoveOrdering::with_config(config);
         assert_eq!(orderer.config.weights.capture_weight, 2000);
         assert_eq!(orderer.config.weights.promotion_weight, 1500);
@@ -7108,10 +6897,8 @@ mod tests {
             Player::Black,
         );
         capture_move.is_capture = true;
-        capture_move.captured_piece = Some(Piece {
-            piece_type: PieceType::Gold,
-            player: Player::White,
-        });
+        capture_move.captured_piece =
+            Some(Piece { piece_type: PieceType::Gold, player: Player::White });
 
         let score = orderer.score_move(&capture_move);
         assert!(score > 0);
@@ -7352,14 +7139,8 @@ mod tests {
 
     #[test]
     fn test_pv_move_weight_configuration() {
-        let custom_weights = OrderingWeights {
-            pv_move_weight: 50000,
-            ..Default::default()
-        };
-        let config = MoveOrderingConfig {
-            weights: custom_weights,
-            ..Default::default()
-        };
+        let custom_weights = OrderingWeights { pv_move_weight: 50000, ..Default::default() };
+        let config = MoveOrderingConfig { weights: custom_weights, ..Default::default() };
         let orderer = MoveOrdering::with_config(config);
 
         assert_eq!(orderer.config.weights.pv_move_weight, 50000);
@@ -7713,14 +7494,7 @@ mod tests {
         let depth = 3;
 
         // Store PV move in transposition table
-        orderer.update_pv_move(
-            &board,
-            &captured_pieces,
-            player,
-            depth,
-            pv_move.clone(),
-            100,
-        );
+        orderer.update_pv_move(&board, &captured_pieces, player, depth, pv_move.clone(), 100);
 
         // Order moves with both PV and killer prioritization
         let moves = vec![regular_move.clone(), killer_move.clone(), pv_move.clone()];
@@ -7736,14 +7510,8 @@ mod tests {
 
     #[test]
     fn test_killer_move_configuration() {
-        let custom_weights = OrderingWeights {
-            killer_move_weight: 7500,
-            ..Default::default()
-        };
-        let config = MoveOrderingConfig {
-            weights: custom_weights,
-            ..Default::default()
-        };
+        let custom_weights = OrderingWeights { killer_move_weight: 7500, ..Default::default() };
+        let config = MoveOrderingConfig { weights: custom_weights, ..Default::default() };
         let orderer = MoveOrdering::with_config(config);
 
         assert_eq!(orderer.config.weights.killer_move_weight, 7500);
@@ -8192,9 +7960,7 @@ mod tests {
         assert_eq!(orderer.move_ordering_cache.len(), 2);
 
         // Order moves 3 - should evict first entry (FIFO)
-        let hash3 = orderer
-            .hash_calculator
-            .get_position_hash(&board, player, &captured_pieces);
+        let hash3 = orderer.hash_calculator.get_position_hash(&board, player, &captured_pieces);
         let _ordered3 = orderer.order_moves_with_all_heuristics(
             &moves3,
             &board,
@@ -8240,9 +8006,7 @@ mod tests {
         )];
 
         // Order moves 1 - should be cached
-        let hash1 = orderer
-            .hash_calculator
-            .get_position_hash(&board, player, &captured_pieces);
+        let hash1 = orderer.hash_calculator.get_position_hash(&board, player, &captured_pieces);
         let _ordered1 = orderer.order_moves_with_all_heuristics(
             &moves1,
             &board,
@@ -8254,9 +8018,7 @@ mod tests {
         );
 
         // Order moves 2 - should be cached (different position, so hash will differ)
-        let hash2 = orderer
-            .hash_calculator
-            .get_position_hash(&board, player, &captured_pieces);
+        let hash2 = orderer.hash_calculator.get_position_hash(&board, player, &captured_pieces);
         let _ordered2 = orderer.order_moves_with_all_heuristics(
             &moves2,
             &board,
@@ -8325,9 +8087,7 @@ mod tests {
         )];
 
         // Order moves at depth 5 (deep) - should be cached
-        let hash1 = orderer
-            .hash_calculator
-            .get_position_hash(&board, player, &captured_pieces);
+        let hash1 = orderer.hash_calculator.get_position_hash(&board, player, &captured_pieces);
         let _ordered1 = orderer.order_moves_with_all_heuristics(
             &moves1,
             &board,
@@ -8339,9 +8099,7 @@ mod tests {
         );
 
         // Order moves at depth 3 (shallow) - should be cached (different position, so hash will differ)
-        let hash2 = orderer
-            .hash_calculator
-            .get_position_hash(&board, player, &captured_pieces);
+        let hash2 = orderer.hash_calculator.get_position_hash(&board, player, &captured_pieces);
         let _ordered2 = orderer.order_moves_with_all_heuristics(
             &moves2,
             &board,
@@ -8400,9 +8158,7 @@ mod tests {
         )];
 
         // Order moves at depth 5 (deep) - should be cached
-        let hash1 = orderer
-            .hash_calculator
-            .get_position_hash(&board, player, &captured_pieces);
+        let hash1 = orderer.hash_calculator.get_position_hash(&board, player, &captured_pieces);
         let _ordered1 = orderer.order_moves_with_all_heuristics(
             &moves1,
             &board,
@@ -8414,9 +8170,7 @@ mod tests {
         );
 
         // Order moves at depth 4 (medium) - should be cached (different position, so hash will differ)
-        let hash2 = orderer
-            .hash_calculator
-            .get_position_hash(&board, player, &captured_pieces);
+        let hash2 = orderer.hash_calculator.get_position_hash(&board, player, &captured_pieces);
         let _ordered2 = orderer.order_moves_with_all_heuristics(
             &moves2,
             &board,
@@ -8513,9 +8267,7 @@ mod tests {
         )];
 
         // Order moves - should be cached
-        let hash = orderer
-            .hash_calculator
-            .get_position_hash(&board, player, &captured_pieces);
+        let hash = orderer.hash_calculator.get_position_hash(&board, player, &captured_pieces);
         let cache_key = (hash, 3);
         let _ordered1 = orderer.order_moves_with_all_heuristics(
             &moves,
@@ -8588,19 +8340,13 @@ mod tests {
         let mut config = MoveOrderingConfig::default();
         config.cache_config.cache_eviction_policy = CacheEvictionPolicy::FIFO;
         let orderer = MoveOrdering::with_config(config);
-        assert_eq!(
-            orderer.config.cache_config.cache_eviction_policy,
-            CacheEvictionPolicy::FIFO
-        );
+        assert_eq!(orderer.config.cache_config.cache_eviction_policy, CacheEvictionPolicy::FIFO);
 
         // Test LRU policy
         let mut config = MoveOrderingConfig::default();
         config.cache_config.cache_eviction_policy = CacheEvictionPolicy::LRU;
         let orderer = MoveOrdering::with_config(config);
-        assert_eq!(
-            orderer.config.cache_config.cache_eviction_policy,
-            CacheEvictionPolicy::LRU
-        );
+        assert_eq!(orderer.config.cache_config.cache_eviction_policy, CacheEvictionPolicy::LRU);
 
         // Test depth-preferred policy
         let mut config = MoveOrderingConfig::default();
@@ -8616,10 +8362,7 @@ mod tests {
         config.cache_config.cache_eviction_policy = CacheEvictionPolicy::Hybrid;
         config.cache_config.hybrid_lru_weight = 0.7;
         let orderer = MoveOrdering::with_config(config);
-        assert_eq!(
-            orderer.config.cache_config.cache_eviction_policy,
-            CacheEvictionPolicy::Hybrid
-        );
+        assert_eq!(orderer.config.cache_config.cache_eviction_policy, CacheEvictionPolicy::Hybrid);
         assert_eq!(orderer.config.cache_config.hybrid_lru_weight, 0.7);
     }
 
@@ -8967,9 +8710,7 @@ mod tests {
 
         // Switch to endgame phase (simulate by changing material count)
         // Note: This is a simplified test - in practice, phase would be determined by board state
-        orderer
-            .history_manager
-            .set_current_game_phase(crate::types::GamePhase::Endgame);
+        orderer.history_manager.set_current_game_phase(crate::types::GamePhase::Endgame);
 
         // Should have history score in endgame phase if it was stored there
         // But initially it's in opening phase, so it might not be found
@@ -9025,18 +8766,14 @@ mod tests {
         );
 
         // Update history in opening phase
-        orderer
-            .history_manager
-            .set_current_game_phase(crate::types::GamePhase::Opening);
+        orderer.history_manager.set_current_game_phase(crate::types::GamePhase::Opening);
         orderer.update_history_score(&move_, 3, Some(&board));
 
         // Age with opening factor
         orderer.age_history_table();
 
         // Switch to endgame and age again
-        orderer
-            .history_manager
-            .set_current_game_phase(crate::types::GamePhase::Endgame);
+        orderer.history_manager.set_current_game_phase(crate::types::GamePhase::Endgame);
         orderer.age_history_table();
 
         // Verify aging occurred
@@ -9133,10 +8870,7 @@ mod tests {
         // Get initial scores (Task 6.0: use HistoryHeuristicManager)
         let key = (move_.piece_type, move_.from.unwrap(), move_.to);
         let relative_key = (move_.from.unwrap(), move_.to);
-        let initial_absolute = orderer
-            .history_manager
-            .get_absolute_history_score(key)
-            .unwrap_or(0);
+        let initial_absolute = orderer.history_manager.get_absolute_history_score(key).unwrap_or(0);
         let initial_relative = orderer
             .history_manager
             .get_relative_history_entry(relative_key)
@@ -9156,10 +8890,7 @@ mod tests {
         orderer.age_history_table();
 
         // Verify scores are reduced (Task 6.0: use HistoryHeuristicManager)
-        let aged_absolute = orderer
-            .history_manager
-            .get_absolute_history_score(key)
-            .unwrap_or(0);
+        let aged_absolute = orderer.history_manager.get_absolute_history_score(key).unwrap_or(0);
         let aged_relative = orderer
             .history_manager
             .get_relative_history_entry(relative_key)
@@ -9179,14 +8910,8 @@ mod tests {
 
     #[test]
     fn test_history_configuration() {
-        let custom_weights = OrderingWeights {
-            history_weight: 3000,
-            ..Default::default()
-        };
-        let config = MoveOrderingConfig {
-            weights: custom_weights,
-            ..Default::default()
-        };
+        let custom_weights = OrderingWeights { history_weight: 3000, ..Default::default() };
+        let config = MoveOrderingConfig { weights: custom_weights, ..Default::default() };
         let mut orderer = MoveOrdering::with_config(config);
 
         assert_eq!(orderer.config.weights.history_weight, 3000);
@@ -9247,22 +8972,11 @@ mod tests {
         let depth = 3;
 
         // Store PV move in transposition table
-        orderer.update_pv_move(
-            &board,
-            &captured_pieces,
-            player,
-            depth,
-            pv_move.clone(),
-            100,
-        );
+        orderer.update_pv_move(&board, &captured_pieces, player, depth, pv_move.clone(), 100);
 
         // Order moves with all heuristics
-        let moves = vec![
-            regular_move.clone(),
-            history_move.clone(),
-            killer_move.clone(),
-            pv_move.clone(),
-        ];
+        let moves =
+            vec![regular_move.clone(), history_move.clone(), killer_move.clone(), pv_move.clone()];
         // Task 3.0: No IID move context for this test
         let ordered = orderer.order_moves_with_all_heuristics(
             &moves,
@@ -9703,14 +9417,7 @@ mod tests {
         let depth = 3;
 
         // Store PV move
-        orderer.update_pv_move(
-            &board,
-            &captured_pieces,
-            player,
-            depth,
-            pv_move.clone(),
-            100,
-        );
+        orderer.update_pv_move(&board, &captured_pieces, player, depth, pv_move.clone(), 100);
 
         // Test scoring with all heuristics
         // Task 3.0: Updated calls to include IID move parameter (None for tests)
@@ -10397,9 +10104,7 @@ mod tests {
         let position_hash = 12345u64;
 
         // Store multiple PV moves
-        orderer
-            .pv_ordering
-            .store_multiple_pv_moves(position_hash, pv_moves.clone());
+        orderer.pv_ordering.store_multiple_pv_moves(position_hash, pv_moves.clone());
 
         // Retrieve and verify
         let retrieved = orderer.pv_ordering.get_multiple_pv_moves(position_hash);
@@ -10428,9 +10133,7 @@ mod tests {
         let position_hash = 12345u64;
 
         // Store 5 moves but only 2 should be kept
-        orderer
-            .pv_ordering
-            .store_multiple_pv_moves(position_hash, moves);
+        orderer.pv_ordering.store_multiple_pv_moves(position_hash, moves);
 
         let retrieved = orderer.pv_ordering.get_multiple_pv_moves(position_hash);
         assert!(retrieved.is_some());
@@ -10451,15 +10154,10 @@ mod tests {
         let position_hash = 12345u64;
 
         // Cache a PV move
-        orderer
-            .pv_ordering
-            .cache_pv_move(position_hash, Some(move1.clone()));
+        orderer.pv_ordering.cache_pv_move(position_hash, Some(move1.clone()));
 
         // Verify it's in current cache
-        assert!(orderer
-            .pv_ordering
-            .get_cached_pv_move(position_hash)
-            .is_some());
+        assert!(orderer.pv_ordering.get_cached_pv_move(position_hash).is_some());
 
         // Save as previous iteration
         orderer.pv_ordering.save_previous_iteration_pv();
@@ -10484,23 +10182,15 @@ mod tests {
         let position_hash = 12345u64;
 
         // Cache and save to previous iteration
-        orderer
-            .pv_ordering
-            .cache_pv_move(position_hash, Some(move1.clone()));
+        orderer.pv_ordering.cache_pv_move(position_hash, Some(move1.clone()));
         orderer.pv_ordering.save_previous_iteration_pv();
 
-        assert!(orderer
-            .pv_ordering
-            .get_previous_iteration_pv(position_hash)
-            .is_some());
+        assert!(orderer.pv_ordering.get_previous_iteration_pv(position_hash).is_some());
 
         // Clear previous iteration
         orderer.pv_ordering.clear_previous_iteration();
 
-        assert!(orderer
-            .pv_ordering
-            .get_previous_iteration_pv(position_hash)
-            .is_none());
+        assert!(orderer.pv_ordering.get_previous_iteration_pv(position_hash).is_none());
     }
 
     #[test]
@@ -10524,12 +10214,8 @@ mod tests {
         let parent_hash = 98765u64;
 
         // Store sibling PV moves
-        orderer
-            .pv_ordering
-            .store_sibling_pv(parent_hash, move1.clone());
-        orderer
-            .pv_ordering
-            .store_sibling_pv(parent_hash, move2.clone());
+        orderer.pv_ordering.store_sibling_pv(parent_hash, move1.clone());
+        orderer.pv_ordering.store_sibling_pv(parent_hash, move2.clone());
 
         // Retrieve and verify
         let siblings = orderer.pv_ordering.get_sibling_pv_moves(parent_hash);
@@ -10551,12 +10237,8 @@ mod tests {
         let parent_hash = 98765u64;
 
         // Store same move twice
-        orderer
-            .pv_ordering
-            .store_sibling_pv(parent_hash, move1.clone());
-        orderer
-            .pv_ordering
-            .store_sibling_pv(parent_hash, move1.clone());
+        orderer.pv_ordering.store_sibling_pv(parent_hash, move1.clone());
+        orderer.pv_ordering.store_sibling_pv(parent_hash, move1.clone());
 
         // Should only have one entry
         let siblings = orderer.pv_ordering.get_sibling_pv_moves(parent_hash);
@@ -10625,12 +10307,8 @@ mod tests {
         let initial_memory = orderer.pv_ordering.cache_memory_bytes();
 
         // Store some PV moves
-        orderer
-            .pv_ordering
-            .cache_pv_move(position_hash, Some(move1.clone()));
-        orderer
-            .pv_ordering
-            .store_multiple_pv_moves(position_hash, vec![move1.clone()]);
+        orderer.pv_ordering.cache_pv_move(position_hash, Some(move1.clone()));
+        orderer.pv_ordering.store_multiple_pv_moves(position_hash, vec![move1.clone()]);
         orderer.pv_ordering.save_previous_iteration_pv();
 
         // Memory should increase
@@ -10652,37 +10330,19 @@ mod tests {
         let position_hash = 12345u64;
 
         // Add data to all PV caches
-        orderer
-            .pv_ordering
-            .cache_pv_move(position_hash, Some(move1.clone()));
-        orderer
-            .pv_ordering
-            .store_multiple_pv_moves(position_hash, vec![move1.clone()]);
+        orderer.pv_ordering.cache_pv_move(position_hash, Some(move1.clone()));
+        orderer.pv_ordering.store_multiple_pv_moves(position_hash, vec![move1.clone()]);
         orderer.pv_ordering.save_previous_iteration_pv();
-        orderer
-            .pv_ordering
-            .store_sibling_pv(position_hash, move1.clone());
+        orderer.pv_ordering.store_sibling_pv(position_hash, move1.clone());
 
         // Clear all
         orderer.pv_ordering.clear_all();
 
         // Verify all cleared
-        assert!(orderer
-            .pv_ordering
-            .get_cached_pv_move(position_hash)
-            .is_none());
-        assert!(orderer
-            .pv_ordering
-            .get_multiple_pv_moves(position_hash)
-            .is_none());
-        assert!(orderer
-            .pv_ordering
-            .get_previous_iteration_pv(position_hash)
-            .is_none());
-        assert!(orderer
-            .pv_ordering
-            .get_sibling_pv_moves(position_hash)
-            .is_none());
+        assert!(orderer.pv_ordering.get_cached_pv_move(position_hash).is_none());
+        assert!(orderer.pv_ordering.get_multiple_pv_moves(position_hash).is_none());
+        assert!(orderer.pv_ordering.get_previous_iteration_pv(position_hash).is_none());
+        assert!(orderer.pv_ordering.get_sibling_pv_moves(position_hash).is_none());
     }
 
     // ==================== Performance Optimization Tests ====================
@@ -10906,14 +10566,7 @@ mod tests {
 
         // Test that all statistics structures are initialized
         assert_eq!(orderer.stats.heuristic_stats.capture_stats.applications, 0);
-        assert_eq!(
-            orderer
-                .stats
-                .timing_stats
-                .move_scoring_times
-                .operation_count,
-            0
-        );
+        assert_eq!(orderer.stats.timing_stats.move_scoring_times.operation_count, 0);
         assert_eq!(orderer.stats.memory_stats.current_usage.total_bytes, 0);
         assert_eq!(orderer.stats.cache_stats.move_score_cache.hits, 0);
     }
@@ -10934,18 +10587,8 @@ mod tests {
         orderer.update_heuristic_stats("tactical", true, 50);
 
         assert_eq!(orderer.stats.heuristic_stats.capture_stats.applications, 1);
-        assert_eq!(
-            orderer
-                .stats
-                .heuristic_stats
-                .capture_stats
-                .total_score_contribution,
-            100
-        );
-        assert_eq!(
-            orderer.stats.heuristic_stats.promotion_stats.applications,
-            1
-        );
+        assert_eq!(orderer.stats.heuristic_stats.capture_stats.total_score_contribution, 100);
+        assert_eq!(orderer.stats.heuristic_stats.promotion_stats.applications, 1);
         assert_eq!(orderer.stats.heuristic_stats.tactical_stats.applications, 1);
     }
 
@@ -10958,30 +10601,11 @@ mod tests {
         orderer.record_timing("move_scoring", 200);
         orderer.record_timing("cache", 50);
 
-        assert_eq!(
-            orderer
-                .stats
-                .timing_stats
-                .move_scoring_times
-                .operation_count,
-            2
-        );
-        assert_eq!(
-            orderer.stats.timing_stats.move_scoring_times.total_time_us,
-            300
-        );
-        assert_eq!(
-            orderer.stats.timing_stats.move_scoring_times.avg_time_us,
-            150.0
-        );
-        assert_eq!(
-            orderer.stats.timing_stats.move_scoring_times.min_time_us,
-            100
-        );
-        assert_eq!(
-            orderer.stats.timing_stats.move_scoring_times.max_time_us,
-            200
-        );
+        assert_eq!(orderer.stats.timing_stats.move_scoring_times.operation_count, 2);
+        assert_eq!(orderer.stats.timing_stats.move_scoring_times.total_time_us, 300);
+        assert_eq!(orderer.stats.timing_stats.move_scoring_times.avg_time_us, 150.0);
+        assert_eq!(orderer.stats.timing_stats.move_scoring_times.min_time_us, 100);
+        assert_eq!(orderer.stats.timing_stats.move_scoring_times.max_time_us, 200);
 
         assert_eq!(orderer.stats.timing_stats.cache_times.operation_count, 1);
         assert_eq!(orderer.stats.timing_stats.cache_times.total_time_us, 50);
@@ -11135,20 +10759,11 @@ mod tests {
         let trend_analysis = orderer.analyze_performance_trends();
         assert!(trend_analysis.cache_efficiency_trend.confidence >= 0.0);
         assert!(trend_analysis.cache_efficiency_trend.confidence <= 1.0);
-        assert!(!trend_analysis
-            .cache_efficiency_trend
-            .recommendation
-            .is_empty());
+        assert!(!trend_analysis.cache_efficiency_trend.recommendation.is_empty());
         assert!(!trend_analysis.memory_usage_trend.recommendation.is_empty());
-        assert!(!trend_analysis
-            .heuristic_effectiveness_trend
-            .recommendation
-            .is_empty());
+        assert!(!trend_analysis.heuristic_effectiveness_trend.recommendation.is_empty());
         assert!(!trend_analysis.timing_trend.recommendation.is_empty());
-        assert!(!trend_analysis
-            .overall_performance_trend
-            .recommendation
-            .is_empty());
+        assert!(!trend_analysis.overall_performance_trend.recommendation.is_empty());
     }
 
     #[test]
@@ -11156,21 +10771,9 @@ mod tests {
         let mut orderer = MoveOrdering::new();
 
         // Set up some heuristic statistics
-        orderer
-            .stats
-            .heuristic_stats
-            .capture_stats
-            .best_move_contributions = 10;
-        orderer
-            .stats
-            .heuristic_stats
-            .promotion_stats
-            .best_move_contributions = 5;
-        orderer
-            .stats
-            .heuristic_stats
-            .tactical_stats
-            .best_move_contributions = 15;
+        orderer.stats.heuristic_stats.capture_stats.best_move_contributions = 10;
+        orderer.stats.heuristic_stats.promotion_stats.best_move_contributions = 5;
+        orderer.stats.heuristic_stats.tactical_stats.best_move_contributions = 15;
 
         // Test most effective heuristic identification
         let most_effective = orderer.get_most_effective_heuristic();
@@ -11210,22 +10813,8 @@ mod tests {
         orderer.record_best_move_contribution("capture");
         orderer.record_best_move_contribution("promotion");
 
-        assert_eq!(
-            orderer
-                .stats
-                .heuristic_stats
-                .capture_stats
-                .best_move_contributions,
-            2
-        );
-        assert_eq!(
-            orderer
-                .stats
-                .heuristic_stats
-                .promotion_stats
-                .best_move_contributions,
-            1
-        );
+        assert_eq!(orderer.stats.heuristic_stats.capture_stats.best_move_contributions, 2);
+        assert_eq!(orderer.stats.heuristic_stats.promotion_stats.best_move_contributions, 1);
     }
 
     // ==================== Error Handling Tests ====================
@@ -11234,19 +10823,13 @@ mod tests {
     fn test_error_types() {
         // Test error creation and display
         let invalid_move_error = MoveOrderingError::InvalidMove("Test error".to_string());
-        assert_eq!(
-            format!("{}", invalid_move_error),
-            "Invalid move: Test error"
-        );
+        assert_eq!(format!("{}", invalid_move_error), "Invalid move: Test error");
 
         let cache_error = MoveOrderingError::CacheError("Cache full".to_string());
         assert_eq!(format!("{}", cache_error), "Cache error: Cache full");
 
         let see_error = MoveOrderingError::SEEError("SEE calculation failed".to_string());
-        assert_eq!(
-            format!("{}", see_error),
-            "SEE calculation error: SEE calculation failed"
-        );
+        assert_eq!(format!("{}", see_error), "SEE calculation error: SEE calculation failed");
     }
 
     #[test]
@@ -11255,11 +10838,7 @@ mod tests {
 
         // Test error logging
         let error = MoveOrderingError::InvalidMove("Test error".to_string());
-        error_handler.log_error(
-            error.clone(),
-            ErrorSeverity::Medium,
-            "Test context".to_string(),
-        );
+        error_handler.log_error(error.clone(), ErrorSeverity::Medium, "Test context".to_string());
 
         // Test recent errors retrieval
         let recent_errors = error_handler.get_recent_errors(5);
@@ -11720,16 +11299,10 @@ mod tests {
 
         // Test phase update
         orderer.update_game_phase(10, 0, 0.3);
-        assert_eq!(
-            orderer.advanced_features.position_strategies.current_phase,
-            GamePhase::Opening
-        );
+        assert_eq!(orderer.advanced_features.position_strategies.current_phase, GamePhase::Opening);
 
         orderer.update_game_phase(70, 0, 0.3);
-        assert_eq!(
-            orderer.advanced_features.position_strategies.current_phase,
-            GamePhase::Endgame
-        );
+        assert_eq!(orderer.advanced_features.position_strategies.current_phase, GamePhase::Endgame);
     }
 
     #[test]
@@ -11827,11 +11400,7 @@ mod tests {
         assert!(result.is_ok());
 
         // Check that adjustment was recorded
-        assert!(!orderer
-            .advanced_features
-            .dynamic_weights
-            .adjustment_history
-            .is_empty());
+        assert!(!orderer.advanced_features.dynamic_weights.adjustment_history.is_empty());
     }
 
     #[test]
@@ -11893,10 +11462,7 @@ mod tests {
 
         // Test that advanced features are initialized
         let features = orderer.get_advanced_features();
-        assert_eq!(
-            features.position_strategies.current_phase,
-            GamePhase::Middlegame
-        );
+        assert_eq!(features.position_strategies.current_phase, GamePhase::Middlegame);
 
         // Test mutable access
         let mut features = orderer.get_advanced_features_mut();
@@ -11911,19 +11477,13 @@ mod tests {
         let mut orderer = MoveOrdering::new();
 
         // Test priority adjustments
-        let strategy = &orderer
-            .advanced_features
-            .position_strategies
-            .opening_strategy;
+        let strategy = &orderer.advanced_features.position_strategies.opening_strategy;
 
         // Opening strategy should favor development
         assert!(strategy.priority_adjustments.development_priority > 1.0);
 
         // Test tactical strategy
-        let tactical_strategy = &orderer
-            .advanced_features
-            .position_strategies
-            .tactical_strategy;
+        let tactical_strategy = &orderer.advanced_features.position_strategies.tactical_strategy;
         assert!(tactical_strategy.priority_adjustments.capture_priority > 1.0);
     }
 
@@ -11932,19 +11492,13 @@ mod tests {
         let mut orderer = MoveOrdering::new();
 
         // Test opening preferences
-        let opening_strategy = &orderer
-            .advanced_features
-            .position_strategies
-            .opening_strategy;
+        let opening_strategy = &orderer.advanced_features.position_strategies.opening_strategy;
         assert!(opening_strategy.heuristic_preferences.prefer_development);
         assert!(opening_strategy.heuristic_preferences.prefer_positional);
         assert!(!opening_strategy.heuristic_preferences.prefer_tactical);
 
         // Test tactical preferences
-        let tactical_strategy = &orderer
-            .advanced_features
-            .position_strategies
-            .tactical_strategy;
+        let tactical_strategy = &orderer.advanced_features.position_strategies.tactical_strategy;
         assert!(tactical_strategy.heuristic_preferences.prefer_tactical);
         assert!(!tactical_strategy.heuristic_preferences.prefer_development);
     }
@@ -12362,11 +11916,7 @@ mod tests {
         let elapsed_ms = start_time.elapsed_ms();
 
         // Verify performance is reasonable (should be fast)
-        assert!(
-            elapsed_ms < 100,
-            "TT integration took {}ms, should be < 100ms",
-            elapsed_ms
-        );
+        assert!(elapsed_ms < 100, "TT integration took {}ms, should be < 100ms", elapsed_ms);
 
         // Verify statistics were updated correctly
         let stats = orderer.get_tt_integration_stats();
@@ -12417,11 +11967,7 @@ mod tests {
         let elapsed_ms = start_time.elapsed_ms();
 
         // Verify performance is reasonable
-        assert!(
-            elapsed_ms < 50,
-            "PV move extraction took {}ms, should be < 50ms",
-            elapsed_ms
-        );
+        assert!(elapsed_ms < 50, "PV move extraction took {}ms, should be < 50ms", elapsed_ms);
         assert_eq!(pv_moves.len(), 1000);
     }
 
@@ -13363,10 +12909,7 @@ mod tests {
 
         // History value should be reduced after aging
         let aged_value = orderer.get_history_score(&move1);
-        assert!(
-            aged_value < initial_value,
-            "History aging should reduce values"
-        );
+        assert!(aged_value < initial_value, "History aging should reduce values");
     }
 
     // ==================== Performance Tuning Tests ====================

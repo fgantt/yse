@@ -45,9 +45,7 @@ pub struct CounterMoveManager {
 impl CounterMoveManager {
     /// Create a new counter-move manager
     pub fn new() -> Self {
-        Self {
-            counter_move_table: HashMap::new(),
-        }
+        Self { counter_move_table: HashMap::new() }
     }
 
     /// Add a counter-move for an opponent's move
@@ -74,10 +72,7 @@ impl CounterMoveManager {
         F: Fn(&Move, &Move) -> bool,
     {
         // Get or create the counter-moves list for this opponent move
-        let counter_list = self
-            .counter_move_table
-            .entry(opponent_move)
-            .or_insert_with(Vec::new);
+        let counter_list = self.counter_move_table.entry(opponent_move).or_insert_with(Vec::new);
 
         // Check if this counter-move is already in the list
         let is_duplicate = counter_list.iter().any(|cm| moves_equal(cm, &counter_move));
@@ -152,10 +147,7 @@ impl CounterMoveManager {
 
     /// Get the number of counter-moves stored for a specific opponent move
     pub fn counter_move_count(&self, opponent_move: &Move) -> usize {
-        self.counter_move_table
-            .get(opponent_move)
-            .map(|v| v.len())
-            .unwrap_or(0)
+        self.counter_move_table.get(opponent_move).map(|v| v.len()).unwrap_or(0)
     }
 
     /// Get total number of counter-moves stored

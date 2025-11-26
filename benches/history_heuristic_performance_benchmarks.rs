@@ -17,14 +17,7 @@ fn create_benchmark_move(
     piece_type: PieceType,
     player: Player,
 ) -> Move {
-    Move {
-        from,
-        to,
-        piece_type,
-        player,
-        promotion: false,
-        drop: from.is_none(),
-    }
+    Move { from, to, piece_type, player, promotion: false, drop: from.is_none() }
 }
 
 /// Generate a set of test moves for benchmarking
@@ -49,11 +42,7 @@ fn generate_test_moves(count: usize) -> Vec<Move> {
             Some(from),
             to,
             piece_type,
-            if i % 2 == 0 {
-                Player::Black
-            } else {
-                Player::White
-            },
+            if i % 2 == 0 { Player::Black } else { Player::White },
         ));
     }
 
@@ -91,25 +80,21 @@ fn benchmark_history_score_lookup(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for count in [10, 50, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("get_history_score", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("get_history_score", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            let moves = generate_test_moves(count);
 
-                // Pre-populate with history scores
-                for (i, move_) in moves.iter().enumerate() {
-                    orderer.update_history_score(move_, (i % 10 + 1) as u8);
+            // Pre-populate with history scores
+            for (i, move_) in moves.iter().enumerate() {
+                orderer.update_history_score(move_, (i % 10 + 1) as u8);
+            }
+
+            b.iter(|| {
+                for move_ in &moves {
+                    black_box(orderer.get_history_score(black_box(move_)));
                 }
-
-                b.iter(|| {
-                    for move_ in &moves {
-                        black_box(orderer.get_history_score(black_box(move_)));
-                    }
-                });
-            },
-        );
+            });
+        });
     }
 
     group.finish();
@@ -179,23 +164,19 @@ fn benchmark_history_table_aging(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for count in [10, 50, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("age_history_table", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("age_history_table", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            let moves = generate_test_moves(count);
 
-                // Pre-populate with history scores
-                for (i, move_) in moves.iter().enumerate() {
-                    orderer.update_history_score(move_, (i % 10 + 1) as u8);
-                }
+            // Pre-populate with history scores
+            for (i, move_) in moves.iter().enumerate() {
+                orderer.update_history_score(move_, (i % 10 + 1) as u8);
+            }
 
-                b.iter(|| {
-                    black_box(orderer.age_history_table());
-                });
-            },
-        );
+            b.iter(|| {
+                black_box(orderer.age_history_table());
+            });
+        });
     }
 
     group.finish();
@@ -207,26 +188,22 @@ fn benchmark_history_table_memory_usage(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for count in [10, 50, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("memory_usage", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("memory_usage", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            let moves = generate_test_moves(count);
 
-                b.iter(|| {
-                    // Add history scores
-                    for (i, move_) in moves.iter().enumerate() {
-                        orderer.update_history_score(move_, (i % 10 + 1) as u8);
-                    }
+            b.iter(|| {
+                // Add history scores
+                for (i, move_) in moves.iter().enumerate() {
+                    orderer.update_history_score(move_, (i % 10 + 1) as u8);
+                }
 
-                    // Update memory usage
-                    orderer.update_memory_usage();
+                // Update memory usage
+                orderer.update_memory_usage();
 
-                    black_box(orderer.memory_usage.current_bytes);
-                });
-            },
-        );
+                black_box(orderer.memory_usage.current_bytes);
+            });
+        });
     }
 
     group.finish();
@@ -238,20 +215,16 @@ fn benchmark_history_heuristic_different_depths(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for depth in [1, 3, 5, 10, 20].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("depth_updates", depth),
-            depth,
-            |b, &depth| {
-                let mut orderer = MoveOrdering::new();
-                let moves = generate_test_moves(100);
+        group.bench_with_input(BenchmarkId::new("depth_updates", depth), depth, |b, &depth| {
+            let mut orderer = MoveOrdering::new();
+            let moves = generate_test_moves(100);
 
-                b.iter(|| {
-                    for move_ in &moves {
-                        orderer.update_history_score(move_, depth);
-                    }
-                });
-            },
-        );
+            b.iter(|| {
+                for move_ in &moves {
+                    orderer.update_history_score(move_, depth);
+                }
+            });
+        });
     }
 
     group.finish();
@@ -406,29 +379,22 @@ fn benchmark_history_heuristic_weights(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for weight in [1000, 2500, 5000, 7500, 10000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("history_weight", weight),
-            weight,
-            |b, &weight| {
-                let custom_weights = OrderingWeights {
-                    history_weight: weight,
-                    ..Default::default()
-                };
-                let mut orderer = MoveOrdering::with_config(custom_weights);
-                let moves = generate_test_moves(100);
+        group.bench_with_input(BenchmarkId::new("history_weight", weight), weight, |b, &weight| {
+            let custom_weights = OrderingWeights { history_weight: weight, ..Default::default() };
+            let mut orderer = MoveOrdering::with_config(custom_weights);
+            let moves = generate_test_moves(100);
 
-                // Pre-populate with history scores
+            // Pre-populate with history scores
+            for move_ in &moves {
+                orderer.update_history_score(move_, 3);
+            }
+
+            b.iter(|| {
                 for move_ in &moves {
-                    orderer.update_history_score(move_, 3);
+                    black_box(orderer.score_history_move(black_box(move_)));
                 }
-
-                b.iter(|| {
-                    for move_ in &moves {
-                        black_box(orderer.score_history_move(black_box(move_)));
-                    }
-                });
-            },
-        );
+            });
+        });
     }
 
     group.finish();
@@ -440,23 +406,19 @@ fn benchmark_history_heuristic_large_sets(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(15));
 
     for count in [1000, 2000, 5000, 10000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("large_move_sets", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("large_move_sets", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            let moves = generate_test_moves(count);
 
-                // Pre-populate with history scores
-                for i in 0..(count / 20).max(1) {
-                    orderer.update_history_score(&moves[i], 3);
-                }
+            // Pre-populate with history scores
+            for i in 0..(count / 20).max(1) {
+                orderer.update_history_score(&moves[i], 3);
+            }
 
-                b.iter(|| {
-                    black_box(orderer.order_moves_with_history(black_box(&moves)));
-                });
-            },
-        );
+            b.iter(|| {
+                black_box(orderer.order_moves_with_history(black_box(&moves)));
+            });
+        });
     }
 
     group.finish();

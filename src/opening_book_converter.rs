@@ -73,10 +73,7 @@ impl Default for OpeningBookConverterConfig {
         evaluation_scores.insert("positional".to_string(), 10);
         evaluation_scores.insert("neutral".to_string(), 0);
 
-        Self {
-            opening_weights,
-            evaluation_scores,
-        }
+        Self { opening_weights, evaluation_scores }
     }
 }
 
@@ -195,11 +192,7 @@ impl OpeningBookConverter {
             total_moves: 0,
             opening_counts: HashMap::new(),
             piece_type_counts: HashMap::new(),
-            weight_distribution: WeightDistribution {
-                high: 0,
-                medium: 0,
-                low: 0,
-            },
+            weight_distribution: WeightDistribution { high: 0, medium: 0, low: 0 },
         };
 
         for opening in openings {
@@ -210,10 +203,7 @@ impl OpeningBookConverter {
                     // Update statistics before moving the moves
                     stats.total_positions += 1;
                     stats.total_moves += moves.len();
-                    *stats
-                        .opening_counts
-                        .entry(opening.name.clone())
-                        .or_insert(0) += moves.len();
+                    *stats.opening_counts.entry(opening.name.clone()).or_insert(0) += moves.len();
 
                     // Update piece type and weight statistics
                     for book_move in &converted_moves {
@@ -355,11 +345,7 @@ impl OpeningBookConverter {
 
     /// Calculate move weight based on opening and move characteristics
     fn calculate_weight(&self, json_move: &JsonMove, opening_name: &str) -> u32 {
-        let base_weight = self
-            .opening_weights
-            .get(opening_name)
-            .copied()
-            .unwrap_or(500);
+        let base_weight = self.opening_weights.get(opening_name).copied().unwrap_or(500);
 
         let mut weight = base_weight;
 
@@ -509,18 +495,9 @@ impl OpeningBookConverter {
         report.push("".to_string());
 
         report.push("Weight Distribution:".to_string());
-        report.push(format!(
-            "  High (800+): {} moves",
-            stats.weight_distribution.high
-        ));
-        report.push(format!(
-            "  Medium (500-799): {} moves",
-            stats.weight_distribution.medium
-        ));
-        report.push(format!(
-            "  Low (<500): {} moves",
-            stats.weight_distribution.low
-        ));
+        report.push(format!("  High (800+): {} moves", stats.weight_distribution.high));
+        report.push(format!("  Medium (500-799): {} moves", stats.weight_distribution.medium));
+        report.push(format!("  Low (<500): {} moves", stats.weight_distribution.low));
 
         report.join("\n")
     }
@@ -553,9 +530,7 @@ pub struct OpeningBookConverterBuilder {
 impl OpeningBookConverterBuilder {
     /// Create a new builder with default configuration
     pub fn new() -> Self {
-        Self {
-            config: OpeningBookConverterConfig::default(),
-        }
+        Self { config: OpeningBookConverterConfig::default() }
     }
 
     /// Set the weight for a specific opening
@@ -668,9 +643,7 @@ mod tests {
     #[test]
     fn test_config_validation_invalid_weight() {
         let mut config = OpeningBookConverterConfig::default();
-        config
-            .opening_weights
-            .insert("Test Opening".to_string(), 1500);
+        config.opening_weights.insert("Test Opening".to_string(), 1500);
         assert!(config.validate().is_err());
     }
 
@@ -684,9 +657,7 @@ mod tests {
     #[test]
     fn test_from_config() {
         let mut config = OpeningBookConverterConfig::default();
-        config
-            .opening_weights
-            .insert("Custom Opening".to_string(), 900);
+        config.opening_weights.insert("Custom Opening".to_string(), 900);
         let converter = OpeningBookConverter::from_config(config);
 
         // Verify custom weight is used
@@ -805,9 +776,7 @@ evaluation_scores:
     fn test_convert_from_json_uses_config() {
         // Create converter with custom config
         let mut config = OpeningBookConverterConfig::default();
-        config
-            .opening_weights
-            .insert("Test Opening".to_string(), 950);
+        config.opening_weights.insert("Test Opening".to_string(), 950);
         let converter = OpeningBookConverter::from_config(config);
 
         // Create test JSON data

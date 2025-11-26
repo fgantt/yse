@@ -285,7 +285,8 @@ fn test_trait_entry_replacement() {
 #[test]
 fn test_trait_validation() {
     // Test that table configurations validate correctly
-    let basic_config = shogi_engine::search::transposition_table::TranspositionTableConfig::default();
+    let basic_config =
+        shogi_engine::search::transposition_table::TranspositionTableConfig::default();
     let tt_config = TranspositionTableConfig::basic(basic_config);
     assert!(tt_config.validate().is_ok());
 
@@ -293,7 +294,8 @@ fn test_trait_validation() {
     let tt_config2 = TranspositionTableConfig::thread_safe(thread_safe_config);
     assert!(tt_config2.validate().is_ok());
 
-    let multi_level_config = shogi_engine::search::multi_level_transposition_table::MultiLevelConfig::default();
+    let multi_level_config =
+        shogi_engine::search::multi_level_transposition_table::MultiLevelConfig::default();
     let tt_config3 = TranspositionTableConfig::multi_level(multi_level_config);
     assert!(tt_config3.validate().is_ok());
 }
@@ -318,7 +320,7 @@ fn test_trait_clear_preserves_size() {
     let mut table = create_transposition_table(tt_config);
 
     let size_before = table.size();
-    
+
     // Store some entries
     for i in 0..10 {
         let entry = create_test_entry(0x1000 + i, 5, 100 + i as i32);
@@ -332,4 +334,3 @@ fn test_trait_clear_preserves_size() {
     let size_after = table.size();
     assert_eq!(size_before, size_after, "Clear should not change table capacity");
 }
-

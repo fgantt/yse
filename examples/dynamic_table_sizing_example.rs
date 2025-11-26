@@ -38,10 +38,7 @@ fn demonstrate_sizing_strategies() {
         ("Conservative", DynamicSizingConfig::conservative()),
         ("Aggressive", DynamicSizingConfig::aggressive()),
         ("Memory-Based", DynamicSizingConfig::memory_based()),
-        (
-            "Performance-Based",
-            DynamicSizingConfig::performance_based(),
-        ),
+        ("Performance-Based", DynamicSizingConfig::performance_based()),
     ];
 
     for (name, config) in strategies {
@@ -52,19 +49,13 @@ fn demonstrate_sizing_strategies() {
         println!("  Min size: {}", sizer.config.min_table_size);
         println!("  Max size: {}", sizer.config.max_table_size);
         println!("  Resize frequency: {:?}", sizer.config.resize_frequency);
-        println!(
-            "  Aggressive resizing: {}",
-            sizer.config.aggressive_resizing
-        );
+        println!("  Aggressive resizing: {}", sizer.config.aggressive_resizing);
 
         // Simulate some activity
         simulate_activity(&mut sizer, 10);
 
         let stats = sizer.get_stats();
-        println!(
-            "  After simulation: {} resizes performed",
-            stats.resize_count
-        );
+        println!("  After simulation: {} resizes performed", stats.resize_count);
     }
 }
 
@@ -206,14 +197,8 @@ fn demonstrate_access_pattern_analysis() {
     }
 
     sizer.update_access_analysis();
-    println!(
-        "  Access locality: {:.2}",
-        sizer.access_analysis.access_locality
-    );
-    println!(
-        "  Hot spot concentration: {:.2}",
-        sizer.access_analysis.hot_spot_concentration
-    );
+    println!("  Access locality: {:.2}", sizer.access_analysis.access_locality);
+    println!("  Hot spot concentration: {:.2}", sizer.access_analysis.hot_spot_concentration);
     println!("  Entropy: {:.2}", sizer.access_analysis.entropy);
 
     // Pattern 2: Low locality (random accesses)
@@ -225,14 +210,8 @@ fn demonstrate_access_pattern_analysis() {
     }
 
     sizer.update_access_analysis();
-    println!(
-        "  Access locality: {:.2}",
-        sizer.access_analysis.access_locality
-    );
-    println!(
-        "  Hot spot concentration: {:.2}",
-        sizer.access_analysis.hot_spot_concentration
-    );
+    println!("  Access locality: {:.2}", sizer.access_analysis.access_locality);
+    println!("  Hot spot concentration: {:.2}", sizer.access_analysis.hot_spot_concentration);
     println!("  Entropy: {:.2}", sizer.access_analysis.entropy);
 
     // Test resize decision based on access patterns
@@ -293,10 +272,7 @@ fn demonstrate_realtime_adaptation() {
                 decision.new_size,
                 size_change
             );
-            println!(
-                "  Reason: {:?}, Confidence: {:.2}",
-                decision.reason, decision.confidence
-            );
+            println!("  Reason: {:?}, Confidence: {:.2}", decision.reason, decision.confidence);
         } else {
             println!(
                 "  Memory: {}, Hit rate: {:.1}%, Size: {} (no change)",
@@ -315,10 +291,7 @@ fn demonstrate_realtime_adaptation() {
         total_size_changes as f64 / resize_count.max(1) as f64
     );
     println!("  Final size: {}", stats.current_size);
-    println!(
-        "  Memory pressure: {:.2}",
-        stats.memory_stats.pressure_level
-    );
+    println!("  Memory pressure: {:.2}", stats.memory_stats.pressure_level);
     println!("  Performance trend: {:?}", stats.performance_stats.trend);
 }
 

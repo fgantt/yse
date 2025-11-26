@@ -29,7 +29,6 @@ fn unlikely(b: bool) -> bool {
     b
 }
 
-
 /// Branch prediction optimization utilities
 ///
 /// This module provides functions optimized for common bitboard patterns
@@ -737,22 +736,16 @@ pub mod validation {
 
             // Test bit scan forward
             let optimized_forward = optimized::bit_scan_forward_optimized(bb);
-            let standard_forward = if bb.is_empty() {
-                None
-            } else {
-                Some(bb.trailing_zeros() as u8)
-            };
+            let standard_forward =
+                if bb.is_empty() { None } else { Some(bb.trailing_zeros() as u8) };
             if optimized_forward != standard_forward {
                 return false;
             }
 
             // Test bit scan reverse
             let optimized_reverse = optimized::bit_scan_reverse_optimized(bb);
-            let standard_reverse = if bb.is_empty() {
-                None
-            } else {
-                Some((127 - bb.leading_zeros()) as u8)
-            };
+            let standard_reverse =
+                if bb.is_empty() { None } else { Some((127 - bb.leading_zeros()) as u8) };
             if optimized_reverse != standard_reverse {
                 return false;
             }
@@ -773,7 +766,8 @@ pub mod validation {
             }
 
             let optimized_single = common_cases::is_single_piece_optimized(bb);
-            let standard_single = !bb.is_empty() && (bb & Bitboard::from_u128(bb.to_u128() - 1)).is_empty();
+            let standard_single =
+                !bb.is_empty() && (bb & Bitboard::from_u128(bb.to_u128() - 1)).is_empty();
             if optimized_single != standard_single {
                 return false;
             }
@@ -807,11 +801,8 @@ pub mod validation {
 
             // Test critical path bit scan forward
             let critical_forward = critical_paths::bit_scan_forward_critical(bb);
-            let standard_forward = if bb.is_empty() {
-                None
-            } else {
-                Some(bb.trailing_zeros() as u8)
-            };
+            let standard_forward =
+                if bb.is_empty() { None } else { Some(bb.trailing_zeros() as u8) };
             if critical_forward != standard_forward {
                 return false;
             }
@@ -886,16 +877,28 @@ mod tests {
         assert!(!optimized::overlaps_optimized(Bitboard::from_u128(0), Bitboard::from_u128(1)));
         assert!(!optimized::overlaps_optimized(Bitboard::from_u128(1), Bitboard::from_u128(0)));
         assert!(optimized::overlaps_optimized(Bitboard::from_u128(1), Bitboard::from_u128(1)));
-        assert!(optimized::overlaps_optimized(Bitboard::from_u128(0b1010), Bitboard::from_u128(0b0010)));
-        assert!(!optimized::overlaps_optimized(Bitboard::from_u128(0b1010), Bitboard::from_u128(0b0001)));
+        assert!(optimized::overlaps_optimized(
+            Bitboard::from_u128(0b1010),
+            Bitboard::from_u128(0b0010)
+        ));
+        assert!(!optimized::overlaps_optimized(
+            Bitboard::from_u128(0b1010),
+            Bitboard::from_u128(0b0001)
+        ));
     }
 
     #[test]
     fn test_is_subset_optimized() {
         assert!(optimized::is_subset_optimized(Bitboard::from_u128(0), Bitboard::from_u128(1)));
         assert!(optimized::is_subset_optimized(Bitboard::from_u128(1), Bitboard::from_u128(1)));
-        assert!(optimized::is_subset_optimized(Bitboard::from_u128(0b1010), Bitboard::from_u128(0b1111)));
-        assert!(!optimized::is_subset_optimized(Bitboard::from_u128(0b1111), Bitboard::from_u128(0b1010)));
+        assert!(optimized::is_subset_optimized(
+            Bitboard::from_u128(0b1010),
+            Bitboard::from_u128(0b1111)
+        ));
+        assert!(!optimized::is_subset_optimized(
+            Bitboard::from_u128(0b1111),
+            Bitboard::from_u128(0b1010)
+        ));
         assert!(!optimized::is_subset_optimized(Bitboard::from_u128(1), Bitboard::from_u128(0)));
     }
 }

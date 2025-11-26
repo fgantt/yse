@@ -163,12 +163,7 @@ fn benchmark_time_overhead_distribution(c: &mut Criterion) {
                 0.0
             };
 
-            black_box((
-                result,
-                iid_overhead,
-                nmp_stats.attempts,
-                lmr_stats.reductions_applied,
-            ))
+            black_box((result, iid_overhead, nmp_stats.attempts, lmr_stats.reductions_applied))
         })
     });
 

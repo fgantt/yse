@@ -182,13 +182,9 @@ impl KingGoldVsKingSolver {
         }
 
         // Check if we can approach with the King
-        if let Some(approach_move) = self.approach_with_king(
-            board,
-            player,
-            attacking_king,
-            defending_king,
-            captured_pieces,
-        ) {
+        if let Some(approach_move) =
+            self.approach_with_king(board, player, attacking_king, defending_king, captured_pieces)
+        {
             let distance = self.calculate_distance_to_mate(board, player);
             return Some(TablebaseResult::win(Some(approach_move), distance));
         }
@@ -424,16 +420,7 @@ impl KingGoldVsKingSolver {
         let mut moves = Vec::new();
 
         // King moves: all 8 directions
-        let directions = [
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, -1),
-            (0, 1),
-            (1, -1),
-            (1, 0),
-            (1, 1),
-        ];
+        let directions = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
 
         for (dr, dc) in directions {
             let new_row = king.row as i8 + dr;
@@ -670,13 +657,7 @@ mod tests {
     fn build_board(pieces: &[(Player, PieceType, Position)]) -> BitboardBoard {
         let mut board = BitboardBoard::empty();
         for (player, piece_type, position) in pieces {
-            board.place_piece(
-                Piece {
-                    piece_type: *piece_type,
-                    player: *player,
-                },
-                *position,
-            );
+            board.place_piece(Piece { piece_type: *piece_type, player: *player }, *position);
         }
         board
     }
@@ -758,10 +739,8 @@ mod tests {
     #[test]
     fn test_has_king_and_gold() {
         let solver = KingGoldVsKingSolver::new();
-        let pieces = vec![
-            (PieceType::King, Position::new(0, 0)),
-            (PieceType::Gold, Position::new(1, 1)),
-        ];
+        let pieces =
+            vec![(PieceType::King, Position::new(0, 0)), (PieceType::Gold, Position::new(1, 1))];
 
         assert!(solver.has_king_and_gold(&pieces));
 
@@ -781,10 +760,8 @@ mod tests {
 
         assert!(solver.has_king_only(&pieces));
 
-        let pieces_with_extra = vec![
-            (PieceType::King, Position::new(0, 0)),
-            (PieceType::Gold, Position::new(1, 1)),
-        ];
+        let pieces_with_extra =
+            vec![(PieceType::King, Position::new(0, 0)), (PieceType::Gold, Position::new(1, 1))];
 
         assert!(!solver.has_king_only(&pieces_with_extra));
     }
@@ -793,18 +770,9 @@ mod tests {
     fn test_gold_move_generation() {
         let solver = KingGoldVsKingSolver::new();
         let mut board = BitboardBoard::empty();
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(4, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(6, 6),
-        );
-        board.place_piece(
-            Piece::new(PieceType::King, Player::White),
-            Position::new(8, 8),
-        );
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(4, 4));
+        board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(6, 6));
+        board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(8, 8));
         let gold_pos = Position::new(4, 4);
         let player = Player::Black;
 
@@ -818,18 +786,9 @@ mod tests {
     fn test_king_move_generation() {
         let solver = KingGoldVsKingSolver::new();
         let mut board = BitboardBoard::empty();
-        board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(4, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(6, 6),
-        );
-        board.place_piece(
-            Piece::new(PieceType::King, Player::White),
-            Position::new(8, 8),
-        );
+        board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(4, 4));
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(6, 6));
+        board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(8, 8));
         let king_pos = Position::new(4, 4);
         let player = Player::Black;
 
@@ -865,22 +824,10 @@ mod tests {
         let mut board = BitboardBoard::empty();
         let captured = CapturedPieces::new();
 
-        board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(4, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(4, 5),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Rook, Player::White),
-            Position::new(4, 8),
-        );
-        board.place_piece(
-            Piece::new(PieceType::King, Player::White),
-            Position::new(0, 0),
-        );
+        board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(4, 4));
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(4, 5));
+        board.place_piece(Piece::new(PieceType::Rook, Player::White), Position::new(4, 8));
+        board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 0));
 
         let moves =
             solver.generate_gold_moves(&board, Player::Black, Position::new(4, 5), &captured);
@@ -900,25 +847,13 @@ mod tests {
         let mut captured = CapturedPieces::new();
         captured.add_piece(PieceType::Pawn, Player::Black);
 
-        board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(4, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(4, 5),
-        );
-        board.place_piece(
-            Piece::new(PieceType::King, Player::White),
-            Position::new(0, 0),
-        );
+        board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(4, 4));
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(4, 5));
+        board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 0));
 
         let moves =
             solver.generate_gold_moves(&board, Player::Black, Position::new(4, 5), &captured);
-        assert!(
-            moves.is_empty(),
-            "Solver should reject positions with captured pieces in hand"
-        );
+        assert!(moves.is_empty(), "Solver should reject positions with captured pieces in hand");
     }
 
     #[test]
@@ -951,9 +886,7 @@ mod tests {
             .solve(&board, Player::Black, &captured)
             .expect("Position should be solvable");
 
-        let distance = result
-            .moves_to_mate
-            .expect("Distance to mate should be available");
+        let distance = result.moves_to_mate.expect("Distance to mate should be available");
         assert!(distance > 0);
     }
 

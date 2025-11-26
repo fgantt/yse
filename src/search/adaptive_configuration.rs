@@ -55,10 +55,7 @@ pub enum AdaptationCondition {
     /// Hit rate above threshold
     HitRateAbove { threshold: f64, duration_ms: u64 },
     /// Memory usage above threshold
-    MemoryUsageAbove {
-        threshold_bytes: u64,
-        duration_ms: u64,
-    },
+    MemoryUsageAbove { threshold_bytes: u64, duration_ms: u64 },
     /// Operation time above threshold
     OperationTimeAbove { threshold_us: f64, duration_ms: u64 },
     /// System load above threshold
@@ -66,10 +63,7 @@ pub enum AdaptationCondition {
     /// Collision rate above threshold
     CollisionRateAbove { threshold: f64, duration_ms: u64 },
     /// Available memory below threshold
-    AvailableMemoryBelow {
-        threshold_bytes: u64,
-        duration_ms: u64,
-    },
+    AvailableMemoryBelow { threshold_bytes: u64, duration_ms: u64 },
     /// Combined conditions with AND logic
     And(Vec<AdaptationCondition>),
     /// Combined conditions with OR logic
@@ -80,15 +74,9 @@ pub enum AdaptationCondition {
 #[derive(Debug, Clone)]
 pub enum AdaptationAction {
     /// Increase table size by percentage
-    IncreaseTableSize {
-        percentage: f64,
-        max_size: Option<usize>,
-    },
+    IncreaseTableSize { percentage: f64, max_size: Option<usize> },
     /// Decrease table size by percentage
-    DecreaseTableSize {
-        percentage: f64,
-        min_size: Option<usize>,
-    },
+    DecreaseTableSize { percentage: f64, min_size: Option<usize> },
     /// Change replacement policy
     ChangeReplacementPolicy { policy: ReplacementPolicy },
     /// Enable or disable statistics
@@ -174,10 +162,7 @@ impl AdaptiveConfigurationManager {
         // Rule 1: Low hit rate -> increase table size
         self.add_rule(AdaptationRule {
             name: "increase_table_size_low_hit_rate".to_string(),
-            condition: AdaptationCondition::HitRateBelow {
-                threshold: 0.2,
-                duration_ms: 10000,
-            },
+            condition: AdaptationCondition::HitRateBelow { threshold: 0.2, duration_ms: 10000 },
             action: AdaptationAction::IncreaseTableSize {
                 percentage: 0.5,
                 max_size: Some(1048576),
@@ -193,10 +178,7 @@ impl AdaptiveConfigurationManager {
                 threshold_bytes: 134217728,
                 duration_ms: 5000,
             }, // 128MB
-            action: AdaptationAction::DecreaseTableSize {
-                percentage: 0.3,
-                min_size: Some(4096),
-            },
+            action: AdaptationAction::DecreaseTableSize { percentage: 0.3, min_size: Some(4096) },
             priority: 9,
             enabled: true,
         });
@@ -218,13 +200,8 @@ impl AdaptiveConfigurationManager {
         // Rule 4: High system load -> use memory-optimized template
         self.add_rule(AdaptationRule {
             name: "memory_optimized_high_load".to_string(),
-            condition: AdaptationCondition::SystemLoadAbove {
-                threshold: 0.8,
-                duration_ms: 15000,
-            },
-            action: AdaptationAction::SwitchToTemplate {
-                template_name: "memory".to_string(),
-            },
+            condition: AdaptationCondition::SystemLoadAbove { threshold: 0.8, duration_ms: 15000 },
+            action: AdaptationAction::SwitchToTemplate { template_name: "memory".to_string() },
             priority: 7,
             enabled: true,
         });
@@ -233,10 +210,7 @@ impl AdaptiveConfigurationManager {
         self.add_rule(AdaptationRule {
             name: "performance_optimized_low_load".to_string(),
             condition: AdaptationCondition::And(vec![
-                AdaptationCondition::SystemLoadAbove {
-                    threshold: 0.7,
-                    duration_ms: 20000,
-                }, // Inverted logic
+                AdaptationCondition::SystemLoadAbove { threshold: 0.7, duration_ms: 20000 }, // Inverted logic
                 AdaptationCondition::AvailableMemoryBelow {
                     threshold_bytes: 268435456,
                     duration_ms: 1000,
@@ -259,8 +233,7 @@ impl AdaptiveConfigurationManager {
         self.adaptation_rules.push(rule);
 
         // Sort by priority (highest first)
-        self.adaptation_rules
-            .sort_by(|a, b| b.priority.cmp(&a.priority));
+        self.adaptation_rules.sort_by(|a, b| b.priority.cmp(&a.priority));
     }
 
     /// Remove an adaptation rule by name
@@ -340,49 +313,39 @@ impl AdaptiveConfigurationManager {
     /// Evaluate an adaptation condition
     fn evaluate_condition(&self, condition: &AdaptationCondition) -> bool {
         match condition {
-            AdaptationCondition::HitRateBelow {
-                threshold,
-                duration_ms,
-            } => self.check_metric_threshold(|m| m.hit_rate, *threshold, false, *duration_ms),
-            AdaptationCondition::HitRateAbove {
-                threshold,
-                duration_ms,
-            } => self.check_metric_threshold(|m| m.hit_rate, *threshold, true, *duration_ms),
-            AdaptationCondition::MemoryUsageAbove {
-                threshold_bytes,
-                duration_ms,
-            } => self.check_metric_threshold(
-                |m| m.memory_usage_bytes as f64,
-                *threshold_bytes as f64,
-                true,
-                *duration_ms,
-            ),
-            AdaptationCondition::OperationTimeAbove {
-                threshold_us,
-                duration_ms,
-            } => self.check_metric_threshold(
-                |m| m.avg_operation_time_us,
-                *threshold_us,
-                true,
-                *duration_ms,
-            ),
-            AdaptationCondition::SystemLoadAbove {
-                threshold,
-                duration_ms,
-            } => self.check_metric_threshold(|m| m.system_load, *threshold, true, *duration_ms),
-            AdaptationCondition::CollisionRateAbove {
-                threshold,
-                duration_ms,
-            } => self.check_metric_threshold(|m| m.collision_rate, *threshold, true, *duration_ms),
-            AdaptationCondition::AvailableMemoryBelow {
-                threshold_bytes,
-                duration_ms,
-            } => self.check_metric_threshold(
-                |m| m.available_memory_bytes as f64,
-                *threshold_bytes as f64,
-                false,
-                *duration_ms,
-            ),
+            AdaptationCondition::HitRateBelow { threshold, duration_ms } => {
+                self.check_metric_threshold(|m| m.hit_rate, *threshold, false, *duration_ms)
+            }
+            AdaptationCondition::HitRateAbove { threshold, duration_ms } => {
+                self.check_metric_threshold(|m| m.hit_rate, *threshold, true, *duration_ms)
+            }
+            AdaptationCondition::MemoryUsageAbove { threshold_bytes, duration_ms } => self
+                .check_metric_threshold(
+                    |m| m.memory_usage_bytes as f64,
+                    *threshold_bytes as f64,
+                    true,
+                    *duration_ms,
+                ),
+            AdaptationCondition::OperationTimeAbove { threshold_us, duration_ms } => self
+                .check_metric_threshold(
+                    |m| m.avg_operation_time_us,
+                    *threshold_us,
+                    true,
+                    *duration_ms,
+                ),
+            AdaptationCondition::SystemLoadAbove { threshold, duration_ms } => {
+                self.check_metric_threshold(|m| m.system_load, *threshold, true, *duration_ms)
+            }
+            AdaptationCondition::CollisionRateAbove { threshold, duration_ms } => {
+                self.check_metric_threshold(|m| m.collision_rate, *threshold, true, *duration_ms)
+            }
+            AdaptationCondition::AvailableMemoryBelow { threshold_bytes, duration_ms } => self
+                .check_metric_threshold(
+                    |m| m.available_memory_bytes as f64,
+                    *threshold_bytes as f64,
+                    false,
+                    *duration_ms,
+                ),
             AdaptationCondition::And(conditions) => {
                 conditions.iter().all(|c| self.evaluate_condition(c))
             }
@@ -448,40 +411,25 @@ impl AdaptiveConfigurationManager {
         let current_config = runtime_manager.get_active_config();
 
         let new_config = match action {
-            AdaptationAction::IncreaseTableSize {
-                percentage,
-                max_size,
-            } => {
+            AdaptationAction::IncreaseTableSize { percentage, max_size } => {
                 let new_size = (current_config.table_size as f64 * (1.0 + percentage)) as usize;
                 let new_size = max_size.map(|max| new_size.min(max)).unwrap_or(new_size);
-                TranspositionConfig {
-                    table_size: new_size,
-                    ..current_config
-                }
+                TranspositionConfig { table_size: new_size, ..current_config }
             }
-            AdaptationAction::DecreaseTableSize {
-                percentage,
-                min_size,
-            } => {
+            AdaptationAction::DecreaseTableSize { percentage, min_size } => {
                 let new_size = (current_config.table_size as f64 * (1.0 - percentage)) as usize;
                 let new_size = min_size.map(|min| new_size.max(min)).unwrap_or(new_size);
-                TranspositionConfig {
-                    table_size: new_size,
-                    ..current_config
-                }
+                TranspositionConfig { table_size: new_size, ..current_config }
             }
-            AdaptationAction::ChangeReplacementPolicy { policy } => TranspositionConfig {
-                replacement_policy: policy.clone(),
-                ..current_config
-            },
-            AdaptationAction::SetStatisticsEnabled { enabled } => TranspositionConfig {
-                enable_statistics: *enabled,
-                ..current_config
-            },
-            AdaptationAction::SetPrefetchingEnabled { enabled } => TranspositionConfig {
-                enable_prefetching: *enabled,
-                ..current_config
-            },
+            AdaptationAction::ChangeReplacementPolicy { policy } => {
+                TranspositionConfig { replacement_policy: policy.clone(), ..current_config }
+            }
+            AdaptationAction::SetStatisticsEnabled { enabled } => {
+                TranspositionConfig { enable_statistics: *enabled, ..current_config }
+            }
+            AdaptationAction::SetPrefetchingEnabled { enabled } => {
+                TranspositionConfig { enable_prefetching: *enabled, ..current_config }
+            }
             AdaptationAction::SetCacheLineAlignmentEnabled { .. } => {
                 // This field doesn't exist in TranspositionConfig, so return current config
                 current_config
@@ -515,11 +463,7 @@ impl AdaptiveConfigurationManager {
         let n = hit_rates.len() as f64;
         let sum_x: f64 = (0..hit_rates.len()).map(|i| i as f64).sum();
         let sum_y: f64 = hit_rates.iter().sum();
-        let sum_xy: f64 = hit_rates
-            .iter()
-            .enumerate()
-            .map(|(i, y)| i as f64 * y)
-            .sum();
+        let sum_xy: f64 = hit_rates.iter().enumerate().map(|(i, y)| i as f64 * y).sum();
         let sum_x2: f64 = (0..hit_rates.len()).map(|i| (i as f64).powi(2)).sum();
 
         let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x.powi(2));
@@ -616,26 +560,17 @@ impl Default for AdaptationState {
 impl AdaptationCondition {
     /// Hit rate above threshold
     pub fn hit_rate_above(threshold: f64, duration_ms: u64) -> Self {
-        Self::HitRateAbove {
-            threshold,
-            duration_ms,
-        }
+        Self::HitRateAbove { threshold, duration_ms }
     }
 
     /// System load below threshold
     pub fn system_load_below(threshold: f64, duration_ms: u64) -> Self {
-        Self::SystemLoadAbove {
-            threshold: 1.0 - threshold,
-            duration_ms,
-        }
+        Self::SystemLoadAbove { threshold: 1.0 - threshold, duration_ms }
     }
 
     /// Available memory above threshold
     pub fn available_memory_above(threshold_bytes: u64, duration_ms: u64) -> Self {
-        Self::AvailableMemoryBelow {
-            threshold_bytes: u64::MAX - threshold_bytes,
-            duration_ms,
-        }
+        Self::AvailableMemoryBelow { threshold_bytes: u64::MAX - threshold_bytes, duration_ms }
     }
 }
 
@@ -649,10 +584,7 @@ mod tests {
         let manager = AdaptiveConfigurationManager::new(config);
 
         assert!(manager.get_adaptation_rules().len() > 0);
-        assert_eq!(
-            manager.get_adaptation_state().mode,
-            AdaptationMode::Balanced
-        );
+        assert_eq!(manager.get_adaptation_state().mode, AdaptationMode::Balanced);
     }
 
     #[test]
@@ -662,26 +594,17 @@ mod tests {
 
         let rule = AdaptationRule {
             name: "test_rule".to_string(),
-            condition: AdaptationCondition::HitRateBelow {
-                threshold: 0.5,
-                duration_ms: 1000,
-            },
+            condition: AdaptationCondition::HitRateBelow { threshold: 0.5, duration_ms: 1000 },
             action: AdaptationAction::NoAction,
             priority: 5,
             enabled: true,
         };
 
         manager.add_rule(rule);
-        assert!(manager
-            .get_adaptation_rules()
-            .iter()
-            .any(|r| r.name == "test_rule"));
+        assert!(manager.get_adaptation_rules().iter().any(|r| r.name == "test_rule"));
 
         assert!(manager.remove_rule("test_rule"));
-        assert!(!manager
-            .get_adaptation_rules()
-            .iter()
-            .any(|r| r.name == "test_rule"));
+        assert!(!manager.get_adaptation_rules().iter().any(|r| r.name == "test_rule"));
     }
 
     #[test]
@@ -709,15 +632,9 @@ mod tests {
         let mut manager = AdaptiveConfigurationManager::new(config);
 
         manager.set_adaptation_mode(AdaptationMode::Conservative);
-        assert_eq!(
-            manager.get_adaptation_state().mode,
-            AdaptationMode::Conservative
-        );
+        assert_eq!(manager.get_adaptation_state().mode, AdaptationMode::Conservative);
 
         manager.set_adaptation_mode(AdaptationMode::Aggressive);
-        assert_eq!(
-            manager.get_adaptation_state().mode,
-            AdaptationMode::Aggressive
-        );
+        assert_eq!(manager.get_adaptation_state().mode, AdaptationMode::Aggressive);
     }
 }

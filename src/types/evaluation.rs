@@ -44,10 +44,7 @@ pub struct TaperedScore {
 impl TaperedScore {
     /// Create a new TaperedScore with both values equal
     pub fn new(value: i32) -> Self {
-        Self {
-            mg: value,
-            eg: value,
-        }
+        Self { mg: value, eg: value }
     }
 
     /// Create a TaperedScore with different mg and eg values
@@ -85,40 +82,28 @@ impl std::ops::SubAssign for TaperedScore {
 impl std::ops::Add for TaperedScore {
     type Output = Self;
     fn add(self, other: Self) -> Self {
-        Self {
-            mg: self.mg + other.mg,
-            eg: self.eg + other.eg,
-        }
+        Self { mg: self.mg + other.mg, eg: self.eg + other.eg }
     }
 }
 
 impl std::ops::Sub for TaperedScore {
     type Output = Self;
     fn sub(self, other: Self) -> Self {
-        Self {
-            mg: self.mg - other.mg,
-            eg: self.eg - other.eg,
-        }
+        Self { mg: self.mg - other.mg, eg: self.eg - other.eg }
     }
 }
 
 impl std::ops::Neg for TaperedScore {
     type Output = Self;
     fn neg(self) -> Self {
-        Self {
-            mg: -self.mg,
-            eg: -self.eg,
-        }
+        Self { mg: -self.mg, eg: -self.eg }
     }
 }
 
 impl std::ops::Mul<f32> for TaperedScore {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
-        Self {
-            mg: (self.mg as f32 * rhs) as i32,
-            eg: (self.eg as f32 * rhs) as i32,
-        }
+        Self { mg: (self.mg as f32 * rhs) as i32, eg: (self.eg as f32 * rhs) as i32 }
     }
 }
 
@@ -527,7 +512,7 @@ mod tests {
         let sum = a + b;
         assert_eq!(sum.mg, 300);
         assert_eq!(sum.eg, 150);
-        
+
         let neg = -a;
         assert_eq!(neg.mg, -100);
         assert_eq!(neg.eg, -50);
@@ -547,4 +532,3 @@ mod tests {
         assert!(config.cache_game_phase);
     }
 }
-

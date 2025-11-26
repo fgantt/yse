@@ -42,38 +42,34 @@ fn benchmark_nmp_without_verification(c: &mut Criterion) {
 
     // Test across different depths
     for depth in [3, 4, 5, 6] {
-        group.bench_with_input(
-            BenchmarkId::new("search_depth", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine_with_config(NullMoveConfig {
-                        enabled: true,
-                        min_depth: 3,
-                        reduction_factor: 2,
-                        max_pieces_threshold: 12,
-                        enable_dynamic_reduction: true,
-                        enable_endgame_detection: true,
-                        verification_margin: 0, // Verification disabled
-                    });
-
-                    engine.reset_null_move_stats();
-
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        1000,
-                    );
-
-                    let stats = engine.get_null_move_stats().clone();
-
-                    black_box((result, stats))
+        group.bench_with_input(BenchmarkId::new("search_depth", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine_with_config(NullMoveConfig {
+                    enabled: true,
+                    min_depth: 3,
+                    reduction_factor: 2,
+                    max_pieces_threshold: 12,
+                    enable_dynamic_reduction: true,
+                    enable_endgame_detection: true,
+                    verification_margin: 0, // Verification disabled
                 });
-            },
-        );
+
+                engine.reset_null_move_stats();
+
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    1000,
+                );
+
+                let stats = engine.get_null_move_stats().clone();
+
+                black_box((result, stats))
+            });
+        });
     }
 
     group.finish();
@@ -91,38 +87,34 @@ fn benchmark_nmp_with_verification(c: &mut Criterion) {
 
     // Test across different depths
     for depth in [3, 4, 5, 6] {
-        group.bench_with_input(
-            BenchmarkId::new("search_depth", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine_with_config(NullMoveConfig {
-                        enabled: true,
-                        min_depth: 3,
-                        reduction_factor: 2,
-                        max_pieces_threshold: 12,
-                        enable_dynamic_reduction: true,
-                        enable_endgame_detection: true,
-                        verification_margin: 200, // Verification enabled
-                    });
-
-                    engine.reset_null_move_stats();
-
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        1000,
-                    );
-
-                    let stats = engine.get_null_move_stats().clone();
-
-                    black_box((result, stats))
+        group.bench_with_input(BenchmarkId::new("search_depth", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine_with_config(NullMoveConfig {
+                    enabled: true,
+                    min_depth: 3,
+                    reduction_factor: 2,
+                    max_pieces_threshold: 12,
+                    enable_dynamic_reduction: true,
+                    enable_endgame_detection: true,
+                    verification_margin: 200, // Verification enabled
                 });
-            },
-        );
+
+                engine.reset_null_move_stats();
+
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    1000,
+                );
+
+                let stats = engine.get_null_move_stats().clone();
+
+                black_box((result, stats))
+            });
+        });
     }
 
     group.finish();
@@ -422,11 +414,7 @@ fn benchmark_verify_effectiveness_impact(c: &mut Criterion) {
             );
 
             let stats = engine.get_null_move_stats();
-            let cutoff_rate = if stats.attempts > 0 {
-                stats.cutoff_rate()
-            } else {
-                0.0
-            };
+            let cutoff_rate = if stats.attempts > 0 { stats.cutoff_rate() } else { 0.0 };
 
             black_box(cutoff_rate)
         });
@@ -457,11 +445,7 @@ fn benchmark_verify_effectiveness_impact(c: &mut Criterion) {
             );
 
             let stats = engine.get_null_move_stats();
-            let cutoff_rate = if stats.attempts > 0 {
-                stats.cutoff_rate()
-            } else {
-                0.0
-            };
+            let cutoff_rate = if stats.attempts > 0 { stats.cutoff_rate() } else { 0.0 };
 
             black_box(cutoff_rate)
         });

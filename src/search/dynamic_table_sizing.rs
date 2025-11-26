@@ -465,21 +465,14 @@ impl DynamicTableSizer {
         }
 
         // Calculate memory trend
-        let recent_samples: Vec<u64> = self
-            .memory_history
-            .iter()
-            .rev()
-            .take(10)
-            .map(|(_, usage)| *usage)
-            .collect();
+        let recent_samples: Vec<u64> =
+            self.memory_history.iter().rev().take(10).map(|(_, usage)| *usage).collect();
 
         if recent_samples.len() >= 3 {
-            let first_half: f64 = recent_samples[..recent_samples.len() / 2]
-                .iter()
-                .sum::<u64>() as f64;
-            let second_half: f64 = recent_samples[recent_samples.len() / 2..]
-                .iter()
-                .sum::<u64>() as f64;
+            let first_half: f64 =
+                recent_samples[..recent_samples.len() / 2].iter().sum::<u64>() as f64;
+            let second_half: f64 =
+                recent_samples[recent_samples.len() / 2..].iter().sum::<u64>() as f64;
 
             let first_avg = first_half / (recent_samples.len() / 2) as f64;
             let second_avg = second_half / (recent_samples.len() - recent_samples.len() / 2) as f64;
@@ -511,13 +504,8 @@ impl DynamicTableSizer {
         }
 
         // Calculate performance trend
-        let recent_samples: Vec<f64> = self
-            .performance_history
-            .iter()
-            .rev()
-            .take(10)
-            .map(|(_, rate)| *rate)
-            .collect();
+        let recent_samples: Vec<f64> =
+            self.performance_history.iter().rev().take(10).map(|(_, rate)| *rate).collect();
 
         if recent_samples.len() >= 3 {
             let first_half: f64 = recent_samples[..recent_samples.len() / 2].iter().sum();
@@ -633,9 +621,7 @@ impl DynamicTableSizer {
         // Calculate regularity (simplified)
         let mut time_diffs = Vec::new();
         for i in 1..self.access_history.len() {
-            let diff = self.access_history[i]
-                .0
-                .duration_since(self.access_history[i - 1].0);
+            let diff = self.access_history[i].0.duration_since(self.access_history[i - 1].0);
             time_diffs.push(diff);
         }
 
@@ -655,11 +641,8 @@ impl DynamicTableSizer {
             let avg_ms = avg_diff.as_millis() as f64;
 
             // Regularity is inverse of coefficient of variation
-            self.access_analysis.temporal_patterns.regularity = if avg_ms > 0.0 {
-                (avg_ms / (avg_ms + std_dev)).min(1.0)
-            } else {
-                0.0
-            };
+            self.access_analysis.temporal_patterns.regularity =
+                if avg_ms > 0.0 { (avg_ms / (avg_ms + std_dev)).min(1.0) } else { 0.0 };
         }
     }
 
@@ -686,11 +669,7 @@ impl DynamicTableSizer {
         }
 
         // Check performance thresholds
-        if self
-            .config
-            .performance_monitoring
-            .enable_hit_rate_monitoring
-        {
+        if self.config.performance_monitoring.enable_hit_rate_monitoring {
             if self.performance_stats.hit_rate
                 < self.config.performance_monitoring.hit_rate_threshold
             {
@@ -713,11 +692,7 @@ impl DynamicTableSizer {
         }
 
         // Check access patterns
-        if self
-            .config
-            .performance_monitoring
-            .enable_access_pattern_monitoring
-        {
+        if self.config.performance_monitoring.enable_access_pattern_monitoring {
             if self.access_analysis.hot_spot_concentration > 0.8 {
                 reasons.push(ResizeReason::AccessPattern);
                 confidence += 0.5;
@@ -759,16 +734,11 @@ impl DynamicTableSizer {
         }
 
         // Apply size constraints
-        new_size = new_size
-            .max(self.config.min_table_size)
-            .min(self.config.max_table_size);
+        new_size = new_size.max(self.config.min_table_size).min(self.config.max_table_size);
 
         // Only resize if there's a significant change and sufficient confidence
-        let size_change_ratio = if self.current_size > 0 {
-            new_size as f64 / self.current_size as f64
-        } else {
-            1.0
-        };
+        let size_change_ratio =
+            if self.current_size > 0 { new_size as f64 / self.current_size as f64 } else { 1.0 };
         let significant_change = size_change_ratio > 1.1 || size_change_ratio < 0.9;
 
         if significant_change && confidence > 0.3 {
@@ -776,10 +746,7 @@ impl DynamicTableSizer {
 
             return Some(ResizeDecision {
                 new_size,
-                reason: reasons
-                    .first()
-                    .copied()
-                    .unwrap_or(ResizeReason::PeriodicMaintenance),
+                reason: reasons.first().copied().unwrap_or(ResizeReason::PeriodicMaintenance),
                 confidence: confidence.min(1.0),
                 expected_impact,
                 timestamp: Instant::now(),
@@ -847,19 +814,11 @@ mod tests {
 
         let memory_based = DynamicSizingConfig::memory_based();
         assert!(memory_based.memory_monitoring.enable_memory_pressure);
-        assert!(
-            !memory_based
-                .performance_monitoring
-                .enable_hit_rate_monitoring
-        );
+        assert!(!memory_based.performance_monitoring.enable_hit_rate_monitoring);
 
         let performance_based = DynamicSizingConfig::performance_based();
         assert!(!performance_based.memory_monitoring.enable_memory_pressure);
-        assert!(
-            performance_based
-                .performance_monitoring
-                .enable_hit_rate_monitoring
-        );
+        assert!(performance_based.performance_monitoring.enable_hit_rate_monitoring);
     }
 
     #[test]

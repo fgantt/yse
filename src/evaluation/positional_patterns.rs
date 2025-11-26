@@ -25,17 +25,8 @@ use crate::types::evaluation::TaperedScore;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
-const CORE_CENTER: [(u8, u8); 9] = [
-    (3, 3),
-    (3, 4),
-    (3, 5),
-    (4, 3),
-    (4, 4),
-    (4, 5),
-    (5, 3),
-    (5, 4),
-    (5, 5),
-];
+const CORE_CENTER: [(u8, u8); 9] =
+    [(3, 3), (3, 4), (3, 5), (4, 3), (4, 4), (4, 5), (5, 3), (5, 4), (5, 5)];
 
 const EXTENDED_CENTER: [(u8, u8); 16] = [
     (2, 2),
@@ -75,10 +66,7 @@ struct ControlCache<'a> {
 
 impl<'a> ControlCache<'a> {
     fn new(board: &'a BitboardBoard) -> Self {
-        Self {
-            board,
-            cache: [[None; 81]; 2],
-        }
+        Self { board, cache: [[None; 81]; 2] }
     }
 
     fn player_index(player: Player) -> usize {
@@ -140,18 +128,12 @@ struct OutpostContext {
 impl PositionalPatternAnalyzer {
     /// Create a new positional pattern analyzer
     pub fn new() -> Self {
-        Self {
-            config: PositionalConfig::default(),
-            stats: PositionalStats::default(),
-        }
+        Self { config: PositionalConfig::default(), stats: PositionalStats::default() }
     }
 
     /// Create with custom configuration
     pub fn with_config(config: PositionalConfig) -> Self {
-        Self {
-            config,
-            stats: PositionalStats::default(),
-        }
+        Self { config, stats: PositionalStats::default() }
     }
 
     /// Evaluate all positional patterns for a player
@@ -319,11 +301,7 @@ impl PositionalPatternAnalyzer {
         if control_diff != 0 {
             let player_forward = Self::forward_steps(pos, player) as usize;
             let opponent_forward = Self::forward_steps(pos, opponent) as usize;
-            let index = if control_diff >= 0 {
-                player_forward
-            } else {
-                opponent_forward
-            };
+            let index = if control_diff >= 0 { player_forward } else { opponent_forward };
             let control_scale_mg = self.config.pawn_center_bonus + CENTER_FORWARD_BONUS[index] / 2;
             let control_scale_eg =
                 self.config.pawn_center_bonus / 2 + CENTER_FORWARD_BONUS[index] / 4;
@@ -340,11 +318,7 @@ impl PositionalPatternAnalyzer {
             score.eg += mobility_bonus / 2;
         }
 
-        if opponent_control
-            && occupant
-                .map(|piece| piece.player != opponent)
-                .unwrap_or(true)
-        {
+        if opponent_control && occupant.map(|piece| piece.player != opponent).unwrap_or(true) {
             let forward = Self::forward_steps(pos, opponent) as usize;
             let mobility_bonus = CENTER_FORWARD_BONUS[forward] / 2 + 4;
             score.mg -= mobility_bonus;
@@ -628,11 +602,8 @@ impl PositionalPatternAnalyzer {
         }
 
         let mut score = 0;
-        let guard_types: &[(PieceType, i32)] = &[
-            (PieceType::Gold, 2),
-            (PieceType::Silver, 1),
-            (PieceType::Pawn, 1),
-        ];
+        let guard_types: &[(PieceType, i32)] =
+            &[(PieceType::Gold, 2), (PieceType::Silver, 1), (PieceType::Pawn, 1)];
 
         let guard_squares = self.guard_squares_for_player(pos, player);
         for &(piece_type, value) in guard_types {
@@ -818,10 +789,7 @@ impl PositionalPatternAnalyzer {
                 return true;
             }
 
-            if board
-                .get_piece(Position::new(current_row as u8, from.col))
-                .is_some()
-            {
+            if board.get_piece(Position::new(current_row as u8, from.col)).is_some() {
                 return false;
             }
 
@@ -1164,16 +1132,7 @@ impl PositionalPatternAnalyzer {
     }
 
     fn king_offsets(&self) -> [(i8, i8); 8] {
-        [
-            (-1, -1),
-            (-1, 0),
-            (-1, 1),
-            (0, -1),
-            (0, 1),
-            (1, -1),
-            (1, 0),
-            (1, 1),
-        ]
+        [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)]
     }
 
     // ===================================================================
@@ -1248,11 +1207,7 @@ impl PositionalPatternAnalyzer {
             squares.push(king_pos);
         } else {
             // Fallback to default castle region if king not found
-            let base_rows = if player == Player::Black {
-                6..=8
-            } else {
-                0..=2
-            };
+            let base_rows = if player == Player::Black { 6..=8 } else { 0..=2 };
             for row in base_rows {
                 for col in 3..=5 {
                     squares.push(Position::new(row, col));
@@ -1415,11 +1370,7 @@ impl PositionalPatternAnalyzer {
         player: Player,
     ) -> (i32, i32) {
         // Pieces are more active when advanced
-        let advancement = if player == Player::Black {
-            8 - pos.row
-        } else {
-            pos.row
-        };
+        let advancement = if player == Player::Black { 8 - pos.row } else { pos.row };
 
         let activity_bonus = match piece_type {
             PieceType::Rook | PieceType::PromotedRook => {
@@ -1849,14 +1800,8 @@ mod tests {
         let board_blocked = board.is_square_attacked_by(blocked_target, Player::Black);
 
         let mut control_cache = ControlCache::new(&board);
-        assert_eq!(
-            control_cache.controlled_by(Player::Black, lateral_target),
-            board_lateral
-        );
-        assert_eq!(
-            control_cache.controlled_by(Player::Black, blocked_target),
-            board_blocked
-        );
+        assert_eq!(control_cache.controlled_by(Player::Black, lateral_target), board_lateral);
+        assert_eq!(control_cache.controlled_by(Player::Black, blocked_target), board_blocked);
     }
 
     #[test]
@@ -1866,10 +1811,7 @@ mod tests {
         let outpost_pos = Position::new(4, 4);
 
         board.place_piece(Piece::new(PieceType::Silver, Player::Black), outpost_pos);
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(5, 4),
-        );
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(5, 4));
 
         let captured_none = CapturedPieces::new();
         let mut cache_no_threat = ControlCache::new(&board);
@@ -1904,10 +1846,7 @@ mod tests {
             analyzer.evaluate_outposts(&board, Player::Black, &mut cache_no_support, &captured);
         assert_eq!(unsupported.mg, 0);
 
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(5, 4),
-        );
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(5, 4));
 
         let mut cache_supported = ControlCache::new(&board);
         let supported =
@@ -1919,10 +1858,7 @@ mod tests {
     fn test_weak_square_relieved_by_pawn_drop() {
         let mut board = BitboardBoard::empty();
         let mut analyzer = PositionalPatternAnalyzer::new();
-        board.place_piece(
-            Piece::new(PieceType::Rook, Player::White),
-            Position::new(0, 4),
-        );
+        board.place_piece(Piece::new(PieceType::Rook, Player::White), Position::new(0, 4));
 
         let mut cache_no_drop = ControlCache::new(&board);
         let captured_none = CapturedPieces::new();
@@ -1952,18 +1888,9 @@ mod tests {
         let mut board = BitboardBoard::empty();
         let captured = CapturedPieces::new();
 
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(3, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(4, 3),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::White),
-            Position::new(6, 4),
-        );
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(3, 4));
+        board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(4, 3));
+        board.place_piece(Piece::new(PieceType::Pawn, Player::White), Position::new(6, 4));
 
         let mut analyzer_black = PositionalPatternAnalyzer::new();
         let mut cache_black = ControlCache::new(&board);
@@ -1989,10 +1916,7 @@ mod tests {
     #[test]
     fn test_center_control_phase_weights() {
         let mut board = BitboardBoard::empty();
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(4, 4),
-        );
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(4, 4));
 
         let mut base_config = PositionalConfig::default();
         base_config.enable_outposts = false;

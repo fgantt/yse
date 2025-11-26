@@ -199,9 +199,7 @@ impl TranspositionMoveOrderer {
         player: Player,
         depth: u8,
     ) -> MoveOrderingHints {
-        let position_hash = self
-            .hash_calculator
-            .get_position_hash(board, player, captured_pieces);
+        let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
 
         // Probe transposition table for best move and other hints
         let (best_move, tt_depth, tt_score, tt_flag) = if !self.transposition_table.is_null() {
@@ -209,12 +207,7 @@ impl TranspositionMoveOrderer {
                 let tt = &*self.transposition_table;
                 if let Some(entry) = tt.probe(position_hash, depth) {
                     self.stats.tt_hint_moves += 1;
-                    (
-                        entry.best_move,
-                        entry.depth,
-                        Some(entry.score),
-                        Some(entry.flag),
-                    )
+                    (entry.best_move, entry.depth, Some(entry.score), Some(entry.flag))
                 } else {
                     (None, 0, None, None)
                 }
@@ -223,13 +216,7 @@ impl TranspositionMoveOrderer {
             (None, 0, None, None)
         };
 
-        MoveOrderingHints {
-            best_move,
-            position_hash,
-            tt_depth,
-            tt_score,
-            tt_flag,
-        }
+        MoveOrderingHints { best_move, position_hash, tt_depth, tt_score, tt_flag }
     }
 
     /// Categorize moves based on type and priority

@@ -19,24 +19,24 @@ use shogi_engine::types::core::Player;
 /// Move generator SIMD is controlled by default config.
 fn create_engine_with_simd_config(simd_enabled: bool) -> SearchEngine {
     let mut engine = SearchEngine::new(None, 16);
-    
+
     // Configure SIMD on evaluator via public API
     let evaluator = engine.get_evaluator_mut();
     if let Some(integrated) = evaluator.get_integrated_evaluator_mut() {
         let mut eval_config = integrated.config().clone();
         eval_config.simd.enable_simd_evaluation = simd_enabled;
         integrated.set_config(eval_config);
-        
+
         // Configure SIMD on tactical pattern recognizer via update_tactical_config
         let mut tactical_config = integrated.config().tactical.clone();
         tactical_config.enable_simd_pattern_matching = simd_enabled;
         integrated.update_tactical_config(tactical_config);
     }
-    
+
     // Note: Move generator SIMD config is private in SearchEngine.
     // The default MoveGenerator::new() enables SIMD when the feature is enabled.
     // Evaluation and pattern matching are the main contributors to NPS improvement.
-    
+
     engine
 }
 
@@ -54,7 +54,8 @@ fn measure_search_nps(
 
     for _ in 0..iterations {
         *board = BitboardBoard::new(); // Reset to starting position
-        let _ = engine.search_at_depth(board, captured_pieces, player, depth, 5000, i32::MIN, i32::MAX);
+        let _ =
+            engine.search_at_depth(board, captured_pieces, player, depth, 5000, i32::MIN, i32::MAX);
         total_nodes += engine.get_nodes_searched();
     }
 
@@ -246,4 +247,3 @@ criterion_group!(
     bench_simd_vs_scalar_nps_realistic_workload
 );
 criterion_main!(benches);
-

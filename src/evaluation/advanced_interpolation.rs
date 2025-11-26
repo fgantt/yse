@@ -42,18 +42,12 @@ pub struct AdvancedInterpolator {
 impl AdvancedInterpolator {
     /// Create a new advanced interpolator
     pub fn new() -> Self {
-        Self {
-            config: AdvancedInterpolationConfig::default(),
-            spline_cache: None,
-        }
+        Self { config: AdvancedInterpolationConfig::default(), spline_cache: None }
     }
 
     /// Create with custom configuration
     pub fn with_config(config: AdvancedInterpolationConfig) -> Self {
-        let mut interpolator = Self {
-            config,
-            spline_cache: None,
-        };
+        let mut interpolator = Self { config, spline_cache: None };
         interpolator.initialize_spline();
         interpolator
     }
@@ -128,18 +122,15 @@ impl AdvancedInterpolator {
     /// Get phase boundaries based on position type
     fn get_phase_boundaries(&self, position_type: PositionType) -> PhaseBoundaries {
         match position_type {
-            PositionType::Tactical => PhaseBoundaries {
-                opening_threshold: 180,
-                endgame_threshold: 50,
-            },
-            PositionType::Positional => PhaseBoundaries {
-                opening_threshold: 200,
-                endgame_threshold: 70,
-            },
-            PositionType::Endgame => PhaseBoundaries {
-                opening_threshold: 150,
-                endgame_threshold: 80,
-            },
+            PositionType::Tactical => {
+                PhaseBoundaries { opening_threshold: 180, endgame_threshold: 50 }
+            }
+            PositionType::Positional => {
+                PhaseBoundaries { opening_threshold: 200, endgame_threshold: 70 }
+            }
+            PositionType::Endgame => {
+                PhaseBoundaries { opening_threshold: 150, endgame_threshold: 80 }
+            }
             PositionType::Standard => self.config.default_boundaries.clone(),
         }
     }
@@ -273,10 +264,7 @@ pub struct PhaseBoundaries {
 
 impl Default for PhaseBoundaries {
     fn default() -> Self {
-        Self {
-            opening_threshold: 192,
-            endgame_threshold: 64,
-        }
+        Self { opening_threshold: 192, endgame_threshold: 64 }
     }
 }
 
@@ -306,11 +294,7 @@ pub struct PositionCharacteristics {
 
 impl Default for PositionCharacteristics {
     fn default() -> Self {
-        Self {
-            material_reduction: 0.0,
-            complexity: 0.5,
-            king_safety: 1.0,
-        }
+        Self { material_reduction: 0.0, complexity: 0.5, king_safety: 1.0 }
     }
 }
 
@@ -446,11 +430,8 @@ mod tests {
         let interpolator = AdvancedInterpolator::new();
         let score = TaperedScore::new_tapered(100, 200);
 
-        let characteristics = PositionCharacteristics {
-            material_reduction: 0.5,
-            complexity: 0.6,
-            king_safety: 0.8,
-        };
+        let characteristics =
+            PositionCharacteristics { material_reduction: 0.5, complexity: 0.6, king_safety: 0.8 };
 
         let result = interpolator.interpolate_adaptive(score, 128, &characteristics);
 
@@ -461,11 +442,8 @@ mod tests {
     fn test_phase_adjustment() {
         let interpolator = AdvancedInterpolator::new();
 
-        let high_reduction = PositionCharacteristics {
-            material_reduction: 0.8,
-            complexity: 0.5,
-            king_safety: 0.5,
-        };
+        let high_reduction =
+            PositionCharacteristics { material_reduction: 0.8, complexity: 0.5, king_safety: 0.5 };
 
         let adjusted = interpolator.adjust_phase(128, &high_reduction);
 
@@ -569,11 +547,8 @@ mod tests {
         let interpolator = AdvancedInterpolator::new();
         let score = TaperedScore::new_tapered(100, 200);
 
-        let high_complexity = PositionCharacteristics {
-            material_reduction: 0.3,
-            complexity: 0.9,
-            king_safety: 0.5,
-        };
+        let high_complexity =
+            PositionCharacteristics { material_reduction: 0.3, complexity: 0.9, king_safety: 0.5 };
 
         let result = interpolator.interpolate_adaptive(score, 128, &high_complexity);
 

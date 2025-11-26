@@ -496,14 +496,8 @@ mod performance_tests {
         }
         let normal_duration = start.elapsed();
 
-        println!(
-            "Optimized popcount (single bit): {:?} per call",
-            fast_path_duration / iterations
-        );
-        println!(
-            "Optimized popcount (normal): {:?} per call",
-            normal_duration / iterations
-        );
+        println!("Optimized popcount (single bit): {:?} per call", fast_path_duration / iterations);
+        println!("Optimized popcount (normal): {:?} per call", normal_duration / iterations);
 
         // Fast path should be very fast
         assert!(

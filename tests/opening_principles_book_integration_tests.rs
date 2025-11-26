@@ -36,10 +36,7 @@ fn test_book_move_quality_evaluation() {
         evaluator.evaluate_book_move_quality(&board, Player::Black, &move_, &captured_pieces, 5);
 
     // Should return a valid score
-    assert!(
-        quality_score.abs() < 100000,
-        "Quality score should be reasonable"
-    );
+    assert!(quality_score.abs() < 100000, "Quality score should be reasonable");
 
     // Check statistics
     assert_eq!(evaluator.stats().book_moves_evaluated, 1);

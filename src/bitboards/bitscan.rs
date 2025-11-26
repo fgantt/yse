@@ -317,11 +317,7 @@ pub fn bit_scan_optimized(bb: Bitboard, forward: bool) -> Option<u8> {
 
     // Fast path for single bit (common case)
     if (bb & Bitboard::from_u128(bb.to_u128() - 1)).is_empty() {
-        return if forward {
-            bit_scan_forward(bb)
-        } else {
-            bit_scan_reverse(bb)
-        };
+        return if forward { bit_scan_forward(bb) } else { bit_scan_reverse(bb) };
     }
 
     // Use the best available implementation
@@ -575,7 +571,8 @@ mod tests {
         // Test isolate_msb
         assert_eq!(isolate_msb(Bitboard::from_u128(0b1010)), Bitboard::from_u128(0b1000)); // Isolate MSB of 0b1010
         assert_eq!(isolate_msb(Bitboard::from_u128(0b0010)), Bitboard::from_u128(0b0010)); // Isolate MSB of 0b0010
-        assert_eq!(isolate_msb(Bitboard::from_u128(0)), Bitboard::from_u128(0)); // Isolate MSB of 0
+        assert_eq!(isolate_msb(Bitboard::from_u128(0)), Bitboard::from_u128(0));
+        // Isolate MSB of 0
     }
 
     #[test]
@@ -725,14 +722,8 @@ mod performance_tests {
         }
         let normal_duration = start.elapsed();
 
-        println!(
-            "Optimized bit_scan (single bit): {:?} per call",
-            fast_path_duration / iterations
-        );
-        println!(
-            "Optimized bit_scan (normal): {:?} per call",
-            normal_duration / iterations
-        );
+        println!("Optimized bit_scan (single bit): {:?} per call", fast_path_duration / iterations);
+        println!("Optimized bit_scan (normal): {:?} per call", normal_duration / iterations);
 
         // Fast path should be very fast
         assert!(
@@ -760,37 +751,28 @@ mod performance_tests {
             let iterations = 100_000;
 
             // Run multiple implementations in parallel to ensure consistency
-            let hardware_forward_results: Vec<Option<u8>> = (0..iterations)
-                .map(|_| bit_scan_forward_hardware(bb))
-                .collect();
+            let hardware_forward_results: Vec<Option<u8>> =
+                (0..iterations).map(|_| bit_scan_forward_hardware(bb)).collect();
 
-            let debruijn_forward_results: Vec<Option<u8>> = (0..iterations)
-                .map(|_| bit_scan_forward_debruijn(bb))
-                .collect();
+            let debruijn_forward_results: Vec<Option<u8>> =
+                (0..iterations).map(|_| bit_scan_forward_debruijn(bb)).collect();
 
-            let software_forward_results: Vec<Option<u8>> = (0..iterations)
-                .map(|_| bit_scan_forward_software(bb))
-                .collect();
+            let software_forward_results: Vec<Option<u8>> =
+                (0..iterations).map(|_| bit_scan_forward_software(bb)).collect();
 
             // All results should be identical
             assert!(
-                hardware_forward_results
-                    .iter()
-                    .all(|&x| x == hardware_forward_results[0]),
+                hardware_forward_results.iter().all(|&x| x == hardware_forward_results[0]),
                 "Hardware forward implementation inconsistent for 0x{:X}",
                 bb_u128
             );
             assert!(
-                debruijn_forward_results
-                    .iter()
-                    .all(|&x| x == debruijn_forward_results[0]),
+                debruijn_forward_results.iter().all(|&x| x == debruijn_forward_results[0]),
                 "DeBruijn forward implementation inconsistent for 0x{:X}",
                 bb_u128
             );
             assert!(
-                software_forward_results
-                    .iter()
-                    .all(|&x| x == software_forward_results[0]),
+                software_forward_results.iter().all(|&x| x == software_forward_results[0]),
                 "Software forward implementation inconsistent for 0x{:X}",
                 bb_u128
             );

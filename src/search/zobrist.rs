@@ -61,13 +61,7 @@ impl ZobristTable {
             repetition_keys[state] = rng.gen::<u64>();
         }
 
-        Self {
-            piece_keys,
-            side_to_move_key,
-            hand_keys,
-            repetition_keys,
-            seed,
-        }
+        Self { piece_keys, side_to_move_key, hand_keys, repetition_keys, seed }
     }
 
     /// Create a new Zobrist table with a default seed
@@ -148,9 +142,7 @@ pub struct ZobristHasher {
 impl ZobristHasher {
     /// Create a new Zobrist hasher using the global table
     pub fn new() -> Self {
-        Self {
-            table: &ZOBRIST_TABLE,
-        }
+        Self { table: &ZOBRIST_TABLE }
     }
 
     /// Compute the hash for a complete Shogi position
@@ -243,10 +235,7 @@ impl ZobristHasher {
 
             // Add piece to destination square
             let piece_type = if move_.is_promotion {
-                move_
-                    .piece_type
-                    .promoted_version()
-                    .unwrap_or(move_.piece_type)
+                move_.piece_type.promoted_version().unwrap_or(move_.piece_type)
             } else {
                 move_.piece_type
             };
@@ -290,9 +279,7 @@ impl ZobristHasher {
 
             if count_before_white != count_after_white {
                 if count_before_white > 0 {
-                    hash ^= self
-                        .table
-                        .get_hand_key(piece_type, count_before_white as u8);
+                    hash ^= self.table.get_hand_key(piece_type, count_before_white as u8);
                 }
                 if count_after_white > 0 {
                     hash ^= self.table.get_hand_key(piece_type, count_after_white as u8);
@@ -425,10 +412,7 @@ mod tests {
         let table2 = get_zobrist_table();
 
         // Global table should be the same instance
-        assert_eq!(
-            std::ptr::addr_of!(table1.piece_keys),
-            std::ptr::addr_of!(table2.piece_keys)
-        );
+        assert_eq!(std::ptr::addr_of!(table1.piece_keys), std::ptr::addr_of!(table2.piece_keys));
     }
 
     #[test]
@@ -437,18 +421,10 @@ mod tests {
         let board = BitboardBoard::new();
         let captured_pieces = CapturedPieces::new();
 
-        let hash1 = hasher.hash_position(
-            &board,
-            Player::Black,
-            &captured_pieces,
-            RepetitionState::None,
-        );
-        let hash2 = hasher.hash_position(
-            &board,
-            Player::Black,
-            &captured_pieces,
-            RepetitionState::None,
-        );
+        let hash1 =
+            hasher.hash_position(&board, Player::Black, &captured_pieces, RepetitionState::None);
+        let hash2 =
+            hasher.hash_position(&board, Player::Black, &captured_pieces, RepetitionState::None);
 
         // Same position should give same hash
         assert_eq!(hash1, hash2);
@@ -460,18 +436,10 @@ mod tests {
         let board = BitboardBoard::new();
         let captured_pieces = CapturedPieces::new();
 
-        let hash_black = hasher.hash_position(
-            &board,
-            Player::Black,
-            &captured_pieces,
-            RepetitionState::None,
-        );
-        let hash_white = hasher.hash_position(
-            &board,
-            Player::White,
-            &captured_pieces,
-            RepetitionState::None,
-        );
+        let hash_black =
+            hasher.hash_position(&board, Player::Black, &captured_pieces, RepetitionState::None);
+        let hash_white =
+            hasher.hash_position(&board, Player::White, &captured_pieces, RepetitionState::None);
 
         // Different players should give different hashes
         assert_ne!(hash_black, hash_white);

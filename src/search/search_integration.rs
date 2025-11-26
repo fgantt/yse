@@ -95,9 +95,7 @@ impl EnhancedSearchEngine {
         drop(stats);
 
         // Calculate position hash for transposition table lookup
-        let position_hash = self
-            .hash_calculator
-            .get_position_hash(board, player, captured_pieces);
+        let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
 
         // === TRANSPOSITION TABLE PROBING ===
         if let Some(tt_entry) = self.probe_transposition_table(position_hash, depth)? {
@@ -130,9 +128,7 @@ impl EnhancedSearchEngine {
         }
 
         // === MOVE GENERATION ===
-        let legal_moves = self
-            .move_generator
-            .generate_legal_moves(board, player, captured_pieces);
+        let legal_moves = self.move_generator.generate_legal_moves(board, player, captured_pieces);
         if legal_moves.is_empty() {
             let is_check = board.is_king_in_check(player, captured_pieces);
             return Ok(if is_check { -100000 } else { 0 });
@@ -187,8 +183,7 @@ impl EnhancedSearchEngine {
             }
 
             // Update statistics
-            self.stats_manager
-                .record_store(start_time.elapsed().as_micros() as f64, false);
+            self.stats_manager.record_store(start_time.elapsed().as_micros() as f64, false);
         }
 
         // === TRANSPOSITION TABLE STORAGE ===
@@ -314,8 +309,7 @@ impl EnhancedSearchEngine {
 
         // Generate only capturing moves for quiescence
         let capture_moves =
-            self.move_generator
-                .generate_quiescence_moves(board, player, captured_pieces);
+            self.move_generator.generate_quiescence_moves(board, player, captured_pieces);
 
         if capture_moves.is_empty() {
             return Ok(self.evaluator.evaluate(board, player, captured_pieces));

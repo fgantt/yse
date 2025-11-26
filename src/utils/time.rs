@@ -2,7 +2,7 @@
 
 pub use crate::time_utils::TimeSource;
 
-use std::time::{SystemTime, UNIX_EPOCH, Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Returns current time in milliseconds since UNIX epoch.
 #[inline]
@@ -49,5 +49,3 @@ mod tests {
         assert!(a > 0);
     }
 }
-
-

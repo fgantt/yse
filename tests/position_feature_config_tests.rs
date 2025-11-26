@@ -120,12 +120,8 @@ fn telemetry_includes_position_feature_stats_when_enabled() {
     evaluator.enable_statistics();
     evaluator.evaluate(&board, Player::Black, &captured);
 
-    let telemetry = evaluator
-        .telemetry_snapshot()
-        .expect("Expected telemetry snapshot");
-    let stats = telemetry
-        .position_features
-        .expect("Expected position feature statistics");
+    let telemetry = evaluator.telemetry_snapshot().expect("Expected telemetry snapshot");
+    let stats = telemetry.position_features.expect("Expected position feature statistics");
 
     assert!(
         stats.king_safety_evals > 0 || stats.pawn_structure_evals > 0,
@@ -149,9 +145,7 @@ fn telemetry_omits_position_feature_stats_when_disabled() {
     evaluator.enable_statistics();
     evaluator.evaluate(&board, Player::Black, &captured);
 
-    let telemetry = evaluator
-        .telemetry_snapshot()
-        .expect("Expected telemetry snapshot");
+    let telemetry = evaluator.telemetry_snapshot().expect("Expected telemetry snapshot");
     assert!(
         telemetry.position_features.is_none(),
         "Position feature statistics should be omitted when collection is disabled"
@@ -160,38 +154,14 @@ fn telemetry_omits_position_feature_stats_when_disabled() {
 
 fn midgame_example_board() -> BitboardBoard {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(8, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::Black),
-        Position::new(7, 3),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::White),
-        Position::new(1, 5),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(4, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Bishop, Player::White),
-        Position::new(3, 5),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Pawn, Player::Black),
-        Position::new(5, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Pawn, Player::White),
-        Position::new(2, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
+    board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(7, 3));
+    board.place_piece(Piece::new(PieceType::Silver, Player::White), Position::new(1, 5));
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 4));
+    board.place_piece(Piece::new(PieceType::Bishop, Player::White), Position::new(3, 5));
+    board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(5, 4));
+    board.place_piece(Piece::new(PieceType::Pawn, Player::White), Position::new(2, 4));
     board
 }
 

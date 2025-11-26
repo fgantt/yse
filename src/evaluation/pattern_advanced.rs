@@ -139,9 +139,7 @@ pub struct DynamicPatternSelector {
 
 impl DynamicPatternSelector {
     fn new() -> Self {
-        let mut selector = Self {
-            position_patterns: HashMap::new(),
-        };
+        let mut selector = Self { position_patterns: HashMap::new() };
         selector.initialize_patterns();
         selector
     }
@@ -189,10 +187,7 @@ impl DynamicPatternSelector {
             PositionType::Endgame
         };
 
-        self.position_patterns
-            .get(&position_type)
-            .cloned()
-            .unwrap_or_default()
+        self.position_patterns.get(&position_type).cloned().unwrap_or_default()
     }
 }
 
@@ -232,9 +227,7 @@ pub struct PatternExplainer {
 
 impl PatternExplainer {
     fn new() -> Self {
-        let mut explainer = Self {
-            templates: HashMap::new(),
-        };
+        let mut explainer = Self { templates: HashMap::new() };
         explainer.initialize_templates();
         explainer
     }
@@ -242,16 +235,11 @@ impl PatternExplainer {
     fn initialize_templates(&mut self) {
         self.templates
             .insert("fork".to_string(), "Double attack on {targets}".to_string());
+        self.templates.insert("pin".to_string(), "Piece pinned to {target}".to_string());
         self.templates
-            .insert("pin".to_string(), "Piece pinned to {target}".to_string());
-        self.templates.insert(
-            "outpost".to_string(),
-            "Strong piece on {square}".to_string(),
-        );
-        self.templates.insert(
-            "center".to_string(),
-            "Controls center with {pieces}".to_string(),
-        );
+            .insert("outpost".to_string(), "Strong piece on {square}".to_string());
+        self.templates
+            .insert("center".to_string(), "Controls center with {pieces}".to_string());
     }
 
     fn explain(&self, _board: &BitboardBoard, _player: Player) -> Vec<PatternExplanation> {
@@ -556,11 +544,7 @@ mod tests {
             pattern_name: "Fork".to_string(),
             description: "Knight forks king and rook".to_string(),
             value: 150,
-            squares: vec![
-                Position::new(4, 4),
-                Position::new(3, 2),
-                Position::new(3, 6),
-            ],
+            squares: vec![Position::new(4, 4), Position::new(3, 2), Position::new(3, 6)],
         };
 
         assert_eq!(explanation.pattern_name, "Fork");

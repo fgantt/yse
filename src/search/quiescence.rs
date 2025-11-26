@@ -18,10 +18,7 @@ pub struct QuiescenceHelper {
 impl QuiescenceHelper {
     /// Create a new QuiescenceHelper with the given configuration
     pub fn new(config: QuiescenceConfig) -> Self {
-        Self {
-            config,
-            stats: QuiescenceStats::default(),
-        }
+        Self { config, stats: QuiescenceStats::default() }
     }
 
     /// Check if a move should be pruned using delta pruning
@@ -238,14 +235,15 @@ impl QuiescenceHelper {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::PieceType;
     use crate::types::core::Position;
+    use crate::types::PieceType;
 
     fn create_test_move(is_capture: bool, gives_check: bool) -> Move {
         // Create a simple test move
         // Note: This is a simplified test - actual Move creation is more complex
         Move::new(
-            Some(Position::new(0, 0)), Position::new(0, 0), // from, to squares
+            Some(Position::new(0, 0)),
+            Position::new(0, 0), // from, to squares
             PieceType::Pawn,
             false, // is_promotion
             is_capture,
@@ -283,10 +281,8 @@ mod tests {
 
     #[test]
     fn test_extension_for_checks() {
-        let config = QuiescenceConfig {
-            enable_selective_extensions: true,
-            ..QuiescenceConfig::default()
-        };
+        let config =
+            QuiescenceConfig { enable_selective_extensions: true, ..QuiescenceConfig::default() };
         let helper = QuiescenceHelper::new(config);
         let move_ = create_test_move(false, true); // Checking move
 
@@ -295,14 +291,11 @@ mod tests {
 
     #[test]
     fn test_extension_for_promotions() {
-        let config = QuiescenceConfig {
-            enable_selective_extensions: true,
-            ..QuiescenceConfig::default()
-        };
+        let config =
+            QuiescenceConfig { enable_selective_extensions: true, ..QuiescenceConfig::default() };
         let helper = QuiescenceHelper::new(config);
         let mut move_ = create_test_move(false, false);
         // Note: Would need to set is_promotion if Move had that field accessible
         // For now, this test demonstrates the pattern
     }
 }
-

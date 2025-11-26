@@ -27,10 +27,7 @@ pub struct ValidationStats {
 impl MagicValidator {
     /// Create a new magic validator
     pub fn new() -> Self {
-        Self {
-            attack_generator: AttackGenerator::new(),
-            stats: ValidationStats::default(),
-        }
+        Self { attack_generator: AttackGenerator::new(), stats: ValidationStats::default() }
     }
 
     /// Validate magic table correctness
@@ -60,9 +57,8 @@ impl MagicValidator {
 
         for blockers in test_combinations {
             let magic_attacks = table.get_attacks(square, piece_type, blockers);
-            let reference_attacks = self
-                .attack_generator
-                .generate_attack_pattern(square, piece_type, blockers);
+            let reference_attacks =
+                self.attack_generator.generate_attack_pattern(square, piece_type, blockers);
 
             self.stats.total_tests += 1;
 
@@ -112,9 +108,7 @@ impl MagicValidator {
         // Benchmark ray-casting
         let raycast_start = std::time::Instant::now();
         for (square, piece_type, blockers) in test_positions {
-            let _ = self
-                .attack_generator
-                .generate_attack_pattern(*square, *piece_type, *blockers);
+            let _ = self.attack_generator.generate_attack_pattern(*square, *piece_type, *blockers);
         }
         let raycast_time = raycast_start.elapsed();
 

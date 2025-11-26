@@ -64,9 +64,5 @@ fn benchmark_castle_pattern_overhead(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    benchmark_castle_pattern_evaluation,
-    benchmark_castle_pattern_overhead
-);
+criterion_group!(benches, benchmark_castle_pattern_evaluation, benchmark_castle_pattern_overhead);
 criterion_main!(benches);

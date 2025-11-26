@@ -53,23 +53,19 @@ fn benchmark_iid_lmr_coordination(c: &mut Criterion) {
     for depth in [5, 6, 7] {
         group.throughput(Throughput::Elements(1));
 
-        group.bench_with_input(
-            BenchmarkId::new("with_iid_and_lmr", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine();
-                    let result = engine.search_at_depth(
-                        black_box(&board),
-                        black_box(&captured_pieces),
-                        black_box(player),
-                        black_box(depth),
-                        black_box(10000),
-                    );
-                    black_box(result)
-                })
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("with_iid_and_lmr", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine();
+                let result = engine.search_at_depth(
+                    black_box(&board),
+                    black_box(&captured_pieces),
+                    black_box(player),
+                    black_box(depth),
+                    black_box(10000),
+                );
+                black_box(result)
+            })
+        });
     }
 
     group.finish();
@@ -142,10 +138,7 @@ fn benchmark_iid_effectiveness_with_exemption(c: &mut Criterion) {
             assert!(iid_stats.iid_searches_performed > 0, "IID should have run");
 
             // Ensure LMR was active
-            assert!(
-                lmr_stats.moves_considered > 0,
-                "LMR should have been active"
-            );
+            assert!(lmr_stats.moves_considered > 0, "LMR should have been active");
 
             black_box((
                 result,

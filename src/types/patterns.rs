@@ -50,10 +50,7 @@ impl Default for TacticalIndicators {
 impl TacticalIndicators {
     /// Check if the move has any tactical characteristics
     pub fn has_tactical_characteristics(&self) -> bool {
-        self.is_capture
-            || self.is_promotion
-            || self.gives_check
-            || self.is_recapture
+        self.is_capture || self.is_promotion || self.gives_check || self.is_recapture
     }
 
     /// Get a tactical score based on indicators
@@ -92,44 +89,24 @@ pub struct AttackConfig {
 
 impl Default for AttackConfig {
     fn default() -> Self {
-        Self {
-            piece_type: PieceType::Pawn,
-            square: 0,
-            include_promoted: false,
-            max_distance: None,
-        }
+        Self { piece_type: PieceType::Pawn, square: 0, include_promoted: false, max_distance: None }
     }
 }
 
 impl AttackConfig {
     /// Create a new attack configuration
     pub fn new(piece_type: PieceType, square: u8) -> Self {
-        Self {
-            piece_type,
-            square,
-            include_promoted: false,
-            max_distance: None,
-        }
+        Self { piece_type, square, include_promoted: false, max_distance: None }
     }
 
     /// Create an attack configuration with promoted pieces included
     pub fn with_promoted(piece_type: PieceType, square: u8) -> Self {
-        Self {
-            piece_type,
-            square,
-            include_promoted: true,
-            max_distance: None,
-        }
+        Self { piece_type, square, include_promoted: true, max_distance: None }
     }
 
     /// Create an attack configuration with distance limit
     pub fn with_max_distance(piece_type: PieceType, square: u8, max_distance: u8) -> Self {
-        Self {
-            piece_type,
-            square,
-            include_promoted: false,
-            max_distance: Some(max_distance),
-        }
+        Self { piece_type, square, include_promoted: false, max_distance: Some(max_distance) }
     }
 }
 
@@ -232,4 +209,3 @@ mod tests {
         assert_eq!(stats.positional_detection_rate(), 15.0);
     }
 }
-

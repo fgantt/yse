@@ -65,15 +65,10 @@ impl ShogiHashHandler {
         captured_pieces_before: &CapturedPieces,
         captured_pieces_after: &CapturedPieces,
     ) -> u64 {
-        debug_assert!(
-            drop_move.from.is_none(),
-            "Drop move should not have a from position"
-        );
+        debug_assert!(drop_move.from.is_none(), "Drop move should not have a from position");
 
         // Add the dropped piece to the board
-        hash ^= self
-            .zobrist_hasher
-            .get_piece_key(drop_move.piece_type, drop_move.to);
+        hash ^= self.zobrist_hasher.get_piece_key(drop_move.piece_type, drop_move.to);
 
         // Update hand piece counts
         hash = self.update_hand_piece_hash(
@@ -117,23 +112,16 @@ impl ShogiHashHandler {
 
         // Add piece to destination square (considering promotion)
         let piece_type = if capture_move.is_promotion {
-            capture_move
-                .piece_type
-                .promoted_version()
-                .unwrap_or(capture_move.piece_type)
+            capture_move.piece_type.promoted_version().unwrap_or(capture_move.piece_type)
         } else {
             capture_move.piece_type
         };
-        hash ^= self
-            .zobrist_hasher
-            .get_piece_key(piece_type, capture_move.to);
+        hash ^= self.zobrist_hasher.get_piece_key(piece_type, capture_move.to);
 
         // Handle captured piece
         if let Some(captured) = &capture_move.captured_piece {
             // Remove captured piece from destination square
-            hash ^= self
-                .zobrist_hasher
-                .get_piece_key(captured.piece_type, capture_move.to);
+            hash ^= self.zobrist_hasher.get_piece_key(captured.piece_type, capture_move.to);
 
             // Add captured piece to hand (unpromoted)
             let unpromoted_captured = captured.unpromoted();
@@ -197,9 +185,7 @@ impl ShogiHashHandler {
         }
 
         // Add piece to destination square
-        hash ^= self
-            .zobrist_hasher
-            .get_piece_key(move_.piece_type, move_.to);
+        hash ^= self.zobrist_hasher.get_piece_key(move_.piece_type, move_.to);
 
         // Update side to move
         hash ^= self.zobrist_hasher.get_side_to_move_key();
@@ -222,16 +208,12 @@ impl ShogiHashHandler {
         if count_before != count_after {
             // Remove old hand count
             if count_before > 0 {
-                hash ^= self
-                    .zobrist_hasher
-                    .get_hand_key(piece_type, count_before as u8);
+                hash ^= self.zobrist_hasher.get_hand_key(piece_type, count_before as u8);
             }
 
             // Add new hand count
             if count_after > 0 {
-                hash ^= self
-                    .zobrist_hasher
-                    .get_hand_key(piece_type, count_after as u8);
+                hash ^= self.zobrist_hasher.get_hand_key(piece_type, count_after as u8);
             }
         }
 
@@ -306,11 +288,7 @@ impl ShogiHashHandler {
     pub fn get_history_stats(&self) -> HashHistoryStats {
         let total_positions = self.position_history.len();
         let unique_positions = self.hash_counts.len();
-        let repetition_count = self
-            .hash_counts
-            .values()
-            .filter(|&&count| count > 1)
-            .count();
+        let repetition_count = self.hash_counts.values().filter(|&&count| count > 1).count();
 
         HashHistoryStats {
             total_positions,
@@ -480,8 +458,8 @@ impl ShogiMoveValidator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{Piece, PieceType, Player, Position};
     use crate::bitboards::BitboardBoard;
+    use crate::types::{Piece, PieceType, Player, Position};
 
     #[test]
     fn test_shogi_hash_handler_creation() {
@@ -523,10 +501,7 @@ mod tests {
         let mut captured_after = CapturedPieces::new();
 
         // Set up a capture scenario
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::White),
-            Position::new(5, 5),
-        );
+        board.place_piece(Piece::new(PieceType::Pawn, Player::White), Position::new(5, 5));
 
         // Create a capture move
         let capture_move = Move {
@@ -564,10 +539,7 @@ mod tests {
         let captured_pieces = CapturedPieces::new();
 
         // Set up a promotion scenario
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(1, 1),
-        );
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(1, 1));
 
         // Create a promotion move
         let promotion_move = Move::new_move(
@@ -604,28 +576,16 @@ mod tests {
         handler.add_position_to_history(hash3);
 
         // Check repetition states
-        assert_eq!(
-            handler.get_repetition_state_for_hash(hash1),
-            RepetitionState::TwoFold
-        );
-        assert_eq!(
-            handler.get_repetition_state_for_hash(hash2),
-            RepetitionState::None
-        );
+        assert_eq!(handler.get_repetition_state_for_hash(hash1), RepetitionState::TwoFold);
+        assert_eq!(handler.get_repetition_state_for_hash(hash2), RepetitionState::None);
 
         // Add hash1 again to make it three-fold
         handler.add_position_to_history(hash1);
-        assert_eq!(
-            handler.get_repetition_state_for_hash(hash1),
-            RepetitionState::ThreeFold
-        );
+        assert_eq!(handler.get_repetition_state_for_hash(hash1), RepetitionState::ThreeFold);
 
         // Add hash1 again to make it four-fold (draw)
         handler.add_position_to_history(hash1);
-        assert_eq!(
-            handler.get_repetition_state_for_hash(hash1),
-            RepetitionState::FourFold
-        );
+        assert_eq!(handler.get_repetition_state_for_hash(hash1), RepetitionState::FourFold);
         assert!(handler.is_repetition(hash1));
     }
 
@@ -637,30 +597,15 @@ mod tests {
         // Test drop move validation
         captured_pieces.add_piece(PieceType::Pawn, Player::Black);
         let drop_move = Move::new_drop(PieceType::Pawn, Position::new(4, 4), Player::Black);
-        assert!(ShogiMoveValidator::validate_drop_move(
-            &drop_move,
-            &board,
-            &captured_pieces
-        ));
+        assert!(ShogiMoveValidator::validate_drop_move(&drop_move, &board, &captured_pieces));
 
         // Test invalid drop (no piece in hand)
         let mut captured_empty = CapturedPieces::new();
-        assert!(!ShogiMoveValidator::validate_drop_move(
-            &drop_move,
-            &board,
-            &captured_empty
-        ));
+        assert!(!ShogiMoveValidator::validate_drop_move(&drop_move, &board, &captured_empty));
 
         // Test invalid drop (square occupied)
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::White),
-            Position::new(4, 4),
-        );
-        assert!(!ShogiMoveValidator::validate_drop_move(
-            &drop_move,
-            &board,
-            &captured_pieces
-        ));
+        board.place_piece(Piece::new(PieceType::Pawn, Player::White), Position::new(4, 4));
+        assert!(!ShogiMoveValidator::validate_drop_move(&drop_move, &board, &captured_pieces));
     }
 
     #[test]

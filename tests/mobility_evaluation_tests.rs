@@ -5,14 +5,8 @@ use shogi_engine::types::{CapturedPieces, Piece, PieceType, Player, Position};
 
 fn base_board() -> BitboardBoard {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(8, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
     board
 }
 
@@ -136,10 +130,7 @@ fn is_central_square(pos: Position) -> bool {
 fn mobility_handles_promoted_pieces() {
     let mut promoted_board = base_board();
     let promoted_pos = Position::new(4, 4);
-    promoted_board.place_piece(
-        Piece::new(PieceType::PromotedPawn, Player::Black),
-        promoted_pos,
-    );
+    promoted_board.place_piece(Piece::new(PieceType::PromotedPawn, Player::Black), promoted_pos);
 
     let captured = CapturedPieces::new();
     let mut promoted_evaluator = PositionFeatureEvaluator::new();

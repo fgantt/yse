@@ -95,20 +95,14 @@ fn benchmark_iid_configurations(c: &mut Criterion) {
 
     // Test different configurations
     let configs = vec![
-        (
-            "aggressive",
-            |config: &mut shogi_engine::types::IIDConfig| {
-                config.max_legal_moves = 50;
-                config.time_overhead_threshold = 0.20; // 20%
-            },
-        ),
-        (
-            "conservative",
-            |config: &mut shogi_engine::types::IIDConfig| {
-                config.max_legal_moves = 25;
-                config.time_overhead_threshold = 0.10; // 10%
-            },
-        ),
+        ("aggressive", |config: &mut shogi_engine::types::IIDConfig| {
+            config.max_legal_moves = 50;
+            config.time_overhead_threshold = 0.20; // 20%
+        }),
+        ("conservative", |config: &mut shogi_engine::types::IIDConfig| {
+            config.max_legal_moves = 25;
+            config.time_overhead_threshold = 0.10; // 10%
+        }),
         ("default", |_config: &mut shogi_engine::types::IIDConfig| {
             // Use default configuration
         }),

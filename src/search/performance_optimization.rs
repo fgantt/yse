@@ -35,10 +35,7 @@ pub struct OptimizedHashMapper {
 impl OptimizedHashMapper {
     /// Create a new optimized hash mapper
     pub fn new(table_size: usize) -> Self {
-        assert!(
-            table_size.is_power_of_two(),
-            "Table size must be power of 2"
-        );
+        assert!(table_size.is_power_of_two(), "Table size must be power of 2");
 
         let mask = table_size - 1;
         let size = table_size;
@@ -57,12 +54,7 @@ impl OptimizedHashMapper {
             lookup_table[i] = ((i as usize) & mask) as u16;
         }
 
-        Self {
-            mask,
-            size,
-            multipliers,
-            lookup_table,
-        }
+        Self { mask, size, multipliers, lookup_table }
     }
 
     /// Fast hash to index conversion
@@ -131,10 +123,7 @@ impl CacheAlignedAllocator {
         let aligned_layout =
             Layout::from_size_align(total_size, CACHE_LINE_SIZE).map_err(|_| "Invalid layout")?;
 
-        Ok(Self {
-            layout: aligned_layout,
-            entry_count,
-        })
+        Ok(Self { layout: aligned_layout, entry_count })
     }
 
     /// Allocate cache-aligned memory
@@ -348,11 +337,7 @@ impl OptimizedEntryPacker {
     ) -> (i32, u8, TranspositionFlag, Option<u8>, u8) {
         let (score, depth, flag) = Self::unpack_entry_fast(packed_data);
 
-        let from = if (move_data >> 8) != 0 {
-            Some((move_data >> 8) as u8)
-        } else {
-            None
-        };
+        let from = if (move_data >> 8) != 0 { Some((move_data >> 8) as u8) } else { None };
         let to = move_data as u8;
 
         (score, depth, flag, from, to)
@@ -435,10 +420,7 @@ impl HotPathOptimizer {
             entry.score,
             entry.depth,
             entry.flag,
-            entry
-                .best_move
-                .as_ref()
-                .and_then(|m| m.from.map(|p| p.to_u8())),
+            entry.best_move.as_ref().and_then(|m| m.from.map(|p| p.to_u8())),
             entry.best_move.as_ref().map_or(0, |m| m.to.to_u8()),
         );
 
@@ -473,8 +455,7 @@ impl HotPathOptimizer {
 
     /// Get prefetch candidates for current operation
     pub fn get_prefetch_candidates(&self, hash: u64) -> Vec<usize> {
-        self.prefetch_manager
-            .get_prefetch_candidates(hash, &self.mapper)
+        self.prefetch_manager.get_prefetch_candidates(hash, &self.mapper)
     }
 
     /// Get performance statistics

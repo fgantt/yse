@@ -156,11 +156,7 @@ impl CoverageAnalyzer {
             0.0
         };
 
-        OpeningCompleteness {
-            openings_found,
-            openings_missing,
-            coverage_percentage,
-        }
+        OpeningCompleteness { openings_found, openings_missing, coverage_percentage }
     }
 
     /// Analyze move quality
@@ -212,11 +208,6 @@ impl CoverageAnalyzer {
             ));
         }
 
-        CoverageReport {
-            depth_stats,
-            opening_coverage,
-            quality_metrics,
-            recommendations,
-        }
+        CoverageReport { depth_stats, opening_coverage, quality_metrics, recommendations }
     }
 }

@@ -206,36 +206,15 @@ impl PieceType {
                 (0, 1),
                 (-direction, 0),
             ],
-            PieceType::King => vec![
-                (1, 0),
-                (-1, 0),
-                (0, 1),
-                (0, -1),
-                (1, 1),
-                (1, -1),
-                (-1, 1),
-                (-1, -1),
-            ],
-            PieceType::PromotedBishop => vec![
-                (1, 1),
-                (1, -1),
-                (-1, 1),
-                (-1, -1),
-                (1, 0),
-                (-1, 0),
-                (0, 1),
-                (0, -1),
-            ],
-            PieceType::PromotedRook => vec![
-                (1, 0),
-                (-1, 0),
-                (0, 1),
-                (0, -1),
-                (1, 1),
-                (1, -1),
-                (-1, 1),
-                (-1, -1),
-            ],
+            PieceType::King => {
+                vec![(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
+            }
+            PieceType::PromotedBishop => {
+                vec![(1, 1), (1, -1), (-1, 1), (-1, -1), (1, 0), (-1, 0), (0, 1), (0, -1)]
+            }
+            PieceType::PromotedRook => {
+                vec![(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)]
+            }
             _ => vec![], // Pawn, Lance, Knight, Rook, Bishop are handled by sliding logic
         }
     }
@@ -271,10 +250,7 @@ impl Position {
 
     /// Create a Position from a 0-based index (0-80)
     pub fn from_index(index: u8) -> Self {
-        Self {
-            row: index / 9,
-            col: index % 9,
-        }
+        Self { row: index / 9, col: index % 9 }
     }
 
     pub fn is_valid(self) -> bool {
@@ -282,16 +258,8 @@ impl Position {
     }
 
     pub fn distance_to(self, other: Position) -> u8 {
-        let dr = if self.row > other.row {
-            self.row - other.row
-        } else {
-            other.row - self.row
-        };
-        let dc = if self.col > other.col {
-            self.col - other.col
-        } else {
-            other.col - self.col
-        };
+        let dr = if self.row > other.row { self.row - other.row } else { other.row - self.row };
+        let dc = if self.col > other.col { self.col - other.col } else { other.col - self.col };
         dr + dc
     }
 
@@ -336,10 +304,7 @@ impl Piece {
                 "[PIECE::NEW ERROR] Invalid piece_type with to_u8() = {}. Defaulting to Pawn.",
                 piece_idx
             ));
-            return Self {
-                piece_type: PieceType::Pawn,
-                player,
-            };
+            return Self { piece_type: PieceType::Pawn, player };
         }
         Self { piece_type, player }
     }
@@ -600,10 +565,7 @@ pub struct CapturedPieces {
 
 impl CapturedPieces {
     pub fn new() -> Self {
-        Self {
-            black: Vec::new(),
-            white: Vec::new(),
-        }
+        Self { black: Vec::new(), white: Vec::new() }
     }
 
     pub fn add_piece(&mut self, piece_type: PieceType, player: Player) {
@@ -678,15 +640,7 @@ impl TranspositionEntry {
         age: u32,
         source: EntrySource,
     ) -> Self {
-        Self {
-            score,
-            depth,
-            flag,
-            best_move,
-            hash_key,
-            age,
-            source,
-        }
+        Self { score, depth, flag, best_move, hash_key, age, source }
     }
 
     /// Create a new entry with default age (0) and MainSearch source
@@ -697,15 +651,7 @@ impl TranspositionEntry {
         best_move: Option<Move>,
         hash_key: u64,
     ) -> Self {
-        Self::new(
-            score,
-            depth,
-            flag,
-            best_move,
-            hash_key,
-            0,
-            EntrySource::MainSearch,
-        )
+        Self::new(score, depth, flag, best_move, hash_key, 0, EntrySource::MainSearch)
     }
 
     /// Check if this entry is valid for the given search depth
@@ -823,10 +769,7 @@ pub struct TaperedScore {
 impl TaperedScore {
     /// Create a new TaperedScore with both values equal
     pub fn new(value: i32) -> Self {
-        Self {
-            mg: value,
-            eg: value,
-        }
+        Self { mg: value, eg: value }
     }
 
     /// Create a TaperedScore with different mg and eg values
@@ -862,40 +805,28 @@ impl std::ops::SubAssign for TaperedScore {
 impl std::ops::Add for TaperedScore {
     type Output = Self;
     fn add(self, other: Self) -> Self {
-        Self {
-            mg: self.mg + other.mg,
-            eg: self.eg + other.eg,
-        }
+        Self { mg: self.mg + other.mg, eg: self.eg + other.eg }
     }
 }
 
 impl std::ops::Sub for TaperedScore {
     type Output = Self;
     fn sub(self, other: Self) -> Self {
-        Self {
-            mg: self.mg - other.mg,
-            eg: self.eg - other.eg,
-        }
+        Self { mg: self.mg - other.mg, eg: self.eg - other.eg }
     }
 }
 
 impl std::ops::Neg for TaperedScore {
     type Output = Self;
     fn neg(self) -> Self {
-        Self {
-            mg: -self.mg,
-            eg: -self.eg,
-        }
+        Self { mg: -self.mg, eg: -self.eg }
     }
 }
 
 impl std::ops::Mul<f32> for TaperedScore {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self {
-        Self {
-            mg: (self.mg as f32 * rhs) as i32,
-            eg: (self.eg as f32 * rhs) as i32,
-        }
+        Self { mg: (self.mg as f32 * rhs) as i32, eg: (self.eg as f32 * rhs) as i32 }
     }
 }
 
@@ -1599,21 +1530,15 @@ impl QuiescenceProfile {
 
         let total_duration: u64 = self.samples.iter().map(|s| s.duration_ms).sum();
         let total_nodes: u64 = self.samples.iter().map(|s| s.nodes_searched).sum();
-        let total_prunes: u64 = self
-            .samples
-            .iter()
-            .map(|s| s.delta_prunes + s.futility_prunes)
-            .sum();
+        let total_prunes: u64 =
+            self.samples.iter().map(|s| s.delta_prunes + s.futility_prunes).sum();
         let total_tt_attempts: u64 = self.samples.iter().map(|s| s.tt_hits + s.tt_misses).sum();
         let total_extensions: u64 = self.samples.iter().map(|s| s.extensions).sum();
 
         self.average_duration_ms = total_duration as f64 / self.samples.len() as f64;
         self.average_nodes_searched = total_nodes as f64 / self.samples.len() as f64;
-        self.average_pruning_efficiency = if total_nodes > 0 {
-            (total_prunes as f64 / total_nodes as f64) * 100.0
-        } else {
-            0.0
-        };
+        self.average_pruning_efficiency =
+            if total_nodes > 0 { (total_prunes as f64 / total_nodes as f64) * 100.0 } else { 0.0 };
         self.average_tt_hit_rate = if total_tt_attempts > 0 {
             (self.samples.iter().map(|s| s.tt_hits).sum::<u64>() as f64 / total_tt_attempts as f64)
                 * 100.0
@@ -2151,10 +2076,8 @@ impl NullMoveConfig {
                     );
                 }
                 if *factor > 5 {
-                    return Err(
-                        "reduction_factor_by_depth: reduction_factor should not exceed 5"
-                            .to_string(),
-                    );
+                    return Err("reduction_factor_by_depth: reduction_factor should not exceed 5"
+                        .to_string());
                 }
             }
         }
@@ -2216,10 +2139,7 @@ impl NullMoveConfig {
         } else {
             String::new()
         };
-        let strategy_str = format!(
-            ", reduction_strategy={}",
-            self.reduction_strategy.to_string()
-        );
+        let strategy_str = format!(", reduction_strategy={}", self.reduction_strategy.to_string());
         format!(
             "NullMoveConfig: enabled={}, min_depth={}, reduction_factor={}, max_pieces_threshold={}, dynamic_reduction={}, endgame_detection={}, verification_margin={}, reduction_formula={:?}, mate_threat_detection={}, mate_threat_margin={}, endgame_type_detection={}, material_endgame_threshold={}, king_activity_threshold={}, zugzwang_threshold={}{}{}",
             self.enabled,
@@ -2968,10 +2888,7 @@ impl LMRStats {
         cutoffs_after_research: u64,
         depth_saved: u64,
     ) {
-        let stats = self
-            .phase_stats
-            .entry(phase)
-            .or_insert_with(LMRPhaseStats::default);
+        let stats = self.phase_stats.entry(phase).or_insert_with(LMRPhaseStats::default);
         stats.moves_considered += moves_considered;
         stats.reductions_applied += reductions_applied;
         stats.researches_triggered += researches_triggered;
@@ -3026,9 +2943,7 @@ impl LMRStats {
         }
 
         // Check move ordering effectiveness (Task 10.7)
-        let late_cutoff_rate = self
-            .move_ordering_stats
-            .cutoffs_after_threshold_percentage();
+        let late_cutoff_rate = self.move_ordering_stats.cutoffs_after_threshold_percentage();
         if late_cutoff_rate > 25.0 {
             is_healthy = false;
             alerts.push(format!(
@@ -3068,9 +2983,7 @@ impl LMRStats {
         let mut alerts = Vec::new();
         let mut is_healthy = true;
 
-        let late_cutoff_rate = self
-            .move_ordering_stats
-            .cutoffs_after_threshold_percentage();
+        let late_cutoff_rate = self.move_ordering_stats.cutoffs_after_threshold_percentage();
         if late_cutoff_rate > 30.0 {
             is_healthy = false;
             alerts.push(format!(
@@ -3248,34 +3161,16 @@ impl LMRStats {
     pub fn export_metrics(&self) -> HashMap<String, f64> {
         let mut metrics = HashMap::new();
         metrics.insert("moves_considered".to_string(), self.moves_considered as f64);
-        metrics.insert(
-            "reductions_applied".to_string(),
-            self.reductions_applied as f64,
-        );
-        metrics.insert(
-            "researches_triggered".to_string(),
-            self.researches_triggered as f64,
-        );
-        metrics.insert(
-            "cutoffs_after_reduction".to_string(),
-            self.cutoffs_after_reduction as f64,
-        );
-        metrics.insert(
-            "cutoffs_after_research".to_string(),
-            self.cutoffs_after_research as f64,
-        );
-        metrics.insert(
-            "total_depth_saved".to_string(),
-            self.total_depth_saved as f64,
-        );
+        metrics.insert("reductions_applied".to_string(), self.reductions_applied as f64);
+        metrics.insert("researches_triggered".to_string(), self.researches_triggered as f64);
+        metrics.insert("cutoffs_after_reduction".to_string(), self.cutoffs_after_reduction as f64);
+        metrics.insert("cutoffs_after_research".to_string(), self.cutoffs_after_research as f64);
+        metrics.insert("total_depth_saved".to_string(), self.total_depth_saved as f64);
         metrics.insert("average_reduction".to_string(), self.average_reduction);
         metrics.insert("efficiency".to_string(), self.efficiency());
         metrics.insert("research_rate".to_string(), self.research_rate());
         metrics.insert("cutoff_rate".to_string(), self.cutoff_rate());
-        metrics.insert(
-            "average_depth_saved".to_string(),
-            self.average_depth_saved(),
-        );
+        metrics.insert("average_depth_saved".to_string(), self.average_depth_saved());
         metrics.insert(
             "re_search_margin_effectiveness".to_string(),
             self.re_search_margin_effectiveness(),
@@ -3665,11 +3560,8 @@ impl IIDStrengthTestResult {
             .sum::<f64>()
             / self.position_results.len() as f64;
         let standard_error = (variance / self.position_results.len() as f64).sqrt();
-        self.statistical_significance = if standard_error > 0.0 {
-            self.overall_improvement / standard_error
-        } else {
-            0.0
-        };
+        self.statistical_significance =
+            if standard_error > 0.0 { self.overall_improvement / standard_error } else { 0.0 };
     }
 }
 
@@ -3791,18 +3683,9 @@ mod tests {
 
     #[test]
     fn test_position_from_usi() {
-        assert_eq!(
-            Position::from_usi_string("1a").unwrap(),
-            Position::new(0, 8)
-        );
-        assert_eq!(
-            Position::from_usi_string("5e").unwrap(),
-            Position::new(4, 4)
-        );
-        assert_eq!(
-            Position::from_usi_string("9i").unwrap(),
-            Position::new(8, 0)
-        );
+        assert_eq!(Position::from_usi_string("1a").unwrap(), Position::new(0, 8));
+        assert_eq!(Position::from_usi_string("5e").unwrap(), Position::new(4, 4));
+        assert_eq!(Position::from_usi_string("9i").unwrap(), Position::new(8, 0));
         assert!(Position::from_usi_string("0a").is_err());
         assert!(Position::from_usi_string("1j").is_err());
         assert!(Position::from_usi_string("1a1").is_err());
@@ -5353,11 +5236,8 @@ impl AspirationWindowStats {
         };
 
         // Calculate efficiency based on success rate and research rate
-        let efficiency = if research_rate > 0.0 {
-            success_rate / (1.0 + research_rate)
-        } else {
-            success_rate
-        };
+        let efficiency =
+            if research_rate > 0.0 { success_rate / (1.0 + research_rate) } else { success_rate };
 
         // Update average times
         if self.total_searches > 0 {
@@ -6262,7 +6142,7 @@ impl EngineConfig {
 
         if self.prefill_opening_book && self.opening_book_prefill_depth == 0 {
             return Err(
-                "OpeningBookPrefillDepth must be at least 1 when prefill is enabled".to_string(),
+                "OpeningBookPrefillDepth must be at least 1 when prefill is enabled".to_string()
             );
         }
 
@@ -6703,14 +6583,14 @@ impl TimeManagementConfig {
         }
         if self.time_check_frequency > 100000 {
             return Err(
-                "time_check_frequency should not exceed 100000 for performance reasons".to_string(),
+                "time_check_frequency should not exceed 100000 for performance reasons".to_string()
             );
         }
 
         // Task 8.3: Validate absolute safety margin
         if self.absolute_safety_margin_ms > 10000 {
             return Err(
-                "absolute_safety_margin_ms should not exceed 10000ms (10 seconds)".to_string(),
+                "absolute_safety_margin_ms should not exceed 10000ms (10 seconds)".to_string()
             );
         }
 
@@ -6983,8 +6863,6 @@ pub enum MagicError {
     #[error("Invalid file format: {reason}")]
     InvalidFileFormat { reason: String },
 }
-
-
 
 /// Magic number generation result
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -7300,7 +7178,7 @@ pub struct PruningParameters {
     // Adaptive parameters
     pub adaptive_enabled: bool,
     pub position_dependent_margins: bool,
-    
+
     // Razoring enable flag
     pub razoring_enabled: bool,
     // Late move pruning parameters
@@ -7741,9 +7619,7 @@ impl PruningManager {
             reduction = self.apply_advanced_reduction(reduction, state, mv, advanced_config);
         }
 
-        reduction
-            .min(self.parameters.lmr_max_reduction)
-            .min(state.depth - 1)
+        reduction.min(self.parameters.lmr_max_reduction).min(state.depth - 1)
     }
 
     /// Apply advanced reduction strategies (Task 11.1-11.3)
@@ -8606,11 +8482,8 @@ impl PruningManager {
     /// Get cache performance statistics
     pub fn get_cache_stats(&self) -> (u64, u64, f64) {
         let total_requests = self.cache_hits + self.cache_misses;
-        let hit_rate = if total_requests > 0 {
-            self.cache_hits as f64 / total_requests as f64
-        } else {
-            0.0
-        };
+        let hit_rate =
+            if total_requests > 0 { self.cache_hits as f64 / total_requests as f64 } else { 0.0 };
         (self.cache_hits, self.cache_misses, hit_rate)
     }
 
@@ -9194,8 +9067,7 @@ impl AdaptiveParameters {
     ) -> PruningParameters {
         // Analyze current position
         let position_analysis =
-            self.position_analysis
-                .analyze_position(board, captured_pieces, player);
+            self.position_analysis.analyze_position(board, captured_pieces, player);
 
         // Calculate parameter adjustments based on position type and performance
         let adjustment = self.calculate_adjustment(position_analysis.position_type, performance);
@@ -9320,11 +9192,8 @@ impl AdaptiveParameters {
         parameters: PruningParameters,
         performance: PerformanceMetrics,
     ) {
-        let snapshot = ParameterSnapshot {
-            timestamp: std::time::SystemTime::now(),
-            parameters,
-            performance,
-        };
+        let snapshot =
+            ParameterSnapshot { timestamp: std::time::SystemTime::now(), parameters, performance };
 
         self.parameter_history.push(snapshot);
 
@@ -9372,8 +9241,7 @@ impl AdaptiveParameters {
         player: Player,
     ) -> PruningParameters {
         let position_analysis =
-            self.position_analysis
-                .analyze_position(board, captured_pieces, player);
+            self.position_analysis.analyze_position(board, captured_pieces, player);
 
         // Start with default parameters
         let mut params = PruningParameters::default();
@@ -9725,8 +9593,10 @@ impl PositionAnalyzer {
                     };
                     if piece_player == player {
                         match piece.piece_type {
-                            crate::types::core::PieceType::Bishop | crate::types::core::PieceType::PromotedBishop => potential += 30,
-                            crate::types::core::PieceType::Rook | crate::types::core::PieceType::PromotedRook => potential += 35,
+                            crate::types::core::PieceType::Bishop
+                            | crate::types::core::PieceType::PromotedBishop => potential += 30,
+                            crate::types::core::PieceType::Rook
+                            | crate::types::core::PieceType::PromotedRook => potential += 35,
                             crate::types::core::PieceType::Knight => potential += 20,
                             crate::types::core::PieceType::Lance => potential += 15,
                             _ => potential += 5,
@@ -9752,7 +9622,9 @@ impl PositionAnalyzer {
             for col in 0..9 {
                 let core_pos = crate::types::core::Position::new(row, col);
                 if let Some(piece) = board.get_piece(core_pos) {
-                    if piece.player == player_core && piece.piece_type == crate::types::core::PieceType::King {
+                    if piece.player == player_core
+                        && piece.piece_type == crate::types::core::PieceType::King
+                    {
                         // Check surrounding pieces for protection
                         for dr in -1..=1 {
                             for dc in -1..=1 {
@@ -9766,7 +9638,10 @@ impl PositionAnalyzer {
                                     && check_col >= 0
                                     && check_col < 9
                                 {
-                                    let protector_pos = crate::types::core::Position::new(check_row as u8, check_col as u8);
+                                    let protector_pos = crate::types::core::Position::new(
+                                        check_row as u8,
+                                        check_col as u8,
+                                    );
                                     if let Some(protector) = board.get_piece(protector_pos) {
                                         if protector.player == player_core {
                                             safety += 10;
@@ -10282,11 +10157,7 @@ pub struct HardwareInfo {
 
 impl Default for HardwareInfo {
     fn default() -> Self {
-        Self {
-            cpu: "Unknown".to_string(),
-            cores: num_cpus::get() as u32,
-            ram_gb: 0,
-        }
+        Self { cpu: "Unknown".to_string(), cores: num_cpus::get() as u32, ram_gb: 0 }
     }
 }
 
@@ -10402,11 +10273,7 @@ impl PerformanceBaseline {
                 cache_hit_rate: 0.0,
                 phase_calc_time_ns: 0.0,
             },
-            tt_metrics: TTMetrics {
-                hit_rate: 0.0,
-                exact_entry_rate: 0.0,
-                occupancy_rate: 0.0,
-            },
+            tt_metrics: TTMetrics { hit_rate: 0.0, exact_entry_rate: 0.0, occupancy_rate: 0.0 },
             move_ordering_metrics: BaselineMoveOrderingMetrics {
                 average_cutoff_index: 0.0,
                 pv_hit_rate: 0.0,
@@ -10442,15 +10309,10 @@ pub fn get_git_commit_hash() -> Option<String> {
     }
 
     // Try git command
-    let output = std::process::Command::new("git")
-        .args(&["rev-parse", "HEAD"])
-        .output()
-        .ok()?;
+    let output = std::process::Command::new("git").args(&["rev-parse", "HEAD"]).output().ok()?;
 
     if output.status.success() {
-        String::from_utf8(output.stdout)
-            .ok()
-            .map(|s| s.trim().to_string())
+        String::from_utf8(output.stdout).ok().map(|s| s.trim().to_string())
     } else {
         None
     }
@@ -10499,12 +10361,6 @@ impl BenchmarkPosition {
         expected_depth: u8,
         description: String,
     ) -> Self {
-        Self {
-            name,
-            fen,
-            position_type,
-            expected_depth,
-            description,
-        }
+        Self { name, fen, position_type, expected_depth, description }
     }
 }

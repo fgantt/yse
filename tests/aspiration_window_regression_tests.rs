@@ -42,14 +42,8 @@ mod aspiration_window_regression_tests {
         );
 
         let (mv, score) = result.unwrap();
-        assert!(
-            !mv.to_usi_string().is_empty(),
-            "REGRESSION: Move should not be empty"
-        );
-        assert!(
-            score > -50000 && score < 50000,
-            "REGRESSION: Score should be reasonable"
-        );
+        assert!(!mv.to_usi_string().is_empty(), "REGRESSION: Move should not be empty");
+        assert!(score > -50000 && score < 50000, "REGRESSION: Score should be reasonable");
     }
 
     /// Test that move tracking always returns a valid move (regression test)
@@ -176,10 +170,7 @@ mod aspiration_window_regression_tests {
         // This should not cause any issues with logging enabled
         let result = engine.search_at_depth(&board, &captured_pieces, player, 3, 100, -1000, 1000);
 
-        assert!(
-            result.is_some(),
-            "REGRESSION: Debug logging should not cause search failures"
-        );
+        assert!(result.is_some(), "REGRESSION: Debug logging should not cause search failures");
 
         let (mv, score) = result.unwrap();
         assert!(
@@ -217,10 +208,7 @@ mod aspiration_window_regression_tests {
         let result = engine.search_at_depth(&board, &captured_pieces, player, 3, 100, -1000, 1000);
 
         // Should handle very small windows gracefully
-        assert!(
-            result.is_some(),
-            "REGRESSION: Very small window sizes should not cause failures"
-        );
+        assert!(result.is_some(), "REGRESSION: Very small window sizes should not cause failures");
 
         let (mv, score) = result.unwrap();
         assert!(!mv.to_usi_string().is_empty());
@@ -250,10 +238,7 @@ mod aspiration_window_regression_tests {
         let result = engine.search_at_depth(&board, &captured_pieces, player, 3, 100, -1000, 1000);
 
         // Should handle very large windows gracefully
-        assert!(
-            result.is_some(),
-            "REGRESSION: Very large window sizes should not cause failures"
-        );
+        assert!(result.is_some(), "REGRESSION: Very large window sizes should not cause failures");
 
         let (mv, score) = result.unwrap();
         assert!(!mv.to_usi_string().is_empty());
@@ -353,10 +338,7 @@ mod aspiration_window_regression_tests {
         // This should NOT panic anymore
         let result = engine.search_at_depth(&board, &captured_pieces, player, 3, 100, alpha, beta);
 
-        assert!(
-            result.is_some(),
-            "REGRESSION: Original panic scenario should now work"
-        );
+        assert!(result.is_some(), "REGRESSION: Original panic scenario should now work");
 
         let (mv, score) = result.unwrap();
         assert!(!mv.to_usi_string().is_empty());

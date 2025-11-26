@@ -58,15 +58,33 @@ const RANK_MASKS: [Bitboard; 9] = [
 /// - Access pattern: Single array lookup per file query
 const FILE_MASKS: [Bitboard; 9] = [
     // File 0 (a-file): bits 0,9,18,27,36,45,54,63,72
-    Bitboard::from_u128(0b1000000001000000001000000001000000001000000001000000001000000001000000001u128),
-    Bitboard::from_u128(0b10000000010000000010000000010000000010000000010000000010000000010000000010u128),
-    Bitboard::from_u128(0b100000000100000000100000000100000000100000000100000000100000000100000000100u128),
-    Bitboard::from_u128(0b1000000001000000001000000001000000001000000001000000001000000001000000001000u128),
-    Bitboard::from_u128(0b10000000010000000010000000010000000010000000010000000010000000010000000010000u128),
-    Bitboard::from_u128(0b100000000100000000100000000100000000100000000100000000100000000100000000100000u128),
-    Bitboard::from_u128(0b1000000001000000001000000001000000001000000001000000001000000001000000001000000u128),
-    Bitboard::from_u128(0b10000000010000000010000000010000000010000000010000000010000000010000000010000000u128),
-    Bitboard::from_u128(0b100000000100000000100000000100000000100000000100000000100000000100000000100000000u128),
+    Bitboard::from_u128(
+        0b1000000001000000001000000001000000001000000001000000001000000001000000001u128,
+    ),
+    Bitboard::from_u128(
+        0b10000000010000000010000000010000000010000000010000000010000000010000000010u128,
+    ),
+    Bitboard::from_u128(
+        0b100000000100000000100000000100000000100000000100000000100000000100000000100u128,
+    ),
+    Bitboard::from_u128(
+        0b1000000001000000001000000001000000001000000001000000001000000001000000001000u128,
+    ),
+    Bitboard::from_u128(
+        0b10000000010000000010000000010000000010000000010000000010000000010000000010000u128,
+    ),
+    Bitboard::from_u128(
+        0b100000000100000000100000000100000000100000000100000000100000000100000000100000u128,
+    ),
+    Bitboard::from_u128(
+        0b1000000001000000001000000001000000001000000001000000001000000001000000001000000u128,
+    ),
+    Bitboard::from_u128(
+        0b10000000010000000010000000010000000010000000010000000010000000010000000010000000u128,
+    ),
+    Bitboard::from_u128(
+        0b100000000100000000100000000100000000100000000100000000100000000100000000100000000u128,
+    ),
 ];
 
 /// Diagonal masks for the 9x9 Shogi board
@@ -92,8 +110,12 @@ const DIAGONAL_MASKS: [Bitboard; 15] = [
     Bitboard::from_u128(0b10000000010000000010000000010000000010000u128),
     Bitboard::from_u128(0b100000000100000000100000000100000000100000000100000u128),
     Bitboard::from_u128(0b1000000001000000001000000001000000001000000001000000001000000u128),
-    Bitboard::from_u128(0b10000000010000000010000000010000000010000000010000000010000000010000000u128),
-    Bitboard::from_u128(0b100000000100000000100000000100000000100000000100000000100000000100000000100000000u128),
+    Bitboard::from_u128(
+        0b10000000010000000010000000010000000010000000010000000010000000010000000u128,
+    ),
+    Bitboard::from_u128(
+        0b100000000100000000100000000100000000100000000100000000100000000100000000100000000u128,
+    ),
     Bitboard::from_u128(0b100000000u128),
     Bitboard::from_u128(0b100000001000000000u128),
     Bitboard::from_u128(0b100000100000001000000000u128),
@@ -296,9 +318,7 @@ pub fn get_square_from_rank_file(rank: u8, file: u8) -> u8 {
 /// ```
 pub fn get_rank_squares(rank: u8) -> Vec<u8> {
     assert!(rank < 9, "Rank must be 0-8, got {}", rank);
-    (0..9)
-        .map(|file| get_square_from_rank_file(rank, file))
-        .collect()
+    (0..9).map(|file| get_square_from_rank_file(rank, file)).collect()
 }
 
 /// Get all squares on a specific file
@@ -318,9 +338,7 @@ pub fn get_rank_squares(rank: u8) -> Vec<u8> {
 /// ```
 pub fn get_file_squares(file: u8) -> Vec<u8> {
     assert!(file < 9, "File must be 0-8, got {}", file);
-    (0..9)
-        .map(|rank| get_square_from_rank_file(rank, file))
-        .collect()
+    (0..9).map(|rank| get_square_from_rank_file(rank, file)).collect()
 }
 
 /// Get all squares on a specific diagonal
@@ -568,7 +586,8 @@ mod tests {
         assert_eq!(rank_0 & Bitboard::from_u128(0b111111111), Bitboard::from_u128(0b111111111)); // Bottom rank
 
         let rank_8 = get_rank_mask(8);
-        assert_eq!(Bitboard::from_u128(rank_8.to_u128() >> 72), Bitboard::from_u128(0b111111111)); // Top rank
+        assert_eq!(Bitboard::from_u128(rank_8.to_u128() >> 72), Bitboard::from_u128(0b111111111));
+        // Top rank
     }
 
     #[test]
@@ -605,12 +624,9 @@ mod tests {
 
         // Test main diagonal (diagonal 8)
         let main_diagonal = get_diagonal_mask(8);
-        let squares: Vec<u8> = (0..81)
-            .filter(|&sq| (main_diagonal.to_u128() >> sq) & 1 == 1)
-            .collect();
-        let expected: Vec<u8> = (0..9)
-            .map(|rank| get_square_from_rank_file(rank, rank))
-            .collect();
+        let squares: Vec<u8> =
+            (0..81).filter(|&sq| (main_diagonal.to_u128() >> sq) & 1 == 1).collect();
+        let expected: Vec<u8> = (0..9).map(|rank| get_square_from_rank_file(rank, rank)).collect();
         assert_eq!(squares, expected);
     }
 
@@ -700,11 +716,7 @@ mod tests {
         let total_size = rank_size + file_size + diagonal_size;
 
         // Total memory should be less than 1KB as specified
-        assert!(
-            total_size < 1024,
-            "Memory usage too high: {} bytes",
-            total_size
-        );
+        assert!(total_size < 1024, "Memory usage too high: {} bytes", total_size);
 
         // Individual sizes should be reasonable
         assert_eq!(rank_size, 144); // 9 entries × 16 bytes
@@ -821,16 +833,8 @@ mod tests {
         let diagonal_duration = start.elapsed();
 
         // All operations should be very fast (less than 1ms for 10k iterations)
-        assert!(
-            rank_duration.as_millis() < 10,
-            "Rank lookup too slow: {:?}",
-            rank_duration
-        );
-        assert!(
-            file_duration.as_millis() < 10,
-            "File lookup too slow: {:?}",
-            file_duration
-        );
+        assert!(rank_duration.as_millis() < 10, "Rank lookup too slow: {:?}", rank_duration);
+        assert!(file_duration.as_millis() < 10, "File lookup too slow: {:?}", file_duration);
         assert!(
             diagonal_duration.as_millis() < 10,
             "Diagonal lookup too slow: {:?}",

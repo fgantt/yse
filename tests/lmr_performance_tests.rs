@@ -98,9 +98,7 @@ mod lmr_nps_comparison_tests {
             enable_adaptive_reduction: true,
             enable_extended_exemptions: true,
         };
-        engine_without_lmr
-            .update_lmr_config(lmr_config_disabled)
-            .unwrap();
+        engine_without_lmr.update_lmr_config(lmr_config_disabled).unwrap();
 
         let board = create_test_board();
         let captured_pieces = create_test_captured_pieces();
@@ -130,14 +128,8 @@ mod lmr_nps_comparison_tests {
 
         // LMR should improve NPS (more nodes per second)
         // Note: This is a basic test - in practice, LMR effectiveness depends on position
-        println!(
-            "NPS with LMR: {:.0}, NPS without LMR: {:.0}",
-            nps_with_lmr, nps_without_lmr
-        );
-        println!(
-            "Nodes with LMR: {}, Nodes without LMR: {}",
-            nodes_with_lmr, nodes_without_lmr
-        );
+        println!("NPS with LMR: {:.0}, NPS without LMR: {:.0}", nps_with_lmr, nps_without_lmr);
+        println!("Nodes with LMR: {}, Nodes without LMR: {}", nodes_with_lmr, nodes_without_lmr);
 
         // Check that LMR statistics show activity
         let lmr_stats = engine_with_lmr.get_lmr_stats();
@@ -176,9 +168,7 @@ mod lmr_nps_comparison_tests {
             enable_adaptive_reduction: true,
             enable_extended_exemptions: true,
         };
-        engine_without_lmr
-            .update_lmr_config(lmr_config_disabled)
-            .unwrap();
+        engine_without_lmr.update_lmr_config(lmr_config_disabled).unwrap();
 
         let board = create_test_board();
         let captured_pieces = create_test_captured_pieces();
@@ -203,10 +193,7 @@ mod lmr_nps_comparison_tests {
         assert!(time_with_lmr.as_millis() < time_limit as u128);
         assert!(time_without_lmr.as_millis() < time_limit as u128);
 
-        println!(
-            "Time with LMR: {:?}, Time without LMR: {:?}",
-            time_with_lmr, time_without_lmr
-        );
+        println!("Time with LMR: {:?}, Time without LMR: {:?}", time_with_lmr, time_without_lmr);
     }
 }
 
@@ -371,9 +358,7 @@ mod lmr_regression_tests {
             enable_adaptive_reduction: true,
             enable_extended_exemptions: true,
         };
-        engine_without_lmr
-            .update_lmr_config(lmr_config_disabled)
-            .unwrap();
+        engine_without_lmr.update_lmr_config(lmr_config_disabled).unwrap();
 
         let board = create_test_board();
         let captured_pieces = create_test_captured_pieces();
@@ -402,14 +387,8 @@ mod lmr_regression_tests {
 
         // Moves should be the same or very similar
         // (In practice, they might be different due to search order, but scores should be close)
-        println!(
-            "Move with LMR: {:?}, Score: {}",
-            move_with_lmr, score_with_lmr
-        );
-        println!(
-            "Move without LMR: {:?}, Score: {}",
-            move_without_lmr, score_without_lmr
-        );
+        println!("Move with LMR: {:?}, Score: {}", move_with_lmr, score_with_lmr);
+        println!("Move without LMR: {:?}, Score: {}", move_without_lmr, score_without_lmr);
     }
 
     #[test]
@@ -436,10 +415,7 @@ mod lmr_regression_tests {
             player: Player::Black,
             is_capture: true,
             is_promotion: false,
-            captured_piece: Some(Piece {
-                piece_type: PieceType::Rook,
-                player: Player::White,
-            }),
+            captured_piece: Some(Piece { piece_type: PieceType::Rook, player: Player::White }),
             gives_check: false,
             is_recapture: false,
         };
@@ -543,10 +519,7 @@ mod lmr_stress_tests {
         // LMR should be active at this depth
         if lmr_stats.moves_considered > 0 {
             let efficiency = lmr_stats.efficiency();
-            println!(
-                "LMR efficiency at depth {}: {:.1}%",
-                MAX_SEARCH_DEPTH, efficiency
-            );
+            println!("LMR efficiency at depth {}: {:.1}%", MAX_SEARCH_DEPTH, efficiency);
 
             // Efficiency should be reasonable
             assert!(efficiency >= 0.0);

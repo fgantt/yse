@@ -91,10 +91,7 @@ pub struct MoveOrderingCacheManager {
 impl MoveOrderingCacheManager {
     /// Create a new cache manager
     pub fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
-            lru_access_counter: 0,
-        }
+        Self { cache: HashMap::new(), lru_access_counter: 0 }
     }
 
     /// Get a cached entry for a key
@@ -194,31 +191,14 @@ impl MoveOrderingCacheManager {
                 let depth_weight = 1.0 - lru_weight;
 
                 // Normalize LRU: older = lower score (more likely to evict)
-                let max_access = self
-                    .cache
-                    .values()
-                    .map(|e| e.last_access)
-                    .max()
-                    .unwrap_or(1);
-                let min_access = self
-                    .cache
-                    .values()
-                    .map(|e| e.last_access)
-                    .min()
-                    .unwrap_or(1);
+                let max_access = self.cache.values().map(|e| e.last_access).max().unwrap_or(1);
+                let min_access = self.cache.values().map(|e| e.last_access).min().unwrap_or(1);
                 let access_range = (max_access - min_access).max(1) as f32;
 
                 // Normalize depth: lower depth = lower score (more likely to evict)
-                let max_depth = self
-                    .cache
-                    .values()
-                    .map(|e| e.depth as f32)
-                    .fold(0.0, f32::max);
-                let min_depth = self
-                    .cache
-                    .values()
-                    .map(|e| e.depth as f32)
-                    .fold(u8::MAX as f32, f32::min);
+                let max_depth = self.cache.values().map(|e| e.depth as f32).fold(0.0, f32::max);
+                let min_depth =
+                    self.cache.values().map(|e| e.depth as f32).fold(u8::MAX as f32, f32::min);
                 let depth_range = (max_depth - min_depth).max(1.0);
 
                 let mut evict_key = None;
@@ -410,8 +390,7 @@ impl MoveScoreCache {
         // Trim cache if necessary
         if self.cache.len() > max_size {
             let excess = self.cache.len() - max_size;
-            let keys_to_remove: Vec<u64> =
-                self.cache.keys().take(excess).copied().collect();
+            let keys_to_remove: Vec<u64> = self.cache.keys().take(excess).copied().collect();
             for key in keys_to_remove {
                 self.cache.remove(&key);
             }
@@ -425,10 +404,10 @@ impl MoveScoreCache {
 
     /// Get memory usage estimate in bytes
     pub fn memory_bytes(&self) -> usize {
-        let cache_bytes = self.cache.len()
-            * (std::mem::size_of::<u64>() + std::mem::size_of::<i32>());
-        let fast_cache_bytes = self.fast_cache.len()
-            * (std::mem::size_of::<u64>() + std::mem::size_of::<i32>());
+        let cache_bytes =
+            self.cache.len() * (std::mem::size_of::<u64>() + std::mem::size_of::<i32>());
+        let fast_cache_bytes =
+            self.fast_cache.len() * (std::mem::size_of::<u64>() + std::mem::size_of::<i32>());
         cache_bytes + fast_cache_bytes
     }
 }

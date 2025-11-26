@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use shogi_engine::tuning::optimizer::Optimizer;
 use shogi_engine::tuning::types::{LineSearchType, OptimizationMethod, TrainingPosition};
-use shogi_engine::types::{NUM_EVAL_FEATURES, Player};
+use shogi_engine::types::{Player, NUM_EVAL_FEATURES};
 
 fn generate_test_positions(count: usize) -> Vec<TrainingPosition> {
     (0..count)
@@ -92,7 +92,7 @@ fn benchmark_lbfgs_line_search_parameters(c: &mut Criterion) {
     let positions = generate_test_positions(100);
 
     let mut group = c.benchmark_group("lbfgs_line_search_params");
-    
+
     group.bench_function("default_armijo", |b| {
         let optimizer = Optimizer::new(OptimizationMethod::LBFGS {
             memory_size: 10,
@@ -150,4 +150,3 @@ criterion_group!(
     benchmark_lbfgs_line_search_parameters
 );
 criterion_main!(benches);
-

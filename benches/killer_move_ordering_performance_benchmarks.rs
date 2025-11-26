@@ -17,14 +17,7 @@ fn create_benchmark_move(
     piece_type: PieceType,
     player: Player,
 ) -> Move {
-    Move {
-        from,
-        to,
-        piece_type,
-        player,
-        promotion: false,
-        drop: from.is_none(),
-    }
+    Move { from, to, piece_type, player, promotion: false, drop: from.is_none() }
 }
 
 /// Generate a set of test moves for benchmarking
@@ -49,11 +42,7 @@ fn generate_test_moves(count: usize) -> Vec<Move> {
             Some(from),
             to,
             piece_type,
-            if i % 2 == 0 {
-                Player::Black
-            } else {
-                Player::White
-            },
+            if i % 2 == 0 { Player::Black } else { Player::White },
         ));
     }
 
@@ -66,21 +55,17 @@ fn benchmark_killer_move_storage(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for count in [10, 50, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("add_killer_moves", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                orderer.set_current_depth(3);
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("add_killer_moves", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            orderer.set_current_depth(3);
+            let moves = generate_test_moves(count);
 
-                b.iter(|| {
-                    for move_ in &moves {
-                        orderer.add_killer_move(black_box(move_.clone()));
-                    }
-                });
-            },
-        );
+            b.iter(|| {
+                for move_ in &moves {
+                    orderer.add_killer_move(black_box(move_.clone()));
+                }
+            });
+        });
     }
 
     group.finish();
@@ -92,26 +77,22 @@ fn benchmark_killer_move_detection(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for count in [10, 50, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("is_killer_move", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                orderer.set_current_depth(3);
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("is_killer_move", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            orderer.set_current_depth(3);
+            let moves = generate_test_moves(count);
 
-                // Pre-populate with killer moves
+            // Pre-populate with killer moves
+            for move_ in &moves {
+                orderer.add_killer_move(move_.clone());
+            }
+
+            b.iter(|| {
                 for move_ in &moves {
-                    orderer.add_killer_move(move_.clone());
+                    black_box(orderer.is_killer_move(black_box(move_)));
                 }
-
-                b.iter(|| {
-                    for move_ in &moves {
-                        black_box(orderer.is_killer_move(black_box(move_)));
-                    }
-                });
-            },
-        );
+            });
+        });
     }
 
     group.finish();
@@ -123,20 +104,16 @@ fn benchmark_killer_move_scoring(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for count in [10, 50, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("score_killer_move", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("score_killer_move", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            let moves = generate_test_moves(count);
 
-                b.iter(|| {
-                    for move_ in &moves {
-                        black_box(orderer.score_killer_move(black_box(move_)));
-                    }
-                });
-            },
-        );
+            b.iter(|| {
+                for move_ in &moves {
+                    black_box(orderer.score_killer_move(black_box(move_)));
+                }
+            });
+        });
     }
 
     group.finish();
@@ -177,27 +154,23 @@ fn benchmark_killer_move_memory_usage(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for count in [10, 50, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("memory_usage", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                orderer.set_current_depth(3);
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("memory_usage", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            orderer.set_current_depth(3);
+            let moves = generate_test_moves(count);
 
-                b.iter(|| {
-                    // Add killer moves
-                    for move_ in &moves {
-                        orderer.add_killer_move(move_.clone());
-                    }
+            b.iter(|| {
+                // Add killer moves
+                for move_ in &moves {
+                    orderer.add_killer_move(move_.clone());
+                }
 
-                    // Update memory usage
-                    orderer.update_memory_usage();
+                // Update memory usage
+                orderer.update_memory_usage();
 
-                    black_box(orderer.memory_usage.current_bytes);
-                });
-            },
-        );
+                black_box(orderer.memory_usage.current_bytes);
+            });
+        });
     }
 
     group.finish();
@@ -209,23 +182,19 @@ fn benchmark_killer_move_different_depths(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for depth in [1, 3, 5, 10, 20].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("depth_management", depth),
-            depth,
-            |b, &depth| {
-                let mut orderer = MoveOrdering::new();
-                let moves = generate_test_moves(100);
+        group.bench_with_input(BenchmarkId::new("depth_management", depth), depth, |b, &depth| {
+            let mut orderer = MoveOrdering::new();
+            let moves = generate_test_moves(100);
 
-                b.iter(|| {
-                    for d in 1..=depth {
-                        orderer.set_current_depth(d);
-                        for move_ in &moves[0..10] {
-                            orderer.add_killer_move(move_.clone());
-                        }
+            b.iter(|| {
+                for d in 1..=depth {
+                    orderer.set_current_depth(d);
+                    for move_ in &moves[0..10] {
+                        orderer.add_killer_move(move_.clone());
                     }
-                });
-            },
-        );
+                }
+            });
+        });
     }
 
     group.finish();
@@ -384,10 +353,8 @@ fn benchmark_killer_move_weights(c: &mut Criterion) {
             BenchmarkId::new("killer_move_weight", weight),
             weight,
             |b, &weight| {
-                let custom_weights = OrderingWeights {
-                    killer_move_weight: weight,
-                    ..Default::default()
-                };
+                let custom_weights =
+                    OrderingWeights { killer_move_weight: weight, ..Default::default() };
                 let mut orderer = MoveOrdering::with_config(custom_weights);
                 let moves = generate_test_moves(100);
 
@@ -409,24 +376,20 @@ fn benchmark_killer_move_large_sets(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(15));
 
     for count in [1000, 2000, 5000, 10000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("large_move_sets", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                orderer.set_current_depth(3);
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("large_move_sets", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            orderer.set_current_depth(3);
+            let moves = generate_test_moves(count);
 
-                // Pre-populate with killer moves
-                for i in 0..(count / 20).max(1) {
-                    orderer.add_killer_move(moves[i].clone());
-                }
+            // Pre-populate with killer moves
+            for i in 0..(count / 20).max(1) {
+                orderer.add_killer_move(moves[i].clone());
+            }
 
-                b.iter(|| {
-                    black_box(orderer.order_moves_with_killer(black_box(&moves)));
-                });
-            },
-        );
+            b.iter(|| {
+                black_box(orderer.order_moves_with_killer(black_box(&moves)));
+            });
+        });
     }
 
     group.finish();

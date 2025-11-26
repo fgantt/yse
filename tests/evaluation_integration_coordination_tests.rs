@@ -165,12 +165,7 @@ fn test_double_counting_prevention() {
         );
 
         // Verify score is reasonable (not extreme values)
-        assert!(
-            score.abs() < 10000,
-            "Test config {} produced extreme score: {}",
-            i,
-            score
-        );
+        assert!(score.abs() < 10000, "Test config {} produced extreme score: {}", i, score);
     }
 }
 
@@ -178,10 +173,7 @@ fn test_double_counting_prevention() {
 fn test_center_control_precedence_default() {
     // Verify default precedence is PositionalPatterns
     let config = IntegratedEvaluationConfig::default();
-    assert_eq!(
-        config.center_control_precedence,
-        CenterControlPrecedence::PositionalPatterns
-    );
+    assert_eq!(config.center_control_precedence, CenterControlPrecedence::PositionalPatterns);
 }
 
 #[test]
@@ -230,7 +222,8 @@ fn test_no_double_counting_king_safety() {
     config1.components.castle_patterns = true;
 
     let mut evaluator1 = IntegratedEvaluator::with_config(config1);
-    let result1 = evaluator1.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
+    let result1 =
+        evaluator1.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
 
     // Test 2: Only position_features enabled
     let mut config2 = IntegratedEvaluationConfig::default();
@@ -238,7 +231,8 @@ fn test_no_double_counting_king_safety() {
     config2.components.castle_patterns = false;
 
     let mut evaluator2 = IntegratedEvaluator::with_config(config2);
-    let result2 = evaluator2.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
+    let result2 =
+        evaluator2.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
 
     // Both should return valid scores
     assert!(result1.score != i32::MIN && result1.score != i32::MAX);
@@ -268,7 +262,8 @@ fn test_no_double_counting_passed_pawns() {
     config1.components.endgame_patterns = true;
 
     let mut evaluator1 = IntegratedEvaluator::with_config(config1);
-    let result1 = evaluator1.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
+    let result1 =
+        evaluator1.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
 
     // Test 2: Only position_features enabled (passed pawns evaluated here in all phases)
     let mut config2 = IntegratedEvaluationConfig::default();
@@ -276,7 +271,8 @@ fn test_no_double_counting_passed_pawns() {
     config2.components.endgame_patterns = false;
 
     let mut evaluator2 = IntegratedEvaluator::with_config(config2);
-    let result2 = evaluator2.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
+    let result2 =
+        evaluator2.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
 
     // Both should return valid scores
     assert!(result1.score != i32::MIN && result1.score != i32::MAX);
@@ -354,7 +350,8 @@ fn test_evaluation_coordination_consistency() {
     let mut scores = Vec::new();
     for (i, config) in configs.iter().enumerate() {
         let mut evaluator = IntegratedEvaluator::with_config(config.clone());
-        let result = evaluator.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
+        let result =
+            evaluator.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
 
         assert!(
             result.score != i32::MIN && result.score != i32::MAX,
@@ -368,12 +365,7 @@ fn test_evaluation_coordination_consistency() {
 
     // All scores should be reasonable (not extreme values)
     for (i, score) in scores.iter().enumerate() {
-        assert!(
-            score.abs() < 10000,
-            "Config {} produced extreme score: {}",
-            i,
-            score
-        );
+        assert!(score.abs() < 10000, "Config {} produced extreme score: {}", i, score);
     }
 
     // The key test: evaluation should complete without errors for all configurations
@@ -448,12 +440,14 @@ fn test_coordination_with_complementary_components() {
     config.components.castle_patterns = true; // Complementary to king safety
 
     let mut evaluator1 = IntegratedEvaluator::with_config(config.clone());
-    let result1 = evaluator1.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
+    let result1 =
+        evaluator1.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
 
     // Disable castle patterns
     config.components.castle_patterns = false;
     let mut evaluator2 = IntegratedEvaluator::with_config(config);
-    let result2 = evaluator2.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
+    let result2 =
+        evaluator2.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
 
     // Both should return valid scores
     assert!(result1.score != i32::MIN && result1.score != i32::MAX);
@@ -475,7 +469,9 @@ fn test_validation_warns_on_double_counting_risks() {
     config.components.positional_patterns = true;
     let warnings = config.validate_component_dependencies();
     assert!(
-        warnings.iter().any(|w| matches!(w, ComponentDependencyWarning::CenterControlOverlap)),
+        warnings
+            .iter()
+            .any(|w| matches!(w, ComponentDependencyWarning::CenterControlOverlap)),
         "Should warn about center control overlap"
     );
 
@@ -483,7 +479,9 @@ fn test_validation_warns_on_double_counting_risks() {
     config.components.opening_principles = true;
     let warnings = config.validate_component_dependencies();
     assert!(
-        warnings.iter().any(|w| matches!(w, ComponentDependencyWarning::DevelopmentOverlap)),
+        warnings
+            .iter()
+            .any(|w| matches!(w, ComponentDependencyWarning::DevelopmentOverlap)),
         "Should warn about development overlap"
     );
 }

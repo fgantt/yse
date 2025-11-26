@@ -57,9 +57,7 @@ pub enum TranspositionTableConfig {
 
 impl Default for TranspositionTableConfig {
     fn default() -> Self {
-        Self::ThreadSafe {
-            config: TranspositionConfig::default(),
-        }
+        Self::ThreadSafe { config: TranspositionConfig::default() }
     }
 }
 
@@ -93,23 +91,17 @@ impl TranspositionTableConfig {
 
     /// Create a default thread-safe table configuration
     pub fn default_thread_safe() -> Self {
-        Self::ThreadSafe {
-            config: TranspositionConfig::default(),
-        }
+        Self::ThreadSafe { config: TranspositionConfig::default() }
     }
 
     /// Create a performance-optimized thread-safe table configuration
     pub fn performance_optimized() -> Self {
-        Self::ThreadSafe {
-            config: TranspositionConfig::performance_optimized(),
-        }
+        Self::ThreadSafe { config: TranspositionConfig::performance_optimized() }
     }
 
     /// Create a memory-optimized thread-safe table configuration
     pub fn memory_optimized() -> Self {
-        Self::ThreadSafe {
-            config: TranspositionConfig::memory_optimized(),
-        }
+        Self::ThreadSafe { config: TranspositionConfig::memory_optimized() }
     }
 
     /// Validate the configuration
@@ -141,7 +133,8 @@ impl TranspositionTableConfig {
             TranspositionTableConfig::Hierarchical { config } => {
                 // Hierarchical table config validation
                 // Validate L1 config
-                let mut l1_config = crate::search::transposition_config::TranspositionConfig::default();
+                let mut l1_config =
+                    crate::search::transposition_config::TranspositionConfig::default();
                 l1_config.table_size = config.l1_config.table_size;
                 l1_config.enable_statistics = config.l1_config.enable_statistics;
                 if let Err(e) = l1_config.validate() {
@@ -228,9 +221,11 @@ pub fn create_transposition_table(
         }
         #[cfg(feature = "hierarchical-tt")]
         TranspositionTableConfig::Compressed { config } => {
-            let table = crate::search::compressed_transposition_table::CompressedTranspositionTable::new(config);
+            let table =
+                crate::search::compressed_transposition_table::CompressedTranspositionTable::new(
+                    config,
+                );
             Box::new(RefCell::new(table))
         }
     }
 }
-

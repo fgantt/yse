@@ -104,18 +104,12 @@ pub struct PositionAnalyzer {
 impl PositionAnalyzer {
     /// Create a new position analyzer
     pub fn new() -> Self {
-        Self {
-            analysis_cache: std::collections::HashMap::new(),
-            max_cache_size: 1000,
-        }
+        Self { analysis_cache: std::collections::HashMap::new(), max_cache_size: 1000 }
     }
 
     /// Create a position analyzer with specified cache size
     pub fn with_cache_size(cache_size: usize) -> Self {
-        Self {
-            analysis_cache: std::collections::HashMap::new(),
-            max_cache_size: cache_size,
-        }
+        Self { analysis_cache: std::collections::HashMap::new(), max_cache_size: cache_size }
     }
 
     /// Analyze a position and return complexity information
@@ -438,12 +432,8 @@ impl PositionAnalyzer {
             PieceType::Bishop,
             PieceType::Rook,
         ] {
-            captured_pieces
-                .count(piece_type, Player::Black)
-                .hash(&mut hasher);
-            captured_pieces
-                .count(piece_type, Player::White)
-                .hash(&mut hasher);
+            captured_pieces.count(piece_type, Player::Black).hash(&mut hasher);
+            captured_pieces.count(piece_type, Player::White).hash(&mut hasher);
         }
 
         hasher.finish()

@@ -202,11 +202,7 @@ fn test_accuracy_starting_position() {
     let score = evaluator.evaluate(&board, Player::Black, &captured_pieces);
 
     // Starting position: equal material, should be near 0
-    assert!(
-        score >= -50 && score <= 50,
-        "Starting position accuracy: {}",
-        score
-    );
+    assert!(score >= -50 && score <= 50, "Starting position accuracy: {}", score);
 }
 
 #[test]
@@ -277,14 +273,8 @@ fn test_component_isolation() {
 
     // Test with each component isolated
     let components = [
-        ComponentFlags {
-            material: true,
-            ..ComponentFlags::all_disabled()
-        },
-        ComponentFlags {
-            piece_square_tables: true,
-            ..ComponentFlags::all_disabled()
-        },
+        ComponentFlags { material: true, ..ComponentFlags::all_disabled() },
+        ComponentFlags { piece_square_tables: true, ..ComponentFlags::all_disabled() },
     ];
 
     for comp in &components {

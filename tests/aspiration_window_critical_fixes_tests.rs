@@ -38,20 +38,11 @@ mod aspiration_window_critical_fixes_tests {
                 engine.search_at_depth(&board, &captured_pieces, player, 3, 100, -1000, 1000);
 
             // Should always return Some result, never None
-            assert!(
-                result.is_some(),
-                "Aspiration window search should never completely fail"
-            );
+            assert!(result.is_some(), "Aspiration window search should never completely fail");
 
             let (mv, score) = result.unwrap();
-            assert!(
-                mv.to_usi_string().len() >= 4,
-                "Move should be valid USI format"
-            );
-            assert!(
-                score > -50000 && score < 50000,
-                "Score should be within reasonable bounds"
-            );
+            assert!(mv.to_usi_string().len() >= 4, "Move should be valid USI format");
+            assert!(score > -50000 && score < 50000, "Score should be within reasonable bounds");
         }
     }
 
@@ -68,13 +59,7 @@ mod aspiration_window_critical_fixes_tests {
         let player = Player::Black;
 
         // Test with various alpha/beta values that might cause issues
-        let test_cases = vec![
-            (-1000, 1000),
-            (-500, 500),
-            (0, 100),
-            (-100, 0),
-            (-10000, 10000),
-        ];
+        let test_cases = vec![(-1000, 1000), (-500, 500), (0, 100), (-100, 0), (-10000, 10000)];
 
         for (alpha, beta) in test_cases {
             let result =
@@ -122,16 +107,10 @@ mod aspiration_window_critical_fixes_tests {
         let result = engine.search_at_depth(&board, &captured_pieces, player, 2, 100, alpha, beta);
 
         // Should still return a result (fallback to first move)
-        assert!(
-            result.is_some(),
-            "Should return fallback move when no move exceeds alpha"
-        );
+        assert!(result.is_some(), "Should return fallback move when no move exceeds alpha");
 
         let (mv, score) = result.unwrap();
-        assert!(
-            !mv.to_usi_string().is_empty(),
-            "Fallback move should be valid"
-        );
+        assert!(!mv.to_usi_string().is_empty(), "Fallback move should be valid");
         // Score might be below alpha, but that's expected for fallback
     }
 
@@ -215,12 +194,7 @@ mod aspiration_window_critical_fixes_tests {
                 engine.search_at_depth(&board, &captured_pieces, player, 2, 100, alpha, beta);
 
             // Should handle extreme values gracefully
-            assert!(
-                result.is_some(),
-                "Should handle extreme window [{}, {}]",
-                alpha,
-                beta
-            );
+            assert!(result.is_some(), "Should handle extreme window [{}, {}]", alpha, beta);
 
             let (mv, score) = result.unwrap();
             assert!(!mv.to_usi_string().is_empty());
@@ -247,18 +221,10 @@ mod aspiration_window_critical_fixes_tests {
 
         // Validate move format
         let move_str = mv.to_usi_string();
-        assert!(
-            move_str.len() >= 4 && move_str.len() <= 6,
-            "Invalid move format: {}",
-            move_str
-        );
+        assert!(move_str.len() >= 4 && move_str.len() <= 6, "Invalid move format: {}", move_str);
 
         // Validate score bounds
-        assert!(
-            score > -50000 && score < 50000,
-            "Score out of bounds: {}",
-            score
-        );
+        assert!(score > -50000 && score < 50000, "Score out of bounds: {}", score);
 
         // Validate move is not empty
         assert!(!move_str.is_empty(), "Move should not be empty");
@@ -319,10 +285,7 @@ mod aspiration_window_critical_fixes_tests {
         for _ in 0..5 {
             let result =
                 engine.search_at_depth(&board, &captured_pieces, player, 4, 100, -2000, 2000);
-            assert!(
-                result.is_some(),
-                "Graceful degradation should maintain functionality"
-            );
+            assert!(result.is_some(), "Graceful degradation should maintain functionality");
         }
 
         let stats = engine.get_aspiration_window_stats();
@@ -354,12 +317,7 @@ mod aspiration_window_critical_fixes_tests {
                 engine.search_at_depth(&board, &captured_pieces, player, 2, 100, alpha, beta);
 
             // Should not panic due to overflow
-            assert!(
-                result.is_some(),
-                "Should handle overflow case [{}, {}]",
-                alpha,
-                beta
-            );
+            assert!(result.is_some(), "Should handle overflow case [{}, {}]", alpha, beta);
 
             let (mv, score) = result.unwrap();
             assert!(!mv.to_usi_string().is_empty());
@@ -452,11 +410,7 @@ mod aspiration_window_critical_fixes_tests {
         let elapsed = start_time.elapsed();
 
         // Should complete in reasonable time (less than 5 seconds for 10 searches)
-        assert!(
-            elapsed.as_secs() < 5,
-            "Performance should be reasonable: {:?}",
-            elapsed
-        );
+        assert!(elapsed.as_secs() < 5, "Performance should be reasonable: {:?}", elapsed);
     }
 
     /// Test consistency across multiple searches

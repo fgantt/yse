@@ -89,11 +89,7 @@ impl ReplacementStats {
 impl ReplacementPolicyHandler {
     /// Create a new replacement policy handler
     pub fn new(config: TranspositionConfig) -> Self {
-        Self {
-            policy: config.replacement_policy,
-            config,
-            stats: ReplacementStats::default(),
-        }
+        Self { policy: config.replacement_policy, config, stats: ReplacementStats::default() }
     }
 
     /// Determine whether to replace an existing entry with a new one
@@ -326,11 +322,8 @@ impl ReplacementPolicyHandler {
         if wrap_diff == 0 {
             current_age.saturating_sub(entry_age)
         } else {
-            let mut diff = self
-                .config
-                .max_age
-                .saturating_sub(entry_age)
-                .saturating_add(current_age);
+            let mut diff =
+                self.config.max_age.saturating_sub(entry_age).saturating_add(current_age);
 
             if wrap_diff > 1 {
                 diff = diff.saturating_add((wrap_diff - 1) * self.config.max_age);
@@ -481,10 +474,7 @@ impl OptimizedReplacementMaker {
         if wrap_diff == 0 {
             current_age.saturating_sub(entry_age)
         } else {
-            let mut diff = self
-                .max_age
-                .saturating_sub(entry_age)
-                .saturating_add(current_age);
+            let mut diff = self.max_age.saturating_sub(entry_age).saturating_add(current_age);
 
             if wrap_diff > 1 {
                 diff = diff.saturating_add((wrap_diff - 1) * self.max_age);

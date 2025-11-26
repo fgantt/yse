@@ -65,11 +65,7 @@ fn bench_position_type_tracking_overhead(c: &mut Criterion) {
     // Test with position type tracking enabled
     group.bench_function("with_position_type_tracking", |b| {
         let mut stats = AspirationWindowStats::default();
-        let phases = vec![
-            GamePhase::Opening,
-            GamePhase::Middlegame,
-            GamePhase::Endgame,
-        ];
+        let phases = vec![GamePhase::Opening, GamePhase::Middlegame, GamePhase::Endgame];
         let window_sizes = vec![50, 75, 100];
 
         b.iter(|| {
@@ -178,11 +174,7 @@ fn bench_statistics_update_methods(c: &mut Criterion) {
     // Benchmark position type tracking methods
     group.bench_function("position_type_tracking_methods", |b| {
         let mut stats = AspirationWindowStats::default();
-        let phases = vec![
-            GamePhase::Opening,
-            GamePhase::Middlegame,
-            GamePhase::Endgame,
-        ];
+        let phases = vec![GamePhase::Opening, GamePhase::Middlegame, GamePhase::Endgame];
         let window_sizes = vec![50, 75, 100];
 
         b.iter(|| {

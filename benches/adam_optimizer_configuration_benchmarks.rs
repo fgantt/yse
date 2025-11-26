@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use shogi_engine::tuning::optimizer::Optimizer;
 use shogi_engine::tuning::types::{OptimizationMethod, TrainingPosition};
-use shogi_engine::types::{NUM_EVAL_FEATURES, Player};
+use shogi_engine::types::{Player, NUM_EVAL_FEATURES};
 
 fn generate_test_positions(count: usize) -> Vec<TrainingPosition> {
     (0..count)
@@ -138,4 +138,3 @@ criterion_group!(
     benchmark_adam_parameter_comparison
 );
 criterion_main!(benches);
-

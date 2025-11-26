@@ -28,9 +28,7 @@ pub struct PatternTestSuite {
 impl PatternTestSuite {
     /// Create new test suite
     pub fn new() -> Self {
-        Self {
-            results: TestResults::default(),
-        }
+        Self { results: TestResults::default() }
     }
 
     /// Run all comprehensive tests

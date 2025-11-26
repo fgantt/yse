@@ -176,11 +176,7 @@ impl PieceSquareTelemetry {
             }
         }
 
-        Self {
-            total_mg: total.mg,
-            total_eg: total.eg,
-            per_piece: entries,
-        }
+        Self { total_mg: total.mg, total_eg: total.eg, per_piece: entries }
     }
 }
 
@@ -214,10 +210,7 @@ impl PieceSquarePieceAggregate {
         if self.samples == 0 {
             (0.0, 0.0)
         } else {
-            (
-                self.sum_mg as f64 / self.samples as f64,
-                self.sum_eg as f64 / self.samples as f64,
-            )
+            (self.sum_mg as f64 / self.samples as f64, self.sum_eg as f64 / self.samples as f64)
         }
     }
 }
@@ -270,10 +263,7 @@ impl PieceSquareStatisticsAggregate {
 
     pub fn average_for_piece(&self, piece: PieceType) -> (f64, f64) {
         let idx = piece.as_index();
-        self.per_piece
-            .get(idx)
-            .map(|entry| entry.average())
-            .unwrap_or((0.0, 0.0))
+        self.per_piece.get(idx).map(|entry| entry.average()).unwrap_or((0.0, 0.0))
     }
 
     pub fn last_totals(&self) -> Option<(i32, i32)> {
@@ -565,16 +555,8 @@ pub struct ScoreStatistics {
 impl ScoreStatistics {
     fn record(&mut self, score: i32) {
         self.sum += score as i64;
-        self.min = if self.count == 0 {
-            score
-        } else {
-            self.min.min(score)
-        };
-        self.max = if self.count == 0 {
-            score
-        } else {
-            self.max.max(score)
-        };
+        self.min = if self.count == 0 { score } else { self.min.min(score) };
+        self.max = if self.count == 0 { score } else { self.max.max(score) };
         self.count += 1;
 
         // Update distribution
@@ -787,16 +769,8 @@ impl std::fmt::Display for StatisticsReport {
         writeln!(f)?;
         writeln!(f, "Session Overview:")?;
         writeln!(f, "  Total Evaluations: {}", self.evaluation_count)?;
-        writeln!(
-            f,
-            "  Session Duration: {:.2} seconds",
-            self.session_duration_secs
-        )?;
-        writeln!(
-            f,
-            "  Throughput: {:.0} evals/sec",
-            self.evaluations_per_second
-        )?;
+        writeln!(f, "  Session Duration: {:.2} seconds", self.session_duration_secs)?;
+        writeln!(f, "  Throughput: {:.0} evals/sec", self.evaluations_per_second)?;
         writeln!(f)?;
         writeln!(f, "Score Statistics:")?;
         writeln!(f, "  Average Score: {:.2}", self.score_stats.average())?;
@@ -805,28 +779,12 @@ impl std::fmt::Display for StatisticsReport {
         writeln!(f)?;
         writeln!(f, "Phase Distribution:")?;
         writeln!(f, "  Average Phase: {:.2}", self.phase_stats.average())?;
-        writeln!(
-            f,
-            "  Opening (≥192): {:.1}%",
-            self.phase_stats.opening_percentage()
-        )?;
-        writeln!(
-            f,
-            "  Middlegame (64-191): {:.1}%",
-            self.phase_stats.middlegame_percentage()
-        )?;
-        writeln!(
-            f,
-            "  Endgame (<64): {:.1}%",
-            self.phase_stats.endgame_percentage()
-        )?;
+        writeln!(f, "  Opening (≥192): {:.1}%", self.phase_stats.opening_percentage())?;
+        writeln!(f, "  Middlegame (64-191): {:.1}%", self.phase_stats.middlegame_percentage())?;
+        writeln!(f, "  Endgame (<64): {:.1}%", self.phase_stats.endgame_percentage())?;
         writeln!(f)?;
         writeln!(f, "Accuracy Metrics:")?;
-        writeln!(
-            f,
-            "  Mean Absolute Error: {:.2}",
-            self.accuracy_metrics.mean_absolute_error()
-        )?;
+        writeln!(f, "  Mean Absolute Error: {:.2}", self.accuracy_metrics.mean_absolute_error())?;
         writeln!(
             f,
             "  Root Mean Squared Error: {:.2}",
@@ -834,11 +792,7 @@ impl std::fmt::Display for StatisticsReport {
         )?;
         writeln!(f)?;
         writeln!(f, "Performance Metrics:")?;
-        writeln!(
-            f,
-            "  Average Time: {:.2} μs",
-            self.performance_metrics.average_time_us()
-        )?;
+        writeln!(f, "  Average Time: {:.2} μs", self.performance_metrics.average_time_us())?;
         writeln!(f, "  Min Time: {} ns", self.performance_metrics.min_time_ns)?;
         writeln!(f, "  Max Time: {} ns", self.performance_metrics.max_time_ns)?;
         writeln!(
@@ -903,48 +857,20 @@ impl std::fmt::Display for StatisticsReport {
             writeln!(f)?;
             writeln!(f, "Evaluation Telemetry:")?;
             if let Some(tapered) = telemetry.tapered {
-                writeln!(
-                    f,
-                    "  Tapered Phase Calculations: {}",
-                    tapered.phase_calculations
-                )?;
+                writeln!(f, "  Tapered Phase Calculations: {}", tapered.phase_calculations)?;
                 writeln!(f, "  Tapered Cache Hits: {}", tapered.cache_hits)?;
-                writeln!(
-                    f,
-                    "  Tapered Cache Hit Rate: {:.2}%",
-                    tapered.cache_hit_rate * 100.0
-                )?;
-                writeln!(
-                    f,
-                    "  Tapered Interpolations: {}",
-                    tapered.total_interpolations
-                )?;
+                writeln!(f, "  Tapered Cache Hit Rate: {:.2}%", tapered.cache_hit_rate * 100.0)?;
+                writeln!(f, "  Tapered Interpolations: {}", tapered.total_interpolations)?;
             }
             if let Some(phase) = telemetry.phase_transition {
-                writeln!(
-                    f,
-                    "  Phase Transition Interpolations: {}",
-                    phase.interpolations
-                )?;
+                writeln!(f, "  Phase Transition Interpolations: {}", phase.interpolations)?;
             }
             if let Some(performance) = telemetry.performance.as_ref() {
                 writeln!(f)?;
                 writeln!(f, "  Profiler Snapshot:")?;
-                writeln!(
-                    f,
-                    "    Avg Evaluation: {:.2} ns",
-                    performance.avg_evaluation_ns
-                )?;
-                writeln!(
-                    f,
-                    "    Avg Phase Calc: {:.2} ns",
-                    performance.avg_phase_calc_ns
-                )?;
-                writeln!(
-                    f,
-                    "    Avg Interpolation: {:.2} ns",
-                    performance.avg_interpolation_ns
-                )?;
+                writeln!(f, "    Avg Evaluation: {:.2} ns", performance.avg_evaluation_ns)?;
+                writeln!(f, "    Avg Phase Calc: {:.2} ns", performance.avg_phase_calc_ns)?;
+                writeln!(f, "    Avg Interpolation: {:.2} ns", performance.avg_interpolation_ns)?;
             }
             if let Some(pst) = telemetry.pst.as_ref() {
                 writeln!(f)?;
@@ -959,11 +885,7 @@ impl std::fmt::Display for StatisticsReport {
                         .sort_by(|a, b| (b.mg.abs() + b.eg.abs()).cmp(&(a.mg.abs() + a.eg.abs())));
                     writeln!(f, "    Top Contributors:")?;
                     for entry in contributors.iter().take(5) {
-                        writeln!(
-                            f,
-                            "      {:?}: mg {} eg {}",
-                            entry.piece, entry.mg, entry.eg
-                        )?;
+                        writeln!(f, "      {:?}: mg {} eg {}", entry.piece, entry.mg, entry.eg)?;
                     }
                 }
             }

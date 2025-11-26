@@ -24,11 +24,7 @@ fn test_magic_lookup_performance() {
     }
     let duration = start.elapsed();
 
-    println!(
-        "Magic lookup: {} lookups in {:?}",
-        iterations * 27,
-        duration
-    );
+    println!("Magic lookup: {} lookups in {:?}", iterations * 27, duration);
     println!("Average: {:?} per lookup", duration / (iterations * 27));
 
     // Should complete reasonably quickly
@@ -83,10 +79,7 @@ fn test_magic_vs_raycast_speedup() {
     println!("Speedup: {:.2}x", speedup);
 
     // Magic should be at least as fast as raycast
-    assert!(
-        magic_duration <= raycast_duration,
-        "Magic should not be slower than raycast"
-    );
+    assert!(magic_duration <= raycast_duration, "Magic should not be slower than raycast");
 }
 
 #[test]
@@ -96,13 +89,7 @@ fn test_sliding_move_generation_performance() {
 
     // Place a rook in the center
     let rook_pos = Position::new(4, 4);
-    board.place_piece(
-        Piece {
-            piece_type: PieceType::Rook,
-            player: Player::Black,
-        },
-        rook_pos,
-    );
+    board.place_piece(Piece { piece_type: PieceType::Rook, player: Player::Black }, rook_pos);
 
     let iterations = 10_000;
     let start = Instant::now();
@@ -112,16 +99,10 @@ fn test_sliding_move_generation_performance() {
     }
 
     let duration = start.elapsed();
-    println!(
-        "Move generation: {} iterations in {:?}",
-        iterations, duration
-    );
+    println!("Move generation: {} iterations in {:?}", iterations, duration);
     println!("Average: {:?} per generation", duration / iterations);
 
-    assert!(
-        duration.as_millis() < 1000,
-        "Move generation should be fast"
-    );
+    assert!(duration.as_millis() < 1000, "Move generation should be fast");
 }
 
 #[test]
@@ -138,10 +119,7 @@ fn test_table_creation_performance() {
     println!("Average: {:?} per table", duration / iterations);
 
     // Table creation should be reasonable (not instant, but not too slow)
-    assert!(
-        duration.as_secs() < 60,
-        "Table creation should complete in reasonable time"
-    );
+    assert!(duration.as_secs() < 60, "Table creation should complete in reasonable time");
 }
 
 #[test]
@@ -162,15 +140,8 @@ fn test_with_blockers_performance() {
     }
     let duration = start.elapsed();
 
-    println!(
-        "Blocker variations: {} lookups in {:?}",
-        iterations * 17 * 5,
-        duration
-    );
-    assert!(
-        duration.as_millis() < 5000,
-        "Lookups with blockers should be fast"
-    );
+    println!("Blocker variations: {} lookups in {:?}", iterations * 17 * 5, duration);
+    assert!(duration.as_millis() < 5000, "Lookups with blockers should be fast");
 }
 
 #[test]
@@ -192,11 +163,7 @@ fn test_cache_efficiency_simulation() {
     }
     let duration = start.elapsed();
 
-    println!(
-        "Repeated lookups: {} lookups in {:?}",
-        iterations * 9,
-        duration
-    );
+    println!("Repeated lookups: {} lookups in {:?}", iterations * 9, duration);
     println!("Average: {:?} per lookup", duration / (iterations * 9));
 }
 
@@ -216,15 +183,8 @@ fn test_worst_case_performance() {
     }
     let duration = start.elapsed();
 
-    println!(
-        "Worst case: {} lookups in {:?}",
-        iterations * 81 * 2,
-        duration
-    );
-    assert!(
-        duration.as_secs() < 10,
-        "Worst case should still be reasonable"
-    );
+    println!("Worst case: {} lookups in {:?}", iterations * 81 * 2, duration);
+    assert!(duration.as_secs() < 10, "Worst case should still be reasonable");
 }
 
 #[test]
@@ -240,10 +200,7 @@ fn test_serialization_performance() {
     }
     let serialize_duration = serialize_start.elapsed();
 
-    println!(
-        "Serialization: {} iterations in {:?}",
-        iterations, serialize_duration
-    );
+    println!("Serialization: {} iterations in {:?}", iterations, serialize_duration);
     println!("Data size: {} bytes", serialized.len());
 
     // Test deserialization performance
@@ -253,19 +210,10 @@ fn test_serialization_performance() {
     }
     let deserialize_duration = deserialize_start.elapsed();
 
-    println!(
-        "Deserialization: {} iterations in {:?}",
-        iterations, deserialize_duration
-    );
+    println!("Deserialization: {} iterations in {:?}", iterations, deserialize_duration);
 
-    assert!(
-        serialize_duration.as_millis() < 1000,
-        "Serialization should be fast"
-    );
-    assert!(
-        deserialize_duration.as_millis() < 1000,
-        "Deserialization should be fast"
-    );
+    assert!(serialize_duration.as_millis() < 1000, "Serialization should be fast");
+    assert!(deserialize_duration.as_millis() < 1000, "Deserialization should be fast");
 }
 
 #[test]
@@ -275,19 +223,12 @@ fn test_memory_usage_estimation() {
 
     let estimated_memory = stats.total_attack_patterns * 16; // u128 = 16 bytes
 
-    println!(
-        "Estimated memory usage: {} bytes ({} KB)",
-        estimated_memory,
-        estimated_memory / 1024
-    );
+    println!("Estimated memory usage: {} bytes ({} KB)", estimated_memory, estimated_memory / 1024);
     println!("Attack patterns: {}", stats.total_attack_patterns);
     println!("Memory efficiency: {:.2}%", stats.memory_efficiency * 100.0);
 
     // Memory usage should be reasonable (< 10MB for Shogi)
-    assert!(
-        estimated_memory < 10_000_000,
-        "Memory usage should be under 10MB"
-    );
+    assert!(estimated_memory < 10_000_000, "Memory usage should be under 10MB");
 }
 
 #[test]
@@ -308,16 +249,9 @@ fn test_concurrent_access_simulation() {
     }
 
     let duration = start.elapsed();
-    println!(
-        "Concurrent access simulation: {} lookups in {:?}",
-        iterations * 4,
-        duration
-    );
+    println!("Concurrent access simulation: {} lookups in {:?}", iterations * 4, duration);
 
-    assert!(
-        duration.as_millis() < 1000,
-        "Concurrent access should be fast"
-    );
+    assert!(duration.as_millis() < 1000, "Concurrent access should be fast");
 }
 
 #[test]
@@ -347,14 +281,8 @@ fn test_bishop_vs_rook_performance() {
     println!("Bishop lookups: {:?}", bishop_duration);
 
     // Both should be fast and similar
-    assert!(
-        rook_duration.as_millis() < 5000,
-        "Rook lookups should be fast"
-    );
-    assert!(
-        bishop_duration.as_millis() < 5000,
-        "Bishop lookups should be fast"
-    );
+    assert!(rook_duration.as_millis() < 5000, "Rook lookups should be fast");
+    assert!(bishop_duration.as_millis() < 5000, "Bishop lookups should be fast");
 }
 
 #[test]
@@ -364,48 +292,30 @@ fn test_full_game_simulation_performance() {
 
     // Set up a typical mid-game position with several sliding pieces
     board.place_piece(
-        Piece {
-            piece_type: PieceType::Rook,
-            player: Player::Black,
-        },
+        Piece { piece_type: PieceType::Rook, player: Player::Black },
         Position::new(0, 0),
     );
     board.place_piece(
-        Piece {
-            piece_type: PieceType::Bishop,
-            player: Player::Black,
-        },
+        Piece { piece_type: PieceType::Bishop, player: Player::Black },
         Position::new(1, 1),
     );
     board.place_piece(
-        Piece {
-            piece_type: PieceType::Rook,
-            player: Player::White,
-        },
+        Piece { piece_type: PieceType::Rook, player: Player::White },
         Position::new(7, 7),
     );
     board.place_piece(
-        Piece {
-            piece_type: PieceType::Bishop,
-            player: Player::White,
-        },
+        Piece { piece_type: PieceType::Bishop, player: Player::White },
         Position::new(6, 6),
     );
 
     // Add some blockers
     for i in 0..4 {
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Pawn,
-                player: Player::Black,
-            },
+            Piece { piece_type: PieceType::Pawn, player: Player::Black },
             Position::new(2, i * 2),
         );
         board.place_piece(
-            Piece {
-                piece_type: PieceType::Pawn,
-                player: Player::White,
-            },
+            Piece { piece_type: PieceType::Pawn, player: Player::White },
             Position::new(6, i * 2 + 1),
         );
     }
@@ -432,15 +342,8 @@ fn test_full_game_simulation_performance() {
     }
 
     let duration = start.elapsed();
-    println!(
-        "Full game simulation: {} move generations in {:?}",
-        iterations * 4,
-        duration
-    );
+    println!("Full game simulation: {} move generations in {:?}", iterations * 4, duration);
     println!("Average: {:?} per position", duration / iterations);
 
-    assert!(
-        duration.as_millis() < 2000,
-        "Full game simulation should be fast"
-    );
+    assert!(duration.as_millis() < 2000, "Full game simulation should be fast");
 }

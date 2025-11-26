@@ -5,9 +5,9 @@
 
 use super::attack_generator::AttackGenerator;
 use super::magic_finder::MagicFinder;
+use crate::bitboards::EMPTY_BITBOARD;
 use crate::types::core::PieceType;
 use crate::types::{Bitboard, MagicError};
-use crate::bitboards::EMPTY_BITBOARD;
 use std::fs::File;
 use std::io::{BufReader, BufWriter, Read, Write};
 use std::path::Path;
@@ -29,13 +29,7 @@ pub struct MagicBitboard {
 
 impl Default for MagicBitboard {
     fn default() -> Self {
-        Self {
-            magic_number: 0,
-            mask: EMPTY_BITBOARD,
-            shift: 0,
-            attack_base: 0,
-            table_size: 0,
-        }
+        Self { magic_number: 0, mask: EMPTY_BITBOARD, shift: 0, attack_base: 0, table_size: 0 }
     }
 }
 
@@ -94,7 +88,7 @@ pub const MAGIC_TABLE_FILE_MAGIC: &[u8] = b"SHOGI_MAGIC_V1";
 pub const MAGIC_TABLE_FILE_VERSION: u8 = 1;
 
 /// Get the default path for the magic table file
-/// 
+///
 /// Checks environment variable `SHOGI_MAGIC_TABLE_PATH` first, then falls back to
 /// `resources/magic_tables/magic_table.bin` relative to the executable or workspace root.
 pub fn get_default_magic_table_path() -> std::path::PathBuf {
@@ -160,8 +154,6 @@ impl MagicTable {
         })
     }
 
-
-
     /// Initialize all magic tables
     fn initialize_tables(&mut self) -> Result<(), MagicError> {
         self.initialize_tables_with_progress(None)
@@ -200,10 +192,7 @@ impl MagicTable {
             }
         }
 
-        println!(
-            "Magic table initialization completed in {:?}",
-            start_time.elapsed()
-        );
+        println!("Magic table initialization completed in {:?}", start_time.elapsed());
         Ok(())
     }
 
@@ -313,8 +302,8 @@ impl MagicTable {
         let relevant_occupied = occupied & magic_entry.mask;
 
         // Calculate hash index
-        let hash =
-            (relevant_occupied.to_u128().wrapping_mul(magic_entry.magic_number as u128)) >> magic_entry.shift;
+        let hash = (relevant_occupied.to_u128().wrapping_mul(magic_entry.magic_number as u128))
+            >> magic_entry.shift;
 
         // Lookup attack pattern with bounds checking
         let attack_index = magic_entry.attack_base + hash as usize;
@@ -327,7 +316,12 @@ impl MagicTable {
     }
 
     /// Fallback to ray-casting when magic table lookup fails
-    fn get_attacks_fallback(&self, square: u8, piece_type: PieceType, occupied: Bitboard) -> Bitboard {
+    fn get_attacks_fallback(
+        &self,
+        square: u8,
+        piece_type: PieceType,
+        occupied: Bitboard,
+    ) -> Bitboard {
         use super::attack_generator::AttackGenerator;
         let mut generator = AttackGenerator::new();
         generator.generate_attack_pattern(square, piece_type, occupied)
@@ -359,7 +353,9 @@ impl MagicTable {
                 return Err(MagicError::ValidationFailed {
                     reason: format!(
                         "Rook square {} has invalid attack_base {} (storage size: {})",
-                        square, magic_entry.attack_base, self.attack_storage.len()
+                        square,
+                        magic_entry.attack_base,
+                        self.attack_storage.len()
                     ),
                 });
             }
@@ -387,7 +383,9 @@ impl MagicTable {
                 return Err(MagicError::ValidationFailed {
                     reason: format!(
                         "Bishop square {} has invalid attack_base {} (storage size: {})",
-                        square, magic_entry.attack_base, self.attack_storage.len()
+                        square,
+                        magic_entry.attack_base,
+                        self.attack_storage.len()
                     ),
                 });
             }
@@ -430,7 +428,8 @@ impl MagicTable {
                     return Err(MagicError::ValidationFailed {
                         reason: format!(
                             "Rook attack mismatch at square {} with blockers {:b}",
-                            square, blockers.to_u128()
+                            square,
+                            blockers.to_u128()
                         ),
                     });
                 }
@@ -456,7 +455,8 @@ impl MagicTable {
                     return Err(MagicError::ValidationFailed {
                         reason: format!(
                             "Bishop attack mismatch at square {} with blockers {:b}",
-                            square, blockers.to_u128()
+                            square,
+                            blockers.to_u128()
                         ),
                     });
                 }
@@ -501,8 +501,7 @@ impl MagicTable {
                 magic_bytes[i] = byte;
             }
         }
-        data.write_all(&magic_bytes)
-            .map_err(|e| MagicError::IoError(e.to_string()))?;
+        data.write_all(&magic_bytes).map_err(|e| MagicError::IoError(e.to_string()))?;
         data.write_all(&[MAGIC_TABLE_FILE_VERSION])
             .map_err(|e| MagicError::IoError(e.to_string()))?;
 
@@ -562,11 +561,9 @@ impl MagicTable {
     /// Deserialize magic table from bytes
     pub fn deserialize(data: &[u8]) -> Result<Self, MagicError> {
         use std::io::Read;
-        
+
         if data.len() < 17 {
-            return Err(MagicError::IoError(
-                "Data too short for magic table header".to_string(),
-            ));
+            return Err(MagicError::IoError("Data too short for magic table header".to_string()));
         }
 
         // Validate magic number
@@ -594,9 +591,7 @@ impl MagicTable {
 
         // Extract checksum (last 8 bytes)
         if data.len() < 25 {
-            return Err(MagicError::IoError(
-                "Data too short for checksum".to_string(),
-            ));
+            return Err(MagicError::IoError("Data too short for checksum".to_string()));
         }
         let checksum_offset = data.len() - 8;
         let stored_checksum = u64::from_le_bytes(
@@ -626,13 +621,9 @@ impl MagicTable {
                 .read_exact(&mut magic_number)
                 .map_err(|e| MagicError::IoError(e.to_string()))?;
             let mut mask = [0u8; 16];
-            cursor
-                .read_exact(&mut mask)
-                .map_err(|e| MagicError::IoError(e.to_string()))?;
+            cursor.read_exact(&mut mask).map_err(|e| MagicError::IoError(e.to_string()))?;
             let mut shift = [0u8; 1];
-            cursor
-                .read_exact(&mut shift)
-                .map_err(|e| MagicError::IoError(e.to_string()))?;
+            cursor.read_exact(&mut shift).map_err(|e| MagicError::IoError(e.to_string()))?;
             let mut attack_base = [0u8; 8];
             cursor
                 .read_exact(&mut attack_base)
@@ -658,13 +649,9 @@ impl MagicTable {
                 .read_exact(&mut magic_number)
                 .map_err(|e| MagicError::IoError(e.to_string()))?;
             let mut mask = [0u8; 16];
-            cursor
-                .read_exact(&mut mask)
-                .map_err(|e| MagicError::IoError(e.to_string()))?;
+            cursor.read_exact(&mut mask).map_err(|e| MagicError::IoError(e.to_string()))?;
             let mut shift = [0u8; 1];
-            cursor
-                .read_exact(&mut shift)
-                .map_err(|e| MagicError::IoError(e.to_string()))?;
+            cursor.read_exact(&mut shift).map_err(|e| MagicError::IoError(e.to_string()))?;
             let mut attack_base = [0u8; 8];
             cursor
                 .read_exact(&mut attack_base)
@@ -693,9 +680,7 @@ impl MagicTable {
         table.attack_storage.reserve(storage_len);
         for _ in 0..storage_len {
             let mut attack = [0u8; 16];
-            cursor
-                .read_exact(&mut attack)
-                .map_err(|e| MagicError::IoError(e.to_string()))?;
+            cursor.read_exact(&mut attack).map_err(|e| MagicError::IoError(e.to_string()))?;
             table.attack_storage.push(Bitboard::from_u128(u128::from_le_bytes(attack)));
         }
 
@@ -705,64 +690,52 @@ impl MagicTable {
     /// Save magic table to file
     pub fn save_to_file<P: AsRef<Path>>(&self, path: P) -> Result<(), MagicError> {
         let path = path.as_ref();
-        let parent = path.parent().ok_or_else(|| MagicError::IoError(
-            format!("Invalid path: {}", path.display())
-        ))?;
-        
+        let parent = path
+            .parent()
+            .ok_or_else(|| MagicError::IoError(format!("Invalid path: {}", path.display())))?;
+
         // Create parent directory if it doesn't exist
-        std::fs::create_dir_all(parent).map_err(|e| MagicError::IoError(format!(
-            "Failed to create directory {}: {}",
-            parent.display(),
-            e
-        )))?;
+        std::fs::create_dir_all(parent).map_err(|e| {
+            MagicError::IoError(format!("Failed to create directory {}: {}", parent.display(), e))
+        })?;
 
         let data = self.serialize()?;
-        let file = File::create(path).map_err(|e| MagicError::IoError(format!(
-            "Failed to create file {}: {}",
-            path.display(),
-            e
-        )))?;
+        let file = File::create(path).map_err(|e| {
+            MagicError::IoError(format!("Failed to create file {}: {}", path.display(), e))
+        })?;
         let mut writer = BufWriter::new(file);
-        writer.write_all(&data).map_err(|e| MagicError::IoError(format!(
-            "Failed to write to file {}: {}",
-            path.display(),
-            e
-        )))?;
-        writer.flush().map_err(|e| MagicError::IoError(format!(
-            "Failed to flush file {}: {}",
-            path.display(),
-            e
-        )))?;
+        writer.write_all(&data).map_err(|e| {
+            MagicError::IoError(format!("Failed to write to file {}: {}", path.display(), e))
+        })?;
+        writer.flush().map_err(|e| {
+            MagicError::IoError(format!("Failed to flush file {}: {}", path.display(), e))
+        })?;
         Ok(())
     }
 
     /// Load magic table from file
     pub fn load_from_file<P: AsRef<Path>>(path: P) -> Result<Self, MagicError> {
         let path = path.as_ref();
-        let file = File::open(path).map_err(|e| MagicError::IoError(format!(
-            "Failed to open file {}: {}",
-            path.display(),
-            e
-        )))?;
+        let file = File::open(path).map_err(|e| {
+            MagicError::IoError(format!("Failed to open file {}: {}", path.display(), e))
+        })?;
         let mut reader = BufReader::new(file);
         let mut data = Vec::new();
-        reader.read_to_end(&mut data).map_err(|e| MagicError::IoError(format!(
-            "Failed to read file {}: {}",
-            path.display(),
-            e
-        )))?;
+        reader.read_to_end(&mut data).map_err(|e| {
+            MagicError::IoError(format!("Failed to read file {}: {}", path.display(), e))
+        })?;
         Self::deserialize(&data)
     }
 
     /// Try to load magic table from file, or generate if not found
-    /// 
+    ///
     /// If `save_if_generated` is true, saves the generated table to the file path.
     pub fn try_load_or_generate<P: AsRef<Path>>(
         path: P,
         save_if_generated: bool,
     ) -> Result<Self, MagicError> {
         let path = path.as_ref();
-        
+
         // Try to load from file first
         match Self::load_from_file(path) {
             Ok(table) => {
@@ -789,7 +762,7 @@ impl MagicTable {
 
         // Generate new table
         let table = Self::new()?;
-        
+
         // Validate generated table
         table.validate()?;
 
@@ -802,10 +775,7 @@ impl MagicTable {
                     e
                 );
             } else {
-                eprintln!(
-                    "Generated magic table saved to {}",
-                    path.display()
-                );
+                eprintln!("Generated magic table saved to {}", path.display());
             }
         }
 
@@ -844,11 +814,8 @@ impl MagicTable {
             return 0.0;
         }
 
-        let used_entries = self
-            .attack_storage
-            .iter()
-            .filter(|&&pattern| !pattern.is_empty())
-            .count();
+        let used_entries =
+            self.attack_storage.iter().filter(|&&pattern| !pattern.is_empty()).count();
 
         used_entries as f64 / total_entries as f64
     }
@@ -867,10 +834,7 @@ impl MagicTable {
             self.initialize_bishop_square(square)?;
         }
 
-        println!(
-            "Magic table pre-generation completed in {:?}",
-            start_time.elapsed()
-        );
+        println!("Magic table pre-generation completed in {:?}", start_time.elapsed());
         Ok(())
     }
 
@@ -882,16 +846,8 @@ impl MagicTable {
 
     /// Get initialization progress
     pub fn initialization_progress(&self) -> (usize, usize) {
-        let rook_initialized = self
-            .rook_magics
-            .iter()
-            .filter(|m| m.magic_number != 0)
-            .count();
-        let bishop_initialized = self
-            .bishop_magics
-            .iter()
-            .filter(|m| m.magic_number != 0)
-            .count();
+        let rook_initialized = self.rook_magics.iter().filter(|m| m.magic_number != 0).count();
+        let bishop_initialized = self.bishop_magics.iter().filter(|m| m.magic_number != 0).count();
         (rook_initialized + bishop_initialized, 162) // 81 rook + 81 bishop
     }
 }
@@ -953,10 +909,7 @@ mod tests {
         assert!(!serialized.is_empty());
 
         let deserialized = MagicTable::deserialize(&serialized).unwrap();
-        assert_eq!(
-            table.attack_storage.len(),
-            deserialized.attack_storage.len()
-        );
+        assert_eq!(table.attack_storage.len(), deserialized.attack_storage.len());
     }
 
     #[test]
@@ -1083,29 +1036,20 @@ mod tests {
         let deserialized = MagicTable::deserialize(&serialized).unwrap();
 
         // Compare key properties
-        assert_eq!(
-            original_table.attack_storage.len(),
-            deserialized.attack_storage.len()
-        );
-        assert_eq!(
-            original_table.rook_magics.len(),
-            deserialized.rook_magics.len()
-        );
-        assert_eq!(
-            original_table.bishop_magics.len(),
-            deserialized.bishop_magics.len()
-        );
+        assert_eq!(original_table.attack_storage.len(), deserialized.attack_storage.len());
+        assert_eq!(original_table.rook_magics.len(), deserialized.rook_magics.len());
+        assert_eq!(original_table.bishop_magics.len(), deserialized.bishop_magics.len());
     }
 
     #[test]
     fn test_serialization_version_validation() {
         let table = MagicTable::default();
         let serialized = table.serialize().unwrap();
-        
+
         // Should deserialize successfully with correct version
         let deserialized = MagicTable::deserialize(&serialized);
         assert!(deserialized.is_ok());
-        
+
         // Corrupt the version byte
         let mut corrupted = serialized.clone();
         corrupted[16] = 99; // Invalid version
@@ -1122,11 +1066,11 @@ mod tests {
     fn test_serialization_checksum_validation() {
         let table = MagicTable::default();
         let serialized = table.serialize().unwrap();
-        
+
         // Should deserialize successfully with correct checksum
         let deserialized = MagicTable::deserialize(&serialized);
         assert!(deserialized.is_ok());
-        
+
         // Corrupt the checksum (last 8 bytes)
         let mut corrupted = serialized.clone();
         let len = corrupted.len();
@@ -1144,7 +1088,7 @@ mod tests {
     fn test_serialization_magic_number_validation() {
         let table = MagicTable::default();
         let serialized = table.serialize().unwrap();
-        
+
         // Corrupt the magic number (first bytes)
         let mut corrupted = serialized.clone();
         corrupted[0] = 0xFF;
@@ -1161,32 +1105,29 @@ mod tests {
     fn test_save_and_load_file() {
         use std::fs;
         use std::path::Path;
-        
+
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("test_magic_table.bin");
-        
+
         // Clean up if file exists
         let _ = fs::remove_file(&test_file);
-        
+
         let original_table = MagicTable::default();
-        
+
         // Save to file
         let save_result = original_table.save_to_file(&test_file);
         assert!(save_result.is_ok(), "Failed to save magic table to file");
         assert!(test_file.exists(), "Magic table file was not created");
-        
+
         // Load from file
         let loaded_table = MagicTable::load_from_file(&test_file);
         assert!(loaded_table.is_ok(), "Failed to load magic table from file");
         let loaded = loaded_table.unwrap();
-        
+
         // Verify data matches
-        assert_eq!(
-            original_table.attack_storage.len(),
-            loaded.attack_storage.len()
-        );
+        assert_eq!(original_table.attack_storage.len(), loaded.attack_storage.len());
         assert_eq!(original_table.attack_storage, loaded.attack_storage);
-        
+
         // Clean up
         let _ = fs::remove_file(&test_file);
     }
@@ -1196,29 +1137,29 @@ mod tests {
     fn test_try_load_or_generate() {
         use std::fs;
         use std::path::Path;
-        
+
         let temp_dir = std::env::temp_dir();
         let test_file = temp_dir.join("test_try_load_magic_table.bin");
-        
+
         // Clean up if file exists
         let _ = fs::remove_file(&test_file);
-        
+
         // First call should generate (file doesn't exist)
         // Note: This test is ignored by default because generation takes 60+ seconds
         // Run with: cargo test -- --ignored test_try_load_or_generate
         let result1 = MagicTable::try_load_or_generate(&test_file, true);
         assert!(result1.is_ok());
         assert!(test_file.exists(), "File should be created when save_if_generated=true");
-        
+
         // Second call should load from file
         let result2 = MagicTable::try_load_or_generate(&test_file, false);
         assert!(result2.is_ok());
         let loaded = result2.unwrap();
         let generated = result1.unwrap();
-        
+
         // Verify loaded table matches generated table
         assert_eq!(generated.attack_storage, loaded.attack_storage);
-        
+
         // Clean up
         let _ = fs::remove_file(&test_file);
     }
@@ -1228,7 +1169,7 @@ mod tests {
         // Test that function returns a path
         let path = get_default_magic_table_path();
         assert!(!path.as_os_str().is_empty());
-        
+
         // Test environment variable override
         std::env::set_var("SHOGI_MAGIC_TABLE_PATH", "/custom/path/magic.bin");
         let custom_path = get_default_magic_table_path();

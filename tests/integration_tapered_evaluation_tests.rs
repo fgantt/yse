@@ -18,16 +18,8 @@ fn test_integration_starting_position() {
     let white_score = evaluator.evaluate(&board, Player::White, &captured_pieces);
 
     // Both scores should be positive (evaluation from player's perspective)
-    assert!(
-        black_score > 0,
-        "Black starting position should be positive: {}",
-        black_score
-    );
-    assert!(
-        white_score > 0,
-        "White starting position should be positive: {}",
-        white_score
-    );
+    assert!(black_score > 0, "Black starting position should be positive: {}", black_score);
+    assert!(white_score > 0, "White starting position should be positive: {}", white_score);
 
     // Scores should be similar (not opposite) since evaluation is from player's perspective
     let score_diff = (black_score - white_score).abs();
@@ -134,16 +126,8 @@ fn test_integration_interpolation_accuracy() {
     let test_score = TaperedScore::new_tapered(100, 200);
 
     // Test exact boundaries
-    assert_eq!(
-        test_score.interpolate(0),
-        200,
-        "Phase 0 should return pure eg value"
-    );
-    assert_eq!(
-        test_score.interpolate(256),
-        100,
-        "Phase 256 should return pure mg value"
-    );
+    assert_eq!(test_score.interpolate(0), 200, "Phase 0 should return pure eg value");
+    assert_eq!(test_score.interpolate(256), 100, "Phase 256 should return pure mg value");
 
     // Test midpoint
     let midpoint = test_score.interpolate(128);
@@ -198,11 +182,7 @@ fn test_integration_evaluation_performance() {
     );
 
     // Average time per evaluation should be reasonable
-    assert!(
-        avg_time < 1000,
-        "Average evaluation time should be < 1ms: {}μs",
-        avg_time
-    );
+    assert!(avg_time < 1000, "Average evaluation time should be < 1ms: {}μs", avg_time);
 }
 
 #[test]
@@ -216,16 +196,8 @@ fn test_integration_evaluation_symmetry() {
     let white_score = evaluator.evaluate(&board, Player::White, &captured_pieces);
 
     // Both scores should be positive for starting position
-    assert!(
-        black_score > 0,
-        "Black evaluation should be positive: {}",
-        black_score
-    );
-    assert!(
-        white_score > 0,
-        "White evaluation should be positive: {}",
-        white_score
-    );
+    assert!(black_score > 0, "Black evaluation should be positive: {}", black_score);
+    assert!(white_score > 0, "White evaluation should be positive: {}", white_score);
 
     // Scores should be similar (not opposite) since evaluation is from player's perspective
     let score_diff = (black_score - white_score).abs();
@@ -251,33 +223,17 @@ fn test_integration_edge_cases() {
     let phase_large = test_score.interpolate(1000);
 
     // Results should be reasonable
-    assert!(
-        phase_neg >= -1000,
-        "Negative phase should produce reasonable result: {}",
-        phase_neg
-    );
-    assert!(
-        phase_large >= -1000,
-        "Large phase should produce reasonable result: {}",
-        phase_large
-    );
+    assert!(phase_neg >= -1000, "Negative phase should produce reasonable result: {}", phase_neg);
+    assert!(phase_large >= -1000, "Large phase should produce reasonable result: {}", phase_large);
 
     // Test zero TaperedScore
     let zero_score = TaperedScore::default();
-    assert_eq!(
-        zero_score.interpolate(128),
-        0,
-        "Zero score should interpolate to zero"
-    );
+    assert_eq!(zero_score.interpolate(128), 0, "Zero score should interpolate to zero");
 
     // Test negative TaperedScore
     let neg_score = TaperedScore::new_tapered(-100, -200);
     let neg_result = neg_score.interpolate(128);
-    assert!(
-        neg_result < 0,
-        "Negative score should interpolate to negative: {}",
-        neg_result
-    );
+    assert!(neg_result < 0, "Negative score should interpolate to negative: {}", neg_result);
 }
 
 #[test]
@@ -296,11 +252,7 @@ fn test_integration_comprehensive_evaluation() {
         "Game phase should be valid: {}",
         game_phase
     );
-    assert!(
-        score.abs() < 10000,
-        "Final score should be reasonable: {}",
-        score
-    );
+    assert!(score.abs() < 10000, "Final score should be reasonable: {}", score);
 
     // Test that evaluation is consistent
     let score2 = evaluator.evaluate(&board, Player::Black, &captured_pieces);
@@ -358,16 +310,8 @@ fn test_integration_phase_boundaries() {
     let diff_0_1 = (phase_1_score - phase_0_score).abs();
     let diff_255_256 = (phase_256_score - phase_255_score).abs();
 
-    assert!(
-        diff_0_1 <= 1,
-        "Smooth transition at phase 0-1: {}",
-        diff_0_1
-    );
-    assert!(
-        diff_255_256 <= 1,
-        "Smooth transition at phase 255-256: {}",
-        diff_255_256
-    );
+    assert!(diff_0_1 <= 1, "Smooth transition at phase 0-1: {}", diff_0_1);
+    assert!(diff_255_256 <= 1, "Smooth transition at phase 255-256: {}", diff_255_256);
 }
 
 #[test]
@@ -380,11 +324,7 @@ fn test_integration_evaluation_quality() {
     let score = evaluator.evaluate(&board, Player::Black, &captured_pieces);
 
     // Score should be in reasonable range
-    assert!(
-        score > 0,
-        "Evaluation should be positive for starting position: {}",
-        score
-    );
+    assert!(score > 0, "Evaluation should be positive for starting position: {}", score);
     assert!(score < 1000, "Evaluation should not be too high: {}", score);
 
     // Test that evaluation is deterministic

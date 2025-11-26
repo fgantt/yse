@@ -24,10 +24,10 @@ use crate::moves::MoveGenerator;
 use crate::search::search_engine::SearchEngine;
 use crate::search::search_engine::GLOBAL_NODES_SEARCHED;
 use crate::search::ThreadSafeTranspositionTable;
-use crate::utils::time::TimeSource;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{Move, Player};
 use crate::types::search::ParallelOptions;
+use crate::utils::time::TimeSource;
 use crossbeam_deque::{Injector, Steal};
 use num_cpus;
 use parking_lot::{Condvar, Mutex as ParkingMutex};
@@ -121,10 +121,7 @@ pub struct WorkQueueSnapshot {
 impl WorkStealingQueue {
     /// Construct a new lock-free work-stealing queue.
     pub fn new() -> Self {
-        Self {
-            injector: Arc::new(Injector::new()),
-            stats: Arc::new(WorkQueueStats::default()),
-        }
+        Self { injector: Arc::new(Injector::new()), stats: Arc::new(WorkQueueStats::default()) }
     }
 
     /// Push a work unit to the back of the queue (owner thread operation).
@@ -223,12 +220,8 @@ pub struct WorkDistributionRecorder {
 impl WorkDistributionRecorder {
     pub fn new(num_threads: usize, mode: WorkMetricsMode) -> Self {
         if mode.is_enabled() {
-            let work_units = (0..num_threads)
-                .map(|_| AtomicU64::new(0))
-                .collect::<Vec<_>>();
-            let steals = (0..num_threads)
-                .map(|_| AtomicU64::new(0))
-                .collect::<Vec<_>>();
+            let work_units = (0..num_threads).map(|_| AtomicU64::new(0)).collect::<Vec<_>>();
+            let steals = (0..num_threads).map(|_| AtomicU64::new(0)).collect::<Vec<_>>();
             Self {
                 mode,
                 work_units_per_thread: work_units,
@@ -285,12 +278,7 @@ impl WorkDistributionRecorder {
             .map(|counter| counter.load(Ordering::Relaxed))
             .collect();
         let max_work = work_units.iter().max().copied().unwrap_or(0);
-        let min_work = work_units
-            .iter()
-            .filter(|&&x| x > 0)
-            .min()
-            .copied()
-            .unwrap_or(0);
+        let min_work = work_units.iter().filter(|&&x| x > 0).min().copied().unwrap_or(0);
         Some(WorkDistributionStats {
             mode: self.mode,
             work_units_per_thread: work_units,
@@ -459,11 +447,8 @@ impl ParallelSearchConfig {
 
     /// Convenience toggle for enabling or disabling basic metrics.
     pub fn enable_work_metrics(&mut self, enabled: bool) {
-        self.work_metrics_mode = if enabled {
-            WorkMetricsMode::Basic
-        } else {
-            WorkMetricsMode::Disabled
-        };
+        self.work_metrics_mode =
+            if enabled { WorkMetricsMode::Basic } else { WorkMetricsMode::Disabled };
     }
 
     pub fn from_parallel_options(options: &ParallelOptions, threads: usize) -> Self {
@@ -479,11 +464,8 @@ impl ParallelSearchConfig {
         config.ybwc_shallow_divisor = options.ybwc_shallow_divisor.max(1);
         config.ybwc_mid_divisor = options.ybwc_mid_divisor.max(1);
         config.ybwc_deep_divisor = options.ybwc_deep_divisor.max(1);
-        config.work_metrics_mode = if options.enable_metrics {
-            WorkMetricsMode::Basic
-        } else {
-            WorkMetricsMode::Disabled
-        };
+        config.work_metrics_mode =
+            if options.enable_metrics { WorkMetricsMode::Basic } else { WorkMetricsMode::Disabled };
         config
     }
 }
@@ -608,15 +590,7 @@ impl ThreadLocalSearchContext {
             captured.add_piece(captured_piece.piece_type, player);
         }
         self.search_engine
-            .search_at_depth(
-                board,
-                captured,
-                player.opposite(),
-                depth,
-                time_limit_ms,
-                alpha,
-                beta,
-            )
+            .search_at_depth(board, captured, player.opposite(), depth, time_limit_ms, alpha, beta)
             .map(|(_, score)| score)
     }
 
@@ -755,11 +729,7 @@ impl YBWCSync {
                         return WaitOutcome::Timeout;
                     }
                     let remaining = timeout.saturating_sub(now.duration_since(start));
-                    let timed_out = self
-                        .inner
-                        .condvar
-                        .wait_for(&mut state, remaining)
-                        .timed_out();
+                    let timed_out = self.inner.condvar.wait_for(&mut state, remaining).timed_out();
                     if timed_out {
                         state.status = WaitStatus::Aborted;
                         return WaitOutcome::Timeout;
@@ -835,9 +805,8 @@ impl ParallelSearchEngine {
 
         let num_threads = config.num_threads;
         let metrics_mode = config.work_metrics_mode;
-        let work_queues: Vec<Arc<WorkStealingQueue>> = (0..num_threads)
-            .map(|_| Arc::new(WorkStealingQueue::new()))
-            .collect();
+        let work_queues: Vec<Arc<WorkStealingQueue>> =
+            (0..num_threads).map(|_| Arc::new(WorkStealingQueue::new())).collect();
 
         Ok(Self {
             thread_pool,
@@ -895,9 +864,8 @@ impl ParallelSearchEngine {
 
         let num_threads = config.num_threads;
         let metrics_mode = config.work_metrics_mode;
-        let work_queues: Vec<Arc<WorkStealingQueue>> = (0..num_threads)
-            .map(|_| Arc::new(WorkStealingQueue::new()))
-            .collect();
+        let work_queues: Vec<Arc<WorkStealingQueue>> =
+            (0..num_threads).map(|_| Arc::new(WorkStealingQueue::new())).collect();
 
         Ok(Self {
             thread_pool,
@@ -983,9 +951,8 @@ impl ParallelSearchEngine {
 
         let num_threads = config.num_threads;
         let metrics_mode = config.work_metrics_mode;
-        let work_queues: Vec<Arc<WorkStealingQueue>> = (0..num_threads)
-            .map(|_| Arc::new(WorkStealingQueue::new()))
-            .collect();
+        let work_queues: Vec<Arc<WorkStealingQueue>> =
+            (0..num_threads).map(|_| Arc::new(WorkStealingQueue::new())).collect();
 
         Ok(Self {
             thread_pool,
@@ -1089,20 +1056,13 @@ impl ParallelSearchEngine {
                 }
                 let elapsed = bench_start.elapsed().as_millis() as u64;
                 let nodes = GLOBAL_NODES_SEARCHED.load(Ordering::Relaxed);
-                let nps = if elapsed > 0 {
-                    nodes.saturating_mul(1000) / (elapsed as u64)
-                } else {
-                    0
-                };
+                let nps =
+                    if elapsed > 0 { nodes.saturating_mul(1000) / (elapsed as u64) } else { 0 };
                 // Get actual seldepth (selective depth) - the maximum depth reached
                 // If seldepth wasn't updated during search (shouldn't happen), use depth as fallback
                 let seldepth_raw =
                     crate::search::search_engine::GLOBAL_SELDEPTH.load(Ordering::Relaxed) as u8;
-                let seldepth = if seldepth_raw == 0 {
-                    depth
-                } else {
-                    seldepth_raw.max(depth)
-                };
+                let seldepth = if seldepth_raw == 0 { depth } else { seldepth_raw.max(depth) };
                 // Emit real USI info line with score and PV (skip during silent benches)
                 if std::env::var("SHOGI_SILENT_BENCH").is_err() {
                     if !best_pv.is_empty() {
@@ -1308,21 +1268,11 @@ impl ParallelSearchEngine {
             if full_pv.len() >= 2 && std::env::var("SHOGI_SILENT_BENCH").is_err() {
                 let elapsed = bench_start.elapsed().as_millis() as u64;
                 let nodes = GLOBAL_NODES_SEARCHED.load(Ordering::Relaxed);
-                let nps = if elapsed > 0 {
-                    nodes.saturating_mul(1000) / (elapsed as u64)
-                } else {
-                    0
-                };
-                let seldepth_final = if seldepth == 0 {
-                    depth
-                } else {
-                    seldepth.max(depth)
-                };
-                let pv_string: String = full_pv
-                    .iter()
-                    .map(|m| m.to_usi_string())
-                    .collect::<Vec<String>>()
-                    .join(" ");
+                let nps =
+                    if elapsed > 0 { nodes.saturating_mul(1000) / (elapsed as u64) } else { 0 };
+                let seldepth_final = if seldepth == 0 { depth } else { seldepth.max(depth) };
+                let pv_string: String =
+                    full_pv.iter().map(|m| m.to_usi_string()).collect::<Vec<String>>().join(" ");
 
                 if !pv_string.is_empty() {
                     println!(
@@ -1347,11 +1297,7 @@ impl ParallelSearchEngine {
             total_steal_retries += snapshot.steal_retries;
         }
         let metrics_mode = self.work_stats.mode();
-        let total_work_units = self
-            .work_stats
-            .snapshot()
-            .map(|s| s.total_work_units)
-            .unwrap_or(0);
+        let total_work_units = self.work_stats.snapshot().map(|s| s.total_work_units).unwrap_or(0);
         crate::utils::telemetry::debug_log(&format!(
             "PARALLEL_PROF: pushes={}, pops={}, steals={}, steal_retries={}, work_metrics_mode={:?}, total_work_units={}",
             total_pushes, total_pops, total_steals, total_steal_retries, metrics_mode, total_work_units

@@ -22,14 +22,7 @@ mod move_ordering_configuration_integration_tests {
         piece_type: PieceType,
         player: Player,
     ) -> Move {
-        Move {
-            from,
-            to,
-            piece_type,
-            player,
-            promotion: false,
-            drop: from.is_none(),
-        }
+        Move { from, to, piece_type, player, promotion: false, drop: from.is_none() }
     }
 
     /// Test comprehensive configuration integration
@@ -486,14 +479,7 @@ mod move_ordering_configuration_integration_tests {
         );
 
         // Set up heuristics
-        orderer.update_pv_move(
-            &board,
-            &captured_pieces,
-            player,
-            depth,
-            pv_move.clone(),
-            100,
-        );
+        orderer.update_pv_move(&board, &captured_pieces, player, depth, pv_move.clone(), 100);
         orderer.add_killer_move(killer_move.clone());
         orderer.update_history_score(&history_move, 3);
 

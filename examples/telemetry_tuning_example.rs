@@ -24,11 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for i in 0..50 {
         let board = BitboardBoard::new();
         let captured_pieces = CapturedPieces::new();
-        let player = if i % 2 == 0 {
-            Player::Black
-        } else {
-            Player::White
-        };
+        let player = if i % 2 == 0 { Player::Black } else { Player::White };
 
         // Evaluate position
         evaluator.evaluate(&board, player, &captured_pieces);
@@ -54,10 +50,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!(
-        "   Collected telemetry from {} positions",
-        telemetry_collection.len()
-    );
+    println!("   Collected telemetry from {} positions", telemetry_collection.len());
     println!();
 
     // Convert telemetry to tuning position set
@@ -72,9 +65,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     for (_, _, _, telemetry, _) in &telemetry_collection {
         for (component, contribution) in &telemetry.weight_contributions {
-            *aggregated_contributions
-                .entry(component.clone())
-                .or_insert(0.0) += contribution;
+            *aggregated_contributions.entry(component.clone()).or_insert(0.0) += contribution;
         }
     }
 
@@ -125,10 +116,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Some(first_telemetry) = telemetry_collection.first() {
         let exported_data = first_telemetry.3.export_for_tuning();
         println!("   Exported {} data points", exported_data.len());
-        println!(
-            "   Sample keys: {:?}",
-            exported_data.keys().take(5).collect::<Vec<_>>()
-        );
+        println!("   Sample keys: {:?}", exported_data.keys().take(5).collect::<Vec<_>>());
     }
     println!();
 

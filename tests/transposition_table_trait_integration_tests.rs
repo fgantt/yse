@@ -26,7 +26,8 @@ fn test_basic_transposition_table_trait() {
     let table_config = TranspositionTableConfig::Basic {
         config: shogi_engine::search::transposition_table::TranspositionTableConfig {
             max_entries: 1024,
-            replacement_policy: shogi_engine::search::transposition_table::ReplacementPolicy::DepthPreferred,
+            replacement_policy:
+                shogi_engine::search::transposition_table::ReplacementPolicy::DepthPreferred,
             track_memory: false,
             track_statistics: false,
         },
@@ -87,10 +88,7 @@ fn test_thread_safe_transposition_table_trait() {
 #[test]
 fn test_probe_with_prefetch() {
     // Test that probe_with_prefetch works (default implementation just calls probe)
-    let config = TranspositionConfig {
-        table_size: 1024,
-        ..TranspositionConfig::default()
-    };
+    let config = TranspositionConfig { table_size: 1024, ..TranspositionConfig::default() };
 
     let table_config = TranspositionTableConfig::ThreadSafe { config };
     let mut table = create_transposition_table(table_config);
@@ -112,10 +110,7 @@ fn test_probe_with_prefetch() {
 #[test]
 fn test_prefill_from_book() {
     // Test that prefill_from_book works (if supported by implementation)
-    let config = TranspositionConfig {
-        table_size: 1024,
-        ..TranspositionConfig::default()
-    };
+    let config = TranspositionConfig { table_size: 1024, ..TranspositionConfig::default() };
 
     let table_config = TranspositionTableConfig::ThreadSafe { config };
     let mut table = create_transposition_table(table_config);
@@ -147,20 +142,24 @@ fn test_prefill_from_book() {
 fn test_trait_polymorphism() {
     // Test that we can use different table types polymorphically via the trait
     let test_configs = vec![
-        ("Basic", TranspositionTableConfig::Basic {
-            config: shogi_engine::search::transposition_table::TranspositionTableConfig {
-                max_entries: 512,
-                replacement_policy: shogi_engine::search::transposition_table::ReplacementPolicy::DepthPreferred,
-                track_memory: false,
-                track_statistics: false,
+        (
+            "Basic",
+            TranspositionTableConfig::Basic {
+                config: shogi_engine::search::transposition_table::TranspositionTableConfig {
+                    max_entries: 512,
+                    replacement_policy:
+                        shogi_engine::search::transposition_table::ReplacementPolicy::DepthPreferred,
+                    track_memory: false,
+                    track_statistics: false,
+                },
             },
-        }),
-        ("ThreadSafe", TranspositionTableConfig::ThreadSafe {
-            config: TranspositionConfig {
-                table_size: 512,
-                ..TranspositionConfig::default()
+        ),
+        (
+            "ThreadSafe",
+            TranspositionTableConfig::ThreadSafe {
+                config: TranspositionConfig { table_size: 512, ..TranspositionConfig::default() },
             },
-        }),
+        ),
     ];
 
     for (name, config) in test_configs {
@@ -171,11 +170,7 @@ fn test_trait_polymorphism() {
         table.store(entry.clone());
 
         let retrieved = table.probe(0x1111, 3);
-        assert!(
-            retrieved.is_some(),
-            "{} table should retrieve stored entry",
-            name
-        );
+        assert!(retrieved.is_some(), "{} table should retrieve stored entry", name);
         let retrieved_entry = retrieved.unwrap();
         assert_eq!(
             retrieved_entry.score, entry.score,
@@ -187,21 +182,14 @@ fn test_trait_polymorphism() {
 
         table.clear();
         let after_clear = table.probe(0x1111, 3);
-        assert!(
-            after_clear.is_none(),
-            "{} table should clear entries",
-            name
-        );
+        assert!(after_clear.is_none(), "{} table should clear entries", name);
     }
 }
 
 #[test]
 fn test_trait_multiple_entries() {
     // Test storing and retrieving multiple entries
-    let config = TranspositionConfig {
-        table_size: 1024,
-        ..TranspositionConfig::default()
-    };
+    let config = TranspositionConfig { table_size: 1024, ..TranspositionConfig::default() };
 
     let table_config = TranspositionTableConfig::ThreadSafe { config };
     let mut table = create_transposition_table(table_config);
@@ -220,11 +208,7 @@ fn test_trait_multiple_entries() {
     // Retrieve all entries
     for entry in &entries {
         let retrieved = table.probe(entry.hash_key, entry.depth);
-        assert!(
-            retrieved.is_some(),
-            "Should retrieve entry with hash 0x{:X}",
-            entry.hash_key
-        );
+        assert!(retrieved.is_some(), "Should retrieve entry with hash 0x{:X}", entry.hash_key);
         let retrieved_entry = retrieved.unwrap();
         assert_eq!(retrieved_entry.score, entry.score);
         assert_eq!(retrieved_entry.depth, entry.depth);
@@ -234,10 +218,7 @@ fn test_trait_multiple_entries() {
 #[test]
 fn test_trait_depth_requirement() {
     // Test that probe respects depth requirement
-    let config = TranspositionConfig {
-        table_size: 1024,
-        ..TranspositionConfig::default()
-    };
+    let config = TranspositionConfig { table_size: 1024, ..TranspositionConfig::default() };
 
     let table_config = TranspositionTableConfig::ThreadSafe { config };
     let mut table = create_transposition_table(table_config);
@@ -252,17 +233,11 @@ fn test_trait_depth_requirement() {
 
     // Probe with depth 6 (requires deeper entry) should fail
     let retrieved_deeper = table.probe(0x4000, 6);
-    assert!(
-        retrieved_deeper.is_none(),
-        "Should not retrieve entry when requiring deeper depth"
-    );
+    assert!(retrieved_deeper.is_none(), "Should not retrieve entry when requiring deeper depth");
 
     // Probe with depth 4 (shallower requirement) should succeed
     let retrieved_shallow = table.probe(0x4000, 4);
-    assert!(
-        retrieved_shallow.is_some(),
-        "Should retrieve entry when requiring shallower depth"
-    );
+    assert!(retrieved_shallow.is_some(), "Should retrieve entry when requiring shallower depth");
 }
 
 #[test]
@@ -272,21 +247,28 @@ fn test_trait_all_implementations() {
 
     // Test configurations for all supported table types
     let configs = vec![
-        ("Basic", TranspositionTableConfig::Basic {
-            config: shogi_engine::search::transposition_table::TranspositionTableConfig {
-                max_entries: 256,
-                replacement_policy: shogi_engine::search::transposition_table::ReplacementPolicy::DepthPreferred,
-                track_memory: false,
-                track_statistics: false,
+        (
+            "Basic",
+            TranspositionTableConfig::Basic {
+                config: shogi_engine::search::transposition_table::TranspositionTableConfig {
+                    max_entries: 256,
+                    replacement_policy:
+                        shogi_engine::search::transposition_table::ReplacementPolicy::DepthPreferred,
+                    track_memory: false,
+                    track_statistics: false,
+                },
             },
-        }),
-        ("ThreadSafe", TranspositionTableConfig::ThreadSafe {
-            config: TranspositionConfig {
-                table_size: 256,
-                enable_statistics: true,
-                ..TranspositionConfig::default()
+        ),
+        (
+            "ThreadSafe",
+            TranspositionTableConfig::ThreadSafe {
+                config: TranspositionConfig {
+                    table_size: 256,
+                    enable_statistics: true,
+                    ..TranspositionConfig::default()
+                },
             },
-        }),
+        ),
     ];
 
     for (name, config) in configs {
@@ -302,11 +284,7 @@ fn test_trait_all_implementations() {
 
         // probe_with_prefetch
         let retrieved_prefetch = table.probe_with_prefetch(0x9999, 8, Some(0xAAAA));
-        assert!(
-            retrieved_prefetch.is_some(),
-            "{}: probe_with_prefetch should work",
-            name
-        );
+        assert!(retrieved_prefetch.is_some(), "{}: probe_with_prefetch should work", name);
 
         // size
         let size = table.size();
@@ -323,11 +301,6 @@ fn test_trait_all_implementations() {
         // clear
         table.clear();
         let after_clear = table.probe(0x9999, 8);
-        assert!(
-            after_clear.is_none(),
-            "{}: clear should remove entries",
-            name
-        );
+        assert!(after_clear.is_none(), "{}: clear should remove entries", name);
     }
 }
-

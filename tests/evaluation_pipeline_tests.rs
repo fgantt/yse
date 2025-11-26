@@ -26,18 +26,9 @@ fn pst_only_config() -> IntegratedEvaluationConfig {
 
 fn base_board_with_advanced_pawn() -> BitboardBoard {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(8, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Pawn, Player::Black),
-        Position::new(6, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
+    board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 4));
     board
 }
 
@@ -97,10 +88,7 @@ fn pst_telemetry_reports_breakdown() {
     add_phase_weighting_support(&mut board);
 
     let score = evaluator.evaluate(&board, Player::Black, &captured);
-    assert!(
-        score.score > 0,
-        "Expected positive PST contribution for the prepared position"
-    );
+    assert!(score.score > 0, "Expected positive PST contribution for the prepared position");
 
     let telemetry = evaluator
         .telemetry_snapshot()
@@ -136,10 +124,7 @@ fn pst_telemetry_reports_breakdown() {
         "Expected aggregated PST statistics to record a single evaluation sample"
     );
     let (avg_mg, avg_eg) = (pst_stats.average_total_mg(), pst_stats.average_total_eg());
-    assert!(
-        avg_mg != 0.0 || avg_eg != 0.0,
-        "Expected aggregated averages to be non-zero"
-    );
+    assert!(avg_mg != 0.0 || avg_eg != 0.0, "Expected aggregated averages to be non-zero");
     let (pawn_avg_mg, pawn_avg_eg) = pst_stats.average_for_piece(PieceType::Pawn);
     assert!(
         pawn_avg_mg != 0.0 || pawn_avg_eg != 0.0,

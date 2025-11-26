@@ -38,11 +38,7 @@ impl AgeCounter {
             config.max_age,
             AGE_STAMP_MASK
         );
-        Self {
-            current_age: 0,
-            max_age: config.max_age,
-            wrap_count: 0,
-        }
+        Self { current_age: 0, max_age: config.max_age, wrap_count: 0 }
     }
 
     /// Get the current age
@@ -116,10 +112,8 @@ impl AgeCounter {
             return self.current_age.saturating_sub(entry_age_clamped);
         }
 
-        let mut diff = self
-            .max_age
-            .saturating_sub(entry_age_clamped)
-            .saturating_add(self.current_age);
+        let mut diff =
+            self.max_age.saturating_sub(entry_age_clamped).saturating_add(self.current_age);
 
         if wrap_diff > 1 {
             diff = diff.saturating_add((wrap_diff - 1) * self.max_age);
@@ -416,18 +410,12 @@ impl CacheManager {
         let start_time = Self::get_current_time();
 
         for (hash, entry) in positions {
-            self.warming_data
-                .warming_positions
-                .insert(*hash, entry.clone());
+            self.warming_data.warming_positions.insert(*hash, entry.clone());
         }
 
         let warming_time = start_time.elapsed();
         let elapsed_ms = warming_time.as_millis() as u64;
-        let warming_time_ms = if elapsed_ms == 0 && !positions.is_empty() {
-            1
-        } else {
-            elapsed_ms
-        };
+        let warming_time_ms = if elapsed_ms == 0 && !positions.is_empty() { 1 } else { elapsed_ms };
         self.warming_data.warming_stats.positions_warmed += positions.len() as u64;
         self.warming_data.warming_stats.warming_time_ms += warming_time_ms;
 
@@ -470,8 +458,7 @@ impl CacheManager {
 
     /// Check performance against thresholds
     pub fn check_performance(&self) -> PerformanceReport {
-        self.performance_monitor
-            .check_performance(&self.cache_stats)
+        self.performance_monitor.check_performance(&self.cache_stats)
     }
 
     /// Get performance monitoring data
@@ -570,10 +557,7 @@ impl PerformanceMonitor {
             PerformanceStatus::IssuesDetected
         };
 
-        PerformanceReport {
-            issues,
-            overall_status,
-        }
+        PerformanceReport { issues, overall_status }
     }
 
     /// Get performance data
@@ -592,9 +576,7 @@ impl PerformanceMonitor {
             None
         } else {
             let total: Duration = self.probe_times.iter().sum();
-            Some(Duration::from_nanos(
-                total.as_nanos() as u64 / self.probe_times.len() as u64,
-            ))
+            Some(Duration::from_nanos(total.as_nanos() as u64 / self.probe_times.len() as u64))
         }
     }
 
@@ -604,9 +586,7 @@ impl PerformanceMonitor {
             None
         } else {
             let total: Duration = self.store_times.iter().sum();
-            Some(Duration::from_nanos(
-                total.as_nanos() as u64 / self.store_times.len() as u64,
-            ))
+            Some(Duration::from_nanos(total.as_nanos() as u64 / self.store_times.len() as u64))
         }
     }
 
@@ -627,22 +607,10 @@ pub struct PerformanceReport {
 /// Performance issues
 #[derive(Debug)]
 pub enum PerformanceIssue {
-    ProbeTimeTooHigh {
-        current_us: u128,
-        threshold_us: u64,
-    },
-    StoreTimeTooHigh {
-        current_us: u128,
-        threshold_us: u64,
-    },
-    HitRateTooLow {
-        current_percent: f64,
-        threshold_percent: f64,
-    },
-    MemoryUsageTooHigh {
-        current_mb: f64,
-        threshold_mb: f64,
-    },
+    ProbeTimeTooHigh { current_us: u128, threshold_us: u64 },
+    StoreTimeTooHigh { current_us: u128, threshold_us: u64 },
+    HitRateTooLow { current_percent: f64, threshold_percent: f64 },
+    MemoryUsageTooHigh { current_mb: f64, threshold_mb: f64 },
 }
 
 /// Overall performance status
@@ -753,14 +721,8 @@ mod tests {
 
         // Create test warming positions
         let positions = vec![
-            (
-                12345,
-                create_test_entry(100, 5, TranspositionFlag::Exact, 1),
-            ),
-            (
-                67890,
-                create_test_entry(-50, 3, TranspositionFlag::LowerBound, 1),
-            ),
+            (12345, create_test_entry(100, 5, TranspositionFlag::Exact, 1)),
+            (67890, create_test_entry(-50, 3, TranspositionFlag::LowerBound, 1)),
         ];
 
         manager.warm_cache(&positions);

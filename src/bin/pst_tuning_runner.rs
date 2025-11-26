@@ -74,11 +74,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         tables.insert(piece.to_string(), PieceTable { mg, eg });
     }
 
-    let export = ExportDocument {
-        version: args.version,
-        description: args.description,
-        tables,
-    };
+    let export = ExportDocument { version: args.version, description: args.description, tables };
 
     if let Some(parent) = args.output.parent() {
         fs::create_dir_all(parent)?;
@@ -104,17 +100,12 @@ fn parse_grid(path: &Path) -> Result<Vec<Vec<i32>>, String> {
             .split(|c: char| c == ',' || c.is_whitespace())
             .filter(|token| !token.is_empty())
             .map(|token| {
-                token
-                    .parse::<i32>()
-                    .map_err(|err| format!("failed to parse '{token}': {err}"))
+                token.parse::<i32>().map_err(|err| format!("failed to parse '{token}': {err}"))
             })
             .collect::<Result<_, _>>()?;
 
         if cells.len() != 9 {
-            return Err(format!(
-                "expected 9 numeric entries per row, found {}",
-                cells.len()
-            ));
+            return Err(format!("expected 9 numeric entries per row, found {}", cells.len()));
         }
 
         rows.push(cells);

@@ -83,14 +83,8 @@ fn benchmark_mobility(c: &mut Criterion) {
     group.bench_function("evaluate_mobility_with_drops", |b| {
         let mut evaluator = PositionFeatureEvaluator::new();
         let mut drop_board = BitboardBoard::empty();
-        drop_board.place_piece(
-            Piece::new(PieceType::King, Player::Black),
-            Position::new(8, 4),
-        );
-        drop_board.place_piece(
-            Piece::new(PieceType::King, Player::White),
-            Position::new(0, 4),
-        );
+        drop_board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
+        drop_board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
 
         let mut drop_captured = CapturedPieces::new();
         drop_captured.add_piece(PieceType::Rook, Player::Black);

@@ -17,14 +17,7 @@ fn create_benchmark_move(
     piece_type: PieceType,
     player: Player,
 ) -> Move {
-    Move {
-        from,
-        to,
-        piece_type,
-        player,
-        promotion: false,
-        drop: from.is_none(),
-    }
+    Move { from, to, piece_type, player, promotion: false, drop: from.is_none() }
 }
 
 /// Generate a set of test moves for benchmarking
@@ -50,11 +43,7 @@ fn generate_test_moves(count: usize) -> Vec<Move> {
             Some(from),
             to,
             piece_type,
-            if i % 2 == 0 {
-                Player::Black
-            } else {
-                Player::White
-            },
+            if i % 2 == 0 { Player::Black } else { Player::White },
         ));
     }
 
@@ -88,25 +77,21 @@ fn benchmark_move_scoring_cache(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for count in [10, 50, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("cache_performance", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("cache_performance", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            let moves = generate_test_moves(count);
 
-                // Pre-populate cache
+            // Pre-populate cache
+            for move_ in &moves {
+                orderer.score_move(move_);
+            }
+
+            b.iter(|| {
                 for move_ in &moves {
-                    orderer.score_move(move_);
+                    black_box(orderer.score_move(black_box(move_)));
                 }
-
-                b.iter(|| {
-                    for move_ in &moves {
-                        black_box(orderer.score_move(black_box(move_)));
-                    }
-                });
-            },
-        );
+            });
+        });
     }
 
     group.finish();
@@ -199,20 +184,8 @@ fn benchmark_move_scoring_weights(c: &mut Criterion) {
 
     let weight_configs = vec![
         ("default", OrderingWeights::default()),
-        (
-            "high_capture",
-            OrderingWeights {
-                capture_weight: 2000,
-                ..Default::default()
-            },
-        ),
-        (
-            "high_tactical",
-            OrderingWeights {
-                tactical_weight: 600,
-                ..Default::default()
-            },
-        ),
+        ("high_capture", OrderingWeights { capture_weight: 2000, ..Default::default() }),
+        ("high_tactical", OrderingWeights { tactical_weight: 600, ..Default::default() }),
         (
             "balanced",
             OrderingWeights {
@@ -226,20 +199,16 @@ fn benchmark_move_scoring_weights(c: &mut Criterion) {
     ];
 
     for (name, weights) in weight_configs {
-        group.bench_with_input(
-            BenchmarkId::new("weight_config", name),
-            &weights,
-            |b, weights| {
-                let mut orderer = MoveOrdering::with_config(weights.clone());
-                let moves = generate_test_moves(100);
+        group.bench_with_input(BenchmarkId::new("weight_config", name), &weights, |b, weights| {
+            let mut orderer = MoveOrdering::with_config(weights.clone());
+            let moves = generate_test_moves(100);
 
-                b.iter(|| {
-                    for move_ in &moves {
-                        black_box(orderer.score_move(black_box(move_)));
-                    }
-                });
-            },
-        );
+            b.iter(|| {
+                for move_ in &moves {
+                    black_box(orderer.score_move(black_box(move_)));
+                }
+            });
+        });
     }
 
     group.finish();
@@ -283,27 +252,23 @@ fn benchmark_move_scoring_optimization(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for count in [10, 50, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("optimization", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("optimization", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            let moves = generate_test_moves(count);
 
-                b.iter(|| {
-                    // Score moves
-                    for move_ in &moves {
-                        orderer.score_move(move_);
-                    }
+            b.iter(|| {
+                // Score moves
+                for move_ in &moves {
+                    orderer.score_move(move_);
+                }
 
-                    // Optimize performance
-                    orderer.optimize_performance();
+                // Optimize performance
+                orderer.optimize_performance();
 
-                    // Test cache warming
-                    orderer.warm_up_cache(&moves);
-                });
-            },
-        );
+                // Test cache warming
+                orderer.warm_up_cache(&moves);
+            });
+        });
     }
 
     group.finish();
@@ -342,53 +307,49 @@ fn benchmark_move_scoring_all_heuristics(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for count in [10, 50, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("all_heuristics", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                orderer.set_current_depth(3);
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("all_heuristics", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            orderer.set_current_depth(3);
+            let moves = generate_test_moves(count);
 
-                // Create test position
-                let board = BitboardBoard::new();
-                let captured_pieces = CapturedPieces::new();
-                let player = Player::Black;
-                let depth = 3;
+            // Create test position
+            let board = BitboardBoard::new();
+            let captured_pieces = CapturedPieces::new();
+            let player = Player::Black;
+            let depth = 3;
 
-                // Pre-populate with killer moves
-                for i in 0..(count / 20).max(1) {
-                    orderer.add_killer_move(moves[i].clone());
+            // Pre-populate with killer moves
+            for i in 0..(count / 20).max(1) {
+                orderer.add_killer_move(moves[i].clone());
+            }
+
+            // Pre-populate with history scores
+            for i in 0..(count / 10).max(1) {
+                orderer.update_history_score(&moves[i], 3);
+            }
+
+            // Store PV move
+            if !moves.is_empty() {
+                orderer.update_pv_move(
+                    &board,
+                    &captured_pieces,
+                    player,
+                    depth,
+                    moves[0].clone(),
+                    100,
+                );
+            }
+
+            b.iter(|| {
+                for move_ in &moves {
+                    black_box(orderer.score_move_with_all_heuristics(
+                        black_box(move_),
+                        black_box(&Some(moves[0].clone())),
+                        black_box(&moves[0..(count / 20).max(1)].to_vec()),
+                    ));
                 }
-
-                // Pre-populate with history scores
-                for i in 0..(count / 10).max(1) {
-                    orderer.update_history_score(&moves[i], 3);
-                }
-
-                // Store PV move
-                if !moves.is_empty() {
-                    orderer.update_pv_move(
-                        &board,
-                        &captured_pieces,
-                        player,
-                        depth,
-                        moves[0].clone(),
-                        100,
-                    );
-                }
-
-                b.iter(|| {
-                    for move_ in &moves {
-                        black_box(orderer.score_move_with_all_heuristics(
-                            black_box(move_),
-                            black_box(&Some(moves[0].clone())),
-                            black_box(&moves[0..(count / 20).max(1)].to_vec()),
-                        ));
-                    }
-                });
-            },
-        );
+            });
+        });
     }
 
     group.finish();
@@ -400,27 +361,23 @@ fn benchmark_move_scoring_memory_usage(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(10));
 
     for count in [10, 50, 100, 500, 1000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("memory_usage", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("memory_usage", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            let moves = generate_test_moves(count);
 
-                b.iter(|| {
-                    // Score moves to populate cache
-                    for move_ in &moves {
-                        orderer.score_move(move_);
-                    }
+            b.iter(|| {
+                // Score moves to populate cache
+                for move_ in &moves {
+                    orderer.score_move(move_);
+                }
 
-                    // Update memory usage
-                    orderer.update_memory_usage();
+                // Update memory usage
+                orderer.update_memory_usage();
 
-                    black_box(orderer.memory_usage.current_bytes);
-                    black_box(orderer.memory_usage.peak_bytes);
-                });
-            },
-        );
+                black_box(orderer.memory_usage.current_bytes);
+                black_box(orderer.memory_usage.peak_bytes);
+            });
+        });
     }
 
     group.finish();
@@ -498,20 +455,16 @@ fn benchmark_move_scoring_large_sets(c: &mut Criterion) {
     group.measurement_time(Duration::from_secs(15));
 
     for count in [1000, 2000, 5000, 10000].iter() {
-        group.bench_with_input(
-            BenchmarkId::new("large_move_sets", count),
-            count,
-            |b, &count| {
-                let mut orderer = MoveOrdering::new();
-                let moves = generate_test_moves(count);
+        group.bench_with_input(BenchmarkId::new("large_move_sets", count), count, |b, &count| {
+            let mut orderer = MoveOrdering::new();
+            let moves = generate_test_moves(count);
 
-                b.iter(|| {
-                    for move_ in &moves {
-                        black_box(orderer.score_move(black_box(move_)));
-                    }
-                });
-            },
-        );
+            b.iter(|| {
+                for move_ in &moves {
+                    black_box(orderer.score_move(black_box(move_)));
+                }
+            });
+        });
     }
 
     group.finish();

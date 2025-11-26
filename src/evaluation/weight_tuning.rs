@@ -8,8 +8,8 @@
 
 use crate::bitboards::BitboardBoard;
 use crate::evaluation::config::EvaluationWeights;
-use crate::evaluation::statistics::EvaluationTelemetry;
 use crate::evaluation::integration::IntegratedEvaluator;
+use crate::evaluation::statistics::EvaluationTelemetry;
 use crate::tuning::OptimizationMethod;
 use crate::types::board::CapturedPieces;
 use crate::types::core::Player;
@@ -53,18 +53,12 @@ pub struct TuningPositionSet {
 impl TuningPositionSet {
     /// Create a new tuning position set
     pub fn new(positions: Vec<TuningPosition>) -> Self {
-        Self {
-            positions,
-            metadata: HashMap::new(),
-        }
+        Self { positions, metadata: HashMap::new() }
     }
 
     /// Create an empty tuning position set
     pub fn empty() -> Self {
-        Self {
-            positions: Vec::new(),
-            metadata: HashMap::new(),
-        }
+        Self { positions: Vec::new(), metadata: HashMap::new() }
     }
 
     /// Add a position to the set
@@ -176,68 +170,72 @@ pub fn tune_weights(
 
     let start_time = std::time::Instant::now();
     let mut weights = initial_weights.to_vector();
-        let mut error_history = Vec::new();
-        let mut prev_error = f64::INFINITY;
-        let mut patience_counter = 0;
-        const EARLY_STOPPING_PATIENCE: usize = 50;
+    let mut error_history = Vec::new();
+    let mut prev_error = f64::INFINITY;
+    let mut patience_counter = 0;
+    const EARLY_STOPPING_PATIENCE: usize = 50;
 
-        // Simple gradient descent optimizer for component weights
-        // (Simplified version - full implementation would use the tuning infrastructure's optimizers)
-        for iteration in 0..tuning_config.max_iterations {
-            let (error, gradients) =
-                calculate_error_and_gradients(evaluator, &weights, position_set, tuning_config.k_factor);
-            error_history.push(error);
+    // Simple gradient descent optimizer for component weights
+    // (Simplified version - full implementation would use the tuning infrastructure's optimizers)
+    for iteration in 0..tuning_config.max_iterations {
+        let (error, gradients) = calculate_error_and_gradients(
+            evaluator,
+            &weights,
+            position_set,
+            tuning_config.k_factor,
+        );
+        error_history.push(error);
 
-            // Check for convergence
-            if error < tuning_config.convergence_threshold {
+        // Check for convergence
+        if error < tuning_config.convergence_threshold {
+            let optimized_weights = EvaluationWeights::from_vector(&weights)?;
+            return Ok(TuningResult {
+                optimized_weights,
+                final_error: error,
+                iterations: iteration + 1,
+                convergence_reason: ConvergenceReason::Converged,
+                optimization_time: start_time.elapsed(),
+                error_history,
+            });
+        }
+
+        // Early stopping
+        if error < prev_error {
+            prev_error = error;
+            patience_counter = 0;
+        } else {
+            patience_counter += 1;
+            if patience_counter >= EARLY_STOPPING_PATIENCE {
                 let optimized_weights = EvaluationWeights::from_vector(&weights)?;
                 return Ok(TuningResult {
                     optimized_weights,
                     final_error: error,
                     iterations: iteration + 1,
-                    convergence_reason: ConvergenceReason::Converged,
+                    convergence_reason: ConvergenceReason::EarlyStopping,
                     optimization_time: start_time.elapsed(),
                     error_history,
                 });
             }
-
-            // Early stopping
-            if error < prev_error {
-                prev_error = error;
-                patience_counter = 0;
-            } else {
-                patience_counter += 1;
-                if patience_counter >= EARLY_STOPPING_PATIENCE {
-                    let optimized_weights = EvaluationWeights::from_vector(&weights)?;
-                    return Ok(TuningResult {
-                        optimized_weights,
-                        final_error: error,
-                        iterations: iteration + 1,
-                        convergence_reason: ConvergenceReason::EarlyStopping,
-                        optimization_time: start_time.elapsed(),
-                        error_history,
-                    });
-                }
-            }
-
-            // Update weights using gradient descent
-            for (i, gradient) in gradients.iter().enumerate() {
-                weights[i] -= tuning_config.learning_rate * gradient;
-                // Clamp weights to reasonable range (0.0 to 10.0)
-                weights[i] = weights[i].max(0.0).min(10.0);
-            }
         }
 
-        let optimized_weights = EvaluationWeights::from_vector(&weights)?;
-        Ok(TuningResult {
-            optimized_weights,
-            final_error: prev_error,
-            iterations: tuning_config.max_iterations,
-            convergence_reason: ConvergenceReason::MaxIterations,
-            optimization_time: start_time.elapsed(),
-            error_history,
-        })
+        // Update weights using gradient descent
+        for (i, gradient) in gradients.iter().enumerate() {
+            weights[i] -= tuning_config.learning_rate * gradient;
+            // Clamp weights to reasonable range (0.0 to 10.0)
+            weights[i] = weights[i].max(0.0).min(10.0);
+        }
     }
+
+    let optimized_weights = EvaluationWeights::from_vector(&weights)?;
+    Ok(TuningResult {
+        optimized_weights,
+        final_error: prev_error,
+        iterations: tuning_config.max_iterations,
+        convergence_reason: ConvergenceReason::MaxIterations,
+        optimization_time: start_time.elapsed(),
+        error_history,
+    })
+}
 
 /// Calculate error and gradients for current weights
 fn calculate_error_and_gradients(
@@ -270,53 +268,54 @@ fn calculate_error_and_gradients(
             );
             let predicted_score = result.score as f64;
 
-                // Convert to probability using sigmoid
-                let predicted_prob = sigmoid(predicted_score * k_factor);
-                let expected_prob = position.expected_score;
+            // Convert to probability using sigmoid
+            let predicted_prob = sigmoid(predicted_score * k_factor);
+            let expected_prob = position.expected_score;
 
-                // Calculate error (mean squared error)
-                let error = expected_prob - predicted_prob;
-                total_error += error * error;
+            // Calculate error (mean squared error)
+            let error = expected_prob - predicted_prob;
+            total_error += error * error;
 
-                // Calculate gradients using finite differences approximation
-                // For each weight, calculate gradient contribution
-                let epsilon = 1e-5;
-                for i in 0..10 {
-                    let mut perturbed_weights = weights.to_vec();
-                    perturbed_weights[i] += epsilon;
+            // Calculate gradients using finite differences approximation
+            // For each weight, calculate gradient contribution
+            let epsilon = 1e-5;
+            for i in 0..10 {
+                let mut perturbed_weights = weights.to_vec();
+                perturbed_weights[i] += epsilon;
 
-                    if let Ok(_perturbed_eval_weights) =
-                        EvaluationWeights::from_vector(&perturbed_weights)
-                    {
-                        let mut perturbed_evaluator = IntegratedEvaluator::with_config(evaluator.config().clone());
-                        // TODO: Add set_weights method
-                        // perturbed_evaluator.set_weights(perturbed_eval_weights);
-                        let perturbed_result = perturbed_evaluator.evaluate_with_move_count(
-                            &position.board,
-                            position.player,
-                            &position.captured_pieces,
-                            None,
-                        );
-                        let perturbed_score = perturbed_result.score as f64;
-                        let perturbed_prob = sigmoid(perturbed_score * k_factor);
+                if let Ok(_perturbed_eval_weights) =
+                    EvaluationWeights::from_vector(&perturbed_weights)
+                {
+                    let mut perturbed_evaluator =
+                        IntegratedEvaluator::with_config(evaluator.config().clone());
+                    // TODO: Add set_weights method
+                    // perturbed_evaluator.set_weights(perturbed_eval_weights);
+                    let perturbed_result = perturbed_evaluator.evaluate_with_move_count(
+                        &position.board,
+                        position.player,
+                        &position.captured_pieces,
+                        None,
+                    );
+                    let perturbed_score = perturbed_result.score as f64;
+                    let perturbed_prob = sigmoid(perturbed_score * k_factor);
 
-                        let gradient_contribution =
-                            (perturbed_prob - predicted_prob) / epsilon * error * (-2.0);
-                        gradients[i] += gradient_contribution;
-                    }
+                    let gradient_contribution =
+                        (perturbed_prob - predicted_prob) / epsilon * error * (-2.0);
+                    gradients[i] += gradient_contribution;
                 }
             }
         }
-
-        // Average
-        let n = position_set.len() as f64;
-        total_error /= n;
-        for gradient in &mut gradients {
-            *gradient /= n;
-        }
-
-        (total_error, gradients)
     }
+
+    // Average
+    let n = position_set.len() as f64;
+    total_error /= n;
+    for gradient in &mut gradients {
+        *gradient /= n;
+    }
+
+    (total_error, gradients)
+}
 
 /// Tune weights from accumulated telemetry
 ///
@@ -326,62 +325,54 @@ pub fn tune_from_telemetry(
     target_contributions: Option<&HashMap<String, f32>>,
     learning_rate: f32,
 ) -> Result<EvaluationWeights, String> {
-        if telemetry_set.is_empty() {
-            return Err("Telemetry set is empty".to_string());
-        }
-
-        // Use the existing auto_balance_weights functionality
-        let config = crate::evaluation::config::TaperedEvalConfig::default();
-        let mut temp_config = config.clone();
-
-        // Aggregate telemetry
-        let mut aggregated_contributions = HashMap::new();
-        for telemetry in telemetry_set {
-            for (component, contribution) in &telemetry.weight_contributions {
-                *aggregated_contributions
-                    .entry(component.clone())
-                    .or_insert(0.0) += contribution;
-            }
-        }
-
-        // Average
-        let count = telemetry_set.len() as f32;
-        for contribution in aggregated_contributions.values_mut() {
-            *contribution /= count;
-        }
-
-        // Use auto_balance_weights to suggest adjustments
-        // (This is a simplified version - full implementation would use optimizer)
-        let components = crate::evaluation::config::ComponentFlagsForValidation {
-            material: true,
-            piece_square_tables: true,
-            position_features: true,
-            tactical_patterns: true,
-            positional_patterns: true,
-            castle_patterns: true,
-        };
-        temp_config.auto_balance_weights(
-            &telemetry_set[0], // Use first telemetry as representative
-            &components,
-            target_contributions,
-            learning_rate,
-        );
-
-        Ok(temp_config.weights)
+    if telemetry_set.is_empty() {
+        return Err("Telemetry set is empty".to_string());
     }
+
+    // Use the existing auto_balance_weights functionality
+    let config = crate::evaluation::config::TaperedEvalConfig::default();
+    let mut temp_config = config.clone();
+
+    // Aggregate telemetry
+    let mut aggregated_contributions = HashMap::new();
+    for telemetry in telemetry_set {
+        for (component, contribution) in &telemetry.weight_contributions {
+            *aggregated_contributions.entry(component.clone()).or_insert(0.0) += contribution;
+        }
+    }
+
+    // Average
+    let count = telemetry_set.len() as f32;
+    for contribution in aggregated_contributions.values_mut() {
+        *contribution /= count;
+    }
+
+    // Use auto_balance_weights to suggest adjustments
+    // (This is a simplified version - full implementation would use optimizer)
+    let components = crate::evaluation::config::ComponentFlagsForValidation {
+        material: true,
+        piece_square_tables: true,
+        position_features: true,
+        tactical_patterns: true,
+        positional_patterns: true,
+        castle_patterns: true,
+    };
+    temp_config.auto_balance_weights(
+        &telemetry_set[0], // Use first telemetry as representative
+        &components,
+        target_contributions,
+        learning_rate,
+    );
+
+    Ok(temp_config.weights)
+}
 
 /// Telemetry-to-tuning pipeline
 ///
 /// Collects telemetry from multiple positions and converts them to a tuning position set.
 pub fn telemetry_to_tuning_pipeline(
     _evaluator: &IntegratedEvaluator,
-    telemetry_positions: &[(
-        BitboardBoard,
-        CapturedPieces,
-        Player,
-        EvaluationTelemetry,
-        f64,
-    )],
+    telemetry_positions: &[(BitboardBoard, CapturedPieces, Player, EvaluationTelemetry, f64)],
 ) -> TuningPositionSet {
     let mut positions = Vec::new();
 
@@ -442,4 +433,3 @@ mod tests {
         assert!(sigmoid(-10.0) < 0.1);
     }
 }
-

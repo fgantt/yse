@@ -31,9 +31,7 @@ fn loads_custom_json_value_set() {
     custom_set.board_values[PieceType::Rook.as_index()].mg = 1234;
 
     let mut temp_file = NamedTempFile::new().expect("create temp file");
-    custom_set
-        .to_writer(&mut temp_file)
-        .expect("write custom set");
+    custom_set.to_writer(&mut temp_file).expect("write custom set");
     let temp_path = temp_file.into_temp_path();
 
     let config = MaterialEvaluationConfig {

@@ -72,34 +72,22 @@ fn forks_respect_blockers_and_line_of_sight() {
     board.place_piece(Piece::new(PieceType::Rook, Player::Black), rook_pos);
 
     // Vertical target with no blockers
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::White),
-        Position::new(2, 4),
-    );
+    board.place_piece(Piece::new(PieceType::Gold, Player::White), Position::new(2, 4));
 
     // Horizontal target shielded by friendly piece
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(4, 7),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(4, 7));
     let blocker_pos = Position::new(4, 6);
     board.place_piece(Piece::new(PieceType::Silver, Player::Black), blocker_pos);
 
     let captured = CapturedPieces::new();
     let mut recognizer = TacticalPatternRecognizer::with_config(forks_only_config());
     let blocked_score = recognizer.evaluate_tactics(&board, Player::Black, &captured);
-    assert_eq!(
-        blocked_score.mg, 0,
-        "Blocked rook fork should not award a bonus"
-    );
+    assert_eq!(blocked_score.mg, 0, "Blocked rook fork should not award a bonus");
 
     board.remove_piece(blocker_pos);
     let mut recognizer_unblocked = TacticalPatternRecognizer::with_config(forks_only_config());
     let unblocked_score = recognizer_unblocked.evaluate_tactics(&board, Player::Black, &captured);
-    assert!(
-        unblocked_score.mg > 0,
-        "Removing the blocker should allow the fork to be scored"
-    );
+    assert!(unblocked_score.mg > 0, "Removing the blocker should allow the fork to be scored");
 }
 
 #[test]
@@ -107,28 +95,13 @@ fn back_rank_threats_require_clear_files() {
     let mut board = BitboardBoard::empty();
     let king_pos = Position::new(0, 4);
     board.place_piece(Piece::new(PieceType::King, Player::White), king_pos);
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(0, 8),
-    );
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(0, 8));
 
     // Friendly pieces limiting the king's mobility
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::White),
-        Position::new(0, 3),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::White),
-        Position::new(1, 3),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::White),
-        Position::new(1, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::White),
-        Position::new(1, 5),
-    );
+    board.place_piece(Piece::new(PieceType::Gold, Player::White), Position::new(0, 3));
+    board.place_piece(Piece::new(PieceType::Gold, Player::White), Position::new(1, 3));
+    board.place_piece(Piece::new(PieceType::Silver, Player::White), Position::new(1, 4));
+    board.place_piece(Piece::new(PieceType::Gold, Player::White), Position::new(1, 5));
 
     // Friendly blocker shielding the king along the back rank
     let blocker = Position::new(0, 6);
@@ -137,10 +110,7 @@ fn back_rank_threats_require_clear_files() {
     let captured = CapturedPieces::new();
     let mut recognizer = TacticalPatternRecognizer::with_config(back_rank_only_config());
     let blocked_score = recognizer.evaluate_tactics(&board, Player::White, &captured);
-    assert_eq!(
-        blocked_score.mg, 0,
-        "Friendly blockers should prevent back-rank threat penalties"
-    );
+    assert_eq!(blocked_score.mg, 0, "Friendly blockers should prevent back-rank threat penalties");
 
     board.remove_piece(blocker);
     let mut recognizer_unblocked = TacticalPatternRecognizer::with_config(back_rank_only_config());
@@ -154,93 +124,48 @@ fn back_rank_threats_require_clear_files() {
 #[test]
 fn pins_apply_negative_penalty() {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::White),
-        Position::new(1, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(3, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
+    board.place_piece(Piece::new(PieceType::Silver, Player::White), Position::new(1, 4));
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(3, 4));
 
     let captured = CapturedPieces::new();
     let mut recognizer = TacticalPatternRecognizer::with_config(pins_only_config());
     let score = recognizer.evaluate_tactics(&board, Player::White, &captured);
-    assert!(
-        score.mg < 0,
-        "Pinned piece should produce a negative tactical score"
-    );
+    assert!(score.mg < 0, "Pinned piece should produce a negative tactical score");
 }
 
 #[test]
 fn skewers_penalize_exposed_high_value_piece() {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(0, 0),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::White),
-        Position::new(0, 2),
-    );
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(0, 0));
+    board.place_piece(Piece::new(PieceType::Silver, Player::White), Position::new(0, 2));
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
 
     let captured = CapturedPieces::new();
     let mut recognizer = TacticalPatternRecognizer::with_config(skewers_only_config());
     let score = recognizer.evaluate_tactics(&board, Player::White, &captured);
-    assert!(
-        score.mg < 0,
-        "Skewer exposing the king should penalize the defending side"
-    );
+    assert!(score.mg < 0, "Skewer exposing the king should penalize the defending side");
 }
 
 #[test]
 fn discovered_attack_awards_bonus() {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Pawn, Player::Black),
-        Position::new(3, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(4, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
+    board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(3, 4));
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 4));
 
     let captured = CapturedPieces::new();
     let mut recognizer = TacticalPatternRecognizer::with_config(discovered_only_config());
     let score = recognizer.evaluate_tactics(&board, Player::Black, &captured);
-    assert!(
-        score.mg > 0,
-        "Discovered attack potential should reward the attacking side"
-    );
+    assert!(score.mg > 0, "Discovered attack potential should reward the attacking side");
 }
 
 #[test]
 fn tactical_weight_scales_contribution() {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(4, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::White),
-        Position::new(2, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(4, 7),
-    );
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 4));
+    board.place_piece(Piece::new(PieceType::Gold, Player::White), Position::new(2, 4));
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(4, 7));
 
     let captured = CapturedPieces::new();
 
@@ -262,10 +187,7 @@ fn tactical_weight_scales_contribution() {
 
     let mut evaluator = IntegratedEvaluator::with_config(config.clone());
     let base_score = evaluator.evaluate(&board, Player::Black, &captured);
-    assert!(
-        base_score.score.abs() > 0,
-        "Baseline tactical evaluation should be non-zero"
-    );
+    assert!(base_score.score.abs() > 0, "Baseline tactical evaluation should be non-zero");
 
     let mut scaled_config = config;
     scaled_config.weights.tactical_weight = 0.5;
@@ -284,14 +206,8 @@ fn tactical_weight_scales_contribution() {
 #[test]
 fn drop_rook_creates_fork_threat() {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::White),
-        Position::new(4, 1),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::White),
-        Position::new(4, 7),
-    );
+    board.place_piece(Piece::new(PieceType::Gold, Player::White), Position::new(4, 1));
+    board.place_piece(Piece::new(PieceType::Silver, Player::White), Position::new(4, 7));
 
     let mut captured = CapturedPieces::new();
     captured.add_piece(PieceType::Rook, Player::Black);
@@ -307,14 +223,8 @@ fn drop_rook_creates_fork_threat() {
 #[test]
 fn drop_rook_applies_pin_bonus() {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::White),
-        Position::new(1, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
+    board.place_piece(Piece::new(PieceType::Silver, Player::White), Position::new(1, 4));
 
     let mut captured = CapturedPieces::new();
     captured.add_piece(PieceType::Rook, Player::Black);
@@ -330,18 +240,9 @@ fn drop_rook_applies_pin_bonus() {
 #[test]
 fn integrated_evaluator_respects_tactical_polarity() {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::White),
-        Position::new(1, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(4, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
+    board.place_piece(Piece::new(PieceType::Silver, Player::White), Position::new(1, 4));
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 4));
 
     let captured = CapturedPieces::new();
 
@@ -379,18 +280,9 @@ fn integrated_evaluator_respects_tactical_polarity() {
 #[test]
 fn telemetry_includes_tactical_snapshot() {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::Rook, Player::Black),
-        Position::new(4, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::Gold, Player::White),
-        Position::new(2, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(4, 7),
-    );
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 4));
+    board.place_piece(Piece::new(PieceType::Gold, Player::White), Position::new(2, 4));
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(4, 7));
 
     let mut config = IntegratedEvaluationConfig::default();
     config.use_optimized_path = false;
@@ -413,13 +305,9 @@ fn telemetry_includes_tactical_snapshot() {
 
     evaluator.evaluate(&board, Player::Black, &captured);
 
-    let telemetry = evaluator
-        .telemetry_snapshot()
-        .expect("telemetry snapshot should be present");
+    let telemetry = evaluator.telemetry_snapshot().expect("telemetry snapshot should be present");
 
-    let tactical = telemetry
-        .tactical
-        .expect("tactical telemetry should be recorded");
+    let tactical = telemetry.tactical.expect("tactical telemetry should be recorded");
 
     assert!(
         tactical.evaluations > 0,

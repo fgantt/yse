@@ -52,28 +52,24 @@ fn benchmark_lmr_with_tt_detection(c: &mut Criterion) {
 
     // Test across different depths
     for depth in [3, 4, 5, 6] {
-        group.bench_with_input(
-            BenchmarkId::new("search_depth", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine_with_tt_detection();
-                    engine.reset_lmr_stats();
+        group.bench_with_input(BenchmarkId::new("search_depth", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine_with_tt_detection();
+                engine.reset_lmr_stats();
 
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        1000,
-                    );
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    1000,
+                );
 
-                    let stats = engine.get_lmr_stats().clone();
-                    black_box((result, stats))
-                });
-            },
-        );
+                let stats = engine.get_lmr_stats().clone();
+                black_box((result, stats))
+            });
+        });
     }
 
     group.finish();
@@ -94,11 +90,7 @@ fn benchmark_tt_move_detection_effectiveness(c: &mut Criterion) {
         group.bench_with_input(
             BenchmarkId::new(
                 "tt_detection",
-                if tt_detection_enabled {
-                    "enabled"
-                } else {
-                    "disabled"
-                },
+                if tt_detection_enabled { "enabled" } else { "disabled" },
             ),
             &tt_detection_enabled,
             |b, &enabled| {
@@ -179,33 +171,29 @@ fn benchmark_tt_move_exemption_rate(c: &mut Criterion) {
 
     // Measure TT move exemption rate across different depths
     for depth in [3, 4, 5, 6] {
-        group.bench_with_input(
-            BenchmarkId::new("exemption_rate", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine_with_tt_detection();
-                    engine.reset_lmr_stats();
+        group.bench_with_input(BenchmarkId::new("exemption_rate", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine_with_tt_detection();
+                engine.reset_lmr_stats();
 
-                    let mut board_mut = board.clone();
-                    let _result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        1000,
-                    );
+                let mut board_mut = board.clone();
+                let _result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    1000,
+                );
 
-                    let stats = engine.get_lmr_stats().clone();
-                    let exemption_rate = if stats.moves_considered > 0 {
-                        (stats.tt_move_exempted as f64 / stats.moves_considered as f64) * 100.0
-                    } else {
-                        0.0
-                    };
-                    black_box(exemption_rate)
-                });
-            },
-        );
+                let stats = engine.get_lmr_stats().clone();
+                let exemption_rate = if stats.moves_considered > 0 {
+                    (stats.tt_move_exempted as f64 / stats.moves_considered as f64) * 100.0
+                } else {
+                    0.0
+                };
+                black_box(exemption_rate)
+            });
+        });
     }
 
     group.finish();
@@ -250,14 +238,7 @@ fn benchmark_comprehensive_tt_move_analysis(c: &mut Criterion) {
             let efficiency = stats.efficiency();
             let cutoff_rate = stats.cutoff_rate();
 
-            black_box((
-                result,
-                elapsed,
-                stats,
-                exemption_rate,
-                efficiency,
-                cutoff_rate,
-            ))
+            black_box((result, elapsed, stats, exemption_rate, efficiency, cutoff_rate))
         });
     });
 
@@ -303,10 +284,7 @@ fn benchmark_performance_regression_validation(c: &mut Criterion) {
             };
 
             // Requirement: overhead < 1%
-            assert!(
-                overhead_percentage < 1.0,
-                "TT move tracking overhead exceeds 1%"
-            );
+            assert!(overhead_percentage < 1.0, "TT move tracking overhead exceeds 1%");
 
             black_box((elapsed, stats, overhead_percentage))
         });

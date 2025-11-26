@@ -262,9 +262,7 @@ impl ShogiEngine {
             return "Opening book not loaded".to_string();
         }
 
-        let fen = self
-            .board
-            .to_fen(self.current_player, &self.captured_pieces);
+        let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
         let available_moves = self.opening_book.get_moves(&fen);
         let stats = self.opening_book.get_stats();
 
@@ -283,10 +281,7 @@ impl ShogiEngine {
                 info.push_str(&format!(
                     "  {}. {} (weight: {}, eval: {})\n",
                     i + 1,
-                    book_move
-                        .move_notation
-                        .as_ref()
-                        .unwrap_or(&"N/A".to_string()),
+                    book_move.move_notation.as_ref().unwrap_or(&"N/A".to_string()),
                     book_move.weight,
                     book_move.evaluation
                 ));
@@ -307,23 +302,15 @@ impl ShogiEngine {
             return None;
         }
 
-        let fen = self
-            .board
-            .to_fen(self.current_player, &self.captured_pieces);
+        let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
         if let Some(book_moves) = self.opening_book.get_moves(&fen) {
             if let Some(best_book_move) = book_moves.iter().max_by(|a, b| a.weight.cmp(&b.weight)) {
                 Some(format!(
                     "Opening book move: {} (weight: {}, eval: {}, opening: {})",
-                    best_book_move
-                        .move_notation
-                        .as_ref()
-                        .unwrap_or(&"N/A".to_string()),
+                    best_book_move.move_notation.as_ref().unwrap_or(&"N/A".to_string()),
                     best_book_move.weight,
                     best_book_move.evaluation,
-                    best_book_move
-                        .opening_name
-                        .as_ref()
-                        .unwrap_or(&"Unknown".to_string())
+                    best_book_move.opening_name.as_ref().unwrap_or(&"Unknown".to_string())
                 ))
             } else {
                 None
@@ -339,9 +326,7 @@ impl ShogiEngine {
             return None;
         }
 
-        let fen = self
-            .board
-            .to_fen(self.current_player, &self.captured_pieces);
+        let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
         self.opening_book.get_random_move(&fen)
     }
 
@@ -351,9 +336,7 @@ impl ShogiEngine {
             return vec!["Opening book not loaded".to_string()];
         }
 
-        let fen = self
-            .board
-            .to_fen(self.current_player, &self.captured_pieces);
+        let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
         if let Some(moves) = self.opening_book.get_moves(&fen) {
             moves
                 .iter()
@@ -362,16 +345,10 @@ impl ShogiEngine {
                     format!(
                         "{}. {} (weight: {}, eval: {}, opening: {})",
                         i + 1,
-                        book_move
-                            .move_notation
-                            .as_ref()
-                            .unwrap_or(&"N/A".to_string()),
+                        book_move.move_notation.as_ref().unwrap_or(&"N/A".to_string()),
                         book_move.weight,
                         book_move.evaluation,
-                        book_move
-                            .opening_name
-                            .as_ref()
-                            .unwrap_or(&"Unknown".to_string())
+                        book_move.opening_name.as_ref().unwrap_or(&"Unknown".to_string())
                     )
                 })
                 .collect()
@@ -389,11 +366,8 @@ impl ShogiEngine {
         self.board = BitboardBoard::empty(); // Clear the board
         if let Ok(pieces) = serde_json::from_str::<Vec<PieceJson>>(board_json) {
             for piece_json in pieces {
-                let player = if piece_json.player == "Black" {
-                    Player::Black
-                } else {
-                    Player::White
-                };
+                let player =
+                    if piece_json.player == "Black" { Player::Black } else { Player::White };
                 if let Some(piece_type) = PieceType::from_str(&piece_json.piece_type) {
                     let pos = Position::new(piece_json.position.row, piece_json.position.col);
                     self.board.place_piece(Piece::new(piece_type, player), pos);
@@ -403,11 +377,7 @@ impl ShogiEngine {
     }
 
     pub fn set_current_player(&mut self, player: &str) {
-        self.current_player = if player == "Black" {
-            Player::Black
-        } else {
-            Player::White
-        };
+        self.current_player = if player == "Black" { Player::Black } else { Player::White };
     }
 
     pub fn set_depth(&mut self, depth: u8) {
@@ -445,8 +415,7 @@ impl ShogiEngine {
     }
 
     pub fn get_fen(&self) -> String {
-        self.board
-            .to_fen(self.current_player, &self.captured_pieces)
+        self.board.to_fen(self.current_player, &self.captured_pieces)
     }
 
     pub fn current_player(&self) -> Player {
@@ -476,9 +445,7 @@ impl ShogiEngine {
         stop_flag: Option<Arc<AtomicBool>>,
     ) -> Option<Move> {
         // CRITICAL DEBUG: Log the engine's internal state at the very beginning
-        let fen = self
-            .board
-            .to_fen(self.current_player, &self.captured_pieces);
+        let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
         crate::utils::telemetry::debug_log("========================================");
         crate::utils::telemetry::debug_log("[GET_BEST_MOVE] CALLED - ENGINE INTERNAL STATE:");
         crate::utils::telemetry::debug_log(&format!(
@@ -495,10 +462,7 @@ impl ShogiEngine {
         crate::debug_utils::set_search_start_time();
         crate::utils::telemetry::trace_log(
             "GET_BEST_MOVE",
-            &format!(
-                "Starting search: depth={}, time_limit={}ms",
-                depth, time_limit_ms
-            ),
+            &format!("Starting search: depth={}, time_limit={}ms", depth, time_limit_ms),
         );
         crate::debug_utils::start_timing("tablebase_check");
 
@@ -506,8 +470,7 @@ impl ShogiEngine {
 
         // Check tablebase first
         if let Some(tablebase_result) =
-            self.tablebase
-                .probe(&self.board, self.current_player, &self.captured_pieces)
+            self.tablebase.probe(&self.board, self.current_player, &self.captured_pieces)
         {
             crate::debug_utils::end_timing("tablebase_check", "GET_BEST_MOVE");
             if let Some(best_move) = tablebase_result.best_move {
@@ -640,8 +603,7 @@ impl ShogiEngine {
 
         // Apply the move
         if let Some(captured_piece) = self.board.make_move(move_) {
-            self.captured_pieces
-                .add_piece(captured_piece.piece_type, self.current_player);
+            self.captured_pieces.add_piece(captured_piece.piece_type, self.current_player);
         }
 
         // Switch turns
@@ -664,9 +626,7 @@ impl ShogiEngine {
 
         if legal_moves.is_empty() {
             // Check if in check (checkmate) or not (stalemate)
-            let in_check = self
-                .board
-                .is_king_in_check(self.current_player, &self.captured_pieces);
+            let in_check = self.board.is_king_in_check(self.current_player, &self.captured_pieces);
 
             Some(if in_check {
                 // Checkmate - current player loses
@@ -739,9 +699,7 @@ impl ShogiEngine {
                 self.captured_pieces = captured_pieces;
 
                 // CRITICAL DEBUG: Verify the state was actually set
-                let verify_fen = self
-                    .board
-                    .to_fen(self.current_player, &self.captured_pieces);
+                let verify_fen = self.board.to_fen(self.current_player, &self.captured_pieces);
                 crate::utils::telemetry::debug_log("========================================");
                 crate::utils::telemetry::debug_log("[HANDLE_POSITION] STATE SET - VERIFICATION:");
                 crate::utils::telemetry::debug_log(&format!(
@@ -949,11 +907,7 @@ impl ShogiEngine {
                     if let Ok(depth) = parts[3].parse::<u8>() {
                         if depth <= 100 {
                             self.set_max_depth(depth);
-                            let label = if parts[1] == "depth" {
-                                "depth"
-                            } else {
-                                "MaxDepth"
-                            };
+                            let label = if parts[1] == "depth" { "depth" } else { "MaxDepth" };
                             let message = if depth == 0 {
                                 format!("info string Set {} to 0 (unlimited/adaptive)", label)
                             } else {
@@ -1211,10 +1165,8 @@ impl ShogiEngine {
                         }
                         self.sync_parallel_options();
                         self.save_prefs();
-                        output.push(format!(
-                            "info string Set USI_Threads to {}",
-                            self.thread_count
-                        ));
+                        output
+                            .push(format!("info string Set USI_Threads to {}", self.thread_count));
                     } else {
                         output.push("info string error Invalid thread count value".to_string());
                     }

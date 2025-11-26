@@ -102,10 +102,7 @@ fn custom_configuration_example() {
 
     // Check configuration
     println!("Tablebase enabled: {}", tablebase.is_enabled());
-    println!(
-        "Memory monitoring: {}",
-        tablebase.is_memory_monitoring_enabled()
-    );
+    println!("Memory monitoring: {}", tablebase.is_memory_monitoring_enabled());
     println!("Profiling enabled: {}", tablebase.is_profiling_enabled());
 }
 
@@ -138,12 +135,7 @@ fn performance_monitoring_example() {
     let expensive_ops = profiler.get_most_expensive_operations(3);
     println!("Most expensive operations:");
     for (op, metrics) in expensive_ops {
-        println!(
-            "  {}: {} calls, avg: {:?}",
-            op,
-            metrics.call_count,
-            metrics.average_duration()
-        );
+        println!("  {}: {} calls, avg: {:?}", op, metrics.call_count, metrics.average_duration());
     }
 
     // Get most frequent operations
@@ -187,10 +179,7 @@ fn memory_management_example() {
     println!("Memory Summary:\n{}", memory_summary);
 
     // Check if memory monitoring is enabled
-    println!(
-        "Memory monitoring enabled: {}",
-        tablebase.is_memory_monitoring_enabled()
-    );
+    println!("Memory monitoring enabled: {}", tablebase.is_memory_monitoring_enabled());
 }
 
 /// Adaptive solver selection example
@@ -210,10 +199,7 @@ fn adaptive_solver_selection_example() {
     println!("Captured pieces: {}", analysis.captured_piece_count);
     println!("Is check: {}", analysis.is_check);
     println!("Is tactical: {}", analysis.is_tactical);
-    println!(
-        "Recommended solver priority: {}",
-        analysis.recommended_solver_priority
-    );
+    println!("Recommended solver priority: {}", analysis.recommended_solver_priority);
 
     // Check if position is suitable for different solver priorities
     for priority in [90, 80, 70, 50] {

@@ -15,15 +15,7 @@ fn build_entry(
     hash_key: u64,
     age: u32,
 ) -> TranspositionEntry {
-    TranspositionEntry::new(
-        score,
-        depth,
-        flag,
-        best_move,
-        hash_key,
-        age,
-        EntrySource::MainSearch,
-    )
+    TranspositionEntry::new(score, depth, flag, best_move, hash_key, age, EntrySource::MainSearch)
 }
 
 fn main() {
@@ -149,10 +141,7 @@ fn performance_best_practices() {
 
     let stats = tt.get_stats();
 
-    println!(
-        "   Hit rate: {:.2}% (target: > 30%)",
-        stats.hit_rate * 100.0
-    );
+    println!("   Hit rate: {:.2}% (target: > 30%)", stats.hit_rate * 100.0);
     println!("   Stores recorded: {}", stats.stores);
     println!("   Replacements recorded: {}", stats.replacements);
     if stats.stores > 0 {
@@ -258,17 +247,11 @@ fn error_handling_best_practices() {
     let problematic_configs = vec![
         (
             "Zero table size",
-            TranspositionConfig {
-                table_size: 0,
-                ..TranspositionConfig::default()
-            },
+            TranspositionConfig { table_size: 0, ..TranspositionConfig::default() },
         ),
         (
             "Very large table",
-            TranspositionConfig {
-                table_size: usize::MAX,
-                ..TranspositionConfig::default()
-            },
+            TranspositionConfig { table_size: usize::MAX, ..TranspositionConfig::default() },
         ),
     ];
 
@@ -405,19 +388,10 @@ fn integration_best_practices() {
     let mut test_board = BitboardBoard::new();
     let mut test_captured = CapturedPieces::new();
 
-    if let Some((_best_move, score)) = engine.search_at_depth(
-        &mut test_board,
-        &test_captured,
-        Player::Black,
-        2,
-        1000,
-        -1000,
-        1000,
-    ) {
-        println!(
-            "     ✅ Integration test passed - Search completed with score: {}",
-            score
-        );
+    if let Some((_best_move, score)) =
+        engine.search_at_depth(&mut test_board, &test_captured, Player::Black, 2, 1000, -1000, 1000)
+    {
+        println!("     ✅ Integration test passed - Search completed with score: {}", score);
     } else {
         println!("     ❌ Integration test failed - Search did not complete");
     }

@@ -13,9 +13,7 @@ fn test_search_error_variants() {
     let depth_err = SearchError::invalid_depth(100, 20);
     assert!(matches!(depth_err, SearchError::InvalidDepth { depth: 100, max_depth: 20 }));
 
-    let invalid_pos = SearchError::InvalidPosition {
-        message: "Invalid position".to_string(),
-    };
+    let invalid_pos = SearchError::InvalidPosition { message: "Invalid position".to_string() };
     assert!(matches!(invalid_pos, SearchError::InvalidPosition { .. }));
 }
 
@@ -25,9 +23,7 @@ fn test_evaluation_error_variants() {
     let component_err = EvaluationError::component_failure("material", "Failed");
     assert!(matches!(component_err, EvaluationError::ComponentFailure { .. }));
 
-    let invalid_pos = EvaluationError::InvalidPosition {
-        message: "Invalid position".to_string(),
-    };
+    let invalid_pos = EvaluationError::InvalidPosition { message: "Invalid position".to_string() };
     assert!(matches!(invalid_pos, EvaluationError::InvalidPosition { .. }));
 }
 
@@ -77,9 +73,7 @@ fn test_error_from_conversions() {
     assert!(matches!(engine_err, ShogiEngineError::Search(_)));
 
     // EvaluationError -> ShogiEngineError
-    let eval_err = EvaluationError::InvalidPosition {
-        message: "Invalid".to_string(),
-    };
+    let eval_err = EvaluationError::InvalidPosition { message: "Invalid".to_string() };
     let engine_err: ShogiEngineError = eval_err.into();
     assert!(matches!(engine_err, ShogiEngineError::Evaluation(_)));
 
@@ -89,9 +83,7 @@ fn test_error_from_conversions() {
     assert!(matches!(engine_err, ShogiEngineError::TranspositionTable(_)));
 
     // MoveGenerationError -> ShogiEngineError
-    let move_err = MoveGenerationError::InvalidPosition {
-        message: "Invalid".to_string(),
-    };
+    let move_err = MoveGenerationError::InvalidPosition { message: "Invalid".to_string() };
     let engine_err: ShogiEngineError = move_err.into();
     assert!(matches!(engine_err, ShogiEngineError::MoveGeneration(_)));
 
@@ -132,4 +124,3 @@ fn test_error_propagation() {
         panic!("Error not propagated correctly");
     }
 }
-

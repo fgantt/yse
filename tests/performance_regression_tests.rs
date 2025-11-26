@@ -199,16 +199,8 @@ fn test_evaluation_symmetry_performance_regression() {
         let white_score = evaluator.evaluate(&board, Player::White, &captured_pieces);
 
         // Both scores should be positive for starting position
-        assert!(
-            black_score > 0,
-            "Black score should be positive: {}",
-            black_score
-        );
-        assert!(
-            white_score > 0,
-            "White score should be positive: {}",
-            white_score
-        );
+        assert!(black_score > 0, "Black score should be positive: {}", black_score);
+        assert!(white_score > 0, "White score should be positive: {}", white_score);
     }
 
     let duration = start.elapsed();
@@ -262,11 +254,7 @@ fn test_stress_performance_regression() {
     let start = Instant::now();
 
     for i in 0..iterations {
-        let player = if i % 2 == 0 {
-            Player::Black
-        } else {
-            Player::White
-        };
+        let player = if i % 2 == 0 { Player::Black } else { Player::White };
         let _ = evaluator.evaluate(&board, player, &captured_pieces);
     }
 

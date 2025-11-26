@@ -44,31 +44,19 @@ impl EvaluationCacheConfig {
         let entries = (size_mb * 1024 * 1024) / 32;
         // Round to nearest power of 2
         let size = entries.next_power_of_two();
-        Self {
-            size,
-            ..Default::default()
-        }
+        Self { size, ..Default::default() }
     }
 
     /// Validate the configuration
     pub fn validate(&self) -> Result<(), String> {
         if !self.size.is_power_of_two() {
-            return Err(format!(
-                "Cache size must be a power of 2, got {}",
-                self.size
-            ));
+            return Err(format!("Cache size must be a power of 2, got {}", self.size));
         }
         if self.size < 1024 {
-            return Err(format!(
-                "Cache size too small (minimum 1024 entries), got {}",
-                self.size
-            ));
+            return Err(format!("Cache size too small (minimum 1024 entries), got {}", self.size));
         }
         if self.size > 128 * 1024 * 1024 {
-            return Err(format!(
-                "Cache size too large (maximum 128M entries), got {}",
-                self.size
-            ));
+            return Err(format!("Cache size too large (maximum 128M entries), got {}", self.size));
         }
         Ok(())
     }
@@ -154,28 +142,14 @@ pub struct EvaluationEntry {
 
 impl Default for EvaluationEntry {
     fn default() -> Self {
-        Self {
-            key: 0,
-            score: 0,
-            depth: 0,
-            age: 0,
-            verification: 0,
-            _padding: [0; 16],
-        }
+        Self { key: 0, score: 0, depth: 0, age: 0, verification: 0, _padding: [0; 16] }
     }
 }
 
 impl EvaluationEntry {
     /// Create a new evaluation entry
     pub fn new(key: u64, score: i32, depth: u8) -> Self {
-        Self {
-            key,
-            score,
-            depth,
-            age: 0,
-            verification: (key >> 48) as u16,
-            _padding: [0; 16],
-        }
+        Self { key, score, depth, age: 0, verification: (key >> 48) as u16, _padding: [0; 16] }
     }
 
     /// Check if this entry is valid (not empty)
@@ -617,8 +591,7 @@ impl MultiLevelCache {
         depth: u8,
     ) {
         // Store in L2 by default
-        self.l2_cache
-            .store(board, player, captured_pieces, score, depth);
+        self.l2_cache.store(board, player, captured_pieces, score, depth);
     }
 
     /// Consider promoting an entry from L2 to L1
@@ -644,8 +617,7 @@ impl MultiLevelCache {
 
         // Promote if threshold reached
         if *count >= self.config.promotion_threshold {
-            self.l1_cache
-                .store(board, player, captured_pieces, score, depth);
+            self.l1_cache.store(board, player, captured_pieces, score, depth);
             counts.remove(&hash);
 
             if self.config.enable_statistics {
@@ -731,9 +703,7 @@ impl EvaluationCache {
     pub fn with_config(config: EvaluationCacheConfig) -> Self {
         config.validate().expect("Invalid cache configuration");
 
-        let entries = (0..config.size)
-            .map(|_| RwLock::new(EvaluationEntry::default()))
-            .collect();
+        let entries = (0..config.size).map(|_| RwLock::new(EvaluationEntry::default())).collect();
 
         Self {
             entries,
@@ -943,11 +913,8 @@ impl EvaluationCache {
     /// Get performance metrics
     pub fn get_performance_metrics(&self) -> CachePerformanceMetrics {
         // Count filled entries
-        let filled_entries = self
-            .entries
-            .iter()
-            .filter(|entry| entry.read().unwrap().is_valid())
-            .count();
+        let filled_entries =
+            self.entries.iter().filter(|entry| entry.read().unwrap().is_valid()).count();
 
         CachePerformanceMetrics {
             avg_probe_time_ns: 50, // Typical probe time
@@ -1172,23 +1139,15 @@ impl CachePrefetcher {
         let zobrist = ZobristHasher::new();
         let hash = zobrist.hash_position(&board, player, &captured_pieces, RepetitionState::None);
 
-        let request = PrefetchRequest {
-            hash,
-            priority,
-            board,
-            player,
-            captured_pieces,
-        };
+        let request = PrefetchRequest { hash, priority, board, player, captured_pieces };
 
         let mut queue = self.prefetch_queue.write().unwrap();
 
         // Add to queue if not full
         if queue.len() < self.max_queue_size {
             // Insert based on priority
-            let insert_pos = queue
-                .iter()
-                .position(|r| r.priority < priority)
-                .unwrap_or(queue.len());
+            let insert_pos =
+                queue.iter().position(|r| r.priority < priority).unwrap_or(queue.len());
             queue.insert(insert_pos, request);
         }
     }
@@ -1232,10 +1191,7 @@ impl CachePrefetcher {
         for _ in 0..batch_size {
             if let Some(request) = queue.pop_front() {
                 // Check if already in cache
-                if cache
-                    .probe(&request.board, request.player, &request.captured_pieces)
-                    .is_some()
-                {
+                if cache.probe(&request.board, request.player, &request.captured_pieces).is_some() {
                     self.stats_prefetch_hits.fetch_add(1, Ordering::Relaxed);
                     continue;
                 }
@@ -1243,13 +1199,7 @@ impl CachePrefetcher {
                 // Evaluate and store
                 let score =
                     evaluator.evaluate(&request.board, request.player, &request.captured_pieces);
-                cache.store(
-                    &request.board,
-                    request.player,
-                    &request.captured_pieces,
-                    score,
-                    0,
-                );
+                cache.store(&request.board, request.player, &request.captured_pieces, score, 0);
 
                 self.stats_prefetched.fetch_add(1, Ordering::Relaxed);
                 self.stats_prefetch_misses.fetch_add(1, Ordering::Relaxed);
@@ -1375,10 +1325,7 @@ impl EvaluationCache {
             return Err("Invalid cache file format".to_string());
         }
         if serializable.version != CACHE_VERSION {
-            return Err(format!(
-                "Unsupported cache version: {}",
-                serializable.version
-            ));
+            return Err(format!("Unsupported cache version: {}", serializable.version));
         }
 
         // Create new cache with loaded config
@@ -1432,9 +1379,7 @@ impl EvaluationCache {
         encoder
             .write_all(json.as_bytes())
             .map_err(|e| format!("Failed to write compressed data: {}", e))?;
-        encoder
-            .finish()
-            .map_err(|e| format!("Failed to finish compression: {}", e))?;
+        encoder.finish().map_err(|e| format!("Failed to finish compression: {}", e))?;
 
         Ok(())
     }
@@ -1460,10 +1405,7 @@ impl EvaluationCache {
             return Err("Invalid cache file format".to_string());
         }
         if serializable.version != CACHE_VERSION {
-            return Err(format!(
-                "Unsupported cache version: {}",
-                serializable.version
-            ));
+            return Err(format!("Unsupported cache version: {}", serializable.version));
         }
 
         // Create and load cache
@@ -1521,11 +1463,7 @@ impl MemoryUsage {
 impl EvaluationCache {
     /// Get current memory usage
     pub fn get_memory_usage(&self) -> MemoryUsage {
-        let filled = self
-            .entries
-            .iter()
-            .filter(|e| e.read().unwrap().is_valid())
-            .count();
+        let filled = self.entries.iter().filter(|e| e.read().unwrap().is_valid()).count();
 
         MemoryUsage {
             total_bytes: self.size_bytes(),
@@ -1580,9 +1518,7 @@ impl EvaluationCache {
             .collect();
 
         // Create new cache
-        let new_entries = (0..new_size)
-            .map(|_| RwLock::new(EvaluationEntry::default()))
-            .collect();
+        let new_entries = (0..new_size).map(|_| RwLock::new(EvaluationEntry::default())).collect();
 
         self.entries = new_entries;
         self.config = new_config;
@@ -1634,10 +1570,7 @@ pub struct CacheWarmer {
 impl CacheWarmer {
     /// Create a new cache warmer
     pub fn new(strategy: WarmingStrategy) -> Self {
-        Self {
-            strategy,
-            positions_warmed: AtomicU64::new(0),
-        }
+        Self { strategy, positions_warmed: AtomicU64::new(0) }
     }
 
     /// Warm cache with common positions
@@ -1895,10 +1828,7 @@ mod tests {
         cache.store(&board, Player::Black, &captured_pieces, 150, 5);
 
         // Should hit now
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(150)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(150));
     }
 
     #[test]
@@ -1941,17 +1871,11 @@ mod tests {
 
         // Store first value
         cache.store(&board, Player::Black, &captured_pieces, 100, 5);
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(100)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(100));
 
         // Store second value (should replace)
         cache.store(&board, Player::Black, &captured_pieces, 200, 3);
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(200)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(200));
     }
 
     #[test]
@@ -1964,31 +1888,19 @@ mod tests {
 
         // Store first value with depth 5
         cache.store(&board, Player::Black, &captured_pieces, 100, 5);
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(100)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(100));
 
         // Try to store with lower depth (should not replace)
         cache.store(&board, Player::Black, &captured_pieces, 200, 3);
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(100)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(100));
 
         // Store with equal depth (should replace)
         cache.store(&board, Player::Black, &captured_pieces, 300, 5);
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(300)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(300));
 
         // Store with higher depth (should replace)
         cache.store(&board, Player::Black, &captured_pieces, 400, 7);
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(400)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(400));
     }
 
     #[test]
@@ -1999,10 +1911,7 @@ mod tests {
 
         // Store a value
         cache.store(&board, Player::Black, &captured_pieces, 100, 5);
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(100)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(100));
 
         // Clear cache
         cache.clear();
@@ -2076,53 +1985,26 @@ mod tests {
 
         // Store for Black
         cache.store(&board1, Player::Black, &captured_pieces, 100, 5);
-        assert_eq!(
-            cache.probe(&board1, Player::Black, &captured_pieces),
-            Some(100)
-        );
+        assert_eq!(cache.probe(&board1, Player::Black, &captured_pieces), Some(100));
 
         // White player should have different hash
         cache.store(&board1, Player::White, &captured_pieces, 200, 5);
-        assert_eq!(
-            cache.probe(&board1, Player::White, &captured_pieces),
-            Some(200)
-        );
+        assert_eq!(cache.probe(&board1, Player::White, &captured_pieces), Some(200));
 
         // Black player should still have its value
-        assert_eq!(
-            cache.probe(&board1, Player::Black, &captured_pieces),
-            Some(100)
-        );
+        assert_eq!(cache.probe(&board1, Player::Black, &captured_pieces), Some(100));
     }
 
     #[test]
     fn test_replacement_priority() {
-        let entry1 = EvaluationEntry {
-            key: 1,
-            score: 100,
-            depth: 5,
-            age: 0,
-            verification: 0,
-        };
+        let entry1 = EvaluationEntry { key: 1, score: 100, depth: 5, age: 0, verification: 0 };
 
-        let entry2 = EvaluationEntry {
-            key: 2,
-            score: 200,
-            depth: 3,
-            age: 0,
-            verification: 0,
-        };
+        let entry2 = EvaluationEntry { key: 2, score: 200, depth: 3, age: 0, verification: 0 };
 
         // Entry with higher depth should have higher priority
         assert!(entry1.replacement_priority() > entry2.replacement_priority());
 
-        let entry3 = EvaluationEntry {
-            key: 3,
-            score: 150,
-            depth: 5,
-            age: 10,
-            verification: 0,
-        };
+        let entry3 = EvaluationEntry { key: 3, score: 150, depth: 5, age: 10, verification: 0 };
 
         // Entry with lower age should have higher priority
         assert!(entry1.replacement_priority() > entry3.replacement_priority());
@@ -2380,22 +2262,13 @@ mod tests {
     fn test_runtime_policy_update() {
         let mut cache = EvaluationCache::new();
 
-        assert_eq!(
-            cache.config.replacement_policy,
-            ReplacementPolicy::DepthPreferred
-        );
+        assert_eq!(cache.config.replacement_policy, ReplacementPolicy::DepthPreferred);
 
         cache.update_replacement_policy(ReplacementPolicy::AlwaysReplace);
-        assert_eq!(
-            cache.config.replacement_policy,
-            ReplacementPolicy::AlwaysReplace
-        );
+        assert_eq!(cache.config.replacement_policy, ReplacementPolicy::AlwaysReplace);
 
         cache.update_replacement_policy(ReplacementPolicy::AgingBased);
-        assert_eq!(
-            cache.config.replacement_policy,
-            ReplacementPolicy::AgingBased
-        );
+        assert_eq!(cache.config.replacement_policy, ReplacementPolicy::AgingBased);
     }
 
     #[test]
@@ -2512,15 +2385,10 @@ mod tests {
 
         // Store and promote to L1
         cache.store(&board, Player::Black, &captured_pieces, 100, 5);
-        cache
-            .l1()
-            .store(&board, Player::Black, &captured_pieces, 100, 5);
+        cache.l1().store(&board, Player::Black, &captured_pieces, 100, 5);
 
         // Should hit L1
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(100)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(100));
 
         let stats = cache.get_statistics();
         assert!(stats.l1_hits > 0);
@@ -2536,10 +2404,7 @@ mod tests {
         cache.store(&board, Player::Black, &captured_pieces, 100, 5);
 
         // First probe should miss L1, hit L2
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(100)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(100));
 
         let stats = cache.get_statistics();
         assert_eq!(stats.l1_hits, 0);
@@ -2706,10 +2571,7 @@ mod tests {
         let duration = start.elapsed();
 
         // Should be very fast (<1ms for 1000 probes)
-        assert!(
-            duration.as_millis() < 10,
-            "Probe optimization may need improvement"
-        );
+        assert!(duration.as_millis() < 10, "Probe optimization may need improvement");
     }
 
     #[test]
@@ -2726,10 +2588,7 @@ mod tests {
         let duration = start.elapsed();
 
         // Should be fast (<5ms for 1000 stores)
-        assert!(
-            duration.as_millis() < 20,
-            "Store optimization may need improvement"
-        );
+        assert!(duration.as_millis() < 20, "Store optimization may need improvement");
     }
 
     #[test]
@@ -2746,10 +2605,7 @@ mod tests {
         let duration = start.elapsed();
 
         // Should be very fast (<5ms for 10000 hashes)
-        assert!(
-            duration.as_millis() < 50,
-            "Hash calculation may need optimization"
-        );
+        assert!(duration.as_millis() < 50, "Hash calculation may need optimization");
     }
 
     #[test]
@@ -2761,10 +2617,7 @@ mod tests {
         let captured_pieces = CapturedPieces::new();
 
         cache.store(&board, Player::Black, &captured_pieces, 100, 5);
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(100)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(100));
     }
 
     // ============================================================================
@@ -2923,10 +2776,7 @@ mod tests {
         assert_eq!(cache.config.size, 2048);
 
         // Should still have the entry
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(100)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(100));
     }
 
     #[test]
@@ -2940,20 +2790,13 @@ mod tests {
         cache.compact();
 
         // Entry should still be there (not old enough)
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(100)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(100));
     }
 
     #[test]
     fn test_memory_usage_calculations() {
-        let usage = MemoryUsage {
-            total_bytes: 1000,
-            used_bytes: 600,
-            entries: 100,
-            filled_entries: 50,
-        };
+        let usage =
+            MemoryUsage { total_bytes: 1000, used_bytes: 600, entries: 100, filled_entries: 50 };
 
         assert_eq!(usage.utilization(), 60.0);
         assert_eq!(usage.entry_utilization(), 50.0);
@@ -2993,13 +2836,7 @@ mod tests {
 
         // Store entries with different depths
         for depth in 1..=5 {
-            cache.store(
-                &board,
-                Player::Black,
-                &captured_pieces,
-                depth as i32 * 10,
-                depth,
-            );
+            cache.store(&board, Player::Black, &captured_pieces, depth as i32 * 10, depth);
         }
 
         let analytics = cache.get_analytics();
@@ -3060,10 +2897,7 @@ mod tests {
 
         // Should work correctly even with small size
         cache.store(&board, Player::Black, &captured_pieces, 100, 5);
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(100)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(100));
     }
 
     // ============================================================================
@@ -3079,10 +2913,7 @@ mod tests {
         let captured_pieces = CapturedPieces::new();
 
         cache.store(&board, Player::Black, &captured_pieces, 150, 5);
-        assert_eq!(
-            cache.probe(&board, Player::Black, &captured_pieces),
-            Some(150)
-        );
+        assert_eq!(cache.probe(&board, Player::Black, &captured_pieces), Some(150));
 
         // Would also have transposition table active in real usage
         // Both can work simultaneously

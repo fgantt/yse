@@ -119,15 +119,7 @@ impl TranspositionTable {
             0
         };
 
-        Self {
-            entries: vec![None; size],
-            size,
-            age: 0,
-            hits: 0,
-            misses: 0,
-            memory_usage,
-            config,
-        }
+        Self { entries: vec![None; size], size, age: 0, hits: 0, misses: 0, memory_usage, config }
     }
 
     /// Create a new transposition table with statistics and memory tracking enabled
@@ -366,10 +358,10 @@ impl Default for TranspositionTable {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{PieceType, Position};
     use crate::bitboards::BitboardBoard;
     use crate::opening_book::{BookMove, OpeningBookBuilder};
     use crate::search::zobrist::{RepetitionState, ZobristHasher};
+    use crate::types::{PieceType, Position};
 
     #[test]
     fn test_transposition_table_creation() {
@@ -395,10 +387,7 @@ mod tests {
 
         let table = TranspositionTable::with_config(config);
         assert_eq!(table.get_size(), 500);
-        assert_eq!(
-            table.get_config().replacement_policy,
-            ReplacementPolicy::AgeBased
-        );
+        assert_eq!(table.get_config().replacement_policy, ReplacementPolicy::AgeBased);
     }
 
     #[test]
@@ -689,9 +678,7 @@ mod tests {
     fn test_memory_usage_tracking() {
         let mut config = TranspositionTableConfig::default();
         config.max_entries = 1024;
-        config = config
-            .with_memory_tracking(true)
-            .with_statistics_tracking(true);
+        config = config.with_memory_tracking(true).with_statistics_tracking(true);
         let table = TranspositionTable::with_config(config);
         let memory_usage = table.get_memory_usage();
         assert!(memory_usage > 0);
@@ -803,10 +790,7 @@ mod tests {
 
         table.update_config(new_config);
 
-        assert_eq!(
-            table.get_config().replacement_policy,
-            ReplacementPolicy::AgeBased
-        );
+        assert_eq!(table.get_config().replacement_policy, ReplacementPolicy::AgeBased);
         assert!(!table.get_config().track_statistics);
         assert_eq!(table.get_statistics(), (0, 0, 0.0));
     }

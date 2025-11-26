@@ -136,12 +136,7 @@ fn test_implementation_consistency() {
         let empty_result = is_empty(bb);
 
         // Verify logical consistency
-        assert_eq!(
-            empty_result,
-            bb == 0,
-            "is_empty inconsistent for 0x{:X}",
-            bb
-        );
+        assert_eq!(empty_result, bb == 0, "is_empty inconsistent for 0x{:X}", bb);
         assert_eq!(
             single_bit_result,
             !empty_result && !multiple_bits_result,
@@ -171,12 +166,7 @@ fn test_edge_cases_integration() {
     // Test single bit cases
     for i in 0..128 {
         let bb = 1u128 << i;
-        assert_eq!(
-            popcount(bb),
-            1,
-            "Single bit popcount failed at position {}",
-            i
-        );
+        assert_eq!(popcount(bb), 1, "Single bit popcount failed at position {}", i);
         assert_eq!(
             bit_scan_forward(bb),
             Some(i as u8),
@@ -189,21 +179,9 @@ fn test_edge_cases_integration() {
             "Single bit reverse scan failed at position {}",
             i
         );
-        assert!(
-            !is_empty(bb),
-            "Single bit should not be empty at position {}",
-            i
-        );
-        assert!(
-            is_single_bit(bb),
-            "Single bit should be single at position {}",
-            i
-        );
-        assert!(
-            !is_multiple_bits(bb),
-            "Single bit should not be multiple at position {}",
-            i
-        );
+        assert!(!is_empty(bb), "Single bit should not be empty at position {}", i);
+        assert!(is_single_bit(bb), "Single bit should be single at position {}", i);
+        assert!(!is_multiple_bits(bb), "Single bit should not be multiple at position {}", i);
     }
 
     // Test all bits set
@@ -254,10 +232,7 @@ fn test_bit_manipulation_utilities_integration() {
 
     // Verify positions are in ascending order
     for i in 1..positions.len() {
-        assert!(
-            positions[i - 1] < positions[i],
-            "Positions should be in ascending order"
-        );
+        assert!(positions[i - 1] < positions[i], "Positions should be in ascending order");
     }
 }
 
@@ -322,18 +297,9 @@ fn test_performance_characteristics() {
     // Print performance info for monitoring
     println!("Performance test results for {} iterations:", iterations);
     println!("  Popcount: {:?} per call", popcount_duration / iterations);
-    println!(
-        "  Bit scan forward: {:?} per call",
-        bitscan_duration / iterations
-    );
-    println!(
-        "  Optimized popcount: {:?} per call",
-        optimized_popcount_duration / iterations
-    );
-    println!(
-        "  Optimized bit scan: {:?} per call",
-        optimized_bitscan_duration / iterations
-    );
+    println!("  Bit scan forward: {:?} per call", bitscan_duration / iterations);
+    println!("  Optimized popcount: {:?} per call", optimized_popcount_duration / iterations);
+    println!("  Optimized bit scan: {:?} per call", optimized_bitscan_duration / iterations);
 }
 
 /// Test cross-platform compatibility

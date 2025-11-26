@@ -189,10 +189,7 @@ fn run_tuning(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
 
     if cli.verbose {
         println!("Validation completed");
-        println!(
-            "Mean validation error: {:.6}",
-            validation_results.mean_error
-        );
+        println!("Mean validation error: {:.6}", validation_results.mean_error);
         println!("Standard deviation: {:.6}", validation_results.std_error);
     }
 
@@ -218,10 +215,7 @@ fn run_tuning(cli: &Cli) -> Result<(), Box<dyn std::error::Error>> {
     }
 
     println!("Tuning completed successfully!");
-    println!(
-        "Total time: {:.2} seconds",
-        start_time.elapsed().as_secs_f64()
-    );
+    println!("Total time: {:.2} seconds", start_time.elapsed().as_secs_f64());
     println!("Final error: {:.6}", optimization_result.final_error);
     println!("Validation error: {:.6}", validation_results.mean_error);
 
@@ -302,12 +296,7 @@ fn run_benchmark(_cli: &Cli, iterations: u32) -> Result<(), Box<dyn std::error::
 
     // Test different optimization methods
     let methods = [
-        (
-            "Gradient Descent",
-            OptimizationMethod::GradientDescent {
-                learning_rate: 0.01,
-            },
-        ),
+        ("Gradient Descent", OptimizationMethod::GradientDescent { learning_rate: 0.01 }),
         (
             "Adam",
             OptimizationMethod::Adam {
@@ -378,9 +367,7 @@ fn run_benchmark(_cli: &Cli, iterations: u32) -> Result<(), Box<dyn std::error::
 fn create_tuning_config(cli: &Cli) -> Result<TuningConfig, Box<dyn std::error::Error>> {
     // Parse optimization method
     let optimization_method = match cli.method.as_str() {
-        "gradient-descent" => OptimizationMethod::GradientDescent {
-            learning_rate: 0.01,
-        },
+        "gradient-descent" => OptimizationMethod::GradientDescent { learning_rate: 0.01 },
         "adam" => OptimizationMethod::Adam {
             learning_rate: 0.001,
             beta1: 0.9,
@@ -613,10 +600,7 @@ mod tests {
         ];
 
         let cli = Cli::try_parse_from(args).unwrap();
-        assert!(matches!(
-            cli.command,
-            Some(Commands::Benchmark { iterations: 50 })
-        ));
+        assert!(matches!(cli.command, Some(Commands::Benchmark { iterations: 50 })));
     }
 
     #[test]

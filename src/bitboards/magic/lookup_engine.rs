@@ -1,15 +1,15 @@
 //! Fast lookup engine for magic bitboards
-//! 
+//!
 //! This module provides optimized lookup functionality for magic bitboards,
 //! including prefetching, caching, and SIMD optimizations.
 
 use crate::types::core::PieceType;
 use crate::types::{Bitboard, MagicError, MagicTable, PerformanceMetrics};
-use std::collections::HashMap;
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 /// Fast lookup engine for magic bitboards
-/// 
+///
 /// Uses interior mutability for caching and metrics to allow immutable API
 #[derive(Clone)]
 pub struct LookupEngine {
@@ -89,14 +89,9 @@ impl LookupEngine {
     ///
     /// This method uses caching for hot paths (frequently accessed squares)
     /// and direct lookup for cold paths to optimize performance.
-    pub fn get_attacks(
-        &self,
-        square: u8,
-        piece_type: PieceType,
-        occupied: Bitboard
-    ) -> Bitboard {
+    pub fn get_attacks(&self, square: u8, piece_type: PieceType, occupied: Bitboard) -> Bitboard {
         let start_time = std::time::Instant::now();
-        
+
         // Check cache first (hot path optimization)
         if let Some(cached) = self.lookup_cache.borrow_mut().get(square, occupied) {
             let mut metrics = self.metrics.borrow_mut();
@@ -108,14 +103,14 @@ impl LookupEngine {
 
         // Perform magic lookup (cold path)
         let attacks = self.magic_table.get_attacks(square, piece_type, occupied);
-        
+
         // Cache the result for future hot path access
         self.lookup_cache.borrow_mut().insert(square, occupied, attacks);
         let mut metrics = self.metrics.borrow_mut();
         metrics.cache_misses += 1;
         metrics.lookup_count += 1;
         metrics.total_lookup_time += start_time.elapsed();
-        
+
         attacks
     }
 
@@ -124,10 +119,10 @@ impl LookupEngine {
         &self,
         square: u8,
         piece_type: PieceType,
-        occupied: Bitboard
+        occupied: Bitboard,
     ) -> Bitboard {
         let start_time = std::time::Instant::now();
-        
+
         // Check cache first
         if let Some(cached) = self.lookup_cache.borrow_mut().get(square, occupied) {
             let mut metrics = self.metrics.borrow_mut();
@@ -138,17 +133,17 @@ impl LookupEngine {
 
         // Prefetch next likely access
         self.prefetch_next_access(square, piece_type);
-        
+
         // Perform magic lookup
         let attacks = self.magic_table.get_attacks(square, piece_type, occupied);
-        
+
         // Cache the result
         self.lookup_cache.borrow_mut().insert(square, occupied, attacks);
         let mut metrics = self.metrics.borrow_mut();
         metrics.cache_misses += 1;
         metrics.lookup_count += 1;
         metrics.total_lookup_time += start_time.elapsed();
-        
+
         attacks
     }
 
@@ -224,24 +219,21 @@ impl LookupEngine {
             cache_misses = metrics.cache_misses;
         }
 
-        BatchLookupResult {
-            attacks,
-            cache_hits,
-            cache_misses,
-            total_time: start_time.elapsed(),
-        }
+        BatchLookupResult { attacks, cache_hits, cache_misses, total_time: start_time.elapsed() }
     }
 
     /// Prefetch attack patterns for common access patterns
     pub fn prefetch_common_patterns(&self, piece_type: PieceType, occupied: Bitboard) {
         // Prefetch center squares (most commonly accessed)
         let center_squares = [36, 37, 38, 45, 46, 47, 54, 55, 56]; // 3x3 center
-        
+
         let lookup_cache = self.lookup_cache.borrow_mut();
         for &square in &center_squares {
             if !lookup_cache.get(square, occupied).is_some() {
                 let attack = self.magic_table.get_attacks(square, piece_type, occupied);
-                self.prefetch_buffer.borrow_mut().add_pattern(square, piece_type, occupied, attack);
+                self.prefetch_buffer
+                    .borrow_mut()
+                    .add_pattern(square, piece_type, occupied, attack);
             }
         }
     }
@@ -298,14 +290,14 @@ impl LookupEngine {
         let cache_stats = self.cache_stats();
         let prefetch_stats = self.prefetch_buffer.borrow().stats();
         let metrics = self.metrics.borrow();
-        
+
         DetailedMetrics {
             cache_stats,
             prefetch_stats,
             total_lookups: metrics.lookup_count,
             average_lookup_time: if metrics.lookup_count > 0 {
                 std::time::Duration::from_nanos(
-                    metrics.total_lookup_time.as_nanos() as u64 / metrics.lookup_count
+                    metrics.total_lookup_time.as_nanos() as u64 / metrics.lookup_count,
                 )
             } else {
                 std::time::Duration::ZERO
@@ -328,24 +320,20 @@ impl LookupCache {
     /// Create a new lookup cache
     pub fn new(size: usize) -> Self {
         let actual_size = size.next_power_of_two();
-        Self {
-            entries: vec![None; actual_size],
-            size: actual_size,
-            hash_fn: Self::default_hash,
-        }
+        Self { entries: vec![None; actual_size], size: actual_size, hash_fn: Self::default_hash }
     }
 
     /// Get cached attack pattern
     pub fn get(&self, square: u8, occupied: Bitboard) -> Option<Bitboard> {
         let hash = self.calculate_hash(square, occupied);
         let index = (hash % self.size as u64) as usize;
-        
+
         if let Some((cached_square, cached_occupied, cached_attacks)) = &self.entries[index] {
             if *cached_square == square && *cached_occupied == occupied.to_u128() as u64 {
                 return Some(*cached_attacks);
             }
         }
-        
+
         None
     }
 
@@ -353,7 +341,7 @@ impl LookupCache {
     pub fn insert(&mut self, square: u8, occupied: Bitboard, attacks: Bitboard) {
         let hash = self.calculate_hash(square, occupied);
         let index = (hash % self.size as u64) as usize;
-        
+
         self.entries[index] = Some((square, occupied.to_u128() as u64, attacks));
     }
 
@@ -380,7 +368,7 @@ impl LookupCache {
             total_entries: self.size,
             used_entries,
             utilization_percentage: (used_entries as f64 / self.size as f64) * 100.0,
-            hit_rate: 0.0, // Will be set by LookupEngine
+            hit_rate: 0.0,  // Will be set by LookupEngine
             miss_rate: 0.0, // Will be set by LookupEngine
         }
     }
@@ -389,15 +377,17 @@ impl LookupCache {
 impl PrefetchBuffer {
     /// Create a new prefetch buffer
     pub fn new(max_size: usize) -> Self {
-        Self {
-            patterns: Vec::with_capacity(max_size),
-            max_size,
-            position: 0,
-        }
+        Self { patterns: Vec::with_capacity(max_size), max_size, position: 0 }
     }
 
     /// Add a pattern to the prefetch buffer
-    pub fn add_pattern(&mut self, square: u8, piece_type: PieceType, occupied: Bitboard, attacks: Bitboard) {
+    pub fn add_pattern(
+        &mut self,
+        square: u8,
+        piece_type: PieceType,
+        occupied: Bitboard,
+        attacks: Bitboard,
+    ) {
         if self.patterns.len() < self.max_size {
             self.patterns.push((square, piece_type, occupied, attacks));
         } else {
@@ -408,8 +398,14 @@ impl PrefetchBuffer {
     }
 
     /// Get a prefetched pattern
-    pub fn get_pattern(&self, square: u8, piece_type: PieceType, occupied: Bitboard) -> Option<Bitboard> {
-        self.patterns.iter()
+    pub fn get_pattern(
+        &self,
+        square: u8,
+        piece_type: PieceType,
+        occupied: Bitboard,
+    ) -> Option<Bitboard> {
+        self.patterns
+            .iter()
             .find(|(s, pt, occ, _)| *s == square && *pt == piece_type && *occ == occupied)
             .map(|(_, _, _, attacks)| *attacks)
     }
@@ -435,8 +431,14 @@ impl RayCaster {
     pub fn new() -> Self {
         Self {
             directions: vec![
-                (0, 1), (0, -1), (1, 0), (-1, 0),  // Rook directions
-                (1, 1), (1, -1), (-1, 1), (-1, -1), // Bishop directions
+                (0, 1),
+                (0, -1),
+                (1, 0),
+                (-1, 0), // Rook directions
+                (1, 1),
+                (1, -1),
+                (-1, 1),
+                (-1, -1), // Bishop directions
             ],
             board_size: (9, 9), // Shogi board size
         }
@@ -450,7 +452,7 @@ impl RayCaster {
         let directions = match piece_type {
             PieceType::Rook => &self.directions[0..4], // Rook directions
             PieceType::Bishop => &self.directions[4..8], // Bishop directions
-            _ => return Bitboard::default(), // Only rook and bishop are sliding pieces
+            _ => return Bitboard::default(),           // Only rook and bishop are sliding pieces
         };
 
         for &(dr, dc) in directions {
@@ -493,7 +495,6 @@ pub struct DetailedMetrics {
     pub fallback_lookups: u64,
     pub simd_enabled: bool,
 }
-
 
 /// Prefetch buffer for next likely accesses
 #[derive(Debug, Clone)]
@@ -548,10 +549,10 @@ mod tests {
     #[test]
     fn test_lookup_cache_insert_get() {
         let mut cache = LookupCache::new(1024);
-        
+
         cache.insert(0, Bitboard::from_u128(0b101), Bitboard::from_u128(0b111));
         let result = cache.get(0, Bitboard::from_u128(0b101));
-        
+
         assert_eq!(result, Some(Bitboard::from_u128(0b111)));
     }
 
@@ -559,7 +560,7 @@ mod tests {
     fn test_lookup_cache_miss() {
         let cache = LookupCache::new(1024);
         let result = cache.get(0, Bitboard::from_u128(0b101));
-        
+
         assert_eq!(result, None);
     }
 
@@ -568,7 +569,7 @@ mod tests {
         let mut cache = LookupCache::new(1024);
         cache.insert(0, Bitboard::from_u128(0b101), Bitboard::from_u128(0b111));
         cache.clear();
-        
+
         let result = cache.get(0, Bitboard::from_u128(0b101));
         assert_eq!(result, None);
     }
@@ -578,7 +579,7 @@ mod tests {
         let mut cache = LookupCache::new(1024);
         cache.insert(0, Bitboard::from_u128(0b101), Bitboard::from_u128(0b111));
         cache.insert(1, Bitboard::from_u128(0b110), Bitboard::from_u128(0b111));
-        
+
         let stats = cache.stats();
         assert_eq!(stats.used_entries, 2);
         assert!(stats.utilization_percentage > 0.0);
@@ -587,25 +588,46 @@ mod tests {
     #[test]
     fn test_prefetch_buffer() {
         let mut buffer = PrefetchBuffer::new(4);
-        
+
         // Add patterns
-        buffer.add_pattern(0, PieceType::Rook, Bitboard::from_u128(0b101), Bitboard::from_u128(0b111));
-        buffer.add_pattern(1, PieceType::Bishop, Bitboard::from_u128(0b110), Bitboard::from_u128(0b111));
-        
+        buffer.add_pattern(
+            0,
+            PieceType::Rook,
+            Bitboard::from_u128(0b101),
+            Bitboard::from_u128(0b111),
+        );
+        buffer.add_pattern(
+            1,
+            PieceType::Bishop,
+            Bitboard::from_u128(0b110),
+            Bitboard::from_u128(0b111),
+        );
+
         // Test retrieval
-        assert_eq!(buffer.get_pattern(0, PieceType::Rook, Bitboard::from_u128(0b101)), Some(Bitboard::from_u128(0b111)));
-        assert_eq!(buffer.get_pattern(1, PieceType::Bishop, Bitboard::from_u128(0b110)), Some(Bitboard::from_u128(0b111)));
+        assert_eq!(
+            buffer.get_pattern(0, PieceType::Rook, Bitboard::from_u128(0b101)),
+            Some(Bitboard::from_u128(0b111))
+        );
+        assert_eq!(
+            buffer.get_pattern(1, PieceType::Bishop, Bitboard::from_u128(0b110)),
+            Some(Bitboard::from_u128(0b111))
+        );
         assert_eq!(buffer.get_pattern(0, PieceType::Bishop, Bitboard::from_u128(0b101)), None);
-        
+
         // Test circular buffer behavior
         for i in 2..8 {
-            buffer.add_pattern(i, PieceType::Rook, Bitboard::from_u128(0b101), Bitboard::from_u128(0b111));
+            buffer.add_pattern(
+                i,
+                PieceType::Rook,
+                Bitboard::from_u128(0b101),
+                Bitboard::from_u128(0b111),
+            );
         }
-        
+
         // First two should be overwritten
         assert_eq!(buffer.get_pattern(0, PieceType::Rook, Bitboard::from_u128(0b101)), None);
         assert_eq!(buffer.get_pattern(1, PieceType::Bishop, Bitboard::from_u128(0b110)), None);
-        
+
         // Test stats
         let stats = buffer.stats();
         assert_eq!(stats.total_capacity, 4);
@@ -616,15 +638,15 @@ mod tests {
     #[test]
     fn test_ray_caster() {
         let caster = RayCaster::new();
-        
+
         // Test rook ray casting from center square (40)
         let attacks = caster.cast_rays(40, PieceType::Rook, Bitboard::default());
         assert!(!attacks.is_empty());
-        
+
         // Test bishop ray casting
         let attacks = caster.cast_rays(40, PieceType::Bishop, Bitboard::default());
         assert!(!attacks.is_empty());
-        
+
         // Test with occupied squares
         let occupied = Bitboard::from_u128(1u128 << 41); // Block one direction
         let attacks = caster.cast_rays(40, PieceType::Rook, occupied);
@@ -634,13 +656,13 @@ mod tests {
     #[test]
     fn test_lookup_engine_batch() {
         use crate::types::MagicTable;
-        
+
         let magic_table = MagicTable::default();
         let mut engine = LookupEngine::new(magic_table);
-        
+
         let squares = [0, 1, 2, 3];
         let result = engine.get_attacks_batch(&squares, PieceType::Rook, Bitboard::default());
-        
+
         assert_eq!(result.attacks.len(), 4);
         assert!(result.total_time.as_nanos() > 0);
     }
@@ -648,13 +670,13 @@ mod tests {
     #[test]
     fn test_lookup_engine_prefetch() {
         use crate::types::MagicTable;
-        
+
         let magic_table = MagicTable::default();
         let mut engine = LookupEngine::new(magic_table);
-        
+
         // Test prefetching
         engine.prefetch_common_patterns(PieceType::Rook, Bitboard::default());
-        
+
         // Test SIMD settings
         assert!(engine.is_simd_enabled() || !engine.is_simd_enabled());
         engine.set_simd_enabled(false);
@@ -664,10 +686,10 @@ mod tests {
     #[test]
     fn test_lookup_engine_fallback() {
         use crate::types::MagicTable;
-        
+
         let magic_table = MagicTable::default();
         let mut engine = LookupEngine::new(magic_table);
-        
+
         // Test fallback lookup
         let attacks = engine.get_attacks_with_fallback(40, PieceType::Rook, Bitboard::default());
         assert!(!attacks.is_empty());
@@ -676,10 +698,10 @@ mod tests {
     #[test]
     fn test_detailed_metrics() {
         use crate::types::MagicTable;
-        
+
         let magic_table = MagicTable::default();
         let engine = LookupEngine::new(magic_table);
-        
+
         let metrics = engine.get_detailed_metrics();
         assert_eq!(metrics.total_lookups, 0);
         assert_eq!(metrics.fallback_lookups, 0);
@@ -688,16 +710,16 @@ mod tests {
     #[test]
     fn test_lookup_engine_reset() {
         use crate::types::MagicTable;
-        
+
         let magic_table = MagicTable::default();
         let mut engine = LookupEngine::new(magic_table);
-        
+
         // Perform some operations
         engine.get_attacks(0, PieceType::Rook, Bitboard::default());
-        
+
         // Reset all
         engine.reset_all();
-        
+
         // Verify reset
         let metrics = engine.get_detailed_metrics();
         assert_eq!(metrics.total_lookups, 0);

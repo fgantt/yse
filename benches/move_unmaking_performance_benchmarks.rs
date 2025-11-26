@@ -159,9 +159,7 @@ fn bench_move_types_unmake(c: &mut Criterion) {
     let moves = move_generator.generate_legal_moves(&board, player, &captured);
 
     // Normal moves
-    let normal_move = moves
-        .iter()
-        .find(|m| !m.is_capture && !m.is_promotion && m.from.is_some());
+    let normal_move = moves.iter().find(|m| !m.is_capture && !m.is_promotion && m.from.is_some());
     if let Some(move_) = normal_move {
         group.bench_function("normal_move", |b| {
             b.iter(|| {

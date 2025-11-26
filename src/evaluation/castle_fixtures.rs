@@ -174,34 +174,10 @@ fn mino_canonical(player: Player) -> (BitboardBoard, Position) {
     let king_pos = Position::new(king_row, 4);
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, 0),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Silver,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -1),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 1),
-        PieceType::Pawn,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, 0), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Silver);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -1), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 1), PieceType::Pawn);
 
     (board, king_pos)
 }
@@ -213,41 +189,11 @@ fn anaguma_canonical(player: Player) -> (BitboardBoard, Position) {
     let king_pos = Position::new(king_row, 2);
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, -1),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, 0),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -1),
-        PieceType::Silver,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -2),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Pawn,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, -1), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, 0), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -1), PieceType::Silver);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -2), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Pawn);
 
     (board, king_pos)
 }
@@ -259,41 +205,11 @@ fn yagura_canonical(player: Player) -> (BitboardBoard, Position) {
     let king_pos = Position::new(king_row, 4);
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, -1),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -1),
-        PieceType::Silver,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -2),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(0, 3),
-        PieceType::Lance,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, -1), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -1), PieceType::Silver);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -2), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(0, 3), PieceType::Lance);
 
     (board, king_pos)
 }
@@ -305,34 +221,10 @@ fn mino_mirrored_left(player: Player) -> (BitboardBoard, Position) {
     let king_pos = Position::new(king_row, 2);
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, 0),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Silver,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -1),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 1),
-        PieceType::Pawn,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, 0), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Silver);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -1), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 1), PieceType::Pawn);
 
     (board, king_pos)
 }
@@ -344,34 +236,10 @@ fn mino_mirrored_right(player: Player) -> (BitboardBoard, Position) {
     let king_pos = Position::new(king_row, 6);
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, 0),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Silver,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -1),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 1),
-        PieceType::Pawn,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, 0), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Silver);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -1), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 1), PieceType::Pawn);
 
     (board, king_pos)
 }
@@ -383,41 +251,11 @@ fn anaguma_mirrored_left(player: Player) -> (BitboardBoard, Position) {
     let king_pos = Position::new(king_row, 1);
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, -1),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, 0),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -1),
-        PieceType::Silver,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -2),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Pawn,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, -1), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, 0), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -1), PieceType::Silver);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -2), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Pawn);
 
     (board, king_pos)
 }
@@ -429,41 +267,11 @@ fn anaguma_mirrored_right(player: Player) -> (BitboardBoard, Position) {
     let king_pos = Position::new(king_row, 7);
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, 0),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, 1),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 1),
-        PieceType::Silver,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 2),
-        PieceType::Pawn,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, 0), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, 1), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 1), PieceType::Silver);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 2), PieceType::Pawn);
 
     (board, king_pos)
 }
@@ -475,28 +283,10 @@ fn mino_partial_missing_silver(player: Player) -> (BitboardBoard, Position) {
     let king_pos = Position::new(king_row, 4);
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, 0),
-        PieceType::Gold,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, 0), PieceType::Gold);
     // Missing silver
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -1),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 1),
-        PieceType::Pawn,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -1), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 1), PieceType::Pawn);
 
     (board, king_pos)
 }
@@ -508,20 +298,8 @@ fn mino_partial_missing_pawns(player: Player) -> (BitboardBoard, Position) {
     let king_pos = Position::new(king_row, 4);
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, 0),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Silver,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, 0), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Silver);
     // Missing pawns
 
     (board, king_pos)
@@ -534,35 +312,11 @@ fn anaguma_partial_missing_gold(player: Player) -> (BitboardBoard, Position) {
     let king_pos = Position::new(king_row, 2);
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, -1),
-        PieceType::Gold,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, -1), PieceType::Gold);
     // Missing one gold
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -1),
-        PieceType::Silver,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -2),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Pawn,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -1), PieceType::Silver);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -2), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Pawn);
 
     (board, king_pos)
 }
@@ -574,28 +328,10 @@ fn mino_broken_breached_wall(player: Player) -> (BitboardBoard, Position) {
     let king_pos = Position::new(king_row, 4);
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, 0),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Silver,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, 0), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Silver);
     // Only one pawn (breached wall)
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -1),
-        PieceType::Pawn,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -1), PieceType::Pawn);
 
     (board, king_pos)
 }
@@ -607,21 +343,9 @@ fn anaguma_broken_missing_defenders(player: Player) -> (BitboardBoard, Position)
     let king_pos = Position::new(king_row, 2);
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, -1),
-        PieceType::Gold,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, -1), PieceType::Gold);
     // Missing gold and silver
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -2),
-        PieceType::Pawn,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -2), PieceType::Pawn);
 
     (board, king_pos)
 }
@@ -634,34 +358,10 @@ fn mino_attacked_rook_file(player: Player) -> (BitboardBoard, Position) {
     let opponent = player.opposite();
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, 0),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Silver,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -1),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 1),
-        PieceType::Pawn,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, 0), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Silver);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -1), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 1), PieceType::Pawn);
 
     // Opponent's rook attacking the file
     let attack_row = if player == Player::Black { 3 } else { 5 };
@@ -678,41 +378,11 @@ fn anaguma_attacked_infiltration(player: Player) -> (BitboardBoard, Position) {
     let opponent = player.opposite();
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, -1),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, 0),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -1),
-        PieceType::Silver,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -2),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Pawn,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, -1), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, 0), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -1), PieceType::Silver);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -2), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Pawn);
 
     // Opponent piece infiltrating the king zone
     let infil_row = if player == Player::Black { 7 } else { 1 };
@@ -729,41 +399,11 @@ fn yagura_attacked_mating_net(player: Player) -> (BitboardBoard, Position) {
     let opponent = player.opposite();
 
     board.place_piece(Piece::new(PieceType::King, player), king_pos);
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-1, -1),
-        PieceType::Gold,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -1),
-        PieceType::Silver,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, -2),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(-2, 0),
-        PieceType::Pawn,
-    );
-    place_relative(
-        &mut board,
-        player,
-        king_pos,
-        RelativeOffset::new(0, 3),
-        PieceType::Lance,
-    );
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-1, -1), PieceType::Gold);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -1), PieceType::Silver);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, -2), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(-2, 0), PieceType::Pawn);
+    place_relative(&mut board, player, king_pos, RelativeOffset::new(0, 3), PieceType::Lance);
 
     // Opponent pieces creating mating net
     let attack_row = if player == Player::Black { 4 } else { 4 };

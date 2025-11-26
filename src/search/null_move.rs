@@ -9,7 +9,7 @@
 use crate::bitboards::BitboardBoard;
 use crate::types::board::CapturedPieces;
 use crate::types::core::Player;
-use crate::types::search::{NullMoveConfig, NullMoveStats, NullMoveReductionStrategy};
+use crate::types::search::{NullMoveConfig, NullMoveReductionStrategy, NullMoveStats};
 
 /// Null-move pruning helper functions
 pub struct NullMoveHelper {
@@ -20,10 +20,7 @@ pub struct NullMoveHelper {
 impl NullMoveHelper {
     /// Create a new NullMoveHelper with the given configuration
     pub fn new(config: NullMoveConfig) -> Self {
-        Self {
-            config,
-            stats: NullMoveStats::default(),
-        }
+        Self { config, stats: NullMoveStats::default() }
     }
 
     /// Check if null move pruning should be attempted
@@ -102,11 +99,7 @@ impl NullMoveHelper {
             NullMoveReductionStrategy::Dynamic => {
                 // Dynamic reduction: adjust based on depth
                 let base = self.config.reduction_factor as i32;
-                let depth_bonus = if depth > 6 {
-                    ((depth - 6) as i32) / 2
-                } else {
-                    0
-                };
+                let depth_bonus = if depth > 6 { ((depth - 6) as i32) / 2 } else { 0 };
                 // Cap at reasonable maximum (reduction_factor * 2)
                 ((base + depth_bonus) as u8).min(self.config.reduction_factor * 2)
             }
@@ -164,8 +157,7 @@ impl NullMoveHelper {
 
         // Verification is needed if null move failed (score < beta) but is close to beta
         // i.e., beta - null_move_score <= verification_margin
-        null_move_score < beta
-            && (beta - null_move_score) <= self.config.verification_margin
+        null_move_score < beta && (beta - null_move_score) <= self.config.verification_margin
     }
 
     /// Check if a score indicates a potential mate threat
@@ -306,15 +298,12 @@ mod tests {
 
     #[test]
     fn test_verification_check() {
-        let config = NullMoveConfig {
-            verification_margin: 100,
-            ..NullMoveConfig::default()
-        };
+        let config = NullMoveConfig { verification_margin: 100, ..NullMoveConfig::default() };
         let helper = NullMoveHelper::new(config);
-        
+
         // Score close to beta should trigger verification
         assert!(helper.should_perform_verification(1900, 2000)); // 100 margin
-        // Score far from beta should not trigger verification
+                                                                 // Score far from beta should not trigger verification
         assert!(!helper.should_perform_verification(1500, 2000)); // 500 margin
     }
 
@@ -326,10 +315,10 @@ mod tests {
             ..NullMoveConfig::default()
         };
         let helper = NullMoveHelper::new(config);
-        
+
         // Score close to beta should indicate mate threat
         assert!(helper.is_mate_threat_score(1900, 2000)); // 100 away
-        // Score far from beta should not indicate mate threat
+                                                          // Score far from beta should not indicate mate threat
         assert!(!helper.is_mate_threat_score(1500, 2000)); // 500 away
     }
 
@@ -337,12 +326,8 @@ mod tests {
     fn test_config_update() {
         let config = NullMoveConfig::default();
         let mut helper = NullMoveHelper::new(config);
-        let new_config = NullMoveConfig {
-            min_depth: 4,
-            ..NullMoveConfig::default()
-        };
+        let new_config = NullMoveConfig { min_depth: 4, ..NullMoveConfig::default() };
         helper.update_config(new_config);
         assert_eq!(helper.get_config().min_depth, 4);
     }
 }
-

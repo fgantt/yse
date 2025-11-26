@@ -20,14 +20,7 @@ fn create_benchmark_move(
     piece_type: PieceType,
     player: Player,
 ) -> Move {
-    Move {
-        from,
-        to,
-        piece_type,
-        player,
-        promotion: false,
-        drop: from.is_none(),
-    }
+    Move { from, to, piece_type, player, promotion: false, drop: from.is_none() }
 }
 
 /// Generate a set of test moves for benchmarking
@@ -53,11 +46,7 @@ fn generate_test_moves(count: usize) -> Vec<Move> {
             Some(from),
             to,
             piece_type,
-            if i % 2 == 0 {
-                Player::Black
-            } else {
-                Player::White
-            },
+            if i % 2 == 0 { Player::Black } else { Player::White },
         ));
     }
 
@@ -195,23 +184,19 @@ fn benchmark_configuration_application(c: &mut Criterion) {
     ];
 
     for (name, config) in configs {
-        group.bench_with_input(
-            BenchmarkId::new("apply_config", name),
-            &config,
-            |b, config| {
-                let mut orderer = MoveOrdering::new();
+        group.bench_with_input(BenchmarkId::new("apply_config", name), &config, |b, config| {
+            let mut orderer = MoveOrdering::new();
 
-                // Pre-populate with data
-                let moves = generate_test_moves(100);
-                for move_ in &moves {
-                    orderer.score_move(move_);
-                }
+            // Pre-populate with data
+            let moves = generate_test_moves(100);
+            for move_ in &moves {
+                orderer.score_move(move_);
+            }
 
-                b.iter(|| {
-                    black_box(orderer.set_config(config.clone()));
-                });
-            },
-        );
+            b.iter(|| {
+                black_box(orderer.set_config(config.clone()));
+            });
+        });
     }
 
     group.finish();
@@ -402,18 +387,14 @@ fn benchmark_move_ordering_with_specialized_configs(c: &mut Criterion) {
     ];
 
     for (name, config) in configs {
-        group.bench_with_input(
-            BenchmarkId::new("full_ordering", name),
-            &config,
-            |b, config| {
-                let mut orderer = MoveOrdering::with_config(config.clone());
-                let moves = generate_test_moves(100);
+        group.bench_with_input(BenchmarkId::new("full_ordering", name), &config, |b, config| {
+            let mut orderer = MoveOrdering::with_config(config.clone());
+            let moves = generate_test_moves(100);
 
-                b.iter(|| {
-                    black_box(orderer.order_moves(&moves));
-                });
-            },
-        );
+            b.iter(|| {
+                black_box(orderer.order_moves(&moves));
+            });
+        });
     }
 
     group.finish();

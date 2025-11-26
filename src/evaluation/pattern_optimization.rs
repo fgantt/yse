@@ -76,9 +76,7 @@ impl OptimizedPatternDetector {
                 if let Some(piece) = board.get_piece(pos) {
                     if piece.player == player {
                         // Check if piece attacks 2+ enemy pieces
-                        let attacks = self
-                            .attack_tables
-                            .get_attacks(pos, piece.piece_type, player);
+                        let attacks = self.attack_tables.get_attacks(pos, piece.piece_type, player);
                         let enemy_count = attacks
                             .iter()
                             .filter(|&&attack_pos| {
@@ -163,9 +161,7 @@ struct AttackLookupTables {
 
 impl AttackLookupTables {
     fn new() -> Self {
-        let mut tables = Self {
-            cache: HashMap::new(),
-        };
+        let mut tables = Self { cache: HashMap::new() };
         tables.initialize();
         tables
     }
@@ -227,9 +223,7 @@ struct PatternLookupTables {
 
 impl PatternLookupTables {
     fn new() -> Self {
-        Self {
-            king_safety_patterns: HashMap::new(),
-        }
+        Self { king_safety_patterns: HashMap::new() }
     }
 }
 

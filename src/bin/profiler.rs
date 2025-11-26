@@ -111,10 +111,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Note: SFEN parsing is not implemented yet in engine utilities.
     // We keep API parity with other tools: accept --position but use startpos for now.
-    let position = cli
-        .position
-        .clone()
-        .unwrap_or_else(|| "startpos".to_string());
+    let position = cli.position.clone().unwrap_or_else(|| "startpos".to_string());
 
     // Reset global counters before profiling
     GLOBAL_NODES_SEARCHED.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -133,11 +130,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Capture metrics
     let nodes = GLOBAL_NODES_SEARCHED.load(std::sync::atomic::Ordering::Relaxed);
-    let nps = if elapsed_ms > 0 {
-        nodes.saturating_mul(1000) / elapsed_ms
-    } else {
-        0
-    };
+    let nps = if elapsed_ms > 0 { nodes.saturating_mul(1000) / elapsed_ms } else { 0 };
     let m = snapshot_tt_ybwc_metrics();
 
     let cache_hit_rate = if m.tt_try_reads > 0 {
@@ -214,11 +207,7 @@ fn compare_reports(file1: &PathBuf, file2: &PathBuf) -> Result<(), Box<dyn std::
     let r1: ProfilerReport = serde_json::from_slice(&std::fs::read(file1)?)?;
     let r2: ProfilerReport = serde_json::from_slice(&std::fs::read(file2)?)?;
 
-    println!(
-        "Comparing profiles:\n  A: {}\n  B: {}",
-        file1.display(),
-        file2.display()
-    );
+    println!("Comparing profiles:\n  A: {}\n  B: {}", file1.display(), file2.display());
     println!("================================================");
     println!(
         "Time (ms):       {:>10}  -> {:>10}  ({:+})",

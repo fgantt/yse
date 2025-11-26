@@ -74,28 +74,24 @@ fn benchmark_mate_threat_detection_overhead(c: &mut Criterion) {
         );
 
         // Benchmark with mate threat detection enabled
-        group.bench_with_input(
-            BenchmarkId::new("with_mate_threat", depth),
-            &depth,
-            |b, &depth| {
-                b.iter(|| {
-                    let mut engine = create_test_engine_with_mate_threat_detection();
-                    engine.reset_null_move_stats();
+        group.bench_with_input(BenchmarkId::new("with_mate_threat", depth), &depth, |b, &depth| {
+            b.iter(|| {
+                let mut engine = create_test_engine_with_mate_threat_detection();
+                engine.reset_null_move_stats();
 
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        depth,
-                        1000,
-                    );
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    depth,
+                    1000,
+                );
 
-                    let stats = engine.get_null_move_stats().clone();
-                    black_box((result, stats))
-                });
-            },
-        );
+                let stats = engine.get_null_move_stats().clone();
+                black_box((result, stats))
+            });
+        });
     }
 
     group.finish();

@@ -23,5 +23,3 @@ mod tests {
         assert_eq!(clamp_i32(3, 0, 5), 3);
     }
 }
-
-

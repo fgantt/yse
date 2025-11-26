@@ -19,14 +19,7 @@ mod move_scoring_integration_tests {
         piece_type: PieceType,
         player: Player,
     ) -> Move {
-        Move {
-            from,
-            to,
-            piece_type,
-            player,
-            promotion: false,
-            drop: from.is_none(),
-        }
+        Move { from, to, piece_type, player, promotion: false, drop: from.is_none() }
     }
 
     /// Test comprehensive move scoring integration
@@ -114,16 +107,8 @@ mod move_scoring_integration_tests {
         }
 
         // More valuable pieces should generally score higher
-        let king_score = scores
-            .iter()
-            .find(|(pt, _)| *pt == PieceType::King)
-            .unwrap()
-            .1;
-        let pawn_score = scores
-            .iter()
-            .find(|(pt, _)| *pt == PieceType::Pawn)
-            .unwrap()
-            .1;
+        let king_score = scores.iter().find(|(pt, _)| *pt == PieceType::King).unwrap().1;
+        let pawn_score = scores.iter().find(|(pt, _)| *pt == PieceType::Pawn).unwrap().1;
         assert!(king_score > pawn_score);
     }
 
@@ -154,24 +139,12 @@ mod move_scoring_integration_tests {
 
         // All scores should be positive
         for (position, score) in &scores {
-            assert!(
-                score > &0,
-                "Score for position {:?} should be positive",
-                position
-            );
+            assert!(score > &0, "Score for position {:?} should be positive", position);
         }
 
         // Center positions should generally score higher
-        let center_score = scores
-            .iter()
-            .find(|(pos, _)| pos.row == 4 && pos.col == 4)
-            .unwrap()
-            .1;
-        let corner_score = scores
-            .iter()
-            .find(|(pos, _)| pos.row == 0 && pos.col == 0)
-            .unwrap()
-            .1;
+        let center_score = scores.iter().find(|(pos, _)| pos.row == 4 && pos.col == 4).unwrap().1;
+        let corner_score = scores.iter().find(|(pos, _)| pos.row == 0 && pos.col == 0).unwrap().1;
         assert!(center_score > corner_score);
     }
 
@@ -318,14 +291,7 @@ mod move_scoring_integration_tests {
         let depth = 3;
 
         // Store PV move
-        orderer.update_pv_move(
-            &board,
-            &captured_pieces,
-            player,
-            depth,
-            pv_move.clone(),
-            100,
-        );
+        orderer.update_pv_move(&board, &captured_pieces, player, depth, pv_move.clone(), 100);
 
         // Test scoring with all heuristics
         // Task 3.0: Updated calls to include IID move parameter (None for tests)

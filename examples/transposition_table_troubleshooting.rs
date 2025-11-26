@@ -135,10 +135,7 @@ fn demonstrate_memory_issues() {
 
     println!("  Large table configuration:");
     println!("    Table size: {}", large_config.table_size);
-    println!(
-        "    Estimated memory: ~{} MB",
-        large_config.table_size * 16 / (1024 * 1024)
-    );
+    println!("    Estimated memory: ~{} MB", large_config.table_size * 16 / (1024 * 1024));
 
     // Solutions
     println!("  Solutions:");
@@ -151,10 +148,7 @@ fn demonstrate_memory_issues() {
     let memory_config = TranspositionConfig::memory_optimized();
     println!("  Memory-optimized configuration:");
     println!("    Table size: {}", memory_config.table_size);
-    println!(
-        "    Estimated memory: ~{} MB",
-        memory_config.table_size * 16 / (1024 * 1024)
-    );
+    println!("    Estimated memory: ~{} MB", memory_config.table_size * 16 / (1024 * 1024));
 }
 
 fn demonstrate_performance_issues() {
@@ -198,10 +192,7 @@ fn demonstrate_performance_issues() {
     let perf_duration = perf_start.elapsed();
     let perf_avg_time_us = perf_duration.as_micros() as f64 / iterations as f64;
 
-    println!(
-        "  Improved performance: {:.2}μs/operation",
-        perf_avg_time_us
-    );
+    println!("  Improved performance: {:.2}μs/operation", perf_avg_time_us);
     println!(
         "  Performance improvement: {:.1}%",
         ((avg_time_us - perf_avg_time_us) / avg_time_us) * 100.0
@@ -272,16 +263,8 @@ fn demonstrate_move_ordering_issues() {
         });
     }
 
-    let ordered_moves = orderer.order_moves(
-        &moves,
-        &board,
-        &captured,
-        Player::Black,
-        3,
-        -1000,
-        1000,
-        None,
-    );
+    let ordered_moves =
+        orderer.order_moves(&moves, &board, &captured, Player::Black, 3, -1000, 1000, None);
 
     println!("  Move ordering results:");
     println!("    Original moves: {}", moves.len());
@@ -326,16 +309,8 @@ fn demonstrate_move_ordering_issues() {
 
     println!("  After proper setup:");
     orderer.reset_stats();
-    let _ordered_with_tt = orderer.order_moves(
-        &moves,
-        &board,
-        &captured,
-        Player::Black,
-        3,
-        -1000,
-        1000,
-        None,
-    );
+    let _ordered_with_tt =
+        orderer.order_moves(&moves, &board, &captured, Player::Black, 3, -1000, 1000, None);
     let hints_after = orderer.get_move_ordering_hints(&board, &captured, Player::Black, 3);
     println!("    TT best move: {:?}", hints_after.best_move);
     println!("    TT depth: {}", hints_after.tt_depth);

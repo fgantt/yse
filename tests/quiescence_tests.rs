@@ -85,22 +85,13 @@ mod quiescence_tests {
         assert!(valid_config.validate().is_ok());
 
         // Test invalid configurations
-        let invalid_depth = QuiescenceConfig {
-            max_depth: 0,
-            ..valid_config.clone()
-        };
+        let invalid_depth = QuiescenceConfig { max_depth: 0, ..valid_config.clone() };
         assert!(invalid_depth.validate().is_err());
 
-        let invalid_margin = QuiescenceConfig {
-            futility_margin: -100,
-            ..valid_config.clone()
-        };
+        let invalid_margin = QuiescenceConfig { futility_margin: -100, ..valid_config.clone() };
         assert!(invalid_margin.validate().is_err());
 
-        let invalid_tt_size = QuiescenceConfig {
-            tt_size_mb: 0,
-            ..valid_config.clone()
-        };
+        let invalid_tt_size = QuiescenceConfig { tt_size_mb: 0, ..valid_config.clone() };
         assert!(invalid_tt_size.validate().is_err());
     }
 
@@ -1006,10 +997,7 @@ mod quiescence_tests {
 
         // Test default configuration has depth-preferred policy
         let default_config = QuiescenceConfig::default();
-        assert_eq!(
-            default_config.tt_replacement_policy,
-            TTReplacementPolicy::DepthPreferred
-        );
+        assert_eq!(default_config.tt_replacement_policy, TTReplacementPolicy::DepthPreferred);
 
         // Test configuration update
         let mut config = QuiescenceConfig::default();
@@ -1017,10 +1005,7 @@ mod quiescence_tests {
         engine.update_quiescence_config(config.clone());
 
         let current_config = engine.get_quiescence_config();
-        assert_eq!(
-            current_config.tt_replacement_policy,
-            TTReplacementPolicy::LRU
-        );
+        assert_eq!(current_config.tt_replacement_policy, TTReplacementPolicy::LRU);
 
         // Test all policies
         for policy in [
@@ -1395,19 +1380,13 @@ mod quiescence_tests {
         );
 
         // Results should be identical (deterministic)
-        assert_eq!(
-            result1, result2,
-            "Quiescence search should be deterministic"
-        );
+        assert_eq!(result1, result2, "Quiescence search should be deterministic");
 
         // Verify quiescence search works correctly with null-move pruning enabled
         // The fact that quiescence search completes successfully demonstrates
         // that it correctly handles positions regardless of null-move pruning state
         let stats = engine.get_quiescence_stats();
-        assert!(
-            stats.nodes_searched > 0,
-            "Quiescence search should have searched nodes"
-        );
+        assert!(stats.nodes_searched > 0, "Quiescence search should have searched nodes");
     }
 
     /// Task 10.2: Verify quiescence search is called correctly from main search after null-move pruning
@@ -1441,17 +1420,11 @@ mod quiescence_tests {
         );
 
         // Verify search completed successfully
-        assert!(
-            result > -10000 && result < 10000,
-            "Search should return a valid score"
-        );
+        assert!(result > -10000 && result < 10000, "Search should return a valid score");
 
         // Verify quiescence search was called (nodes_searched > 0)
         let quiescence_stats = engine.get_quiescence_stats();
-        assert!(
-            quiescence_stats.nodes_searched > 0,
-            "Quiescence search should have been called"
-        );
+        assert!(quiescence_stats.nodes_searched > 0, "Quiescence search should have been called");
     }
 
     #[test]

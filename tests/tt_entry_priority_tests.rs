@@ -51,10 +51,7 @@ mod tt_priority_tests {
             "TT auxiliary overwrites prevented: {}",
             metrics.tt_auxiliary_overwrites_prevented
         );
-        println!(
-            "TT main entries preserved: {}",
-            metrics.tt_main_entries_preserved
-        );
+        println!("TT main entries preserved: {}", metrics.tt_main_entries_preserved);
         println!("Total TT probes: {}", metrics.total_tt_probes);
         println!("Total TT hits: {}", metrics.total_tt_hits);
 
@@ -91,10 +88,7 @@ mod tt_priority_tests {
             "TT auxiliary overwrites prevented: {}",
             metrics.tt_auxiliary_overwrites_prevented
         );
-        println!(
-            "TT main entries preserved: {}",
-            metrics.tt_main_entries_preserved
-        );
+        println!("TT main entries preserved: {}", metrics.tt_main_entries_preserved);
 
         // The system should have prevented at least some overwrites if IID ran
         assert!(metrics.tt_auxiliary_overwrites_prevented >= 0);
@@ -139,14 +133,8 @@ mod tt_priority_tests {
 
         println!("=== TT Priority System Effectiveness ===");
         println!("TT hit rate: {:.2}%", hit_rate);
-        println!(
-            "Auxiliary overwrites prevented: {}",
-            metrics.tt_auxiliary_overwrites_prevented
-        );
-        println!(
-            "Main entries preserved: {}",
-            metrics.tt_main_entries_preserved
-        );
+        println!("Auxiliary overwrites prevented: {}", metrics.tt_auxiliary_overwrites_prevented);
+        println!("Main entries preserved: {}", metrics.tt_main_entries_preserved);
         println!("Total probes: {}", metrics.total_tt_probes);
         println!("Total hits: {}", metrics.total_tt_hits);
 
@@ -181,10 +169,7 @@ mod tt_priority_tests {
         let metrics = engine.get_core_search_metrics();
 
         println!("Search completed, metrics recorded");
-        println!(
-            "Auxiliary overwrites prevented: {}",
-            metrics.tt_auxiliary_overwrites_prevented
-        );
+        println!("Auxiliary overwrites prevented: {}", metrics.tt_auxiliary_overwrites_prevented);
 
         // Test passes if no panics occur - main entries should be able to overwrite auxiliary
         assert!(true);

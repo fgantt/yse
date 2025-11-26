@@ -194,17 +194,11 @@ fn benchmark_extension_effectiveness(c: &mut Criterion) {
     let configs = vec![
         (
             "no_extensions",
-            QuiescenceConfig {
-                enable_selective_extensions: false,
-                ..QuiescenceConfig::default()
-            },
+            QuiescenceConfig { enable_selective_extensions: false, ..QuiescenceConfig::default() },
         ),
         (
             "with_extensions",
-            QuiescenceConfig {
-                enable_selective_extensions: true,
-                ..QuiescenceConfig::default()
-            },
+            QuiescenceConfig { enable_selective_extensions: true, ..QuiescenceConfig::default() },
         ),
     ];
 
@@ -252,20 +246,8 @@ fn benchmark_tt_effectiveness(c: &mut Criterion) {
 
     // Test with and without TT
     let configs = vec![
-        (
-            "no_tt",
-            QuiescenceConfig {
-                enable_tt: false,
-                ..QuiescenceConfig::default()
-            },
-        ),
-        (
-            "with_tt",
-            QuiescenceConfig {
-                enable_tt: true,
-                ..QuiescenceConfig::default()
-            },
-        ),
+        ("no_tt", QuiescenceConfig { enable_tt: false, ..QuiescenceConfig::default() }),
+        ("with_tt", QuiescenceConfig { enable_tt: true, ..QuiescenceConfig::default() }),
     ];
 
     for depth in [3, 4, 5] {
@@ -380,13 +362,7 @@ fn benchmark_move_ordering_effectiveness(c: &mut Criterion) {
     // Test different configurations (move ordering is always enabled, but we can test different configs)
     let configs = vec![
         ("default", QuiescenceConfig::default()),
-        (
-            "with_tt",
-            QuiescenceConfig {
-                enable_tt: true,
-                ..QuiescenceConfig::default()
-            },
-        ),
+        ("with_tt", QuiescenceConfig { enable_tt: true, ..QuiescenceConfig::default() }),
     ];
 
     for depth in [3, 4, 5] {
@@ -443,25 +419,10 @@ fn benchmark_configuration_comparison(c: &mut Criterion) {
         ("default", QuiescenceConfig::default()),
         (
             "adaptive_pruning",
-            QuiescenceConfig {
-                enable_adaptive_pruning: true,
-                ..QuiescenceConfig::default()
-            },
+            QuiescenceConfig { enable_adaptive_pruning: true, ..QuiescenceConfig::default() },
         ),
-        (
-            "high_depth",
-            QuiescenceConfig {
-                max_depth: 8,
-                ..QuiescenceConfig::default()
-            },
-        ),
-        (
-            "low_depth",
-            QuiescenceConfig {
-                max_depth: 3,
-                ..QuiescenceConfig::default()
-            },
-        ),
+        ("high_depth", QuiescenceConfig { max_depth: 8, ..QuiescenceConfig::default() }),
+        ("low_depth", QuiescenceConfig { max_depth: 3, ..QuiescenceConfig::default() }),
         (
             "all_optimizations",
             QuiescenceConfig {
@@ -526,10 +487,7 @@ fn benchmark_tactical_positions(c: &mut Criterion) {
 
     let positions = vec![
         ("starting_position", (board1, captured_pieces1, player1)),
-        (
-            "starting_position_copy",
-            (board2, captured_pieces2, player2),
-        ),
+        ("starting_position_copy", (board2, captured_pieces2, player2)),
     ];
 
     for depth in [3, 4, 5] {
@@ -613,20 +571,8 @@ fn benchmark_stand_pat_caching(c: &mut Criterion) {
 
     // Test with and without TT (stand-pat caching requires TT)
     let configs = vec![
-        (
-            "no_tt",
-            QuiescenceConfig {
-                enable_tt: false,
-                ..QuiescenceConfig::default()
-            },
-        ),
-        (
-            "with_tt",
-            QuiescenceConfig {
-                enable_tt: true,
-                ..QuiescenceConfig::default()
-            },
-        ),
+        ("no_tt", QuiescenceConfig { enable_tt: false, ..QuiescenceConfig::default() }),
+        ("with_tt", QuiescenceConfig { enable_tt: true, ..QuiescenceConfig::default() }),
     ];
 
     for depth in [3, 4, 5] {

@@ -43,7 +43,12 @@ pub trait TranspositionTableTrait {
     /// `Some(TranspositionEntry)` if a valid entry is found, `None` otherwise
     ///
     /// # Task 3.0 (Task 3.21)
-    fn probe_with_prefetch(&self, hash_key: u64, depth: u8, _next_hash: Option<u64>) -> Option<TranspositionEntry> {
+    fn probe_with_prefetch(
+        &self,
+        hash_key: u64,
+        depth: u8,
+        _next_hash: Option<u64>,
+    ) -> Option<TranspositionEntry> {
         // Default implementation just calls probe - implementations can override for prefetching
         self.probe(hash_key, depth)
     }
@@ -85,7 +90,11 @@ pub trait TranspositionTableTrait {
     /// The number of entries inserted.
     ///
     /// # Task 3.0 (Task 3.21)
-    fn prefill_from_book(&mut self, _book: &mut crate::opening_book::OpeningBook, _depth: u8) -> usize {
+    fn prefill_from_book(
+        &mut self,
+        _book: &mut crate::opening_book::OpeningBook,
+        _depth: u8,
+    ) -> usize {
         0 // Default: no-op
     }
 }
@@ -110,7 +119,11 @@ impl TranspositionTableTrait for RefCell<crate::search::transposition_table::Tra
         self.borrow().get_size()
     }
 
-    fn prefill_from_book(&mut self, book: &mut crate::opening_book::OpeningBook, depth: u8) -> usize {
+    fn prefill_from_book(
+        &mut self,
+        book: &mut crate::opening_book::OpeningBook,
+        depth: u8,
+    ) -> usize {
         self.get_mut().prefill_from_book(book, depth)
     }
 }
@@ -122,9 +135,16 @@ impl TranspositionTableTrait for crate::search::thread_safe_table::ThreadSafeTra
         crate::search::thread_safe_table::ThreadSafeTranspositionTable::probe(self, hash_key, depth)
     }
 
-    fn probe_with_prefetch(&self, hash_key: u64, depth: u8, next_hash: Option<u64>) -> Option<TranspositionEntry> {
+    fn probe_with_prefetch(
+        &self,
+        hash_key: u64,
+        depth: u8,
+        next_hash: Option<u64>,
+    ) -> Option<TranspositionEntry> {
         // ThreadSafeTranspositionTable supports prefetching
-        crate::search::thread_safe_table::ThreadSafeTranspositionTable::probe_with_prefetch(self, hash_key, depth, next_hash)
+        crate::search::thread_safe_table::ThreadSafeTranspositionTable::probe_with_prefetch(
+            self, hash_key, depth, next_hash,
+        )
     }
 
     fn store(&mut self, entry: TranspositionEntry) {
@@ -145,19 +165,32 @@ impl TranspositionTableTrait for crate::search::thread_safe_table::ThreadSafeTra
         crate::search::thread_safe_table::ThreadSafeTranspositionTable::hit_rate(self)
     }
 
-    fn prefill_from_book(&mut self, book: &mut crate::opening_book::OpeningBook, depth: u8) -> usize {
-        crate::search::thread_safe_table::ThreadSafeTranspositionTable::prefill_from_book(self, book, depth)
+    fn prefill_from_book(
+        &mut self,
+        book: &mut crate::opening_book::OpeningBook,
+        depth: u8,
+    ) -> usize {
+        crate::search::thread_safe_table::ThreadSafeTranspositionTable::prefill_from_book(
+            self, book, depth,
+        )
     }
 }
 
 // Also implement the trait for RefCell<ThreadSafeTranspositionTable> for use in factory function
-impl TranspositionTableTrait for RefCell<crate::search::thread_safe_table::ThreadSafeTranspositionTable> {
+impl TranspositionTableTrait
+    for RefCell<crate::search::thread_safe_table::ThreadSafeTranspositionTable>
+{
     fn probe(&self, hash_key: u64, depth: u8) -> Option<TranspositionEntry> {
         // ThreadSafeTranspositionTable uses interior mutability, so we can borrow immutably
         self.borrow().probe(hash_key, depth)
     }
 
-    fn probe_with_prefetch(&self, hash_key: u64, depth: u8, next_hash: Option<u64>) -> Option<TranspositionEntry> {
+    fn probe_with_prefetch(
+        &self,
+        hash_key: u64,
+        depth: u8,
+        next_hash: Option<u64>,
+    ) -> Option<TranspositionEntry> {
         // ThreadSafeTranspositionTable supports prefetching
         self.borrow().probe_with_prefetch(hash_key, depth, next_hash)
     }
@@ -182,7 +215,11 @@ impl TranspositionTableTrait for RefCell<crate::search::thread_safe_table::Threa
         self.borrow().hit_rate()
     }
 
-    fn prefill_from_book(&mut self, book: &mut crate::opening_book::OpeningBook, depth: u8) -> usize {
+    fn prefill_from_book(
+        &mut self,
+        book: &mut crate::opening_book::OpeningBook,
+        depth: u8,
+    ) -> usize {
         // Note: prefill_from_book takes &mut self, but ThreadSafeTranspositionTable uses interior mutability
         // so we can borrow immutably from RefCell, then call the method which takes &mut self on the inner value
         // Actually, ThreadSafeTranspositionTable::prefill_from_book takes &mut self, so we need get_mut()
@@ -193,7 +230,9 @@ impl TranspositionTableTrait for RefCell<crate::search::thread_safe_table::Threa
 // Task 3.19: Implement TranspositionTableTrait for MultiLevelTranspositionTable
 // Note: MultiLevelTranspositionTable requires &mut self for probe/store/clear, so we wrap it in RefCell
 // to provide the &self interface required by the trait.
-impl TranspositionTableTrait for RefCell<crate::search::multi_level_transposition_table::MultiLevelTranspositionTable> {
+impl TranspositionTableTrait
+    for RefCell<crate::search::multi_level_transposition_table::MultiLevelTranspositionTable>
+{
     fn probe(&self, hash_key: u64, depth: u8) -> Option<TranspositionEntry> {
         self.borrow_mut().probe(hash_key, depth)
     }
@@ -216,7 +255,11 @@ impl TranspositionTableTrait for RefCell<crate::search::multi_level_transpositio
         (stats.total_memory_usage / 100) as usize
     }
 
-    fn prefill_from_book(&mut self, _book: &mut crate::opening_book::OpeningBook, _depth: u8) -> usize {
+    fn prefill_from_book(
+        &mut self,
+        _book: &mut crate::opening_book::OpeningBook,
+        _depth: u8,
+    ) -> usize {
         // MultiLevelTranspositionTable doesn't support prefill_from_book
         // Could be implemented in the future if needed
         0
@@ -226,7 +269,9 @@ impl TranspositionTableTrait for RefCell<crate::search::multi_level_transpositio
 // Task 3.18: Implement TranspositionTableTrait for HierarchicalTranspositionTable
 // Note: HierarchicalTranspositionTable::probe returns Option<(TranspositionEntry, HitLevel)>
 // which is different from the trait signature, so we adapt it.
-impl TranspositionTableTrait for RefCell<crate::search::hierarchical_transposition_table::HierarchicalTranspositionTable> {
+impl TranspositionTableTrait
+    for RefCell<crate::search::hierarchical_transposition_table::HierarchicalTranspositionTable>
+{
     fn probe(&self, hash_key: u64, depth: u8) -> Option<TranspositionEntry> {
         self.borrow_mut().probe(hash_key, depth).map(|(entry, _level)| entry)
     }
@@ -252,7 +297,11 @@ impl TranspositionTableTrait for RefCell<crate::search::hierarchical_transpositi
         l1_estimate + l2_capacity
     }
 
-    fn prefill_from_book(&mut self, _book: &mut crate::opening_book::OpeningBook, _depth: u8) -> usize {
+    fn prefill_from_book(
+        &mut self,
+        _book: &mut crate::opening_book::OpeningBook,
+        _depth: u8,
+    ) -> usize {
         // HierarchicalTranspositionTable doesn't support prefill_from_book
         // Could be implemented in the future if needed
         0
@@ -261,7 +310,9 @@ impl TranspositionTableTrait for RefCell<crate::search::hierarchical_transpositi
 
 // Task 3.20: Implement TranspositionTableTrait for CompressedTranspositionTable
 // Note: CompressedTranspositionTable::store takes &TranspositionEntry, so we adapt it.
-impl TranspositionTableTrait for RefCell<crate::search::compressed_transposition_table::CompressedTranspositionTable> {
+impl TranspositionTableTrait
+    for RefCell<crate::search::compressed_transposition_table::CompressedTranspositionTable>
+{
     fn probe(&self, hash_key: u64, depth: u8) -> Option<TranspositionEntry> {
         self.borrow_mut().probe(hash_key, depth)
     }
@@ -281,10 +332,13 @@ impl TranspositionTableTrait for RefCell<crate::search::compressed_transposition
         table.config().max_entries
     }
 
-    fn prefill_from_book(&mut self, _book: &mut crate::opening_book::OpeningBook, _depth: u8) -> usize {
+    fn prefill_from_book(
+        &mut self,
+        _book: &mut crate::opening_book::OpeningBook,
+        _depth: u8,
+    ) -> usize {
         // CompressedTranspositionTable doesn't support prefill_from_book
         // Could be implemented in the future if needed
         0
     }
 }
-

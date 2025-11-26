@@ -275,13 +275,7 @@ mod performance_benchmarks {
         // Test different configurations
         let configs = vec![
             ("default", QuiescenceConfig::default()),
-            (
-                "high_depth",
-                QuiescenceConfig {
-                    max_depth: 10,
-                    ..QuiescenceConfig::default()
-                },
-            ),
+            ("high_depth", QuiescenceConfig { max_depth: 10, ..QuiescenceConfig::default() }),
             (
                 "no_pruning",
                 QuiescenceConfig {
@@ -290,13 +284,7 @@ mod performance_benchmarks {
                     ..QuiescenceConfig::default()
                 },
             ),
-            (
-                "no_tt",
-                QuiescenceConfig {
-                    enable_tt: false,
-                    ..QuiescenceConfig::default()
-                },
-            ),
+            ("no_tt", QuiescenceConfig { enable_tt: false, ..QuiescenceConfig::default() }),
         ];
 
         let mut results = Vec::new();
@@ -326,14 +314,8 @@ mod performance_benchmarks {
         assert_eq!(results.len(), 4);
 
         // High depth should search more nodes
-        let high_depth_result = results
-            .iter()
-            .find(|(name, _, _)| *name == "high_depth")
-            .unwrap();
-        let default_result = results
-            .iter()
-            .find(|(name, _, _)| *name == "default")
-            .unwrap();
+        let high_depth_result = results.iter().find(|(name, _, _)| *name == "high_depth").unwrap();
+        let default_result = results.iter().find(|(name, _, _)| *name == "default").unwrap();
         assert!(high_depth_result.1 >= default_result.1);
     }
 
@@ -522,10 +504,7 @@ mod performance_benchmarks {
         assert!(duration_with_nmp.as_millis() > 0);
         assert!(duration_without_nmp.as_millis() > 0);
 
-        println!(
-            "NMP enabled: {:?}, NMP disabled: {:?}",
-            duration_with_nmp, duration_without_nmp
-        );
+        println!("NMP enabled: {:?}, NMP disabled: {:?}", duration_with_nmp, duration_without_nmp);
         println!(
             "NMP stats: attempts={}, cutoffs={}",
             stats_with_nmp.attempts, stats_with_nmp.cutoffs
@@ -638,10 +617,7 @@ mod performance_benchmarks {
 
         println!("NMP cutoff rate: {:.2}%", cutoff_rate);
         println!("NMP efficiency: {:.2}%", efficiency);
-        println!(
-            "NMP attempts: {}, cutoffs: {}",
-            stats.attempts, stats.cutoffs
-        );
+        println!("NMP attempts: {}, cutoffs: {}", stats.attempts, stats.cutoffs);
     }
 
     #[test]
@@ -654,19 +630,10 @@ mod performance_benchmarks {
         // Test multiple configurations
         let configs = vec![
             ("default", NullMoveConfig::default()),
-            (
-                "high_reduction",
-                NullMoveConfig {
-                    reduction_factor: 4,
-                    ..NullMoveConfig::default()
-                },
-            ),
+            ("high_reduction", NullMoveConfig { reduction_factor: 4, ..NullMoveConfig::default() }),
             (
                 "low_threshold",
-                NullMoveConfig {
-                    max_pieces_threshold: 8,
-                    ..NullMoveConfig::default()
-                },
+                NullMoveConfig { max_pieces_threshold: 8, ..NullMoveConfig::default() },
             ),
             (
                 "static_reduction",
@@ -676,13 +643,7 @@ mod performance_benchmarks {
                     ..NullMoveConfig::default()
                 },
             ),
-            (
-                "disabled",
-                NullMoveConfig {
-                    enabled: false,
-                    ..NullMoveConfig::default()
-                },
-            ),
+            ("disabled", NullMoveConfig { enabled: false, ..NullMoveConfig::default() }),
         ];
 
         let mut results = Vec::new();
@@ -711,28 +672,19 @@ mod performance_benchmarks {
         for (name, success, attempts, cutoffs, duration) in &results {
             assert!(success, "Configuration {} failed", name);
             assert!(*duration > 0, "Configuration {} took no time", name);
-            assert!(
-                *attempts >= 0,
-                "Configuration {} had negative attempts",
-                name
-            );
+            assert!(*attempts >= 0, "Configuration {} had negative attempts", name);
             assert!(*cutoffs >= 0, "Configuration {} had negative cutoffs", name);
         }
 
         // Disabled configuration should have no NMP activity
-        let disabled_result = results
-            .iter()
-            .find(|(name, _, _, _, _)| *name == "disabled")
-            .unwrap();
+        let disabled_result =
+            results.iter().find(|(name, _, _, _, _)| *name == "disabled").unwrap();
         assert_eq!(disabled_result.2, 0); // No attempts
         assert_eq!(disabled_result.3, 0); // No cutoffs
 
         println!("NMP comprehensive benchmark results:");
         for (name, _, attempts, cutoffs, duration) in &results {
-            println!(
-                "  {}: {}ms, {} attempts, {} cutoffs",
-                name, duration, attempts, cutoffs
-            );
+            println!("  {}: {}ms, {} attempts, {} cutoffs", name, duration, attempts, cutoffs);
         }
     }
 
@@ -811,10 +763,7 @@ mod performance_benchmarks {
         assert!(stats.disabled_endgame >= 0);
 
         // Total disabled should be sum of individual counters
-        assert_eq!(
-            stats.total_disabled(),
-            stats.disabled_in_check + stats.disabled_endgame
-        );
+        assert_eq!(stats.total_disabled(), stats.disabled_in_check + stats.disabled_endgame);
 
         println!(
             "Safety mechanisms: {} disabled in check, {} disabled in endgame",

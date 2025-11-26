@@ -51,11 +51,7 @@ fn test_parallel_vs_single_threaded_on_positions() {
         let m1 = best_move_threads(fen, 3, 1);
         let m4 = best_move_threads(fen, 3, 4);
         // Parallel search can select different but comparable best moves; only require both respond
-        assert!(
-            m1.is_some() && m4.is_some(),
-            "Engine did not return a move at fen={}",
-            fen
-        );
+        assert!(m1.is_some() && m4.is_some(), "Engine did not return a move at fen={}", fen);
     }
 }
 

@@ -293,16 +293,7 @@ fn benchmark_comprehensive_monitoring(c: &mut Criterion) {
             // Phase statistics
             let phase_stats: HashMap<_, _> = stats.phase_stats.iter().collect();
 
-            black_box((
-                result,
-                elapsed,
-                stats,
-                is_healthy,
-                alerts,
-                metrics,
-                report,
-                phase_stats,
-            ))
+            black_box((result, elapsed, stats, is_healthy, alerts, metrics, report, phase_stats))
         });
     });
 

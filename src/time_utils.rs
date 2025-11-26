@@ -8,9 +8,7 @@ pub struct TimeSource {
 impl TimeSource {
     /// Create a new time source with the current time
     pub fn now() -> Self {
-        Self {
-            start_time: std::time::Instant::now(),
-        }
+        Self { start_time: std::time::Instant::now() }
     }
 
     /// Get elapsed time in milliseconds

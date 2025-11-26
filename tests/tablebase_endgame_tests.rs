@@ -30,31 +30,19 @@ mod king_gold_vs_king_positions {
         // Place Black King at (4,4)
         board.set_piece(
             Position::new(4, 4),
-            Some(Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::King, player: Player::Black, promoted: false }),
         );
 
         // Place Black Gold at (3,3)
         board.set_piece(
             Position::new(3, 3),
-            Some(Piece {
-                piece_type: PieceType::Gold,
-                player: Player::Black,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::Gold, player: Player::Black, promoted: false }),
         );
 
         // Place White King at (6,6)
         board.set_piece(
             Position::new(6, 6),
-            Some(Piece {
-                piece_type: PieceType::King,
-                player: Player::White,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::King, player: Player::White, promoted: false }),
         );
 
         (board, captured_pieces, player)
@@ -76,31 +64,19 @@ mod king_gold_vs_king_positions {
         // Place Black King at (4,4)
         board.set_piece(
             Position::new(4, 4),
-            Some(Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::King, player: Player::Black, promoted: false }),
         );
 
         // Place Black Gold at (5,5) - close to White King
         board.set_piece(
             Position::new(5, 5),
-            Some(Piece {
-                piece_type: PieceType::Gold,
-                player: Player::Black,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::Gold, player: Player::Black, promoted: false }),
         );
 
         // Place White King at (6,6) - can be mated by Gold
         board.set_piece(
             Position::new(6, 6),
-            Some(Piece {
-                piece_type: PieceType::King,
-                player: Player::White,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::King, player: Player::White, promoted: false }),
         );
 
         (board, captured_pieces, player)
@@ -122,31 +98,19 @@ mod king_gold_vs_king_positions {
         // Place Black King at (1,1) - far from White King
         board.set_piece(
             Position::new(1, 1),
-            Some(Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::King, player: Player::Black, promoted: false }),
         );
 
         // Place Black Gold at (2,2)
         board.set_piece(
             Position::new(2, 2),
-            Some(Piece {
-                piece_type: PieceType::Gold,
-                player: Player::Black,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::Gold, player: Player::Black, promoted: false }),
         );
 
         // Place White King at (7,7) - far from Black pieces
         board.set_piece(
             Position::new(7, 7),
-            Some(Piece {
-                piece_type: PieceType::King,
-                player: Player::White,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::King, player: Player::White, promoted: false }),
         );
 
         (board, captured_pieces, player)
@@ -168,31 +132,19 @@ mod king_gold_vs_king_positions {
         // Place Black King at (3,3)
         board.set_piece(
             Position::new(3, 3),
-            Some(Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::King, player: Player::Black, promoted: false }),
         );
 
         // Place Black Gold at (5,5)
         board.set_piece(
             Position::new(5, 5),
-            Some(Piece {
-                piece_type: PieceType::Gold,
-                player: Player::Black,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::Gold, player: Player::Black, promoted: false }),
         );
 
         // Place White King at (6,6) - needs coordination to mate
         board.set_piece(
             Position::new(6, 6),
-            Some(Piece {
-                piece_type: PieceType::King,
-                player: Player::White,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::King, player: Player::White, promoted: false }),
         );
 
         (board, captured_pieces, player)
@@ -303,11 +255,7 @@ mod tests {
         // Add an extra piece - this should not be solvable
         board.set_piece(
             Position::new(0, 0),
-            Some(Piece {
-                piece_type: PieceType::Silver,
-                player: Player::Black,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::Silver, player: Player::Black, promoted: false }),
         );
 
         let result = tablebase.probe(&board, player, &captured_pieces);
@@ -558,31 +506,19 @@ mod tests {
         // Place Black King
         board.set_piece(
             Position::new(king_row, king_col),
-            Some(Piece {
-                piece_type: PieceType::King,
-                player: Player::Black,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::King, player: Player::Black, promoted: false }),
         );
 
         // Place Black Gold
         board.set_piece(
             Position::new(gold_row, gold_col),
-            Some(Piece {
-                piece_type: PieceType::Gold,
-                player: Player::Black,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::Gold, player: Player::Black, promoted: false }),
         );
 
         // Place White King
         board.set_piece(
             Position::new(white_king_row, white_king_col),
-            Some(Piece {
-                piece_type: PieceType::King,
-                player: Player::White,
-                promoted: false,
-            }),
+            Some(Piece { piece_type: PieceType::King, player: Player::White, promoted: false }),
         );
 
         (board, captured_pieces, player)
@@ -596,14 +532,7 @@ mod tests {
         let white_king_row = (4 + distance).min(8);
         let white_king_col = (4 + distance).min(8);
 
-        create_edge_position(
-            king_row,
-            king_col,
-            gold_row,
-            gold_col,
-            white_king_row,
-            white_king_col,
-        )
+        create_edge_position(king_row, king_col, gold_row, gold_col, white_king_row, white_king_col)
     }
 
     fn create_promotion_position(
@@ -614,14 +543,7 @@ mod tests {
         white_king_row: u8,
         white_king_col: u8,
     ) -> (BitboardBoard, CapturedPieces, Player) {
-        create_edge_position(
-            king_row,
-            king_col,
-            gold_row,
-            gold_col,
-            white_king_row,
-            white_king_col,
-        )
+        create_edge_position(king_row, king_col, gold_row, gold_col, white_king_row, white_king_col)
     }
 
     fn create_stalemate_position(
@@ -632,13 +554,6 @@ mod tests {
         white_king_row: u8,
         white_king_col: u8,
     ) -> (BitboardBoard, CapturedPieces, Player) {
-        create_edge_position(
-            king_row,
-            king_col,
-            gold_row,
-            gold_col,
-            white_king_row,
-            white_king_col,
-        )
+        create_edge_position(king_row, king_col, gold_row, gold_col, white_king_row, white_king_col)
     }
 }

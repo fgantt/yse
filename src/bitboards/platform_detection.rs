@@ -181,10 +181,10 @@ impl PlatformCapabilities {
             // 2. AVX2 support (bit 5 in EBX from CPUID leaf 7)
             let cpuid1 = __cpuid(1);
             let has_avx = (cpuid1.ecx & (1 << 28)) != 0; // AVX bit in ECX register
-            
+
             let cpuid7 = __cpuid(7);
             let has_avx2 = (cpuid7.ebx & (1 << 5)) != 0; // AVX2 bit in EBX register
-            
+
             has_avx && has_avx2
         }
     }
@@ -202,11 +202,11 @@ impl PlatformCapabilities {
             // 3. OSXSAVE support (bit 27 in ECX from CPUID leaf 1) - required for XSAVE
             let cpuid1 = __cpuid(1);
             let has_osxsave = (cpuid1.ecx & (1 << 27)) != 0; // OSXSAVE bit in ECX register
-            
+
             if !has_osxsave {
                 return false;
             }
-            
+
             // Check XCR0 register to ensure OS supports AVX-512
             // This requires checking if XCR0[7:5] (ZMM state) is enabled
             #[cfg(target_feature = "avx512f")]
@@ -306,7 +306,7 @@ impl PlatformCapabilities {
             Architecture::Unknown => false,
         }
     }
-    
+
     /// Get recommended SIMD implementation for runtime feature selection
     /// This provides information about what SIMD features are available at runtime
     /// Note: Actual implementation selection is compile-time, but this can be used
@@ -320,13 +320,13 @@ impl PlatformCapabilities {
             SimdLevel::Scalar => "Scalar (no SIMD)",
         }
     }
-    
+
     /// Check if AVX2 is available and recommended for use
     /// Returns true if AVX2 is detected and should be preferred over SSE
     pub fn should_use_avx2(&self) -> bool {
         self.has_avx2
     }
-    
+
     /// Check if AVX-512 is available and recommended for use
     /// Returns true if AVX-512 is detected and should be preferred
     pub fn should_use_avx512(&self) -> bool {
@@ -337,8 +337,13 @@ impl PlatformCapabilities {
     pub fn get_summary(&self) -> String {
         format!(
             "Architecture: {:?}, POPCNT: {}, BMI1: {}, BMI2: {}, AVX2: {}, AVX-512: {}, NEON: {}",
-            self.architecture, self.has_popcnt, self.has_bmi1, self.has_bmi2,
-            self.has_avx2, self.has_avx512, self.has_neon
+            self.architecture,
+            self.has_popcnt,
+            self.has_bmi1,
+            self.has_bmi2,
+            self.has_avx2,
+            self.has_avx512,
+            self.has_neon
         )
     }
 }
@@ -442,7 +447,7 @@ mod tests {
     fn test_simd_level_detection() {
         let caps = PlatformCapabilities::detect();
         let simd_level = caps.get_simd_level();
-        
+
         // SIMD level should be appropriate for the architecture
         match caps.architecture {
             Architecture::X86_64 => {
@@ -461,7 +466,7 @@ mod tests {
     fn test_simd_support_detection() {
         let caps = PlatformCapabilities::detect();
         let has_simd = caps.has_simd_support();
-        
+
         // x86_64 should always have SIMD (at least SSE)
         // ARM should have NEON on aarch64
         match caps.architecture {
@@ -480,7 +485,7 @@ mod tests {
     #[test]
     fn test_avx2_detection() {
         let caps = PlatformCapabilities::detect();
-        
+
         #[cfg(target_arch = "x86_64")]
         {
             // AVX2 detection should work (may be true or false depending on CPU)
@@ -495,7 +500,7 @@ mod tests {
     #[test]
     fn test_avx512_detection() {
         let caps = PlatformCapabilities::detect();
-        
+
         #[cfg(target_arch = "x86_64")]
         {
             // AVX-512 detection should work (may be true or false depending on CPU)
@@ -514,7 +519,7 @@ mod tests {
     #[test]
     fn test_neon_detection() {
         let caps = PlatformCapabilities::detect();
-        
+
         #[cfg(target_arch = "aarch64")]
         {
             // NEON should always be available on aarch64
@@ -537,11 +542,15 @@ mod tests {
         assert!(SimdLevel::AVX2 < SimdLevel::SSE);
         assert!(SimdLevel::SSE < SimdLevel::NEON);
         assert!(SimdLevel::NEON < SimdLevel::Scalar);
-        
+
         // Verify that get_simd_level() returns appropriate levels
         let caps = PlatformCapabilities::detect();
         let level = caps.get_simd_level();
-        assert_ne!(level, SimdLevel::Scalar, "Should detect some SIMD level on supported platforms");
+        assert_ne!(
+            level,
+            SimdLevel::Scalar,
+            "Should detect some SIMD level on supported platforms"
+        );
     }
 
     #[test]
@@ -578,11 +587,7 @@ mod performance_tests {
         let duration = start.elapsed();
 
         let avg_time_ns = duration.as_nanos() / iterations;
-        assert!(
-            avg_time_ns < 1_000_000,
-            "Detection too slow: {}ns average",
-            avg_time_ns
-        );
+        assert!(avg_time_ns < 1_000_000, "Detection too slow: {}ns average", avg_time_ns);
     }
 
     #[test]
@@ -600,10 +605,6 @@ mod performance_tests {
         let duration = start.elapsed();
 
         let avg_time_ns = duration.as_nanos() / iterations;
-        assert!(
-            avg_time_ns < 1000,
-            "Global access too slow: {}ns average",
-            avg_time_ns
-        );
+        assert!(avg_time_ns < 1000, "Global access too slow: {}ns average", avg_time_ns);
     }
 }

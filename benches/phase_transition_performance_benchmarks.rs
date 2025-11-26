@@ -279,9 +279,8 @@ fn benchmark_multiple_scores(c: &mut Criterion) {
 
     group.bench_function("interpolate_many_scores", |b| {
         let mut transition = PhaseTransition::new();
-        let many_scores: Vec<TaperedScore> = (0..100)
-            .map(|i| TaperedScore::new_tapered(i * 10, (i + 1) * 10))
-            .collect();
+        let many_scores: Vec<TaperedScore> =
+            (0..100).map(|i| TaperedScore::new_tapered(i * 10, (i + 1) * 10)).collect();
 
         b.iter(|| {
             let mut total = 0;
@@ -305,10 +304,7 @@ fn benchmark_configurations(c: &mut Criterion) {
         ("default", PhaseTransitionConfig::default()),
         (
             "with_boundaries",
-            PhaseTransitionConfig {
-                use_phase_boundaries: true,
-                ..Default::default()
-            },
+            PhaseTransitionConfig { use_phase_boundaries: true, ..Default::default() },
         ),
         (
             "advanced_enabled",

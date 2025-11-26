@@ -47,10 +47,10 @@ use crate::types::core::{Move, Player};
 // Note: GameResult is not yet extracted to a sub-module, using root import
 use crate::types::GameResult;
 use crate::ShogiEngine;
+use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::thread_rng;
 use rand::{Rng, RngCore, SeedableRng};
-use rand::rngs::StdRng;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -232,11 +232,7 @@ impl Validator {
         let mut total_error = 0.0;
         for position in positions {
             // Calculate predicted probability using sigmoid
-            let score: f64 = weights
-                .iter()
-                .zip(position.features.iter())
-                .map(|(w, f)| w * f)
-                .sum();
+            let score: f64 = weights.iter().zip(position.features.iter()).map(|(w, f)| w * f).sum();
 
             let predicted_prob = 1.0 / (1.0 + (-score).exp());
             let error = position.result - predicted_prob;
@@ -353,7 +349,10 @@ impl Validator {
             let black_behind = black_target - black_idx as f64;
             let draw_behind = draw_target - draw_idx as f64;
 
-            if white_behind >= black_behind && white_behind >= draw_behind && white_idx < white_wins.len() {
+            if white_behind >= black_behind
+                && white_behind >= draw_behind
+                && white_idx < white_wins.len()
+            {
                 result.push(white_wins[white_idx].clone());
                 white_idx += 1;
             } else if black_behind >= draw_behind && black_idx < black_wins.len() {
@@ -414,10 +413,7 @@ pub struct MockGamePlayer {
 impl MockGamePlayer {
     /// Create a new mock game player with predetermined results
     pub fn new(results: Vec<TuningGameResult>) -> Self {
-        Self {
-            results,
-            current_index: Arc::new(Mutex::new(0)),
-        }
+        Self { results, current_index: Arc::new(Mutex::new(0)) }
     }
 }
 
@@ -454,17 +450,11 @@ pub struct ShogiEngineGamePlayer {
 impl ShogiEngineGamePlayer {
     /// Create a new ShogiEngine game player
     pub fn new(search_depth: u8, verbose: bool) -> Self {
-        Self {
-            search_depth,
-            verbose,
-        }
+        Self { search_depth, verbose }
     }
 
     /// Convert engine GameResult to tuning GameResult from a player's perspective
-    fn convert_game_result(
-        engine_result: GameResult,
-        perspective: Player,
-    ) -> TuningGameResult {
+    fn convert_game_result(engine_result: GameResult, perspective: Player) -> TuningGameResult {
         match (engine_result, perspective) {
             (GameResult::Win, Player::Black) => TuningGameResult::BlackWin,
             (GameResult::Win, Player::White) => TuningGameResult::WhiteWin,
@@ -512,11 +502,7 @@ impl GamePlayer for ShogiEngineGamePlayer {
             }
 
             // Get engine's best move
-            let best_move = engine.get_best_move(
-                self.search_depth,
-                time_per_move_ms,
-                None,
-            );
+            let best_move = engine.get_best_move(self.search_depth, time_per_move_ms, None);
 
             match best_move {
                 Some(move_) => {
@@ -530,13 +516,14 @@ impl GamePlayer for ShogiEngineGamePlayer {
                     }
 
                     // Check if same move repeated (possible infinite loop)
-                    if last_move.as_ref().map(|m| m.to_usi_string())
-                        == Some(move_.to_usi_string())
+                    if last_move.as_ref().map(|m| m.to_usi_string()) == Some(move_.to_usi_string())
                     {
                         consecutive_passes += 1;
                         if consecutive_passes >= 3 {
                             if self.verbose {
-                                println!("Consecutive repeated moves detected, ending game as draw");
+                                println!(
+                                    "Consecutive repeated moves detected, ending game as draw"
+                                );
                             }
                             return Ok(TuningGameResult::Draw);
                         }
@@ -702,17 +689,9 @@ impl StrengthTester {
         // Calculate ELO difference and confidence interval
         let total_games = wins + losses + draws;
         let elo_difference = Self::calculate_elo_difference(wins, losses, draws);
-        let elo_confidence_interval =
-            Self::calculate_elo_confidence_interval(wins, losses, draws);
+        let elo_confidence_interval = Self::calculate_elo_confidence_interval(wins, losses, draws);
 
-        MatchResult {
-            wins,
-            losses,
-            draws,
-            elo_difference,
-            elo_confidence_interval,
-            total_games,
-        }
+        MatchResult { wins, losses, draws, elo_difference, elo_confidence_interval, total_games }
     }
 
     /// Calculate ELO difference from match results using standard ELO formula
@@ -771,10 +750,7 @@ pub struct SyntheticDataGenerator {
 impl SyntheticDataGenerator {
     /// Create a new synthetic data generator
     pub fn new(feature_count: usize, seed: u64) -> Self {
-        Self {
-            feature_count,
-            seed,
-        }
+        Self { feature_count, seed }
     }
 
     /// Generate synthetic training positions
@@ -798,11 +774,7 @@ impl SyntheticDataGenerator {
                 128,      // Default game phase
                 true,     // Default quiet
                 i as u32, // Move number
-                if i % 2 == 0 {
-                    Player::White
-                } else {
-                    Player::Black
-                },
+                if i % 2 == 0 { Player::White } else { Player::Black },
             ));
         }
 
@@ -812,11 +784,8 @@ impl SyntheticDataGenerator {
     /// Generate synthetic result based on features
     fn generate_synthetic_result(&self, features: &[f64], rng: &mut impl rand::Rng) -> f64 {
         // Create a simple linear relationship with some noise
-        let true_score: f64 = features
-            .iter()
-            .enumerate()
-            .map(|(i, &f)| f * ((i as f64 + 1.0) * 0.1))
-            .sum();
+        let true_score: f64 =
+            features.iter().enumerate().map(|(i, &f)| f * ((i as f64 + 1.0) * 0.1)).sum();
 
         // Add noise
         let noise = rng.gen_range(-0.1..0.1);
@@ -838,10 +807,7 @@ pub struct OverfittingDetector {
 impl OverfittingDetector {
     /// Create a new overfitting detector
     pub fn new(validation_error_threshold: f64, error_difference_threshold: f64) -> Self {
-        Self {
-            validation_error_threshold,
-            error_difference_threshold,
-        }
+        Self { validation_error_threshold, error_difference_threshold }
     }
 
     /// Detect if overfitting is occurring
@@ -871,10 +837,7 @@ pub struct PerformanceBenchmark {
 impl PerformanceBenchmark {
     /// Create a new performance benchmark
     pub fn new() -> Self {
-        Self {
-            memory_usage: HashMap::new(),
-            timings: HashMap::new(),
-        }
+        Self { memory_usage: HashMap::new(), timings: HashMap::new() }
     }
 
     /// Record memory usage
@@ -924,7 +887,7 @@ impl PerformanceBenchmark {
 
 #[cfg(all(test, feature = "legacy-tests"))]
 mod tests {
-    use super::super::types::{ValidationConfig, GameResult as TuningGameResult};
+    use super::super::types::{GameResult as TuningGameResult, ValidationConfig};
     use super::*;
     use crate::types::NUM_EVAL_FEATURES;
 
@@ -1112,14 +1075,7 @@ mod tests {
             (TuningGameResult::Draw, _) => 0.0,
         };
 
-        TrainingPosition::new(
-            vec![0.0; NUM_EVAL_FEATURES],
-            result,
-            128,
-            true,
-            index as u32,
-            player,
-        )
+        TrainingPosition::new(vec![0.0; NUM_EVAL_FEATURES], result, 128, true, index as u32, player)
     }
 
     #[test]
@@ -1153,11 +1109,7 @@ mod tests {
         }
         // 10 Draws
         for i in 50..60 {
-            positions.push(create_position_with_result(
-                TuningGameResult::Draw,
-                Player::White,
-                i,
-            ));
+            positions.push(create_position_with_result(TuningGameResult::Draw, Player::White, i));
         }
 
         let results = validator.cross_validate(&positions);
@@ -1232,11 +1184,7 @@ mod tests {
         }
         // 5 Draws
         for i in 95..100 {
-            positions.push(create_position_with_result(
-                TuningGameResult::Draw,
-                Player::White,
-                i,
-            ));
+            positions.push(create_position_with_result(TuningGameResult::Draw, Player::White, i));
         }
 
         let results = validator.cross_validate(&positions);
@@ -1275,11 +1223,7 @@ mod tests {
         }
         // 30 Draws
         for i in 70..100 {
-            positions.push(create_position_with_result(
-                TuningGameResult::Draw,
-                Player::White,
-                i,
-            ));
+            positions.push(create_position_with_result(TuningGameResult::Draw, Player::White, i));
         }
 
         // Test with stratification
@@ -1305,20 +1249,17 @@ mod tests {
         let results_non_stratified = validator_non_stratified.cross_validate(&positions);
 
         // Both should produce the same number of folds
-        assert_eq!(results_stratified.fold_results.len(), results_non_stratified.fold_results.len());
+        assert_eq!(
+            results_stratified.fold_results.len(),
+            results_non_stratified.fold_results.len()
+        );
 
         // With stratification, folds should have more consistent sample counts
         // (less variance in fold sizes)
-        let stratified_counts: Vec<usize> = results_stratified
-            .fold_results
-            .iter()
-            .map(|f| f.sample_count)
-            .collect();
-        let non_stratified_counts: Vec<usize> = results_non_stratified
-            .fold_results
-            .iter()
-            .map(|f| f.sample_count)
-            .collect();
+        let stratified_counts: Vec<usize> =
+            results_stratified.fold_results.iter().map(|f| f.sample_count).collect();
+        let non_stratified_counts: Vec<usize> =
+            results_non_stratified.fold_results.iter().map(|f| f.sample_count).collect();
 
         // Calculate variance in fold sizes
         let stratified_variance = calculate_variance(&stratified_counts);

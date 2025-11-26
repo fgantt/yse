@@ -37,15 +37,9 @@ fn demonstrate_ml_algorithms() {
     println!("\n--- ML Algorithms Demo ---");
 
     let algorithms = [
-        (
-            "Linear Regression",
-            MLReplacementConfig::linear_regression(),
-        ),
+        ("Linear Regression", MLReplacementConfig::linear_regression()),
         ("Neural Network", MLReplacementConfig::neural_network()),
-        (
-            "Reinforcement Learning",
-            MLReplacementConfig::reinforcement_learning(),
-        ),
+        ("Reinforcement Learning", MLReplacementConfig::reinforcement_learning()),
     ];
 
     let context = create_sample_context();
@@ -123,11 +117,7 @@ fn demonstrate_training_learning() {
 
     // Simulate a sequence of replacement decisions
     for game_phase in 0..3 {
-        println!(
-            "Game phase {}: Training on {} decisions",
-            game_phase + 1,
-            20
-        );
+        println!("Game phase {}: Training on {} decisions", game_phase + 1, 20);
 
         for decision_num in 0..20 {
             let context = create_varying_context(decision_num);
@@ -156,11 +146,7 @@ fn demonstrate_training_learning() {
             0.0
         };
 
-        println!(
-            "  Phase {} accuracy: {:.1}%",
-            game_phase + 1,
-            accuracy * 100.0
-        );
+        println!("  Phase {} accuracy: {:.1}%", game_phase + 1, accuracy * 100.0);
     }
 
     let final_stats = policy.get_performance_stats();
@@ -216,10 +202,8 @@ fn demonstrate_performance_monitoring() {
     }
 
     // Analyze decision quality over time
-    let high_confidence_decisions: usize = decision_history
-        .iter()
-        .filter(|(confidence, _)| *confidence > 0.8)
-        .count();
+    let high_confidence_decisions: usize =
+        decision_history.iter().filter(|(confidence, _)| *confidence > 0.8).count();
 
     let beneficial_high_confidence: usize = decision_history
         .iter()
@@ -253,10 +237,7 @@ fn demonstrate_realtime_adaptation() {
     let phases = [("Opening", 0.3), ("Middlegame", 0.6), ("Endgame", 0.9)];
 
     for (phase_name, complexity) in phases {
-        println!(
-            "Adapting to {} phase (complexity: {:.1})",
-            phase_name, complexity
-        );
+        println!("Adapting to {} phase (complexity: {:.1})", phase_name, complexity);
 
         let mut phase_decisions = 0;
         let mut phase_correct = 0;

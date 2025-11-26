@@ -1,7 +1,7 @@
 use crate::bitboards::*;
 use crate::types::core::{PieceType, Player, Position};
 use crate::types::evaluation::TaperedScore;
-use crate::types::{Bitboard, is_bit_set, set_bit};
+use crate::types::{is_bit_set, set_bit, Bitboard};
 use std::collections::HashMap;
 
 /// Attack analyzer for evaluating threats to the king
@@ -21,10 +21,7 @@ pub struct AttackTables {
 impl AttackTables {
     /// Create new attack tables with pre-computed data
     pub fn new() -> Self {
-        let mut tables = Self {
-            piece_attacks: HashMap::new(),
-            king_zones: HashMap::new(),
-        };
+        let mut tables = Self { piece_attacks: HashMap::new(), king_zones: HashMap::new() };
         tables.initialize_tables();
         tables
     }
@@ -206,11 +203,7 @@ impl AttackZone {
             }
         }
 
-        Self {
-            center,
-            radius,
-            squares,
-        }
+        Self { center, radius, squares }
     }
 }
 
@@ -224,30 +217,19 @@ pub struct AttackEvaluation {
 
 impl Default for AttackEvaluation {
     fn default() -> Self {
-        Self {
-            num_attackers: 0,
-            attack_weight: 0,
-            coordination_bonus: 0,
-            tactical_threats: 0,
-        }
+        Self { num_attackers: 0, attack_weight: 0, coordination_bonus: 0, tactical_threats: 0 }
     }
 }
 
 impl AttackAnalyzer {
     /// Create a new attack analyzer with default configuration
     pub fn new() -> Self {
-        Self {
-            config: AttackConfig::default(),
-            attack_tables: AttackTables::new(),
-        }
+        Self { config: AttackConfig::default(), attack_tables: AttackTables::new() }
     }
 
     /// Create a new attack analyzer with custom configuration
     pub fn with_config(config: AttackConfig) -> Self {
-        Self {
-            config,
-            attack_tables: AttackTables::new(),
-        }
+        Self { config, attack_tables: AttackTables::new() }
     }
 
     /// Evaluate attacks on the king for the given player
@@ -479,18 +461,12 @@ pub struct TacticalPattern {
 impl ThreatEvaluator {
     /// Create a new threat evaluator with default configuration
     pub fn new() -> Self {
-        Self {
-            config: ThreatConfig::default(),
-            attack_tables: AttackTables::new(),
-        }
+        Self { config: ThreatConfig::default(), attack_tables: AttackTables::new() }
     }
 
     /// Create a new threat evaluator with custom configuration
     pub fn with_config(config: ThreatConfig) -> Self {
-        Self {
-            config,
-            attack_tables: AttackTables::new(),
-        }
+        Self { config, attack_tables: AttackTables::new() }
     }
 
     /// Evaluate tactical threats to the king for the given player
@@ -910,10 +886,7 @@ mod tests {
 
         assert_eq!(analyzer.get_piece_attack_value(PieceType::Rook), 100);
         assert_eq!(analyzer.get_piece_attack_value(PieceType::Bishop), 80);
-        assert_eq!(
-            analyzer.get_piece_attack_value(PieceType::PromotedRook),
-            120
-        );
+        assert_eq!(analyzer.get_piece_attack_value(PieceType::PromotedRook), 120);
         assert_eq!(analyzer.get_piece_attack_value(PieceType::Pawn), 30);
     }
 

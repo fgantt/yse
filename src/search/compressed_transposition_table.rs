@@ -231,20 +231,15 @@ impl CompressedTranspositionTable {
             &mut right[0]
         };
 
-        if let Some(existing_index) = segment
-            .records
-            .iter()
-            .position(|r| r.hash_key == record.hash_key)
+        if let Some(existing_index) =
+            segment.records.iter().position(|r| r.hash_key == record.hash_key)
         {
             // Replace if the new entry is at least as deep as the existing one.
             if record.depth >= segment.records[existing_index].depth {
                 let old_physical = segment.records[existing_index].payload.len() as u64;
                 segment.records[existing_index] = record;
-                self.stats.physical_bytes = self
-                    .stats
-                    .physical_bytes
-                    .saturating_add(physical)
-                    .saturating_sub(old_physical);
+                self.stats.physical_bytes =
+                    self.stats.physical_bytes.saturating_add(physical).saturating_sub(old_physical);
             }
             // If the existing entry is deeper we keep it and drop the new record.
             return;
@@ -257,10 +252,8 @@ impl CompressedTranspositionTable {
                 self.stats.evictions += 1;
                 self.stats.logical_bytes =
                     self.stats.logical_bytes.saturating_sub(LOGICAL_ENTRY_SIZE);
-                self.stats.physical_bytes = self
-                    .stats
-                    .physical_bytes
-                    .saturating_sub(evicted.payload.len() as u64);
+                self.stats.physical_bytes =
+                    self.stats.physical_bytes.saturating_sub(evicted.payload.len() as u64);
             }
         } else {
             self.entry_count += 1;
@@ -316,10 +309,8 @@ impl CompressedTranspositionTable {
                     self.entry_count = self.entry_count.saturating_sub(1);
                     self.stats.logical_bytes =
                         self.stats.logical_bytes.saturating_sub(LOGICAL_ENTRY_SIZE);
-                    self.stats.physical_bytes = self
-                        .stats
-                        .physical_bytes
-                        .saturating_sub(evicted.payload.len() as u64);
+                    self.stats.physical_bytes =
+                        self.stats.physical_bytes.saturating_sub(evicted.payload.len() as u64);
                     self.stats.evictions = self.stats.evictions.saturating_add(1);
                     self.stats.stored_entries = self.stats.stored_entries.saturating_sub(1);
 
@@ -374,15 +365,7 @@ fn decode_entry(payload: &[u8], hash_key: u64, age: u32) -> TranspositionEntry {
     cursor += 1;
     let best_move = decode_move(payload, &mut cursor);
 
-    TranspositionEntry::new(
-        score,
-        depth,
-        flag,
-        best_move,
-        hash_key,
-        age,
-        EntrySource::MainSearch,
-    )
+    TranspositionEntry::new(score, depth, flag, best_move, hash_key, age, EntrySource::MainSearch)
 }
 
 #[inline(always)]
@@ -462,11 +445,7 @@ fn decode_move(payload: &[u8], cursor: &mut usize) -> Option<Move> {
     let piece_type = PieceType::from_u8(payload[*cursor]);
     *cursor += 1;
 
-    let player = if (header & (1 << 7)) != 0 {
-        Player::White
-    } else {
-        Player::Black
-    };
+    let player = if (header & (1 << 7)) != 0 { Player::White } else { Player::Black };
 
     Some(Move {
         from,

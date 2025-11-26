@@ -45,10 +45,7 @@ mod aspiration_window_performance_tests {
 
         // Log performance comparison
         println!("Time with aspiration windows: {:?}", time_with_aspiration);
-        println!(
-            "Time without aspiration windows: {:?}",
-            time_without_aspiration
-        );
+        println!("Time without aspiration windows: {:?}", time_without_aspiration);
 
         // Aspiration windows should provide some benefit (though this may vary)
         // We just check that both searches complete successfully

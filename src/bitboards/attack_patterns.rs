@@ -70,10 +70,7 @@ pub struct Direction {
 impl Direction {
     /// Create a new direction vector
     pub const fn new(row_delta: i8, col_delta: i8) -> Self {
-        Self {
-            row_delta,
-            col_delta,
-        }
+        Self { row_delta, col_delta }
     }
 
     /// Apply this direction to a square, returning the resulting square if valid
@@ -695,32 +692,20 @@ mod tests {
         // Test Black Knight
         let black_knight_attacks =
             tables.get_attack_pattern(square, PieceType::Knight, Player::Black);
-        assert_eq!(
-            black_knight_attacks,
-            tables.black_knight_attacks[square as usize]
-        );
+        assert_eq!(black_knight_attacks, tables.black_knight_attacks[square as usize]);
 
         // Test White Knight
         let white_knight_attacks =
             tables.get_attack_pattern(square, PieceType::Knight, Player::White);
-        assert_eq!(
-            white_knight_attacks,
-            tables.white_knight_attacks[square as usize]
-        );
+        assert_eq!(white_knight_attacks, tables.white_knight_attacks[square as usize]);
 
         // Test Black Gold
         let black_gold_attacks = tables.get_attack_pattern(square, PieceType::Gold, Player::Black);
-        assert_eq!(
-            black_gold_attacks,
-            tables.black_gold_attacks[square as usize]
-        );
+        assert_eq!(black_gold_attacks, tables.black_gold_attacks[square as usize]);
 
         // Test White Gold
         let white_gold_attacks = tables.get_attack_pattern(square, PieceType::Gold, Player::White);
-        assert_eq!(
-            white_gold_attacks,
-            tables.white_gold_attacks[square as usize]
-        );
+        assert_eq!(white_gold_attacks, tables.white_gold_attacks[square as usize]);
     }
 
     #[test]

@@ -801,10 +801,7 @@ impl EnhancedStatistics {
             move_type_distribution: MoveTypeDistribution::default(),
             depth_specific_stats: DepthSpecificStats {
                 stats_by_depth: (0..21)
-                    .map(|d| DepthStats {
-                        depth: d,
-                        ..Default::default()
-                    })
+                    .map(|d| DepthStats { depth: d, ..Default::default() })
                     .collect(),
             },
             game_phase_stats: GamePhaseStats::default(),

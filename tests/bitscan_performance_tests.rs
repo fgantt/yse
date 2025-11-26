@@ -61,17 +61,10 @@ fn test_popcount_performance_benchmarks() {
             }
             let hardware_duration = start.elapsed();
             let avg_ns = hardware_duration.as_nanos() / iterations;
-            println!(
-                "  Hardware: {:?} total, {}ns per call",
-                hardware_duration, avg_ns
-            );
+            println!("  Hardware: {:?} total, {}ns per call", hardware_duration, avg_ns);
 
             // Verify performance target: < 5 CPU cycles (roughly < 20ns on modern CPU)
-            assert!(
-                avg_ns < 50,
-                "Hardware popcount too slow: {}ns per call",
-                avg_ns
-            );
+            assert!(avg_ns < 50, "Hardware popcount too slow: {}ns per call", avg_ns);
         }
 
         // Benchmark SWAR implementation
@@ -90,10 +83,7 @@ fn test_popcount_performance_benchmarks() {
         }
         let software_duration = start.elapsed();
         let software_avg_ns = software_duration.as_nanos() / iterations;
-        println!(
-            "  Software: {:?} total, {}ns per call",
-            software_duration, software_avg_ns
-        );
+        println!("  Software: {:?} total, {}ns per call", software_duration, software_avg_ns);
 
         // SWAR should be faster than software
         assert!(
@@ -108,10 +98,7 @@ fn test_popcount_performance_benchmarks() {
         }
         let optimized_duration = start.elapsed();
         let optimized_avg_ns = optimized_duration.as_nanos() / iterations;
-        println!(
-            "  Optimized: {:?} total, {}ns per call",
-            optimized_duration, optimized_avg_ns
-        );
+        println!("  Optimized: {:?} total, {}ns per call", optimized_duration, optimized_avg_ns);
 
         // Optimized should be at least as fast as the best implementation
         assert!(
@@ -148,17 +135,10 @@ fn test_bitscan_performance_benchmarks() {
             }
             let hardware_duration = start.elapsed();
             let avg_ns = hardware_duration.as_nanos() / iterations;
-            println!(
-                "  Hardware: {:?} total, {}ns per call",
-                hardware_duration, avg_ns
-            );
+            println!("  Hardware: {:?} total, {}ns per call", hardware_duration, avg_ns);
 
             // Verify performance target: < 10 CPU cycles (roughly < 40ns on modern CPU)
-            assert!(
-                avg_ns < 100,
-                "Hardware bitscan too slow: {}ns per call",
-                avg_ns
-            );
+            assert!(avg_ns < 100, "Hardware bitscan too slow: {}ns per call", avg_ns);
         }
 
         // Benchmark DeBruijn implementation
@@ -168,10 +148,7 @@ fn test_bitscan_performance_benchmarks() {
         }
         let debruijn_duration = start.elapsed();
         let avg_ns = debruijn_duration.as_nanos() / iterations;
-        println!(
-            "  DeBruijn: {:?} total, {}ns per call",
-            debruijn_duration, avg_ns
-        );
+        println!("  DeBruijn: {:?} total, {}ns per call", debruijn_duration, avg_ns);
 
         // Benchmark software implementation
         let start = Instant::now();
@@ -180,10 +157,7 @@ fn test_bitscan_performance_benchmarks() {
         }
         let software_duration = start.elapsed();
         let software_avg_ns = software_duration.as_nanos() / iterations;
-        println!(
-            "  Software: {:?} total, {}ns per call",
-            software_duration, software_avg_ns
-        );
+        println!("  Software: {:?} total, {}ns per call", software_duration, software_avg_ns);
 
         // DeBruijn should be faster than software
         assert!(
@@ -198,10 +172,7 @@ fn test_bitscan_performance_benchmarks() {
         }
         let optimized_duration = start.elapsed();
         let optimized_avg_ns = optimized_duration.as_nanos() / iterations;
-        println!(
-            "  Optimized: {:?} total, {}ns per call",
-            optimized_duration, optimized_avg_ns
-        );
+        println!("  Optimized: {:?} total, {}ns per call", optimized_duration, optimized_avg_ns);
 
         // Optimized should be at least as fast as the best implementation
         assert!(
@@ -223,16 +194,9 @@ fn test_bitscan_performance_benchmarks() {
             }
             let hardware_duration = start.elapsed();
             let avg_ns = hardware_duration.as_nanos() / iterations;
-            println!(
-                "  Hardware: {:?} total, {}ns per call",
-                hardware_duration, avg_ns
-            );
+            println!("  Hardware: {:?} total, {}ns per call", hardware_duration, avg_ns);
 
-            assert!(
-                avg_ns < 100,
-                "Hardware reverse bitscan too slow: {}ns per call",
-                avg_ns
-            );
+            assert!(avg_ns < 100, "Hardware reverse bitscan too slow: {}ns per call", avg_ns);
         }
 
         // Benchmark DeBruijn implementation
@@ -242,10 +206,7 @@ fn test_bitscan_performance_benchmarks() {
         }
         let debruijn_duration = start.elapsed();
         let avg_ns = debruijn_duration.as_nanos() / iterations;
-        println!(
-            "  DeBruijn: {:?} total, {}ns per call",
-            debruijn_duration, avg_ns
-        );
+        println!("  DeBruijn: {:?} total, {}ns per call", debruijn_duration, avg_ns);
 
         // Benchmark software implementation
         let start = Instant::now();
@@ -254,10 +215,7 @@ fn test_bitscan_performance_benchmarks() {
         }
         let software_duration = start.elapsed();
         let software_avg_ns = software_duration.as_nanos() / iterations;
-        println!(
-            "  Software: {:?} total, {}ns per call",
-            software_duration, software_avg_ns
-        );
+        println!("  Software: {:?} total, {}ns per call", software_duration, software_avg_ns);
 
         // DeBruijn should be faster than software
         assert!(
@@ -272,10 +230,7 @@ fn test_bitscan_performance_benchmarks() {
         }
         let optimized_duration = start.elapsed();
         let optimized_avg_ns = optimized_duration.as_nanos() / iterations;
-        println!(
-            "  Optimized: {:?} total, {}ns per call",
-            optimized_duration, optimized_avg_ns
-        );
+        println!("  Optimized: {:?} total, {}ns per call", optimized_duration, optimized_avg_ns);
 
         // Optimized should be at least as fast as the best implementation
         assert!(
@@ -375,11 +330,7 @@ fn test_utility_functions_performance() {
             "is_multiple_bits too slow: {:?}",
             multiple_bits_duration
         );
-        assert!(
-            empty_duration < max_expected_duration,
-            "is_empty too slow: {:?}",
-            empty_duration
-        );
+        assert!(empty_duration < max_expected_duration, "is_empty too slow: {:?}", empty_duration);
         assert!(
             isolate_lsb_duration < max_expected_duration,
             "isolate_lsb too slow: {:?}",
@@ -418,11 +369,7 @@ fn test_performance_regression() {
     let avg_ns = popcount_duration.as_nanos() / iterations;
 
     // Should be fast (less than 100ns per call for most implementations)
-    assert!(
-        avg_ns < 1000,
-        "Popcount performance regression: {}ns per call",
-        avg_ns
-    );
+    assert!(avg_ns < 1000, "Popcount performance regression: {}ns per call", avg_ns);
 
     // Test bit scanning performance regression
     let start = Instant::now();
@@ -433,21 +380,11 @@ fn test_performance_regression() {
     let avg_ns = bitscan_duration.as_nanos() / iterations;
 
     // Should be fast (less than 200ns per call for most implementations)
-    assert!(
-        avg_ns < 2000,
-        "Bit scan performance regression: {}ns per call",
-        avg_ns
-    );
+    assert!(avg_ns < 2000, "Bit scan performance regression: {}ns per call", avg_ns);
 
     println!("Performance regression test results:");
-    println!(
-        "  Popcount: {}ns per call",
-        popcount_duration.as_nanos() / iterations
-    );
-    println!(
-        "  Bit scan forward: {}ns per call",
-        bitscan_duration.as_nanos() / iterations
-    );
+    println!("  Popcount: {}ns per call", popcount_duration.as_nanos() / iterations);
+    println!("  Bit scan forward: {}ns per call", bitscan_duration.as_nanos() / iterations);
 }
 
 /// Platform-specific performance validation
@@ -549,11 +486,7 @@ fn test_memory_usage_validation() {
     println!("PlatformCapabilities size: {} bytes", capabilities_size);
 
     // Should be small (under 100 bytes)
-    assert!(
-        capabilities_size < 100,
-        "PlatformCapabilities too large: {} bytes",
-        capabilities_size
-    );
+    assert!(capabilities_size < 100, "PlatformCapabilities too large: {} bytes", capabilities_size);
 
     // Test that we don't have memory leaks during operation
     let test_bitboard = 0x123456789ABCDEF0u128;

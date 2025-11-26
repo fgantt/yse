@@ -9,8 +9,8 @@ use super::{
     EndgameSolver, PositionAnalyzer, PositionCache, TablebaseConfig, TablebaseProfiler,
     TablebaseResult, TablebaseStats,
 };
-use crate::utils::time::TimeSource;
 use crate::types::core::{Player, Position};
+use crate::utils::time::TimeSource;
 use crate::BitboardBoard;
 use crate::CapturedPieces;
 
@@ -143,9 +143,8 @@ impl MicroTablebase {
 
         // Check if enough time has passed since last check
         let now = TimeSource::now();
-        let time_since_last_check = now
-            .elapsed_ms()
-            .saturating_sub(self.last_memory_check.elapsed_ms());
+        let time_since_last_check =
+            now.elapsed_ms().saturating_sub(self.last_memory_check.elapsed_ms());
         if u64::from(time_since_last_check) < self.config.memory.check_interval_ms {
             return;
         }
@@ -166,8 +165,7 @@ impl MicroTablebase {
                 println!(
                     "Tablebase memory warning: {} bytes used ({:.1}% of limit)",
                     current_memory,
-                    self.stats
-                        .memory_usage_percentage(self.config.memory.max_memory_bytes)
+                    self.stats.memory_usage_percentage(self.config.memory.max_memory_bytes)
                 );
             }
         }
@@ -181,8 +179,7 @@ impl MicroTablebase {
                 println!(
                     "Tablebase memory critical: {} bytes used ({:.1}% of limit)",
                     current_memory,
-                    self.stats
-                        .memory_usage_percentage(self.config.memory.max_memory_bytes)
+                    self.stats.memory_usage_percentage(self.config.memory.max_memory_bytes)
                 );
             }
 
@@ -256,11 +253,8 @@ impl MicroTablebase {
         let mut position_analysis = None;
         if !self.is_simple_endgame(board, captured_pieces) {
             let analysis_start = TimeSource::now();
-            let analysis = self
-                .position_analyzer
-                .analyze_position(board, player, captured_pieces);
-            self.stats
-                .record_position_analysis_time(analysis_start.elapsed_ms() as u64);
+            let analysis = self.position_analyzer.analyze_position(board, player, captured_pieces);
+            self.stats.record_position_analysis_time(analysis_start.elapsed_ms() as u64);
             position_analysis = Some(analysis);
         }
 
@@ -274,10 +268,7 @@ impl MicroTablebase {
 
             if let Some(ref analysis) = position_analysis {
                 // Skip solver if it can't handle the position complexity
-                if !analysis
-                    .complexity
-                    .is_suitable_for_priority(solver.priority())
-                {
+                if !analysis.complexity.is_suitable_for_priority(solver.priority()) {
                     continue;
                 }
             }
@@ -292,13 +283,11 @@ impl MicroTablebase {
                 }
             }
         }
-        self.stats
-            .record_solver_selection_time(solver_timer.elapsed_ms() as u64);
+        self.stats.record_solver_selection_time(solver_timer.elapsed_ms() as u64);
 
         if let Some((result, solver_name)) = solver_result {
             let probe_time = start_time.elapsed_ms() as u64;
-            self.stats
-                .record_probe(false, true, Some(solver_name), probe_time);
+            self.stats.record_probe(false, true, Some(solver_name), probe_time);
             return Some(result);
         }
 
@@ -341,12 +330,10 @@ impl MicroTablebase {
                     // Check if result meets confidence threshold
                     if result.confidence >= self.config.confidence_threshold {
                         let probe_time = start_time.elapsed_ms() as u64;
-                        self.stats
-                            .record_probe(false, true, Some(solver.name()), probe_time);
+                        self.stats.record_probe(false, true, Some(solver.name()), probe_time);
 
                         // Cache the result
-                        self.position_cache
-                            .put(board, player, captured_pieces, result.clone());
+                        self.position_cache.put(board, player, captured_pieces, result.clone());
                         return Some(result);
                     }
                 }
@@ -413,10 +400,7 @@ impl MicroTablebase {
 
     /// Get solver information
     pub fn get_solver_info(&self) -> Vec<String> {
-        self.solvers
-            .iter()
-            .map(|solver| solver.get_config_info())
-            .collect()
+        self.solvers.iter().map(|solver| solver.get_config_info()).collect()
     }
 
     /// Reset tablebase statistics
@@ -489,13 +473,7 @@ mod tests {
 
     impl MockSolver {
         fn new(name: &'static str, priority: u8) -> Self {
-            Self {
-                name,
-                priority,
-                enabled: true,
-                can_solve_result: false,
-                solve_result: None,
-            }
+            Self { name, priority, enabled: true, can_solve_result: false, solve_result: None }
         }
 
         fn with_can_solve(mut self, can_solve: bool) -> Self {
@@ -638,14 +616,10 @@ mod tests {
         );
 
         let result = TablebaseResult::win(Some(move_), 5);
-        tablebase
-            .position_cache
-            .put(&board, player, &captured_pieces, result);
+        tablebase.position_cache.put(&board, player, &captured_pieces, result);
 
         // Should be able to get from cache
-        let cached_result = tablebase
-            .position_cache
-            .get(&board, player, &captured_pieces);
+        let cached_result = tablebase.position_cache.get(&board, player, &captured_pieces);
         assert!(cached_result.is_some());
     }
 

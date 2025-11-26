@@ -22,10 +22,7 @@ pub struct IterativeDeepeningHelper {
 impl IterativeDeepeningHelper {
     /// Create a new IterativeDeepeningHelper with the given configuration
     pub fn new(config: AspirationWindowConfig) -> Self {
-        Self {
-            config,
-            stats: AspirationWindowStats::default(),
-        }
+        Self { config, stats: AspirationWindowStats::default() }
     }
 
     /// Calculate static window size
@@ -240,7 +237,7 @@ mod tests {
             ..AspirationWindowConfig::default()
         };
         let helper = IterativeDeepeningHelper::new(config);
-        
+
         // Below min_depth should return full-width
         assert_eq!(helper.calculate_static_window_size(1), i32::MAX);
         // At or above min_depth should return base size
@@ -249,16 +246,14 @@ mod tests {
 
     #[test]
     fn test_window_size_validation() {
-        let config = AspirationWindowConfig {
-            max_window_size: 200,
-            ..AspirationWindowConfig::default()
-        };
+        let config =
+            AspirationWindowConfig { max_window_size: 200, ..AspirationWindowConfig::default() };
         let helper = IterativeDeepeningHelper::new(config);
-        
+
         // Too small should be clamped to minimum
         let validated = helper.validate_window_size(5);
         assert!(validated >= 10);
-        
+
         // Too large should be clamped to maximum
         let validated = helper.validate_window_size(500);
         assert!(validated <= 200);
@@ -268,7 +263,7 @@ mod tests {
     fn test_fail_low_window() {
         let config = AspirationWindowConfig::default();
         let mut helper = IterativeDeepeningHelper::new(config);
-        
+
         let (alpha, beta) = helper.calculate_fail_low_window(1000, 50);
         assert_eq!(alpha, MIN_SCORE);
         assert!(beta > 1000); // Window widened downward
@@ -278,7 +273,7 @@ mod tests {
     fn test_fail_high_window() {
         let config = AspirationWindowConfig::default();
         let mut helper = IterativeDeepeningHelper::new(config);
-        
+
         let (alpha, beta) = helper.calculate_fail_high_window(1000, 50);
         assert_eq!(beta, MAX_SCORE);
         assert!(alpha < 1000); // Window widened upward
@@ -288,12 +283,9 @@ mod tests {
     fn test_config_update() {
         let config = AspirationWindowConfig::default();
         let mut helper = IterativeDeepeningHelper::new(config);
-        let new_config = AspirationWindowConfig {
-            base_window_size: 100,
-            ..AspirationWindowConfig::default()
-        };
+        let new_config =
+            AspirationWindowConfig { base_window_size: 100, ..AspirationWindowConfig::default() };
         helper.update_config(new_config);
         assert_eq!(helper.get_config().base_window_size, 100);
     }
 }
-

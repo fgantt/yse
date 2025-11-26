@@ -11,19 +11,17 @@
 //!
 //! Aggregation/scoring lives under `crate::evaluation::aggregators`.
 
-pub use crate::evaluation::position_features::*;
-pub use crate::evaluation::positional_patterns::*;
-pub use crate::evaluation::tactical_patterns::*;
-pub use crate::evaluation::endgame_patterns::*;
-pub use crate::evaluation::opening_principles::*;
-pub use crate::evaluation::castles::*;
-pub use crate::evaluation::piece_square_tables::*;
-pub use crate::evaluation::pst_loader::*;
 pub use crate::evaluation::attacks::*;
+pub use crate::evaluation::castles::*;
+pub use crate::evaluation::endgame_patterns::*;
 pub use crate::evaluation::king_safety::*;
+pub use crate::evaluation::opening_principles::*;
 pub use crate::evaluation::patterns::anaguma::*;
 pub use crate::evaluation::patterns::mino::*;
 pub use crate::evaluation::patterns::yagura::*;
+pub use crate::evaluation::piece_square_tables::*;
+pub use crate::evaluation::position_features::*;
+pub use crate::evaluation::positional_patterns::*;
+pub use crate::evaluation::pst_loader::*;
+pub use crate::evaluation::tactical_patterns::*;
 // Note: patterns::common exports are excluded to avoid conflicts with attacks module
-
-

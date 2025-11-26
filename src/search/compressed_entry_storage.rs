@@ -428,11 +428,7 @@ impl CompressedEntryStorage {
 
     /// Unpack move from 4 bytes
     fn unpack_move(&self, data: &[u8]) -> Move {
-        let from = if data[0] == 0 {
-            None
-        } else {
-            Some(Position::from_u8(data[0]))
-        };
+        let from = if data[0] == 0 { None } else { Some(Position::from_u8(data[0])) };
         let to = Position::from_u8(data[1]);
         let piece_type = match data[2] {
             0 => PieceType::Pawn,

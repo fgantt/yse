@@ -400,11 +400,7 @@ impl MultiLevelTranspositionTable {
         let size = size.max(config.min_level_size).min(config.max_level_size);
 
         // Calculate depth range
-        let min_depth = if level == 0 {
-            0
-        } else {
-            config.depth_thresholds[level - 1] + 1
-        };
+        let min_depth = if level == 0 { 0 } else { config.depth_thresholds[level - 1] + 1 };
         let max_depth = if level < config.depth_thresholds.len() {
             config.depth_thresholds[level]
         } else {
@@ -422,24 +418,14 @@ impl MultiLevelTranspositionTable {
             crate::search::transposition_table::ReplacementPolicy::DepthPreferred
         };
 
-        LevelConfig {
-            size,
-            min_depth,
-            max_depth,
-            replacement_policy,
-            memory_priority: level as u8,
-        }
+        LevelConfig { size, min_depth, max_depth, replacement_policy, memory_priority: level as u8 }
     }
 
     /// Update hit rate for a specific level
     fn update_level_hit_rate(&mut self, level: usize) {
         let level_stats = &mut self.stats.level_stats[level];
         let total = level_stats.hits + level_stats.misses;
-        level_stats.hit_rate = if total > 0 {
-            level_stats.hits as f64 / total as f64
-        } else {
-            0.0
-        };
+        level_stats.hit_rate = if total > 0 { level_stats.hits as f64 / total as f64 } else { 0.0 };
     }
 }
 
@@ -485,11 +471,8 @@ mod tests {
 
     #[test]
     fn test_level_selection() {
-        let config = MultiLevelConfig {
-            levels: 3,
-            depth_thresholds: vec![2, 6],
-            ..Default::default()
-        };
+        let config =
+            MultiLevelConfig { levels: 3, depth_thresholds: vec![2, 6], ..Default::default() };
 
         assert_eq!(MultiLevelTranspositionTable::select_level(&config, 0), 0);
         assert_eq!(MultiLevelTranspositionTable::select_level(&config, 1), 0);

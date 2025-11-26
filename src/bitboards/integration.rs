@@ -319,12 +319,12 @@ impl BitScanningOptimizer {
         // This is fast on modern CPUs with hardware popcount support
         let high_bits = (bb.to_u128() >> 64) as u64;
         let low_bits = bb.to_u128() as u64;
-        
+
         // Count high and low halves independently
         // This prevents misclassification when bits are concentrated in one half
         let high_count = high_bits.count_ones();
         let low_count = low_bits.count_ones();
-        
+
         high_count + low_count
     }
 
@@ -695,8 +695,7 @@ pub mod alignment {
         pub fn record_allocation(&self, size: usize, aligned: bool) {
             self.total_allocated.fetch_add(size, Ordering::Relaxed);
             if aligned {
-                self.cache_aligned_allocations
-                    .fetch_add(1, Ordering::Relaxed);
+                self.cache_aligned_allocations.fetch_add(1, Ordering::Relaxed);
             }
         }
     }
@@ -750,7 +749,8 @@ mod tests {
             // Test global optimizer
             let global_result = GlobalOptimizer::popcount(bb);
             assert_eq!(
-                result1, global_result,
+                result1,
+                global_result,
                 "Global optimizer inconsistent for 0x{:X}",
                 bb.to_u128()
             );
@@ -775,30 +775,24 @@ mod tests {
         for bb in test_cases {
             let forward1 = optimizer.bit_scan_forward(bb);
             let forward2 = optimizer.bit_scan_forward(bb);
-            assert_eq!(
-                forward1, forward2,
-                "Forward scan inconsistent for 0x{:X}",
-                bb.to_u128()
-            );
+            assert_eq!(forward1, forward2, "Forward scan inconsistent for 0x{:X}", bb.to_u128());
 
             let reverse1 = optimizer.bit_scan_reverse(bb);
             let reverse2 = optimizer.bit_scan_reverse(bb);
-            assert_eq!(
-                reverse1, reverse2,
-                "Reverse scan inconsistent for 0x{:X}",
-                bb.to_u128()
-            );
+            assert_eq!(reverse1, reverse2, "Reverse scan inconsistent for 0x{:X}", bb.to_u128());
 
             // Test global optimizer
             let global_forward = GlobalOptimizer::bit_scan_forward(bb);
             let global_reverse = GlobalOptimizer::bit_scan_reverse(bb);
             assert_eq!(
-                forward1, global_forward,
+                forward1,
+                global_forward,
                 "Global forward scan inconsistent for 0x{:X}",
                 bb.to_u128()
             );
             assert_eq!(
-                reverse1, global_reverse,
+                reverse1,
+                global_reverse,
                 "Global reverse scan inconsistent for 0x{:X}",
                 bb.to_u128()
             );
@@ -991,19 +985,25 @@ mod tests {
     #[test]
     fn test_strategy_counters() {
         let optimizer = BitScanningOptimizer::new();
-        
+
         // Perform some operations to generate counters
         optimizer.popcount(Bitboard::from_u128(0b1010));
         optimizer.bit_scan_forward(Bitboard::from_u128(0b1000));
         optimizer.get_all_bit_positions(Bitboard::from_u128(0b1111));
-        
+
         let counters = optimizer.get_strategy_counters();
         // At least some counters should be non-zero
-        let total = counters.popcount_hardware + counters.popcount_4bit + counters.popcount_swar
-            + counters.popcount_debruijn + counters.bitscan_hardware + counters.bitscan_debruijn
-            + counters.positions_4bit + counters.positions_debruijn + counters.positions_optimized;
+        let total = counters.popcount_hardware
+            + counters.popcount_4bit
+            + counters.popcount_swar
+            + counters.popcount_debruijn
+            + counters.bitscan_hardware
+            + counters.bitscan_debruijn
+            + counters.positions_4bit
+            + counters.positions_debruijn
+            + counters.positions_optimized;
         assert!(total > 0, "Strategy counters should track usage");
-        
+
         // Test reset
         optimizer.reset_counters();
         let counters_after_reset = optimizer.get_strategy_counters();
@@ -1014,12 +1014,12 @@ mod tests {
     #[test]
     fn test_adaptive_selection_with_different_densities() {
         let optimizer = BitScanningOptimizer::new();
-        
+
         // Test with different bit densities to verify adaptive selection
         let sparse = Bitboard::from_u128(0b1010u128); // 2 bits
         let medium = Bitboard::from_u128(0x5555555555555555u128); // 32 bits
         let dense = Bitboard::from_u128(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFu128); // 128 bits
-        
+
         // All should produce correct results regardless of density
         assert_eq!(optimizer.popcount(sparse), 2);
         assert_eq!(optimizer.popcount(medium), 32);

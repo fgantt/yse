@@ -9,8 +9,6 @@
 //! - telemetry: lightweight debug/trace logging integration points
 //! - common: small general-purpose helpers
 
-pub mod time;
-pub mod telemetry;
 pub mod common;
-
-
+pub mod telemetry;
+pub mod time;

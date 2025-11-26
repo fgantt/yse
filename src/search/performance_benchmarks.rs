@@ -40,10 +40,7 @@ pub struct PerformanceBenchmarks {
 impl PerformanceBenchmarks {
     /// Create a new benchmark suite
     pub fn new(table_size: usize, operation_count: u64) -> Self {
-        Self {
-            table_size,
-            operation_count,
-        }
+        Self { table_size, operation_count }
     }
 
     /// Run hash mapping benchmark
@@ -169,9 +166,7 @@ impl PerformanceBenchmarks {
             table.store(entry);
         }
 
-        let test_hashes: Vec<u64> = (0..self.operation_count)
-            .map(|i| (i as u64) % 1000)
-            .collect();
+        let test_hashes: Vec<u64> = (0..self.operation_count).map(|i| (i as u64) % 1000).collect();
 
         let mut hits = 0;
         let start = Instant::now();
@@ -272,10 +267,7 @@ impl PerformanceBenchmarks {
         // Probe entries
         let mut hits = 0;
         for entry in &test_entries {
-            if optimizer
-                .fast_probe(entry.hash_key, entry.depth, &entries)
-                .is_some()
-            {
+            if optimizer.fast_probe(entry.hash_key, entry.depth, &entries).is_some() {
                 hits += 1;
             }
         }

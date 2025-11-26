@@ -157,10 +157,7 @@ impl PVOrdering {
     /// Sibling nodes are nodes at the same depth in the search tree.
     /// When exploring one node, the PV from other sibling nodes can be useful.
     pub fn store_sibling_pv(&mut self, parent_hash: u64, sibling_pv_move: Move) {
-        let siblings = self
-            .sibling_pv_moves
-            .entry(parent_hash)
-            .or_insert_with(Vec::new);
+        let siblings = self.sibling_pv_moves.entry(parent_hash).or_insert_with(Vec::new);
 
         // Only store if not already present
         if !siblings.iter().any(|m| moves_equal(m, &sibling_pv_move)) {

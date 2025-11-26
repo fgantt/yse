@@ -360,10 +360,7 @@ mod tests {
 
         // Test complexity
         let complexity = board.get_position_complexity();
-        assert!(matches!(
-            complexity,
-            PositionComplexity::Medium | PositionComplexity::High
-        ));
+        assert!(matches!(complexity, PositionComplexity::Medium | PositionComplexity::High));
 
         // Test tactical richness
         assert!(board.is_tactically_rich());

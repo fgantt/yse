@@ -45,11 +45,7 @@ impl MemoryMappedMagicTable {
         let table = MagicTable::deserialize(&mmap[..])
             .map_err(|e| MagicError::IoError(format!("Failed to deserialize table: {}", e)))?;
 
-        Ok(Self {
-            mmap,
-            table,
-            path: path.to_path_buf(),
-        })
+        Ok(Self { mmap, table, path: path.to_path_buf() })
     }
 
     /// Get attacks (delegates to underlying table)

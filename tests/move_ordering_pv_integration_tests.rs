@@ -120,14 +120,7 @@ mod integration_tests {
         );
 
         // Store PV move in transposition table
-        orderer.update_pv_move(
-            &board,
-            &captured_pieces,
-            player,
-            depth,
-            best_move.clone(),
-            100,
-        );
+        orderer.update_pv_move(&board, &captured_pieces, player, depth, best_move.clone(), 100);
 
         // Retrieve PV move
         let retrieved_pv_move = orderer.get_pv_move(&board, &captured_pieces, player, depth);
@@ -174,10 +167,8 @@ mod integration_tests {
                 player,
             );
             move_.is_capture = true;
-            move_.captured_piece = Some(Piece {
-                piece_type: PieceType::Gold,
-                player: Player::White,
-            });
+            move_.captured_piece =
+                Some(Piece { piece_type: PieceType::Gold, player: Player::White });
             move_
         };
 
@@ -198,14 +189,7 @@ mod integration_tests {
         let moves = vec![capture_move.clone(), pv_move.clone(), quiet_move.clone()];
 
         // Store PV move in transposition table
-        orderer.update_pv_move(
-            &board,
-            &captured_pieces,
-            player,
-            depth,
-            pv_move.clone(),
-            100,
-        );
+        orderer.update_pv_move(&board, &captured_pieces, player, depth, pv_move.clone(), 100);
 
         // Order moves with PV prioritization
         let ordered_moves =
@@ -246,14 +230,7 @@ mod integration_tests {
             PieceType::Pawn,
             player,
         );
-        orderer.update_pv_move(
-            &board,
-            &captured_pieces,
-            player,
-            depth,
-            pv_move.clone(),
-            100,
-        );
+        orderer.update_pv_move(&board, &captured_pieces, player, depth, pv_move.clone(), 100);
 
         // First lookup - should hit transposition table
         let first_lookup = orderer.get_pv_move(&board, &captured_pieces, player, depth);
@@ -353,22 +330,8 @@ mod integration_tests {
         );
 
         // Store PV moves for different positions
-        orderer.update_pv_move(
-            &board1,
-            &captured_pieces,
-            player,
-            depth,
-            pv_move1.clone(),
-            100,
-        );
-        orderer.update_pv_move(
-            &board2,
-            &captured_pieces,
-            player,
-            depth,
-            pv_move2.clone(),
-            150,
-        );
+        orderer.update_pv_move(&board1, &captured_pieces, player, depth, pv_move1.clone(), 100);
+        orderer.update_pv_move(&board2, &captured_pieces, player, depth, pv_move2.clone(), 150);
 
         // Retrieve PV moves for each position
         let retrieved1 = orderer.get_pv_move(&board1, &captured_pieces, player, depth);

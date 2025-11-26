@@ -103,10 +103,7 @@ impl ErrorLogEntry {
     /// Create a new error log entry
     pub fn new(severity: ErrorSeverity, message: String) -> Self {
         Self {
-            timestamp: SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs(),
+            timestamp: SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),
             severity,
             message,
             context: None,
@@ -198,11 +195,7 @@ impl ErrorLogger {
     /// Get recent error entries
     pub fn get_recent_entries(&self, count: usize) -> Vec<ErrorLogEntry> {
         let entries = self.entries.lock().unwrap();
-        let start = if entries.len() > count {
-            entries.len() - count
-        } else {
-            0
-        };
+        let start = if entries.len() > count { entries.len() - count } else { 0 };
         entries[start..].to_vec()
     }
 
@@ -333,10 +326,8 @@ impl GracefulDegradationHandler {
     /// Reset degradation level
     pub fn reset_degradation(&self) {
         self.degradation_level.store(0, Ordering::Release);
-        self.logger.log_error(
-            ErrorSeverity::Info,
-            "Degradation level reset to normal".to_string(),
-        );
+        self.logger
+            .log_error(ErrorSeverity::Info, "Degradation level reset to normal".to_string());
     }
 
     /// Get fallback configuration based on degradation level
@@ -461,10 +452,8 @@ impl ErrorRecoveryStrategy for ConfigurationRecovery {
 impl ErrorRecoveryManager {
     /// Create a new error recovery manager
     pub fn new(logger: Arc<ErrorLogger>) -> Self {
-        let strategies: Vec<Box<dyn ErrorRecoveryStrategy>> = vec![
-            Box::new(MemoryAllocationRecovery),
-            Box::new(ConfigurationRecovery),
-        ];
+        let strategies: Vec<Box<dyn ErrorRecoveryStrategy>> =
+            vec![Box::new(MemoryAllocationRecovery), Box::new(ConfigurationRecovery)];
 
         Self {
             logger,
@@ -550,11 +539,7 @@ impl ComprehensiveErrorHandler {
         let degradation_handler = Arc::new(GracefulDegradationHandler::new(Arc::clone(&logger)));
         let recovery_manager = Arc::new(ErrorRecoveryManager::new(Arc::clone(&logger)));
 
-        Self {
-            logger,
-            degradation_handler,
-            recovery_manager,
-        }
+        Self { logger, degradation_handler, recovery_manager }
     }
 
     /// Handle an error with full error handling pipeline

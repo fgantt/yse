@@ -295,10 +295,7 @@ mod lmr_move_exemption_tests {
             is_capture,
             is_promotion,
             captured_piece: if is_capture {
-                Some(Piece {
-                    piece_type: PieceType::Pawn,
-                    player: Player::White,
-                })
+                Some(Piece { piece_type: PieceType::Pawn, player: Player::White })
             } else {
                 None
             },
@@ -642,10 +639,7 @@ mod lmr_move_classification_tests {
             player: Player::Black,
             is_capture: true,
             is_promotion: false,
-            captured_piece: Some(Piece {
-                piece_type: PieceType::Pawn,
-                player: Player::White,
-            }),
+            captured_piece: Some(Piece { piece_type: PieceType::Pawn, player: Player::White }),
             gives_check: false,
             is_recapture: false,
         };
@@ -663,10 +657,7 @@ mod lmr_move_classification_tests {
             gives_check: false,
             is_recapture: false,
         };
-        assert_eq!(
-            engine.classify_move_type(&promotion_move),
-            MoveType::Promotion
-        );
+        assert_eq!(engine.classify_move_type(&promotion_move), MoveType::Promotion);
 
         // Test center move
         let center_move = Move {
@@ -709,10 +700,7 @@ mod lmr_move_classification_tests {
             player: Player::Black,
             is_capture: true,
             is_promotion: false,
-            captured_piece: Some(Piece {
-                piece_type: PieceType::Rook,
-                player: Player::White,
-            }),
+            captured_piece: Some(Piece { piece_type: PieceType::Rook, player: Player::White }),
             gives_check: false,
             is_recapture: false,
         };
@@ -1310,10 +1298,7 @@ mod tt_move_detection_tests {
         // Test with non-matching TT move - should apply LMR (reduction > 0)
         state.set_tt_move(Some(tt_move));
         let reduction = manager.calculate_lmr_reduction(&state, &current_move, false, None);
-        assert!(
-            reduction > 0,
-            "Should apply LMR when move doesn't match TT move"
-        );
+        assert!(reduction > 0, "Should apply LMR when move doesn't match TT move");
     }
 
     #[test]
@@ -1346,10 +1331,7 @@ mod tt_move_detection_tests {
             false,
             Some(&tt_move_from_param),
         );
-        assert!(
-            reduction > 0,
-            "State TT move should take precedence over parameter"
-        );
+        assert!(reduction > 0, "State TT move should take precedence over parameter");
     }
 
     #[test]
@@ -1389,10 +1371,7 @@ mod tt_move_detection_tests {
         // Even with TT move, should apply LMR if extended exemptions disabled
         state.set_tt_move(Some(tt_move.clone()));
         let reduction = manager.calculate_lmr_reduction(&state, &tt_move, false, None);
-        assert!(
-            reduction > 0,
-            "Should apply LMR when extended exemptions disabled"
-        );
+        assert!(reduction > 0, "Should apply LMR when extended exemptions disabled");
     }
 
     #[test]
@@ -1451,10 +1430,7 @@ mod tt_move_detection_tests {
 
         // Should be exempted due to capture (basic exemption) even if TT
         let reduction = manager.calculate_lmr_reduction(&state, &tt_move, false, None);
-        assert_eq!(
-            reduction, 0,
-            "Should exempt capture move regardless of TT status"
-        );
+        assert_eq!(reduction, 0, "Should exempt capture move regardless of TT status");
     }
 }
 
@@ -1655,10 +1631,7 @@ mod enhanced_position_classification_tests {
         let config = LMRConfig::default();
         assert_eq!(config.classification_config.tactical_threshold, 0.3);
         assert_eq!(config.classification_config.quiet_threshold, 0.1);
-        assert_eq!(
-            config.classification_config.material_imbalance_threshold,
-            300
-        );
+        assert_eq!(config.classification_config.material_imbalance_threshold, 300);
         assert_eq!(config.classification_config.min_moves_threshold, 5);
     }
 
@@ -1866,10 +1839,7 @@ mod enhanced_position_classification_tests {
         );
 
         // Statistics should be tracked
-        assert_eq!(
-            engine.lmr_stats.classification_stats.total_classifications,
-            initial_count + 1
-        );
+        assert_eq!(engine.lmr_stats.classification_stats.total_classifications, initial_count + 1);
     }
 
     #[test]
@@ -1943,14 +1913,8 @@ mod escape_move_detection_tests {
         let board = BitboardBoard::new();
         let captured_pieces = CapturedPieces::new();
         let player = Player::Black;
-        let move_ = Move::new(
-            Position::new(4, 4),
-            Position::new(3, 3),
-            Player::Black,
-            false,
-            false,
-            false,
-        );
+        let move_ =
+            Move::new(Position::new(4, 4), Position::new(3, 3), Player::Black, false, false, false);
 
         let is_escape = engine.is_escape_move(&move_, &board, &captured_pieces, player);
 
@@ -1969,14 +1933,8 @@ mod escape_move_detection_tests {
         let board = BitboardBoard::new();
         let captured_pieces = CapturedPieces::new();
         let player = Player::Black;
-        let move_ = Move::new(
-            Position::new(4, 4),
-            Position::new(3, 3),
-            Player::Black,
-            false,
-            false,
-            false,
-        );
+        let move_ =
+            Move::new(Position::new(4, 4), Position::new(3, 3), Player::Black, false, false, false);
 
         // Test threat-based detection (simplified - actual threat detection would check board state)
         let is_escape = engine.is_escape_move(&move_, &board, &captured_pieces, player);
@@ -2018,14 +1976,8 @@ mod escape_move_detection_tests {
 
         // Test with king (if king is in check, escape move should be detected)
         // This is a simplified test - actual implementation would check if king is in check
-        let move_ = Move::new(
-            Position::new(4, 4),
-            Position::new(3, 3),
-            Player::Black,
-            false,
-            false,
-            false,
-        );
+        let move_ =
+            Move::new(Position::new(4, 4), Position::new(3, 3), Player::Black, false, false, false);
 
         let is_escape = engine.is_escape_move(&move_, &board, &captured_pieces, player);
 
@@ -2043,14 +1995,8 @@ mod escape_move_detection_tests {
 
         let initial_count = engine.lmr_stats.escape_move_stats.escape_moves_exempted;
 
-        let move_ = Move::new(
-            Position::new(4, 4),
-            Position::new(2, 2),
-            Player::Black,
-            false,
-            false,
-            false,
-        );
+        let move_ =
+            Move::new(Position::new(4, 4), Position::new(2, 2), Player::Black, false, false, false);
         let _is_escape = engine.is_escape_move(&move_, &board, &captured_pieces, player);
 
         // Statistics should be tracked if escape move detected
@@ -2099,14 +2045,8 @@ mod escape_move_detection_tests {
         let board = BitboardBoard::new();
         let captured_pieces = CapturedPieces::new();
         let player = Player::Black;
-        let move_ = Move::new(
-            Position::new(4, 4),
-            Position::new(3, 3),
-            Player::Black,
-            false,
-            false,
-            false,
-        );
+        let move_ =
+            Move::new(Position::new(4, 4), Position::new(3, 3), Player::Black, false, false, false);
 
         let is_attacked =
             engine.is_piece_under_attack_after_move(&board, &captured_pieces, &move_, player);
@@ -2137,10 +2077,7 @@ mod adaptive_tuning_tests {
     fn test_lmr_config_with_adaptive_tuning_config() {
         let config = LMRConfig::default();
         assert_eq!(config.adaptive_tuning_config.enabled, false);
-        assert_eq!(
-            config.adaptive_tuning_config.aggressiveness,
-            TuningAggressiveness::Moderate
-        );
+        assert_eq!(config.adaptive_tuning_config.aggressiveness, TuningAggressiveness::Moderate);
         assert_eq!(config.adaptive_tuning_config.min_data_threshold, 100);
     }
 
@@ -2383,10 +2320,7 @@ mod pruning_manager_adaptive_reduction_tests {
         let pruning_manager = engine.get_pruning_manager();
 
         // Check if PruningManager has adaptive reduction enabled by default
-        assert_eq!(
-            pruning_manager.parameters.lmr_enable_adaptive_reduction,
-            true
-        );
+        assert_eq!(pruning_manager.parameters.lmr_enable_adaptive_reduction, true);
     }
 
     #[test]
@@ -2397,14 +2331,8 @@ mod pruning_manager_adaptive_reduction_tests {
         let board = BitboardBoard::new();
         let captured_pieces = CapturedPieces::new();
         let player = Player::Black;
-        let move_ = Move::new(
-            Position::new(4, 4),
-            Position::new(3, 3),
-            Player::Black,
-            false,
-            false,
-            false,
-        );
+        let move_ =
+            Move::new(Position::new(4, 4), Position::new(3, 3), Player::Black, false, false, false);
 
         // Create search state with position classification
         let mut search_state = SearchState::new(5, 0, 1000);
@@ -2434,10 +2362,7 @@ mod pruning_manager_adaptive_reduction_tests {
         let pruning_manager = engine.get_pruning_manager();
 
         // Check if adaptive reduction is disabled
-        assert_eq!(
-            pruning_manager.parameters.lmr_enable_adaptive_reduction,
-            false
-        );
+        assert_eq!(pruning_manager.parameters.lmr_enable_adaptive_reduction, false);
     }
 
     #[test]
@@ -2464,14 +2389,8 @@ mod pruning_manager_adaptive_reduction_tests {
         let engine = create_test_engine();
         let pruning_manager = engine.get_pruning_manager();
 
-        let move_ = Move::new(
-            Position::new(4, 4),
-            Position::new(3, 3),
-            Player::Black,
-            false,
-            false,
-            false,
-        );
+        let move_ =
+            Move::new(Position::new(4, 4), Position::new(3, 3), Player::Black, false, false, false);
 
         // Create search state with neutral position
         let mut search_state = SearchState::new(5, 0, 1000);
@@ -2492,24 +2411,12 @@ mod pruning_manager_adaptive_reduction_tests {
         let pruning_manager = engine.get_pruning_manager();
 
         // Center move (from center to center)
-        let center_move = Move::new(
-            Position::new(4, 4),
-            Position::new(3, 3),
-            Player::Black,
-            false,
-            false,
-            false,
-        );
+        let center_move =
+            Move::new(Position::new(4, 4), Position::new(3, 3), Player::Black, false, false, false);
 
         // Edge move (from edge to edge)
-        let edge_move = Move::new(
-            Position::new(0, 0),
-            Position::new(1, 1),
-            Player::Black,
-            false,
-            false,
-            false,
-        );
+        let edge_move =
+            Move::new(Position::new(0, 0), Position::new(1, 1), Player::Black, false, false, false);
 
         let mut search_state = SearchState::new(5, 0, 1000);
         search_state.set_position_classification(Some(PositionClassification::Neutral));
@@ -2533,14 +2440,8 @@ mod pruning_manager_adaptive_reduction_tests {
         let engine = create_test_engine();
         let pruning_manager = engine.get_pruning_manager();
 
-        let move_ = Move::new(
-            Position::new(4, 4),
-            Position::new(3, 3),
-            Player::Black,
-            false,
-            false,
-            false,
-        );
+        let move_ =
+            Move::new(Position::new(4, 4), Position::new(3, 3), Player::Black, false, false, false);
 
         // Test with different combinations of position classification and move type
         let test_cases = vec![
@@ -2567,14 +2468,8 @@ mod pruning_manager_adaptive_reduction_tests {
         let engine = create_test_engine();
         let pruning_manager = engine.get_pruning_manager();
 
-        let move_ = Move::new(
-            Position::new(4, 4),
-            Position::new(3, 3),
-            Player::Black,
-            false,
-            false,
-            false,
-        );
+        let move_ =
+            Move::new(Position::new(4, 4), Position::new(3, 3), Player::Black, false, false, false);
 
         // Create search state without position classification
         let search_state = SearchState::new(5, 0, 1000);
@@ -2612,10 +2507,7 @@ mod pruning_manager_adaptive_reduction_tests {
         assert_eq!(updated_params.lmr_enable_adaptive_reduction, false);
 
         // Verify parameters changed
-        assert_ne!(
-            updated_params.lmr_base_reduction,
-            initial_params.lmr_base_reduction
-        );
+        assert_ne!(updated_params.lmr_base_reduction, initial_params.lmr_base_reduction);
     }
 
     #[test]
@@ -2623,14 +2515,8 @@ mod pruning_manager_adaptive_reduction_tests {
         let engine = create_test_engine();
         let pruning_manager = engine.get_pruning_manager();
 
-        let move_ = Move::new(
-            Position::new(4, 4),
-            Position::new(3, 3),
-            Player::Black,
-            false,
-            false,
-            false,
-        );
+        let move_ =
+            Move::new(Position::new(4, 4), Position::new(3, 3), Player::Black, false, false, false);
 
         // Test that adaptive reduction actually changes reduction based on position
         let mut search_state = SearchState::new(5, 0, 1000);
@@ -2678,10 +2564,7 @@ mod lmr_preset_tests {
         assert_eq!(preset.re_search_margin, 25);
         assert_eq!(preset.enable_extended_exemptions, true);
         assert_eq!(preset.adaptive_tuning_config.enabled, true);
-        assert_eq!(
-            preset.adaptive_tuning_config.aggressiveness,
-            TuningAggressiveness::Moderate
-        );
+        assert_eq!(preset.adaptive_tuning_config.aggressiveness, TuningAggressiveness::Moderate);
     }
 
     #[test]
@@ -2718,10 +2601,7 @@ mod lmr_preset_tests {
         assert_eq!(preset.re_search_margin, 50);
         assert_eq!(preset.enable_extended_exemptions, true);
         assert_eq!(preset.adaptive_tuning_config.enabled, true);
-        assert_eq!(
-            preset.adaptive_tuning_config.aggressiveness,
-            TuningAggressiveness::Moderate
-        );
+        assert_eq!(preset.adaptive_tuning_config.aggressiveness, TuningAggressiveness::Moderate);
     }
 
     #[test]
@@ -2750,10 +2630,7 @@ mod lmr_preset_tests {
         let mut engine = create_test_engine();
         let result = engine.apply_lmr_preset(LMRPlayingStyle::Aggressive);
 
-        assert!(
-            result.is_ok(),
-            "Should apply aggressive preset successfully"
-        );
+        assert!(result.is_ok(), "Should apply aggressive preset successfully");
 
         let config = engine.get_lmr_config();
         assert_eq!(config.min_depth, 2);
@@ -2773,10 +2650,7 @@ mod lmr_preset_tests {
         let mut engine = create_test_engine();
         let result = engine.apply_lmr_preset(LMRPlayingStyle::Conservative);
 
-        assert!(
-            result.is_ok(),
-            "Should apply conservative preset successfully"
-        );
+        assert!(result.is_ok(), "Should apply conservative preset successfully");
 
         let config = engine.get_lmr_config();
         assert_eq!(config.min_depth, 4);
@@ -2816,11 +2690,9 @@ mod lmr_preset_tests {
         let engine = create_test_engine();
 
         // Test all presets have reasonable values
-        for style in [
-            LMRPlayingStyle::Aggressive,
-            LMRPlayingStyle::Conservative,
-            LMRPlayingStyle::Balanced,
-        ] {
+        for style in
+            [LMRPlayingStyle::Aggressive, LMRPlayingStyle::Conservative, LMRPlayingStyle::Balanced]
+        {
             let preset = engine.get_lmr_preset(style);
 
             // Verify reasonable ranges
@@ -2871,10 +2743,7 @@ mod lmr_preset_tests {
         );
 
         // Balanced should have Moderate tuning
-        assert_eq!(
-            balanced.adaptive_tuning_config.aggressiveness,
-            TuningAggressiveness::Moderate
-        );
+        assert_eq!(balanced.adaptive_tuning_config.aggressiveness, TuningAggressiveness::Moderate);
 
         // All should have adaptive tuning enabled
         assert!(aggressive.adaptive_tuning_config.enabled);
@@ -2887,15 +2756,11 @@ mod lmr_preset_tests {
         let mut engine = create_test_engine();
 
         // Apply aggressive preset
-        engine
-            .apply_lmr_preset(LMRPlayingStyle::Aggressive)
-            .unwrap();
+        engine.apply_lmr_preset(LMRPlayingStyle::Aggressive).unwrap();
         assert_eq!(engine.get_lmr_config().base_reduction, 2);
 
         // Switch to conservative preset
-        engine
-            .apply_lmr_preset(LMRPlayingStyle::Conservative)
-            .unwrap();
+        engine.apply_lmr_preset(LMRPlayingStyle::Conservative).unwrap();
         assert_eq!(engine.get_lmr_config().base_reduction, 1);
 
         // Switch to balanced preset
@@ -2912,9 +2777,7 @@ mod lmr_preset_tests {
         let player = Player::Black;
 
         // Apply aggressive preset
-        engine
-            .apply_lmr_preset(LMRPlayingStyle::Aggressive)
-            .unwrap();
+        engine.apply_lmr_preset(LMRPlayingStyle::Aggressive).unwrap();
 
         // Perform a search to verify preset works with LMR
         let mut board_mut = board.clone();
@@ -3193,14 +3056,8 @@ mod advanced_reduction_strategies_tests {
 
     #[test]
     fn test_advanced_reduction_strategy_enum() {
-        assert_eq!(
-            AdvancedReductionStrategy::Basic,
-            AdvancedReductionStrategy::Basic
-        );
-        assert_eq!(
-            AdvancedReductionStrategy::DepthBased,
-            AdvancedReductionStrategy::DepthBased
-        );
+        assert_eq!(AdvancedReductionStrategy::Basic, AdvancedReductionStrategy::Basic);
+        assert_eq!(AdvancedReductionStrategy::DepthBased, AdvancedReductionStrategy::DepthBased);
         assert_eq!(
             AdvancedReductionStrategy::MaterialBased,
             AdvancedReductionStrategy::MaterialBased
@@ -3209,10 +3066,7 @@ mod advanced_reduction_strategies_tests {
             AdvancedReductionStrategy::HistoryBased,
             AdvancedReductionStrategy::HistoryBased
         );
-        assert_eq!(
-            AdvancedReductionStrategy::Combined,
-            AdvancedReductionStrategy::Combined
-        );
+        assert_eq!(AdvancedReductionStrategy::Combined, AdvancedReductionStrategy::Combined);
     }
 
     #[test]
@@ -3502,10 +3356,8 @@ mod conditional_exemption_tests {
         // Test capture move - should be exempted (default behavior)
         let mut capture_move = create_test_move();
         capture_move.is_capture = true;
-        capture_move.captured_piece = Some(Piece {
-            piece_type: PieceType::Pawn,
-            player: Player::White,
-        });
+        capture_move.captured_piece =
+            Some(Piece { piece_type: PieceType::Pawn, player: Player::White });
 
         let reduction = pruning_manager.calculate_lmr_reduction(&state, &capture_move, false, None);
         assert_eq!(reduction, 0); // Should be exempted
@@ -3514,16 +3366,9 @@ mod conditional_exemption_tests {
     #[test]
     fn test_lmr_config_has_conditional_exemption_config() {
         let config = LMRConfig::default();
+        assert_eq!(config.conditional_exemption_config.enable_conditional_capture_exemption, false);
         assert_eq!(
-            config
-                .conditional_exemption_config
-                .enable_conditional_capture_exemption,
-            false
-        );
-        assert_eq!(
-            config
-                .conditional_exemption_config
-                .enable_conditional_promotion_exemption,
+            config.conditional_exemption_config.enable_conditional_promotion_exemption,
             false
         );
     }

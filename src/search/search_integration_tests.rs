@@ -42,9 +42,7 @@ mod search_integration_tests {
 
         // Test negamax with move ordering
         let legal_moves =
-            engine
-                .move_generator
-                .generate_legal_moves(&board, player, &captured_pieces);
+            engine.move_generator.generate_legal_moves(&board, player, &captured_pieces);
 
         if !legal_moves.is_empty() {
             // Test move ordering integration
@@ -118,9 +116,7 @@ mod search_integration_tests {
         let player = Player::Black;
 
         let legal_moves =
-            engine
-                .move_generator
-                .generate_legal_moves(&board, player, &captured_pieces);
+            engine.move_generator.generate_legal_moves(&board, player, &captured_pieces);
 
         if legal_moves.len() > 3 {
             // Test that move ordering doesn't significantly slow down search
@@ -154,9 +150,7 @@ mod search_integration_tests {
         let player = Player::Black;
 
         let legal_moves =
-            engine
-                .move_generator
-                .generate_legal_moves(&board, player, &captured_pieces);
+            engine.move_generator.generate_legal_moves(&board, player, &captured_pieces);
 
         if legal_moves.len() > 1 {
             let ordered_moves = engine.order_moves_for_negamax(
@@ -175,10 +169,7 @@ mod search_integration_tests {
             // No duplicates should be introduced
             let mut seen_moves = std::collections::HashSet::new();
             for mv in &ordered_moves {
-                assert!(
-                    seen_moves.insert(format!("{:?}", mv)),
-                    "Duplicate move found in ordering"
-                );
+                assert!(seen_moves.insert(format!("{:?}", mv)), "Duplicate move found in ordering");
             }
         }
     }
@@ -197,16 +188,10 @@ mod search_integration_tests {
 
         // Test game phase determination
         let phase = advanced_orderer.determine_game_phase(10, 0, 0.3);
-        assert!(matches!(
-            phase,
-            crate::search::move_ordering::GamePhase::Opening
-        ));
+        assert!(matches!(phase, crate::search::move_ordering::GamePhase::Opening));
 
         let phase = advanced_orderer.determine_game_phase(70, 0, 0.3);
-        assert!(matches!(
-            phase,
-            crate::search::move_ordering::GamePhase::Endgame
-        ));
+        assert!(matches!(phase, crate::search::move_ordering::GamePhase::Endgame));
     }
 
     /// Test error handling in move ordering integration
@@ -309,9 +294,7 @@ mod search_performance_tests {
         let player = Player::Black;
 
         let legal_moves =
-            engine
-                .move_generator
-                .generate_legal_moves(&board, player, &captured_pieces);
+            engine.move_generator.generate_legal_moves(&board, player, &captured_pieces);
 
         if legal_moves.len() > 5 {
             let iterations = 100;

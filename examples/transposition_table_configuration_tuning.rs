@@ -61,10 +61,7 @@ fn runtime_configuration_updates() {
 
     println!("  New configuration:");
     println!("    Table size: {}", new_config.table_size);
-    println!(
-        "    Replacement policy: {:?}",
-        new_config.replacement_policy
-    );
+    println!("    Replacement policy: {:?}", new_config.replacement_policy);
     println!("    Enable statistics: {}", new_config.enable_statistics);
 
     // Apply immediate update
@@ -81,10 +78,7 @@ fn runtime_configuration_updates() {
     if validation.is_valid {
         println!("    ✅ Configuration is valid");
     } else {
-        println!(
-            "    ❌ Configuration validation failed: {:?}",
-            validation.errors
-        );
+        println!("    ❌ Configuration validation failed: {:?}", validation.errors);
     }
 
     if !validation.warnings.is_empty() {
@@ -96,10 +90,7 @@ fn runtime_configuration_updates() {
     let target_config = TranspositionConfig::performance_optimized();
     match runtime_manager.update_config(
         target_config,
-        ConfigurationUpdateStrategy::Gradual {
-            steps: 3,
-            step_duration_ms: 100,
-        },
+        ConfigurationUpdateStrategy::Gradual { steps: 3, step_duration_ms: 100 },
     ) {
         Ok(_) => println!("    ✅ Gradual update completed"),
         Err(e) => println!("    ❌ Gradual update failed: {}", e),
@@ -133,10 +124,7 @@ fn adaptive_configuration_demo() {
     // List adaptation rules
     println!("  Adaptation rules:");
     for rule in adaptive_manager.get_adaptation_rules() {
-        println!(
-            "    • {} (priority: {}, enabled: {})",
-            rule.name, rule.priority, rule.enabled
-        );
+        println!("    • {} (priority: {}, enabled: {})", rule.name, rule.priority, rule.enabled);
     }
 
     // Simulate performance metrics updates
@@ -213,10 +201,7 @@ fn performance_tuning_demo() {
     // Generate performance-based recommendations
     println!("  Generating performance-based recommendations...");
     let perf_recommendations = tuning_manager.generate_performance_recommendations();
-    println!(
-        "    Generated {} performance-based recommendations",
-        perf_recommendations.len()
-    );
+    println!("    Generated {} performance-based recommendations", perf_recommendations.len());
 
     for recommendation in perf_recommendations.iter().take(3) {
         println!(
@@ -340,9 +325,7 @@ fn configuration_templates_demo() {
     template_manager.update_template_usage("custom_balanced");
 
     // Rate template
-    template_manager
-        .rate_template("custom_balanced", 4.5)
-        .unwrap();
+    template_manager.rate_template("custom_balanced", 4.5).unwrap();
 
     // Get template metadata
     if let Some(metadata) = template_manager.get_template_metadata("custom_balanced") {
@@ -393,10 +376,7 @@ fn configuration_validation_demo() {
 
     // Validate invalid configuration
     println!("  Validating invalid configuration (zero table size)...");
-    let invalid_config = TranspositionConfig {
-        table_size: 0,
-        ..TranspositionConfig::default()
-    };
+    let invalid_config = TranspositionConfig { table_size: 0, ..TranspositionConfig::default() };
     let results = validator.validate_configuration(&invalid_config);
 
     for result in results {
@@ -422,26 +402,14 @@ fn configuration_validation_demo() {
     // Benchmark configuration
     println!("  Benchmarking configuration...");
     let benchmark_results = validator.benchmark_configuration(&default_config);
-    println!(
-        "    Average operation time: {:.1}μs",
-        benchmark_results.avg_operation_time_us
-    );
-    println!(
-        "    Expected hit rate: {:.1}%",
-        benchmark_results.hit_rate_percentage
-    );
+    println!("    Average operation time: {:.1}μs", benchmark_results.avg_operation_time_us);
+    println!("    Expected hit rate: {:.1}%", benchmark_results.hit_rate_percentage);
     println!(
         "    Expected memory usage: {:.1} KB",
         benchmark_results.memory_usage_bytes as f64 / 1024.0
     );
-    println!(
-        "    Expected collision rate: {:.1}%",
-        benchmark_results.collision_rate_percentage
-    );
-    println!(
-        "    Expected throughput: {:.0} ops/sec",
-        benchmark_results.throughput_ops_per_sec
-    );
+    println!("    Expected collision rate: {:.1}%", benchmark_results.collision_rate_percentage);
+    println!("    Expected throughput: {:.0} ops/sec", benchmark_results.throughput_ops_per_sec);
 }
 
 #[cfg(feature = "tt-config-tuning")]
@@ -464,10 +432,7 @@ fn advanced_tuning_scenarios() {
     let mut tuning_manager = PerformanceTuningManager::new(runtime_manager.get_active_config());
     let recommendations = tuning_manager.generate_performance_recommendations();
 
-    println!(
-        "    Generated {} recommendations for low memory scenario",
-        recommendations.len()
-    );
+    println!("    Generated {} recommendations for low memory scenario", recommendations.len());
     for recommendation in recommendations.iter().take(2) {
         println!("      • {}", recommendation.title);
     }
@@ -509,18 +474,14 @@ fn advanced_tuning_scenarios() {
     metrics.system_load = 0.2;
     metrics.available_memory_bytes = 1000000000;
 
-    adaptive_manager
-        .update_performance_metrics(metrics)
-        .unwrap();
+    adaptive_manager.update_performance_metrics(metrics).unwrap();
 
     // Simulate load increase
     let mut metrics = PerformanceMetrics::default();
     metrics.system_load = 0.9; // High load
     metrics.available_memory_bytes = 50000000; // Reduced memory
 
-    adaptive_manager
-        .update_performance_metrics(metrics)
-        .unwrap();
+    adaptive_manager.update_performance_metrics(metrics).unwrap();
 
     let state = adaptive_manager.get_adaptation_state();
     println!("    Adaptation count: {}", state.adaptation_count);

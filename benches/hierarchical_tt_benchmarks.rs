@@ -154,19 +154,16 @@ fn benchmark_hierarchical_vs_flat(c: &mut Criterion) {
         })
     });
 
-    group.bench_function(
-        BenchmarkId::new("hierarchical_store_probe", WORKLOAD_SIZE),
-        |b| {
-            b.iter(|| {
-                let (hits, _table) = store_and_probe_hierarchical(
-                    black_box(&entries),
-                    black_box(&probes),
-                    &hierarchical_config,
-                );
-                black_box(hits)
-            })
-        },
-    );
+    group.bench_function(BenchmarkId::new("hierarchical_store_probe", WORKLOAD_SIZE), |b| {
+        b.iter(|| {
+            let (hits, _table) = store_and_probe_hierarchical(
+                black_box(&entries),
+                black_box(&probes),
+                &hierarchical_config,
+            );
+            black_box(hits)
+        })
+    });
 
     group.finish();
 

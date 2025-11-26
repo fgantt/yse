@@ -54,22 +54,10 @@ mod integration_coordination_tests {
         let lmr_stats = engine.get_lmr_stats();
 
         println!("=== IID → Move Ordering → LMR Coordination ===");
-        println!(
-            "IID searches performed: {}",
-            iid_stats.iid_searches_performed
-        );
-        println!(
-            "IID moves ordered first: {}",
-            iid_stats.iid_move_ordered_first
-        );
-        println!(
-            "IID moves explicitly exempted: {}",
-            lmr_stats.iid_move_explicitly_exempted
-        );
-        println!(
-            "IID moves REDUCED (should be 0): {}",
-            lmr_stats.iid_move_reduced_count
-        );
+        println!("IID searches performed: {}", iid_stats.iid_searches_performed);
+        println!("IID moves ordered first: {}", iid_stats.iid_move_ordered_first);
+        println!("IID moves explicitly exempted: {}", lmr_stats.iid_move_explicitly_exempted);
+        println!("IID moves REDUCED (should be 0): {}", lmr_stats.iid_move_reduced_count);
 
         // Critical assertion: IID move should NEVER be reduced
         assert_eq!(
@@ -161,14 +149,8 @@ mod integration_coordination_tests {
         println!("=== TT Interaction ===");
         println!("Total TT probes: {}", metrics.total_tt_probes);
         println!("Total TT hits: {}", metrics.total_tt_hits);
-        println!(
-            "Auxiliary overwrites prevented: {}",
-            metrics.tt_auxiliary_overwrites_prevented
-        );
-        println!(
-            "Main entries preserved: {}",
-            metrics.tt_main_entries_preserved
-        );
+        println!("Auxiliary overwrites prevented: {}", metrics.tt_auxiliary_overwrites_prevented);
+        println!("Main entries preserved: {}", metrics.tt_main_entries_preserved);
 
         // TT should be actively used
         assert!(metrics.total_tt_probes > 0, "TT should be probed");
@@ -215,14 +197,8 @@ mod integration_coordination_tests {
         let lmr_stats = engine.get_lmr_stats();
 
         println!("=== Time Pressure Coordination ===");
-        println!(
-            "NMP skipped (time pressure): {}",
-            nmp_stats.skipped_time_pressure
-        );
-        println!(
-            "IID skipped (time pressure): {}",
-            iid_stats.positions_skipped_time_pressure
-        );
+        println!("NMP skipped (time pressure): {}", nmp_stats.skipped_time_pressure);
+        println!("IID skipped (time pressure): {}", iid_stats.positions_skipped_time_pressure);
         println!("LMR moves considered: {}", lmr_stats.moves_considered);
 
         // Time pressure coordination should be active
@@ -275,18 +251,9 @@ mod integration_coordination_tests {
         println!("NMP attempts: {}", nmp_stats.attempts);
         println!("NMP cutoffs: {}", nmp_stats.cutoffs);
         println!("IID searches: {}", iid_stats.iid_searches_performed);
-        println!(
-            "IID moves ordered first: {}",
-            iid_stats.iid_move_ordered_first
-        );
-        println!(
-            "IID moves exempted from LMR: {}",
-            lmr_stats.iid_move_explicitly_exempted
-        );
-        println!(
-            "IID moves REDUCED (should be 0): {}",
-            lmr_stats.iid_move_reduced_count
-        );
+        println!("IID moves ordered first: {}", iid_stats.iid_move_ordered_first);
+        println!("IID moves exempted from LMR: {}", lmr_stats.iid_move_explicitly_exempted);
+        println!("IID moves REDUCED (should be 0): {}", lmr_stats.iid_move_reduced_count);
         println!("LMR reductions applied: {}", lmr_stats.reductions_applied);
         println!("LMR re-searches: {}", lmr_stats.researches_triggered);
         println!(
@@ -297,18 +264,12 @@ mod integration_coordination_tests {
                 0.0
             }
         );
-        println!(
-            "TT pollution prevented: {}",
-            metrics.tt_auxiliary_overwrites_prevented
-        );
+        println!("TT pollution prevented: {}", metrics.tt_auxiliary_overwrites_prevented);
         println!("Evaluation cache hits: {}", metrics.evaluation_cache_hits);
 
         // All algorithms should have run successfully
         assert!(result.is_some(), "Search should complete");
-        assert_eq!(
-            lmr_stats.iid_move_reduced_count, 0,
-            "IID move should never be reduced"
-        );
+        assert_eq!(lmr_stats.iid_move_reduced_count, 0, "IID move should never be reduced");
     }
 
     /// Test performance regression - search should be efficient with all features
@@ -347,9 +308,6 @@ mod integration_coordination_tests {
 
         // Search should complete in reasonable time
         assert!(result.is_some(), "Search should complete");
-        assert!(
-            elapsed.as_secs() < 6,
-            "Search should complete within time limit"
-        );
+        assert!(elapsed.as_secs() < 6, "Search should complete within time limit");
     }
 }

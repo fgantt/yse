@@ -18,38 +18,20 @@ fn test_gradual_phase_out_endgame() {
     let evaluator = IntegratedEvaluator::with_config(config);
 
     // Test fade factor calculation
-    let fade_factor_64 = evaluator
-        .config()
-        .phase_boundaries
-        .calculate_endgame_fade_factor(64);
-    assert_eq!(
-        fade_factor_64, 1.0,
-        "At fade_end, fade factor should be 1.0"
-    );
+    let fade_factor_64 = evaluator.config().phase_boundaries.calculate_endgame_fade_factor(64);
+    assert_eq!(fade_factor_64, 1.0, "At fade_end, fade factor should be 1.0");
 
-    let fade_factor_80 = evaluator
-        .config()
-        .phase_boundaries
-        .calculate_endgame_fade_factor(80);
-    assert_eq!(
-        fade_factor_80, 0.0,
-        "At fade_start, fade factor should be 0.0"
-    );
+    let fade_factor_80 = evaluator.config().phase_boundaries.calculate_endgame_fade_factor(80);
+    assert_eq!(fade_factor_80, 0.0, "At fade_start, fade factor should be 0.0");
 
-    let fade_factor_72 = evaluator
-        .config()
-        .phase_boundaries
-        .calculate_endgame_fade_factor(72);
+    let fade_factor_72 = evaluator.config().phase_boundaries.calculate_endgame_fade_factor(72);
     assert!(
         fade_factor_72 > 0.0 && fade_factor_72 < 1.0,
         "Between fade_end and fade_start, fade factor should be between 0.0 and 1.0"
     );
 
     // Verify fade is linear
-    let fade_factor_68 = evaluator
-        .config()
-        .phase_boundaries
-        .calculate_endgame_fade_factor(68);
+    let fade_factor_68 = evaluator.config().phase_boundaries.calculate_endgame_fade_factor(68);
     assert!(
         (fade_factor_68 - 0.5).abs() < 0.1,
         "At midpoint (68), fade factor should be approximately 0.5"
@@ -69,28 +51,13 @@ fn test_gradual_phase_out_opening() {
     let evaluator = IntegratedEvaluator::with_config(config);
 
     // Test fade factor calculation
-    let fade_factor_192 = evaluator
-        .config()
-        .phase_boundaries
-        .calculate_opening_fade_factor(192);
-    assert_eq!(
-        fade_factor_192, 1.0,
-        "At fade_start, fade factor should be 1.0"
-    );
+    let fade_factor_192 = evaluator.config().phase_boundaries.calculate_opening_fade_factor(192);
+    assert_eq!(fade_factor_192, 1.0, "At fade_start, fade factor should be 1.0");
 
-    let fade_factor_160 = evaluator
-        .config()
-        .phase_boundaries
-        .calculate_opening_fade_factor(160);
-    assert_eq!(
-        fade_factor_160, 0.0,
-        "At fade_end, fade factor should be 0.0"
-    );
+    let fade_factor_160 = evaluator.config().phase_boundaries.calculate_opening_fade_factor(160);
+    assert_eq!(fade_factor_160, 0.0, "At fade_end, fade factor should be 0.0");
 
-    let fade_factor_176 = evaluator
-        .config()
-        .phase_boundaries
-        .calculate_opening_fade_factor(176);
+    let fade_factor_176 = evaluator.config().phase_boundaries.calculate_opening_fade_factor(176);
     assert!(
         fade_factor_176 > 0.0 && fade_factor_176 < 1.0,
         "Between fade_start and fade_end, fade factor should be between 0.0 and 1.0"
@@ -146,10 +113,7 @@ fn test_phase_transition_smoothness() {
     let mut previous_fade = 1.0;
 
     for phase in phases {
-        let fade = evaluator
-            .config()
-            .phase_boundaries
-            .calculate_endgame_fade_factor(phase);
+        let fade = evaluator.config().phase_boundaries.calculate_endgame_fade_factor(phase);
         assert!(
             fade <= previous_fade,
             "Fade factor should decrease as phase increases (smooth transition)"
@@ -162,10 +126,7 @@ fn test_phase_transition_smoothness() {
     let mut previous_opening_fade = 1.0;
 
     for phase in opening_phases {
-        let fade = evaluator
-            .config()
-            .phase_boundaries
-            .calculate_opening_fade_factor(phase);
+        let fade = evaluator.config().phase_boundaries.calculate_opening_fade_factor(phase);
         assert!(
             fade <= previous_opening_fade,
             "Opening fade factor should decrease as phase decreases (smooth transition)"

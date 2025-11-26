@@ -36,18 +36,12 @@ fn tactical_corpus_scores_match_expectations() {
         let score = recognizer.evaluate_tactics(&board, player, &captured);
         let mg = score.mg;
         match case.expectation {
-            Expectation::Positive => assert!(
-                mg > 0,
-                "Expected positive score for {}, got {}",
-                case.name,
-                mg
-            ),
-            Expectation::Negative => assert!(
-                mg < 0,
-                "Expected negative score for {}, got {}",
-                case.name,
-                mg
-            ),
+            Expectation::Positive => {
+                assert!(mg > 0, "Expected positive score for {}, got {}", case.name, mg)
+            }
+            Expectation::Negative => {
+                assert!(mg < 0, "Expected negative score for {}, got {}", case.name, mg)
+            }
             Expectation::Neutral => assert!(
                 mg.abs() <= NEUTRAL_EPSILON_CP,
                 "Expected neutral score (±{NEUTRAL_EPSILON_CP}) for {}, got {}",

@@ -142,8 +142,7 @@ impl ChunkManager {
             self.bytes_loaded += chunk_size as u64;
         }
         self.access_counter += 1;
-        self.chunk_access_times
-            .insert(chunk_id, self.access_counter);
+        self.chunk_access_times.insert(chunk_id, self.access_counter);
     }
 
     /// Check if a chunk is loaded
@@ -524,20 +523,14 @@ impl PositionEntry {
             return Vec::new();
         }
 
-        let mut moves_with_scores: Vec<(usize, i32)> = quality_scores
-            .iter()
-            .enumerate()
-            .map(|(i, &score)| (i, score))
-            .collect();
+        let mut moves_with_scores: Vec<(usize, i32)> =
+            quality_scores.iter().enumerate().map(|(i, &score)| (i, score)).collect();
 
         // Sort by quality score (descending - highest first)
         moves_with_scores.sort_by(|a, b| b.1.cmp(&a.1));
 
         // Return moves in sorted order
-        moves_with_scores
-            .iter()
-            .map(|(i, _)| &self.moves[*i])
-            .collect()
+        moves_with_scores.iter().map(|(i, _)| &self.moves[*i]).collect()
     }
 
     /// Get the best move by opening principles quality score
@@ -805,10 +798,7 @@ impl OpeningBook {
                 #[cfg(debug_assertions)]
                 crate::utils::telemetry::debug_log(&format!(
                     "[OPENING_BOOK] Book move {} has opening principles quality score: {}",
-                    book_move
-                        .move_notation
-                        .as_ref()
-                        .unwrap_or(&engine_move.to_usi_string()),
+                    book_move.move_notation.as_ref().unwrap_or(&engine_move.to_usi_string()),
                     quality_score
                 ));
             }
@@ -823,9 +813,7 @@ impl OpeningBook {
         }
 
         // Return best move
-        moves_with_scores
-            .first()
-            .map(|(book_move, _)| book_move.to_engine_move(player))
+        moves_with_scores.first().map(|(book_move, _)| book_move.to_engine_move(player))
     }
 
     /// Get a random move for a position with weighted random selection
@@ -886,10 +874,7 @@ impl OpeningBook {
             let moves = self.parse_moves_from_binary(&lazy_entry.moves_data)?;
 
             // Create a regular position entry
-            let position_entry = PositionEntry {
-                fen: lazy_entry.fen,
-                moves,
-            };
+            let position_entry = PositionEntry { fen: lazy_entry.fen, moves };
 
             // Move to regular positions
             self.positions.insert(hash, position_entry);
@@ -973,12 +958,8 @@ impl OpeningBook {
         // Serialize moves to binary data
         let moves_data = self.serialize_moves_to_binary(&moves)?;
 
-        let lazy_entry = LazyPositionEntry {
-            fen,
-            moves_data,
-            move_count: moves.len() as u32,
-            loaded: false,
-        };
+        let lazy_entry =
+            LazyPositionEntry { fen, moves_data, move_count: moves.len() as u32, loaded: false };
 
         self.total_moves += moves.len();
         self.lazy_positions.insert(hash, lazy_entry);
@@ -1162,9 +1143,7 @@ impl OpeningBook {
             manager.bytes_loaded = state.bytes_loaded;
             Ok(())
         } else {
-            Err(OpeningBookError::BinaryFormatError(
-                "Streaming mode not enabled".to_string(),
-            ))
+            Err(OpeningBookError::BinaryFormatError("Streaming mode not enabled".to_string()))
         }
     }
 
@@ -1321,9 +1300,7 @@ impl OpeningBook {
     /// Convert opening book to binary format
     pub fn to_binary(&self) -> Result<Box<[u8]>, OpeningBookError> {
         let mut writer = binary_format::BinaryWriter::new();
-        writer
-            .write_opening_book(self)
-            .map(|vec| vec.into_boxed_slice())
+        writer.write_opening_book(self).map(|vec| vec.into_boxed_slice())
     }
 
     /// Get all position entries for validation purposes
@@ -1342,9 +1319,7 @@ impl OpeningBook {
     pub fn validate(&self) -> Result<(), OpeningBookError> {
         // Check if book is loaded
         if !self.loaded {
-            return Err(OpeningBookError::BinaryFormatError(
-                "Opening book not loaded".to_string(),
-            ));
+            return Err(OpeningBookError::BinaryFormatError("Opening book not loaded".to_string()));
         }
 
         // Validate metadata consistency
@@ -1579,9 +1554,7 @@ pub struct OpeningBookBuilder {
 impl OpeningBookBuilder {
     /// Create a new builder
     pub fn new() -> Self {
-        Self {
-            book: OpeningBook::new(),
-        }
+        Self { book: OpeningBook::new() }
     }
 
     /// Add a position with moves
@@ -1796,9 +1769,7 @@ pub struct ThreadSafeOpeningBook {
 impl ThreadSafeOpeningBook {
     /// Create a new thread-safe wrapper around an OpeningBook
     pub fn new(book: OpeningBook) -> Self {
-        Self {
-            inner: std::sync::Mutex::new(book),
-        }
+        Self { inner: std::sync::Mutex::new(book) }
     }
 
     /// Get a move for a position (thread-safe)

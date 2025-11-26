@@ -13,8 +13,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 // Import from sibling modules
-use super::core::{Move, Position};
 use super::board::GamePhase;
+use super::core::{Move, Position};
 
 // ============================================================================
 // Transposition Table Types (used by search)
@@ -462,7 +462,7 @@ impl NullMovePreset {
 // For now, we'll add placeholders and complete the extraction incrementally.
 
 /// Configuration for null move pruning parameters
-/// 
+///
 /// This is a large struct with many fields. The full implementation will be
 /// added in a follow-up commit to manage file size.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -832,10 +832,7 @@ pub struct AdvancedReductionConfig {
 
 impl Default for AdvancedReductionConfig {
     fn default() -> Self {
-        Self {
-            enabled: false,
-            strategy: AdvancedReductionStrategy::Basic,
-        }
+        Self { enabled: false, strategy: AdvancedReductionStrategy::Basic }
     }
 }
 
@@ -927,7 +924,7 @@ impl LMRConfig {
 }
 
 /// Performance statistics for Late Move Reductions
-/// 
+///
 /// This is a large struct with many fields. The full implementation will be
 /// added in a follow-up commit to manage file size.
 #[derive(Debug, Clone, Default)]
@@ -1006,10 +1003,7 @@ impl LMRStats {
         cutoffs_after_research: u64,
         depth_saved: u64,
     ) {
-        let stats = self
-            .phase_stats
-            .entry(phase)
-            .or_insert_with(LMRPhaseStats::default);
+        let stats = self.phase_stats.entry(phase).or_insert_with(LMRPhaseStats::default);
         stats.moves_considered += moves_considered;
         stats.reductions_applied += reductions_applied;
         stats.researches_triggered += researches_triggered;
@@ -1535,7 +1529,7 @@ impl IIDConfig {
 }
 
 /// Performance statistics for Internal Iterative Deepening
-/// 
+///
 /// This is a large struct with many fields. The full implementation will be
 /// added in a follow-up commit to manage file size.
 #[derive(Debug, Clone, Default)]
@@ -1822,12 +1816,20 @@ impl AspirationWindowStats {
     }
 
     /// Update window size by position type
-    pub fn update_window_size_by_position_type(&mut self, _position_type: GamePhase, _window_size: i32) {
+    pub fn update_window_size_by_position_type(
+        &mut self,
+        _position_type: GamePhase,
+        _window_size: i32,
+    ) {
         // Placeholder implementation
     }
 
     /// Update success rate by position type
-    pub fn update_success_rate_by_position_type(&mut self, _position_type: GamePhase, _success: bool) {
+    pub fn update_success_rate_by_position_type(
+        &mut self,
+        _position_type: GamePhase,
+        _success: bool,
+    ) {
         // Placeholder implementation
     }
 
@@ -2026,13 +2028,13 @@ impl TimeManagementConfig {
         }
         if self.time_check_frequency > 100000 {
             return Err(
-                "time_check_frequency should not exceed 100000 for performance reasons".to_string(),
+                "time_check_frequency should not exceed 100000 for performance reasons".to_string()
             );
         }
 
         if self.absolute_safety_margin_ms > 10000 {
             return Err(
-                "absolute_safety_margin_ms should not exceed 10000ms (10 seconds)".to_string(),
+                "absolute_safety_margin_ms should not exceed 10000ms (10 seconds)".to_string()
             );
         }
 
@@ -2201,7 +2203,7 @@ pub struct PruningParameters {
     // Adaptive parameters
     pub adaptive_enabled: bool,
     pub position_dependent_margins: bool,
-    
+
     // Razoring enable flag
     pub razoring_enabled: bool,
     // Late move pruning parameters
@@ -2372,7 +2374,9 @@ impl CoreSearchMetrics {
 
 // Re-export search-related types from all.rs (temporary until moved to search.rs)
 // These types are still in all.rs but should be accessible via types::search::
-pub use super::all::{EngineConfig, EnginePreset, ParallelOptions, TimePressure, TimePressureThresholds};
+pub use super::all::{
+    EngineConfig, EnginePreset, ParallelOptions, TimePressure, TimePressureThresholds,
+};
 
 // Note: Additional search-related types (SearchMetrics, ParallelSearchMetrics, etc.)
 // will be added in follow-up commits as needed. This module provides the core search types.
@@ -2422,7 +2426,7 @@ mod tests {
         assert_eq!(state.depth, 5);
         assert_eq!(state.alpha, -1000);
         assert_eq!(state.beta, 1000);
-        
+
         state.set_position_classification(PositionClassification::Tactical);
         assert_eq!(state.position_classification, Some(PositionClassification::Tactical));
     }
@@ -2434,4 +2438,3 @@ mod tests {
         assert!(PruningDecision::ReducedSearch.needs_reduction());
     }
 }
-

@@ -45,18 +45,11 @@ fn test_move_ordering_with_tt_integration() {
         None, // Task 3.0: No IID move for this test
     );
 
-    assert_eq!(
-        ordered_moves.len(),
-        moves.len(),
-        "Should have same number of moves"
-    );
+    assert_eq!(ordered_moves.len(), moves.len(), "Should have same number of moves");
 
     // Verify moves are ordered (best move from TT should be first if available)
     // Note: We can't guarantee this without knowing TT contents, but we can verify ordering happened
-    assert!(
-        !ordered_moves.is_empty(),
-        "Ordered moves should not be empty"
-    );
+    assert!(!ordered_moves.is_empty(), "Ordered moves should not be empty");
 }
 
 #[test]
@@ -79,11 +72,7 @@ fn test_move_ordering_with_caching() {
 
     // Cached result should match (if cache hit)
     // Note: Cache might not hit if move list differs, but results should be consistent
-    assert_eq!(
-        ordered1.len(),
-        ordered2.len(),
-        "Results should have same length"
-    );
+    assert_eq!(ordered1.len(), ordered2.len(), "Results should have same length");
 }
 
 #[test]
@@ -104,16 +93,8 @@ fn test_move_ordering_with_depth_awareness() {
         engine.order_moves_for_negamax(&moves, &board, &captured, player, 5, -100000, 100000);
 
     // Both should have same number of moves
-    assert_eq!(
-        ordered_shallow.len(),
-        ordered_deep.len(),
-        "Should have same number of moves"
-    );
-    assert_eq!(
-        ordered_shallow.len(),
-        moves.len(),
-        "Should include all moves"
-    );
+    assert_eq!(ordered_shallow.len(), ordered_deep.len(), "Should have same number of moves");
+    assert_eq!(ordered_shallow.len(), moves.len(), "Should include all moves");
 }
 
 #[test]
@@ -160,16 +141,8 @@ fn test_move_ordering_with_alpha_beta() {
         engine.order_moves_for_negamax(&moves, &board, &captured, player, 3, -100000, 100000);
 
     // Both should include all moves
-    assert_eq!(
-        ordered_narrow.len(),
-        moves.len(),
-        "Narrow window should include all moves"
-    );
-    assert_eq!(
-        ordered_wide.len(),
-        moves.len(),
-        "Wide window should include all moves"
-    );
+    assert_eq!(ordered_narrow.len(), moves.len(), "Narrow window should include all moves");
+    assert_eq!(ordered_wide.len(), moves.len(), "Wide window should include all moves");
 }
 
 #[test]
@@ -213,10 +186,7 @@ fn test_move_ordering_in_full_search() {
         engine.order_moves_for_negamax(&moves, &board, &captured, player, 3, -100000, 100000);
 
     // Verify ordering completes successfully (the important part is that ordering was used)
-    assert!(
-        true,
-        "Move ordering should work correctly in search context"
-    );
+    assert!(true, "Move ordering should work correctly in search context");
 }
 
 #[test]
@@ -240,16 +210,8 @@ fn test_move_ordering_with_repeated_positions() {
         engine.order_moves_for_negamax(&moves, &board, &captured, player, 3, -100000, 100000);
 
     // Repeated calls should produce consistent results
-    assert_eq!(
-        ordered1.len(),
-        ordered2.len(),
-        "Should have consistent length"
-    );
-    assert_eq!(
-        ordered2.len(),
-        ordered3.len(),
-        "Should have consistent length"
-    );
+    assert_eq!(ordered1.len(), ordered2.len(), "Should have consistent length");
+    assert_eq!(ordered2.len(), ordered3.len(), "Should have consistent length");
     assert_eq!(ordered1.len(), moves.len(), "Should include all moves");
 }
 
@@ -309,21 +271,9 @@ fn test_move_ordering_with_different_depths_same_position() {
         engine.order_moves_for_negamax(&moves, &board, &captured, player, 5, -100000, 100000);
 
     // All should have same number of moves
-    assert_eq!(
-        ordered_depth_1.len(),
-        moves.len(),
-        "Depth 1 should include all moves"
-    );
-    assert_eq!(
-        ordered_depth_3.len(),
-        moves.len(),
-        "Depth 3 should include all moves"
-    );
-    assert_eq!(
-        ordered_depth_5.len(),
-        moves.len(),
-        "Depth 5 should include all moves"
-    );
+    assert_eq!(ordered_depth_1.len(), moves.len(), "Depth 1 should include all moves");
+    assert_eq!(ordered_depth_3.len(), moves.len(), "Depth 3 should include all moves");
+    assert_eq!(ordered_depth_5.len(), moves.len(), "Depth 5 should include all moves");
 }
 
 #[test]

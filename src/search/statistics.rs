@@ -92,10 +92,7 @@ pub struct SearchStatistics {
 impl SearchStatistics {
     /// Create a new SearchStatistics instance
     pub fn new() -> Self {
-        Self {
-            nodes_searched: 0,
-            core_metrics: CoreSearchMetrics::default(),
-        }
+        Self { nodes_searched: 0, core_metrics: CoreSearchMetrics::default() }
     }
 
     /// Increment nodes searched counter
@@ -227,4 +224,3 @@ mod tests {
         assert_eq!(stats.get_core_metrics().total_cutoffs, 0);
     }
 }
-

@@ -90,7 +90,7 @@ impl MagicFinder {
         let mask = self.generate_relevant_mask(square, piece_type);
         let shift = self.calculate_shift(mask);
         let max_attempts = 100_000;
-        
+
         // Pre-generate blocker configs to avoid re-generating them for every attempt
         let blocker_configs = self.generate_all_blocker_configs(mask);
 
@@ -222,7 +222,8 @@ impl MagicFinder {
 
         // Try numbers with 3-bit sparse patterns (for better distribution)
         for i in 0..128 {
-            for j in (i + 1)..128.min(i + 10) { // Limit to nearby bits
+            for j in (i + 1)..128.min(i + 10) {
+                // Limit to nearby bits
                 for k in (j + 1)..128.min(j + 10) {
                     candidates.push((1u128 << i) | (1u128 << j) | (1u128 << k));
                 }
@@ -243,7 +244,7 @@ impl MagicFinder {
         // Try numbers based on the mask pattern (expanded)
         let mask_val = mask.to_u128();
         candidates.push(mask_val);
-        
+
         // Mask-derived patterns with rotations and multiplications
         candidates.push(mask_val.wrapping_mul(0x9E3779B97F4A7C15));
         candidates.push(mask_val.wrapping_mul(0xBF58476D1CE4E5B9));
@@ -278,14 +279,15 @@ impl MagicFinder {
         if bit_count <= 8 {
             // For small masks, try more aggressive patterns
             for i in 0..16 {
-                candidates.push(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFu128 >> (128 - (1 << i).min(128)));
+                candidates
+                    .push(0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFu128 >> (128 - (1 << i).min(128)));
             }
         }
 
         // Remove duplicates while preserving order
         let mut seen = HashSet::new();
         candidates.retain(|&x| seen.insert(x));
-        
+
         candidates
     }
 
@@ -501,10 +503,7 @@ mod tests {
     fn test_invalid_square() {
         let mut finder = MagicFinder::new();
         let result = finder.find_magic_number(100, PieceType::Rook);
-        assert!(matches!(
-            result,
-            Err(MagicError::InvalidSquare { square: 100 })
-        ));
+        assert!(matches!(result, Err(MagicError::InvalidSquare { square: 100 })));
     }
 
     #[test]
@@ -513,9 +512,7 @@ mod tests {
         let result = finder.find_magic_number(0, PieceType::Pawn);
         assert!(matches!(
             result,
-            Err(MagicError::InvalidPieceType {
-                piece_type: PieceType::Pawn
-            })
+            Err(MagicError::InvalidPieceType { piece_type: PieceType::Pawn })
         ));
     }
 

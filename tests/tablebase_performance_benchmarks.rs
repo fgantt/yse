@@ -95,9 +95,7 @@ fn benchmark_tablebase_stats(c: &mut Criterion) {
         tablebase.probe(&board, player, &captured_pieces);
     }
 
-    group.bench_function("stats_collection", |b| {
-        b.iter(|| black_box(tablebase.get_stats()))
-    });
+    group.bench_function("stats_collection", |b| b.iter(|| black_box(tablebase.get_stats())));
 
     group.finish();
 }

@@ -43,12 +43,7 @@ fn load_corpus() -> Vec<PreparedPosition> {
                 BitboardBoard::from_fen(&position.fen).unwrap_or_else(|_| {
                     panic!("invalid tactical FEN {} ({})", position.fen, position.name)
                 });
-            PreparedPosition {
-                name: position.name,
-                board,
-                player,
-                captured,
-            }
+            PreparedPosition { name: position.name, board, player, captured }
         })
         .collect()
 }
@@ -62,9 +57,7 @@ fn benchmark_recognizer_construction(c: &mut Criterion) {
 
     group.bench_function("with_config", |b| {
         b.iter(|| {
-            black_box(TacticalPatternRecognizer::with_config(
-                TacticalConfig::default(),
-            ));
+            black_box(TacticalPatternRecognizer::with_config(TacticalConfig::default()));
         });
     });
 

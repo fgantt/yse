@@ -451,9 +451,7 @@ mod horizon_effect_tests {
                 mv.gives_check
                     || mv.is_capture
                     || mv.is_promotion
-                    || engine
-                        .move_generator
-                        .is_tactical_threat(&mv, &board, player)
+                    || engine.move_generator.is_tactical_threat(&mv, &board, player)
             );
         }
     }

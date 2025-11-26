@@ -36,8 +36,8 @@
 
 use crate::types::core::PieceType;
 use crate::types::{Bitboard, MagicError, MagicTable};
-use std::collections::HashMap;
 use std::cell::RefCell;
+use std::collections::HashMap;
 
 /// Compression strategy for a single pattern
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -75,7 +75,7 @@ enum CompressedData {
 #[derive(Debug, Clone, Copy)]
 struct RleRun {
     value: bool, // true = bit set, false = bit clear
-    length: u8, // number of consecutive bits
+    length: u8,  // number of consecutive bits
 }
 
 /// Compressed magic table with reduced memory footprint
@@ -163,13 +163,13 @@ impl CompressedMagicTable {
                 base_table: table,
                 compression_enabled: false,
                 compression_ratio: 1.0,
-            compressed_patterns: Vec::new(),
-            dedup_index: HashMap::new(),
-            dedup_storage: Vec::new(),
-            lookup_table: Vec::new(),
-            hot_cache: RefCell::new(HashMap::new()),
-            cache_size_limit: config.cache_size_limit,
-            square_stats: Vec::new(),
+                compressed_patterns: Vec::new(),
+                dedup_index: HashMap::new(),
+                dedup_storage: Vec::new(),
+                lookup_table: Vec::new(),
+                hot_cache: RefCell::new(HashMap::new()),
+                cache_size_limit: config.cache_size_limit,
+                square_stats: Vec::new(),
             });
         }
 
@@ -244,7 +244,8 @@ impl CompressedMagicTable {
         let raw_size = std::mem::size_of::<Bitboard>();
 
         // Strategy 2: Check for delta encoding opportunities
-        let (delta_base_idx, delta_size) = Self::find_best_delta_base(pattern, dedup_storage, config);
+        let (delta_base_idx, delta_size) =
+            Self::find_best_delta_base(pattern, dedup_storage, config);
 
         // Strategy 3: Compare all options
         let mut best_strategy = CompressionStrategy::Raw;
@@ -274,10 +275,7 @@ impl CompressedMagicTable {
             _ => CompressedData::Raw(pattern),
         };
 
-        Ok(CompressedPattern {
-            strategy: best_strategy,
-            data,
-        })
+        Ok(CompressedPattern { strategy: best_strategy, data })
     }
 
     /// Estimate RLE-encoded size for a pattern
@@ -299,10 +297,7 @@ impl CompressedMagicTable {
                 current_length += 1;
             } else {
                 if current_length > 0 {
-                    runs.push(RleRun {
-                        value: current_value,
-                        length: current_length,
-                    });
+                    runs.push(RleRun { value: current_value, length: current_length });
                 }
                 current_value = bit;
                 current_length = 1;
@@ -310,10 +305,7 @@ impl CompressedMagicTable {
         }
 
         if current_length > 0 {
-            runs.push(RleRun {
-                value: current_value,
-                length: current_length,
-            });
+            runs.push(RleRun { value: current_value, length: current_length });
         }
 
         runs
@@ -422,13 +414,18 @@ impl CompressedMagicTable {
 
         // Use base table to get the original index
         let magic_entry = match piece_type {
-            PieceType::Rook | PieceType::PromotedRook => &self.base_table.rook_magics[square as usize],
-            PieceType::Bishop | PieceType::PromotedBishop => &self.base_table.bishop_magics[square as usize],
+            PieceType::Rook | PieceType::PromotedRook => {
+                &self.base_table.rook_magics[square as usize]
+            }
+            PieceType::Bishop | PieceType::PromotedBishop => {
+                &self.base_table.bishop_magics[square as usize]
+            }
             _ => return Bitboard::default(),
         };
 
         let relevant_occupied = occupied & magic_entry.mask;
-        let hash = (relevant_occupied.to_u128().wrapping_mul(magic_entry.magic_number as u128)) >> magic_entry.shift;
+        let hash = (relevant_occupied.to_u128().wrapping_mul(magic_entry.magic_number as u128))
+            >> magic_entry.shift;
         let attack_index = magic_entry.attack_base + hash as usize;
 
         if attack_index >= self.lookup_table.len() {
@@ -565,10 +562,7 @@ mod tests {
 
         let stats = compressed.stats();
         assert!(stats.original_size >= stats.compressed_size);
-        assert!(
-            stats.compression_ratio >= 1.0,
-            "Compression ratio should be >= 1.0"
-        );
+        assert!(stats.compression_ratio >= 1.0, "Compression ratio should be >= 1.0");
     }
 
     #[test]
@@ -600,10 +594,7 @@ mod tests {
     #[test]
     fn test_compression_disabled() {
         let table = MagicTable::default();
-        let config = CompressionConfig {
-            enabled: false,
-            ..Default::default()
-        };
+        let config = CompressionConfig { enabled: false, ..Default::default() };
         let compressed = CompressedMagicTable::from_table_with_config(table, config).unwrap();
         assert!(!compressed.is_compressed(), "Compression should be disabled");
     }

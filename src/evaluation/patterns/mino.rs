@@ -92,15 +92,9 @@ pub fn get_mino_castle() -> CastlePattern {
 
     let mut variants = Vec::new();
     variants.push(CastleVariant::from_descriptors("right-base", &base));
-    variants.push(CastleVariant::from_descriptors(
-        "left-base",
-        &mirror_descriptors(&base),
-    ));
+    variants.push(CastleVariant::from_descriptors("left-base", &mirror_descriptors(&base)));
     variants.push(CastleVariant::from_descriptors("right-high", &high));
-    variants.push(CastleVariant::from_descriptors(
-        "left-high",
-        &mirror_descriptors(&high),
-    ));
+    variants.push(CastleVariant::from_descriptors("left-high", &mirror_descriptors(&high)));
 
     CastlePattern {
         name: "Mino",

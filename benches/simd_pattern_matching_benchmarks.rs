@@ -1,7 +1,7 @@
 #![cfg(feature = "simd")]
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use shogi_engine::bitboards::{BitboardBoard, SimdBitboard, batch_ops::AlignedBitboardArray};
+use shogi_engine::bitboards::{batch_ops::AlignedBitboardArray, BitboardBoard, SimdBitboard};
 use shogi_engine::evaluation::tactical_patterns_simd::SimdPatternMatcher;
 use shogi_engine::types::{PieceType, Player, Position};
 
@@ -12,10 +12,9 @@ fn bench_count_attack_targets(c: &mut Criterion) {
 
     c.bench_function("simd_count_attack_targets", |b| {
         b.iter(|| {
-            black_box(matcher.count_attack_targets(
-                black_box(attack_pattern),
-                black_box(target_mask),
-            ));
+            black_box(
+                matcher.count_attack_targets(black_box(attack_pattern), black_box(target_mask)),
+            );
         });
     });
 }
@@ -32,10 +31,12 @@ fn bench_count_attack_targets_batch(c: &mut Criterion) {
 
     c.bench_function("simd_count_attack_targets_batch", |b| {
         b.iter(|| {
-            black_box(matcher.count_attack_targets_batch(
-                black_box(&attack_patterns),
-                black_box(target_mask),
-            ));
+            black_box(
+                matcher.count_attack_targets_batch(
+                    black_box(&attack_patterns),
+                    black_box(target_mask),
+                ),
+            );
         });
     });
 }
@@ -64,9 +65,8 @@ fn bench_detect_forks_batch(c: &mut Criterion) {
 fn bench_detect_patterns_batch(c: &mut Criterion) {
     let matcher = SimdPatternMatcher::new();
     let board = BitboardBoard::new();
-    let positions: Vec<Position> = (0..16)
-        .map(|i| Position::new((i / 9) as u8, (i % 9) as u8))
-        .collect();
+    let positions: Vec<Position> =
+        (0..16).map(|i| Position::new((i / 9) as u8, (i % 9) as u8)).collect();
 
     c.bench_function("simd_detect_patterns_batch", |b| {
         b.iter(|| {
@@ -156,4 +156,3 @@ criterion_group!(
     bench_detect_discovered_attacks_batch
 );
 criterion_main!(benches);
-

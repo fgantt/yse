@@ -57,7 +57,7 @@ fn benchmark_mobility_vs_heuristic(c: &mut Criterion) {
     let captured_pieces = CapturedPieces::new();
 
     let mut group = c.benchmark_group("mobility_comparison");
-    
+
     group.bench_function("actual_move_generation", |b| {
         b.iter(|| {
             let _features = black_box(extractor.extract_mobility_features(
@@ -79,4 +79,3 @@ criterion_group!(
     benchmark_mobility_vs_heuristic
 );
 criterion_main!(benches);
-

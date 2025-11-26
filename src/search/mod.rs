@@ -33,15 +33,15 @@ pub mod tapered_search_integration;
 pub mod test_runner;
 pub mod thread_safe_table;
 pub mod transposition_config;
-pub mod transposition_table_trait;
 pub mod transposition_table_config;
+pub mod transposition_table_trait;
 
 // Configuration and tuning modules
 pub mod adaptive_configuration;
 pub mod configuration_templates;
+pub mod memory_tracking;
 pub mod performance_tuning;
 pub mod runtime_configuration;
-pub mod memory_tracking;
 
 // Web compatibility modules removed - no longer needed
 

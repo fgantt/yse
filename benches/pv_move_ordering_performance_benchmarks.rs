@@ -429,10 +429,7 @@ fn benchmark_pv_move_configuration_performance(c: &mut Criterion) {
 
     // High PV move weight
     group.bench_function("high_pv_weight", |b| {
-        let custom_weights = OrderingWeights {
-            pv_move_weight: 50000,
-            ..Default::default()
-        };
+        let custom_weights = OrderingWeights { pv_move_weight: 50000, ..Default::default() };
         let mut orderer = MoveOrdering::with_config(custom_weights);
         orderer.set_transposition_table(&tt);
 

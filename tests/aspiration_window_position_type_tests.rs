@@ -25,11 +25,7 @@ fn test_window_size_tracking_by_position_type() {
 
     // Test tracking for each position type (access through public method)
     let mut stats = AspirationWindowStats::default();
-    let phases = vec![
-        GamePhase::Opening,
-        GamePhase::Middlegame,
-        GamePhase::Endgame,
-    ];
+    let phases = vec![GamePhase::Opening, GamePhase::Middlegame, GamePhase::Endgame];
     let window_sizes = vec![50, 75, 100]; // Different window sizes for each phase
 
     for (phase, window_size) in phases.iter().zip(window_sizes.iter()) {
@@ -38,26 +34,15 @@ fn test_window_size_tracking_by_position_type() {
 
     // Verify opening tracking
     assert_eq!(stats.window_size_by_position_type.opening_searches, 1);
-    assert_eq!(
-        stats.window_size_by_position_type.opening_avg_window_size,
-        50.0
-    );
+    assert_eq!(stats.window_size_by_position_type.opening_avg_window_size, 50.0);
 
     // Verify middlegame tracking
     assert_eq!(stats.window_size_by_position_type.middlegame_searches, 1);
-    assert_eq!(
-        stats
-            .window_size_by_position_type
-            .middlegame_avg_window_size,
-        75.0
-    );
+    assert_eq!(stats.window_size_by_position_type.middlegame_avg_window_size, 75.0);
 
     // Verify endgame tracking
     assert_eq!(stats.window_size_by_position_type.endgame_searches, 1);
-    assert_eq!(
-        stats.window_size_by_position_type.endgame_avg_window_size,
-        100.0
-    );
+    assert_eq!(stats.window_size_by_position_type.endgame_avg_window_size, 100.0);
 }
 
 #[test]
@@ -152,9 +137,7 @@ fn test_window_size_calculation_with_stats() {
     config.enable_statistics = true;
     config.disable_statistics_in_production = false;
     config.enable_position_type_tracking = true;
-    engine
-        .update_aspiration_window_config(config.clone())
-        .unwrap();
+    engine.update_aspiration_window_config(config.clone()).unwrap();
 
     // Reset stats
     engine.reset_aspiration_window_stats();
@@ -164,9 +147,8 @@ fn test_window_size_calculation_with_stats() {
     let previous_scores = vec![50, -30, 100, 0];
     let recent_failures = vec![0, 1, 0, 2];
 
-    for (depth, (prev_score, failures)) in depths
-        .iter()
-        .zip(previous_scores.iter().zip(recent_failures.iter()))
+    for (depth, (prev_score, failures)) in
+        depths.iter().zip(previous_scores.iter().zip(recent_failures.iter()))
     {
         let window_size = engine.calculate_window_size_with_stats(*depth, *prev_score, *failures);
 
@@ -196,17 +178,12 @@ fn test_aspiration_stats_with_phase() {
     let mut stats = AspirationWindowStats::default();
 
     // Update stats with different phases
-    let phases = vec![
-        GamePhase::Opening,
-        GamePhase::Middlegame,
-        GamePhase::Endgame,
-    ];
+    let phases = vec![GamePhase::Opening, GamePhase::Middlegame, GamePhase::Endgame];
     let window_sizes = vec![50, 75, 100];
     let had_research = vec![false, true, false];
 
-    for (phase, (window_size, research)) in phases
-        .iter()
-        .zip(window_sizes.iter().zip(had_research.iter()))
+    for (phase, (window_size, research)) in
+        phases.iter().zip(window_sizes.iter().zip(had_research.iter()))
     {
         // Test the public methods directly
         stats.update_window_size_by_position_type(*phase, *window_size);
@@ -279,37 +256,17 @@ fn test_stats_structure_initialization() {
     let stats = AspirationWindowStats::default();
 
     // Verify WindowSizeByPositionType defaults
-    assert_eq!(
-        stats.window_size_by_position_type.opening_avg_window_size,
-        0.0
-    );
-    assert_eq!(
-        stats
-            .window_size_by_position_type
-            .middlegame_avg_window_size,
-        0.0
-    );
-    assert_eq!(
-        stats.window_size_by_position_type.endgame_avg_window_size,
-        0.0
-    );
+    assert_eq!(stats.window_size_by_position_type.opening_avg_window_size, 0.0);
+    assert_eq!(stats.window_size_by_position_type.middlegame_avg_window_size, 0.0);
+    assert_eq!(stats.window_size_by_position_type.endgame_avg_window_size, 0.0);
     assert_eq!(stats.window_size_by_position_type.opening_searches, 0);
     assert_eq!(stats.window_size_by_position_type.middlegame_searches, 0);
     assert_eq!(stats.window_size_by_position_type.endgame_searches, 0);
 
     // Verify SuccessRateByPositionType defaults
-    assert_eq!(
-        stats.success_rate_by_position_type.opening_success_rate,
-        0.0
-    );
-    assert_eq!(
-        stats.success_rate_by_position_type.middlegame_success_rate,
-        0.0
-    );
-    assert_eq!(
-        stats.success_rate_by_position_type.endgame_success_rate,
-        0.0
-    );
+    assert_eq!(stats.success_rate_by_position_type.opening_success_rate, 0.0);
+    assert_eq!(stats.success_rate_by_position_type.middlegame_success_rate, 0.0);
+    assert_eq!(stats.success_rate_by_position_type.endgame_success_rate, 0.0);
     assert_eq!(stats.success_rate_by_position_type.opening_total, 0);
     assert_eq!(stats.success_rate_by_position_type.middlegame_total, 0);
     assert_eq!(stats.success_rate_by_position_type.endgame_total, 0);

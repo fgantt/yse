@@ -34,13 +34,13 @@
 //! let attacks = magic_table.get_attacks(square, PieceType::Rook, occupied);
 //! ```
 
-pub mod attack_generator;
-pub mod magic_finder;
-pub mod magic_table;
-pub mod lookup_engine;
 pub mod adaptive_cache;
+pub mod attack_generator;
 pub mod compressed_table;
 pub mod lazy_init;
+pub mod lookup_engine;
+pub mod magic_finder;
+pub mod magic_table;
 pub mod memory_mapped;
 pub mod memory_pool;
 pub mod parallel_init;
@@ -48,13 +48,13 @@ pub mod performance_monitor;
 pub mod validator;
 
 // Re-export main types for convenience
-pub use attack_generator::AttackGenerator;
-pub use magic_finder::MagicFinder;
-pub use lookup_engine::LookupEngine;
-pub use memory_mapped::{MemoryMappedMagicTable, MemoryMappedStats};
 pub use adaptive_cache::{AdaptiveCache, CacheStats};
+pub use attack_generator::AttackGenerator;
 pub use compressed_table::CompressedMagicTable;
 pub use lazy_init::{LazyInitStats, LazyMagicTable};
+pub use lookup_engine::LookupEngine;
+pub use magic_finder::MagicFinder;
+pub use memory_mapped::{MemoryMappedMagicTable, MemoryMappedStats};
 pub use parallel_init::ParallelInitializer;
 pub use performance_monitor::{AdaptiveOptimizer, MonitorStats, PerformanceMonitor};
 pub use validator::MagicValidator;

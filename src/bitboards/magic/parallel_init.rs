@@ -9,8 +9,8 @@ use crate::bitboards::magic::attack_generator::AttackGenerator;
 use crate::bitboards::magic::magic_finder::MagicFinder;
 use crate::types::core::PieceType;
 use crate::types::{Bitboard, MagicError, MagicTable};
-use std::sync::{Arc, Mutex};
 use rayon::prelude::*;
+use std::sync::{Arc, Mutex};
 
 /// Parallel magic table initializer
 pub struct ParallelInitializer {
@@ -31,10 +31,7 @@ impl ParallelInitializer {
 
     /// Create with specific thread count
     pub fn with_threads(thread_count: usize) -> Self {
-        Self {
-            thread_count,
-            progress_callback: None,
-        }
+        Self { thread_count, progress_callback: None }
     }
 
     /// Set progress callback
@@ -104,7 +101,7 @@ impl ParallelInitializer {
     /// Initialize magic table in parallel using rayon
     fn initialize_parallel(&self) -> Result<MagicTable, MagicError> {
         let mut table = MagicTable::default();
-        
+
         // Pre-allocate storage
         let estimated_size = 1024 * 162; // Conservative estimate
         table.attack_storage.reserve(estimated_size);
@@ -120,17 +117,20 @@ impl ParallelInitializer {
             .map(|square| {
                 let mut finder = MagicFinder::new();
                 let magic_result = finder.find_magic_number(square, PieceType::Rook)?;
-                
+
                 // Generate attack patterns
                 let mut generator = AttackGenerator::new();
                 let mask = magic_result.mask;
                 let combinations = generator.generate_all_blocker_combinations(mask);
-                
+
                 let patterns: Vec<(usize, Bitboard)> = combinations
                     .iter()
                     .map(|&blockers| {
-                        let attack = generator.generate_attack_pattern(square, PieceType::Rook, blockers);
-                        let hash = (blockers.to_u128().wrapping_mul(magic_result.magic_number as u128)) >> magic_result.shift;
+                        let attack =
+                            generator.generate_attack_pattern(square, PieceType::Rook, blockers);
+                        let hash =
+                            (blockers.to_u128().wrapping_mul(magic_result.magic_number as u128))
+                                >> magic_result.shift;
                         (hash as usize, attack)
                     })
                     .collect();
@@ -143,7 +143,7 @@ impl ParallelInitializer {
         for result in rook_results? {
             let (square, magic_result, patterns) = result;
             let attack_base = table.memory_pool.allocate(magic_result.table_size)?;
-            
+
             // Store patterns
             for (hash, attack) in patterns {
                 let index = attack_base + hash;
@@ -175,17 +175,20 @@ impl ParallelInitializer {
             .map(|square| {
                 let mut finder = MagicFinder::new();
                 let magic_result = finder.find_magic_number(square, PieceType::Bishop)?;
-                
+
                 // Generate attack patterns
                 let mut generator = AttackGenerator::new();
                 let mask = magic_result.mask;
                 let combinations = generator.generate_all_blocker_combinations(mask);
-                
+
                 let patterns: Vec<(usize, Bitboard)> = combinations
                     .iter()
                     .map(|&blockers| {
-                        let attack = generator.generate_attack_pattern(square, PieceType::Bishop, blockers);
-                        let hash = (blockers.to_u128().wrapping_mul(magic_result.magic_number as u128)) >> magic_result.shift;
+                        let attack =
+                            generator.generate_attack_pattern(square, PieceType::Bishop, blockers);
+                        let hash =
+                            (blockers.to_u128().wrapping_mul(magic_result.magic_number as u128))
+                                >> magic_result.shift;
                         (hash as usize, attack)
                     })
                     .collect();
@@ -198,7 +201,7 @@ impl ParallelInitializer {
         for result in bishop_results? {
             let (square, magic_result, patterns) = result;
             let attack_base = table.memory_pool.allocate(magic_result.table_size)?;
-            
+
             // Store patterns
             for (hash, attack) in patterns {
                 let index = attack_base + hash;
@@ -266,7 +269,7 @@ mod tests {
         let initializer = ParallelInitializer::new();
         let result = initializer.initialize();
         assert!(result.is_ok());
-        
+
         let table = result.unwrap();
         assert!(table.is_fully_initialized());
     }
@@ -277,7 +280,7 @@ mod tests {
         let initializer = ParallelInitializer::new();
         let result = initializer.initialize_sequential();
         assert!(result.is_ok());
-        
+
         let table = result.unwrap();
         assert!(table.is_fully_initialized());
     }
@@ -288,15 +291,14 @@ mod tests {
         let progress_values = Arc::new(Mutex::new(Vec::new()));
         let progress_clone = Arc::clone(&progress_values);
 
-        let initializer = ParallelInitializer::new()
-            .with_progress_callback(move |progress| {
-                if let Ok(mut values) = progress_clone.lock() {
-                    values.push(progress);
-                }
-            });
+        let initializer = ParallelInitializer::new().with_progress_callback(move |progress| {
+            if let Ok(mut values) = progress_clone.lock() {
+                values.push(progress);
+            }
+        });
 
         let _table = initializer.initialize().unwrap();
-        
+
         // Verify progress was reported
         let values = progress_values.lock().unwrap();
         assert!(!values.is_empty());
@@ -309,12 +311,11 @@ mod tests {
         let progress_values = Arc::new(Mutex::new(Vec::new()));
         let progress_clone = Arc::clone(&progress_values);
 
-        let initializer = ParallelInitializer::new()
-            .with_progress_callback(move |progress| {
-                if let Ok(mut values) = progress_clone.lock() {
-                    values.push(progress);
-                }
-            });
+        let initializer = ParallelInitializer::new().with_progress_callback(move |progress| {
+            if let Ok(mut values) = progress_clone.lock() {
+                values.push(progress);
+            }
+        });
 
         // Mock initialization
         initializer.report_progress(0.5);

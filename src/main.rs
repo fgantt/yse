@@ -40,10 +40,7 @@ unsafe extern "C" fn signal_handler(
     _context: *mut libc::c_void,
 ) {
     let backtrace = Backtrace::force_capture();
-    eprintln!(
-        "[engine signal] received {}, capturing backtrace\n{}",
-        signal, backtrace
-    );
+    eprintln!("[engine signal] received {}, capturing backtrace\n{}", signal, backtrace);
     libc::_exit(128 + signal);
 }
 

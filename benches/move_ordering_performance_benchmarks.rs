@@ -35,26 +35,22 @@ fn bench_move_ordering_overhead_by_depth(c: &mut Criterion) {
 
     if !moves.is_empty() {
         for depth in [1, 3, 5, 7].iter() {
-            group.bench_with_input(
-                BenchmarkId::new("order_moves", depth),
-                depth,
-                |b, &depth| {
-                    b.iter(|| {
-                        let mut test_board = board.clone();
-                        let test_captured = captured.clone();
-                        let sorted = engine.order_moves_for_negamax(
-                            black_box(&moves),
-                            black_box(&test_board),
-                            black_box(&test_captured),
-                            black_box(player),
-                            black_box(*depth),
-                            black_box(0),
-                            black_box(0),
-                        );
-                        black_box(sorted);
-                    });
-                },
-            );
+            group.bench_with_input(BenchmarkId::new("order_moves", depth), depth, |b, &depth| {
+                b.iter(|| {
+                    let mut test_board = board.clone();
+                    let test_captured = captured.clone();
+                    let sorted = engine.order_moves_for_negamax(
+                        black_box(&moves),
+                        black_box(&test_board),
+                        black_box(&test_captured),
+                        black_box(player),
+                        black_box(*depth),
+                        black_box(0),
+                        black_box(0),
+                    );
+                    black_box(sorted);
+                });
+            });
         }
     }
 
@@ -211,11 +207,8 @@ fn bench_move_ordering_by_move_count(c: &mut Criterion) {
 
     if !all_moves.is_empty() {
         for move_count in [5, 10, 20, 30].iter() {
-            let moves: Vec<_> = all_moves
-                .iter()
-                .take(*move_count.min(&all_moves.len()))
-                .cloned()
-                .collect();
+            let moves: Vec<_> =
+                all_moves.iter().take(*move_count.min(&all_moves.len())).cloned().collect();
 
             group.bench_with_input(
                 BenchmarkId::new("order_moves", move_count),

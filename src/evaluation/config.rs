@@ -31,9 +31,7 @@ use crate::evaluation::material::MaterialEvaluationConfig;
 use crate::evaluation::phase_transition::{InterpolationMethod, PhaseTransitionConfig};
 use crate::evaluation::position_features::PositionFeatureConfig;
 use crate::evaluation::pst_loader::PieceSquareTableConfig;
-use crate::types::evaluation::{
-    TaperedEvaluationConfig,
-};
+use crate::types::evaluation::TaperedEvaluationConfig;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
@@ -744,10 +742,7 @@ impl TaperedEvalConfig {
 
         // Get scaling configuration (use defaults if None)
         let default_config = PhaseScalingConfig::default();
-        let scaling_config = self
-            .phase_scaling_config
-            .as_ref()
-            .unwrap_or(&default_config);
+        let scaling_config = self.phase_scaling_config.as_ref().unwrap_or(&default_config);
 
         // Determine phase category for step curve, or calculate smooth transition
         let (opening_scale, middlegame_scale, endgame_scale) = if phase >= 192 {
@@ -858,11 +853,7 @@ impl TaperedEvalConfig {
         // Check tactical vs positional balance
         let tactical = self.weights.tactical_weight;
         let positional = self.weights.positional_weight;
-        let ratio = if positional > 0.0 {
-            tactical / positional
-        } else {
-            f32::INFINITY
-        };
+        let ratio = if positional > 0.0 { tactical / positional } else { f32::INFINITY };
 
         if ratio > 1.5 {
             suggestions.push(format!(
@@ -915,9 +906,7 @@ impl TaperedEvalConfig {
         }
 
         if self.weights.pawn_structure_weight < 0.0 || self.weights.pawn_structure_weight > 10.0 {
-            return Err(ConfigError::InvalidWeight(
-                "pawn_structure_weight".to_string(),
-            ));
+            return Err(ConfigError::InvalidWeight("pawn_structure_weight".to_string()));
         }
 
         if self.weights.mobility_weight < 0.0 || self.weights.mobility_weight > 10.0 {
@@ -925,9 +914,7 @@ impl TaperedEvalConfig {
         }
 
         if self.weights.center_control_weight < 0.0 || self.weights.center_control_weight > 10.0 {
-            return Err(ConfigError::InvalidWeight(
-                "center_control_weight".to_string(),
-            ));
+            return Err(ConfigError::InvalidWeight("center_control_weight".to_string()));
         }
 
         if self.weights.development_weight < 0.0 || self.weights.development_weight > 10.0 {
@@ -1216,10 +1203,7 @@ impl TaperedEvalConfig {
                     let new_weight = (current_weight + adjustment).clamp(0.0, 10.0);
 
                     // Update weight (validation happens automatically if enabled)
-                    if self
-                        .update_weight(weight_name, new_weight, Some(components))
-                        .is_ok()
-                    {
+                    if self.update_weight(weight_name, new_weight, Some(components)).is_ok() {
                         adjusted += 1;
                     }
                 }
@@ -1465,9 +1449,7 @@ pub struct ComponentDependencyGraph {
 impl ComponentDependencyGraph {
     /// Create a new empty dependency graph
     pub fn new() -> Self {
-        Self {
-            dependencies: HashMap::new(),
-        }
+        Self { dependencies: HashMap::new() }
     }
 
     /// Create dependency graph with default relationships (Task 20.0 - Task 5.3)
@@ -1524,10 +1506,8 @@ impl ComponentDependencyGraph {
         dependency: ComponentDependency,
     ) {
         // Add both directions for bidirectional lookups
-        self.dependencies
-            .insert((component1, component2), dependency);
-        self.dependencies
-            .insert((component2, component1), dependency);
+        self.dependencies.insert((component1, component2), dependency);
+        self.dependencies.insert((component2, component1), dependency);
     }
 
     /// Get dependency relationship between two components
@@ -1541,10 +1521,7 @@ impl ComponentDependencyGraph {
 
     /// Check if two components conflict
     pub fn conflicts(&self, component1: ComponentId, component2: ComponentId) -> bool {
-        matches!(
-            self.get_dependency(component1, component2),
-            Some(ComponentDependency::Conflicts)
-        )
+        matches!(self.get_dependency(component1, component2), Some(ComponentDependency::Conflicts))
     }
 
     /// Check if two components complement each other
@@ -1557,10 +1534,7 @@ impl ComponentDependencyGraph {
 
     /// Check if component1 requires component2
     pub fn requires(&self, component1: ComponentId, component2: ComponentId) -> bool {
-        matches!(
-            self.get_dependency(component1, component2),
-            Some(ComponentDependency::Requires)
-        )
+        matches!(self.get_dependency(component1, component2), Some(ComponentDependency::Requires))
     }
 }
 
@@ -1583,15 +1557,9 @@ pub enum ComponentDependencyWarning {
     /// Enabled component produced zero score (may indicate configuration issue)
     ComponentProducedZeroScore(String),
     /// Components conflict: both components are enabled but conflict with each other (Task 20.0 - Task 5.6)
-    ComponentConflict {
-        component1: String,
-        component2: String,
-    },
+    ComponentConflict { component1: String, component2: String },
     /// Components complement but only one is enabled (Task 20.0 - Task 5.7)
-    MissingComplement {
-        component1: String,
-        component2: String,
-    },
+    MissingComplement { component1: String, component2: String },
     /// Component requires another but it's not enabled (Task 20.0 - Task 5.8)
     MissingRequirement { component: String, required: String },
 }
@@ -1606,11 +1574,7 @@ impl std::fmt::Display for ConfigError {
             ConfigError::InvalidParameter(msg) => write!(f, "Invalid parameter: {}", msg),
             ConfigError::UnknownWeight(name) => write!(f, "Unknown weight: {}", name),
             ConfigError::CumulativeWeightOutOfRange { sum, min, max } => {
-                write!(
-                    f,
-                    "Cumulative weight sum {} is out of range [{}, {}]",
-                    sum, min, max
-                )
+                write!(f, "Cumulative weight sum {} is out of range [{}, {}]", sum, min, max)
             }
         }
     }
@@ -1659,10 +1623,7 @@ mod tests {
     fn test_performance_optimized() {
         let config = TaperedEvalConfig::performance_optimized();
         assert!(config.enabled);
-        assert_eq!(
-            config.phase_transition.default_method,
-            InterpolationMethod::Linear
-        );
+        assert_eq!(config.phase_transition.default_method, InterpolationMethod::Linear);
         assert!(!config.position_features.enable_mobility); // Disabled for speed
     }
 
@@ -1670,10 +1631,7 @@ mod tests {
     fn test_strength_optimized() {
         let config = TaperedEvalConfig::strength_optimized();
         assert!(config.enabled);
-        assert_eq!(
-            config.phase_transition.default_method,
-            InterpolationMethod::Smoothstep
-        );
+        assert_eq!(config.phase_transition.default_method, InterpolationMethod::Smoothstep);
         assert!(config.position_features.enable_mobility); // Enabled for accuracy
     }
 
@@ -1843,9 +1801,7 @@ mod tests {
         // All preset configs should be valid
         assert!(TaperedEvalConfig::default().validate().is_ok());
         assert!(TaperedEvalConfig::disabled().validate().is_ok());
-        assert!(TaperedEvalConfig::performance_optimized()
-            .validate()
-            .is_ok());
+        assert!(TaperedEvalConfig::performance_optimized().validate().is_ok());
         assert!(TaperedEvalConfig::strength_optimized().validate().is_ok());
         assert!(TaperedEvalConfig::memory_optimized().validate().is_ok());
     }

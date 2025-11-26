@@ -57,10 +57,7 @@ fn test_unmake_normal_move() {
 
     // Verify board restored
     let restored_fen = board.to_fen(player, &captured);
-    assert_eq!(
-        initial_fen, restored_fen,
-        "Board should be restored after unmaking move"
-    );
+    assert_eq!(initial_fen, restored_fen, "Board should be restored after unmaking move");
 }
 
 #[test]
@@ -103,10 +100,7 @@ fn test_unmake_capture_move() {
 
         // Verify board and captured pieces restored
         let restored_fen = board.to_fen(player, &captured);
-        assert_eq!(
-            initial_fen, restored_fen,
-            "Board should be restored after unmaking capture"
-        );
+        assert_eq!(initial_fen, restored_fen, "Board should be restored after unmaking capture");
         assert_eq!(
             captured_before.black.len(),
             captured.black.len(),
@@ -137,10 +131,7 @@ fn test_unmake_promotion_move() {
 
         // Verify board changed
         let after_fen = board.to_fen(player, &captured);
-        assert_ne!(
-            initial_fen, after_fen,
-            "Board should change after promotion"
-        );
+        assert_ne!(initial_fen, after_fen, "Board should change after promotion");
 
         // Unmake move
         if let Some(ref captured_piece) = move_info.captured_piece {
@@ -150,10 +141,7 @@ fn test_unmake_promotion_move() {
 
         // Verify board restored
         let restored_fen = board.to_fen(player, &captured);
-        assert_eq!(
-            initial_fen, restored_fen,
-            "Board should be restored after unmaking promotion"
-        );
+        assert_eq!(initial_fen, restored_fen, "Board should be restored after unmaking promotion");
 
         // Verify original piece type is restored
         if let Some(from) = move_info.from {
@@ -208,10 +196,7 @@ fn test_unmake_drop_move() {
 
         // Verify board restored
         let restored_fen = board.to_fen(player, &captured);
-        assert_eq!(
-            initial_fen, restored_fen,
-            "Board should be restored after unmaking drop"
-        );
+        assert_eq!(initial_fen, restored_fen, "Board should be restored after unmaking drop");
 
         // Verify piece returned to hand
         let restored_captured_count = captured.count(PieceType::Pawn, player);
@@ -310,14 +295,8 @@ fn test_unmake_with_captured_pieces_tracking() {
     }
 
     // Verify captured pieces restored
-    assert_eq!(
-        captured.black, initial_captured_black,
-        "Black captured pieces should be restored"
-    );
-    assert_eq!(
-        captured.white, initial_captured_white,
-        "White captured pieces should be restored"
-    );
+    assert_eq!(captured.black, initial_captured_black, "Black captured pieces should be restored");
+    assert_eq!(captured.white, initial_captured_white, "White captured pieces should be restored");
 }
 
 #[test]
@@ -334,18 +313,9 @@ fn test_move_info_structure() {
     let move_info = board.make_move_with_info(test_move);
 
     // Verify MoveInfo structure is correct
-    assert_eq!(
-        move_info.to, test_move.to,
-        "MoveInfo should store correct 'to' position"
-    );
-    assert_eq!(
-        move_info.player, test_move.player,
-        "MoveInfo should store correct player"
-    );
-    assert_eq!(
-        move_info.from, test_move.from,
-        "MoveInfo should store correct 'from' position"
-    );
+    assert_eq!(move_info.to, test_move.to, "MoveInfo should store correct 'to' position");
+    assert_eq!(move_info.player, test_move.player, "MoveInfo should store correct player");
+    assert_eq!(move_info.from, test_move.from, "MoveInfo should store correct 'from' position");
     assert_eq!(
         move_info.was_promotion, test_move.is_promotion,
         "MoveInfo should store promotion status"

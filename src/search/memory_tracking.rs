@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
-use sysinfo::{Pid, System, SystemExt, ProcessExt};
+use sysinfo::{Pid, ProcessExt, System, SystemExt};
 
 /// Memory tracker for actual RSS tracking (Task 26.0 - Task 4.0)
 #[derive(Debug, Clone)]
@@ -100,7 +100,10 @@ impl MemoryTracker {
     }
 
     /// Get memory breakdown combining RSS with component estimates (Task 4.0)
-    pub fn get_memory_breakdown(&self, component_estimates: &MemoryBreakdown) -> MemoryBreakdownWithRSS {
+    pub fn get_memory_breakdown(
+        &self,
+        component_estimates: &MemoryBreakdown,
+    ) -> MemoryBreakdownWithRSS {
         let current_rss = self.get_current_rss();
         let peak_rss = self.get_peak_rss();
         let growth = self.get_memory_growth();
@@ -234,4 +237,3 @@ mod tests {
         assert!(growth_pct >= 0.0);
     }
 }
-

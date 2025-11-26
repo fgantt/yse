@@ -263,34 +263,30 @@ fn benchmark_comprehensive_reduction_analysis(c: &mut Criterion) {
     ];
 
     for (name, formula) in configurations {
-        group.bench_with_input(
-            BenchmarkId::new("formula", name),
-            &formula,
-            |b, &formula| {
-                b.iter(|| {
-                    let mut engine = create_test_engine_with_formula(formula);
-                    engine.reset_null_move_stats();
+        group.bench_with_input(BenchmarkId::new("formula", name), &formula, |b, &formula| {
+            b.iter(|| {
+                let mut engine = create_test_engine_with_formula(formula);
+                engine.reset_null_move_stats();
 
-                    let start = std::time::Instant::now();
-                    let mut board_mut = board.clone();
-                    let result = engine.search_at_depth_legacy(
-                        black_box(&mut board_mut),
-                        black_box(&captured_pieces),
-                        player,
-                        5, // Fixed depth for comparison
-                        1000,
-                    );
-                    let elapsed = start.elapsed();
+                let start = std::time::Instant::now();
+                let mut board_mut = board.clone();
+                let result = engine.search_at_depth_legacy(
+                    black_box(&mut board_mut),
+                    black_box(&captured_pieces),
+                    player,
+                    5, // Fixed depth for comparison
+                    1000,
+                );
+                let elapsed = start.elapsed();
 
-                    let stats = engine.get_null_move_stats().clone();
-                    let nodes = engine.get_nodes_searched();
-                    let cutoff_rate = stats.cutoff_rate();
-                    let avg_reduction = stats.average_reduction_factor();
+                let stats = engine.get_null_move_stats().clone();
+                let nodes = engine.get_nodes_searched();
+                let cutoff_rate = stats.cutoff_rate();
+                let avg_reduction = stats.average_reduction_factor();
 
-                    black_box((result, elapsed, nodes, cutoff_rate, avg_reduction))
-                });
-            },
-        );
+                black_box((result, elapsed, nodes, cutoff_rate, avg_reduction))
+            });
+        });
     }
 
     group.finish();

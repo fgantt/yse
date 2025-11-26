@@ -450,12 +450,9 @@ impl CastleRecognizer {
                 let optional_matches = stats.matches.saturating_sub(stats.required_matches);
                 let missing_optional = totals.optional_total().saturating_sub(optional_matches);
                 let missing_primary = totals.primary_total.saturating_sub(stats.primary_matches);
-                let missing_shield = totals
-                    .shield_total
-                    .saturating_sub(stats.pawn_shield_matches);
-                let missing_secondary = totals
-                    .secondary_total
-                    .saturating_sub(stats.secondary_matches);
+                let missing_shield = totals.shield_total.saturating_sub(stats.pawn_shield_matches);
+                let missing_secondary =
+                    totals.secondary_total.saturating_sub(stats.secondary_matches);
                 let missing_buffer = totals.buffer_total.saturating_sub(stats.buffer_matches);
 
                 let infiltration_ratio = zone_metrics.infiltration_ratio();
@@ -501,11 +498,8 @@ impl CastleRecognizer {
                     .unwrap_or(true);
 
                 if should_update {
-                    best_entry = Some(CachedEvaluation {
-                        pattern_index,
-                        variant_index,
-                        evaluation,
-                    });
+                    best_entry =
+                        Some(CachedEvaluation { pattern_index, variant_index, evaluation });
                 }
             }
         }
@@ -525,10 +519,7 @@ impl CastleRecognizer {
                 cache.put(cache_key, entry);
                 let cache_size_after = cache.len();
 
-                (
-                    had_eviction && cache_size_after == cache_size_before,
-                    cache_size_after,
-                )
+                (had_eviction && cache_size_after == cache_size_before, cache_size_after)
             };
 
             // Update statistics
@@ -601,9 +592,7 @@ impl CastleRecognizer {
             if stats.required_matches < totals.required_total {
                 return false;
             }
-            let min_matches = totals
-                .total_pieces
-                .saturating_sub(pattern.flexibility as usize);
+            let min_matches = totals.total_pieces.saturating_sub(pattern.flexibility as usize);
             stats.matches >= min_matches
         })
     }
@@ -652,11 +641,8 @@ impl CastleRecognizer {
         }
 
         let piece_quality = matches as f32 / total_pieces as f32;
-        let weight_quality = if max_weight > 0 {
-            matched_weight as f32 / max_weight as f32
-        } else {
-            0.0
-        };
+        let weight_quality =
+            if max_weight > 0 { matched_weight as f32 / max_weight as f32 } else { 0.0 };
 
         0.6 * piece_quality + 0.4 * weight_quality
     }
@@ -868,14 +854,7 @@ impl CastlePiece {
 
 impl CastleVariant {
     pub fn from_descriptors(id: &'static str, descriptors: &[CastlePieceDescriptor]) -> Self {
-        Self {
-            id,
-            pieces: descriptors
-                .iter()
-                .copied()
-                .map(CastlePiece::from_descriptor)
-                .collect(),
-        }
+        Self { id, pieces: descriptors.iter().copied().map(CastlePiece::from_descriptor).collect() }
     }
 }
 
@@ -1239,27 +1218,12 @@ mod tests {
         let mut board = BitboardBoard::empty();
         let king_pos = Position::new(8, 4);
         board.place_piece(Piece::new(PieceType::King, Player::Black), king_pos);
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(6, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 3),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 5),
-        );
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 4));
+        board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 4));
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 3));
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 5));
         // Opponent piece infiltrating the king zone
-        board.place_piece(
-            Piece::new(PieceType::Knight, Player::White),
-            Position::new(7, 3),
-        );
+        board.place_piece(Piece::new(PieceType::Knight, Player::White), Position::new(7, 3));
 
         let evaluation = recognizer.evaluate_castle(&board, Player::Black, king_pos);
         assert!(evaluation.infiltration_ratio > 0.0);
@@ -1271,14 +1235,8 @@ mod tests {
         let mut board1 = BitboardBoard::empty();
         let king_pos1 = Position::new(8, 4);
         board1.place_piece(Piece::new(PieceType::King, Player::Black), king_pos1);
-        board1.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 4),
-        );
-        board1.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(6, 4),
-        );
+        board1.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 4));
+        board1.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 4));
 
         // Same position should generate same cache behavior (same key internally)
         let eval1 = recognizer.evaluate_castle(&board1, Player::Black, king_pos1);
@@ -1289,14 +1247,8 @@ mod tests {
         let mut board2 = BitboardBoard::empty();
         let king_pos2 = Position::new(8, 5);
         board2.place_piece(Piece::new(PieceType::King, Player::Black), king_pos2);
-        board2.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 5),
-        );
-        board2.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(6, 5),
-        );
+        board2.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 5));
+        board2.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 5));
         recognizer.evaluate_castle(&board2, Player::Black, king_pos2);
         let stats = recognizer.get_cache_stats();
         assert_eq!(stats.misses, 2); // Both positions should be cache misses (different keys)
@@ -1308,14 +1260,8 @@ mod tests {
         let mut board = BitboardBoard::empty();
         let king_pos = Position::new(8, 4);
         board.place_piece(Piece::new(PieceType::King, Player::Black), king_pos);
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 4),
-        );
-        board.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(6, 4),
-        );
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 4));
+        board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 4));
 
         // First evaluation - cache miss
         recognizer.evaluate_castle(&board, Player::Black, king_pos);
@@ -1337,10 +1283,7 @@ mod tests {
         let mut board1 = BitboardBoard::empty();
         let king_pos1 = Position::new(8, 4);
         board1.place_piece(Piece::new(PieceType::King, Player::Black), king_pos1);
-        board1.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 4),
-        );
+        board1.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 4));
 
         // First evaluation
         recognizer.evaluate_castle(&board1, Player::Black, king_pos1);
@@ -1351,10 +1294,7 @@ mod tests {
         let mut board2 = BitboardBoard::empty();
         let king_pos2 = Position::new(8, 5);
         board2.place_piece(Piece::new(PieceType::King, Player::Black), king_pos2);
-        board2.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 5),
-        );
+        board2.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 5));
         recognizer.evaluate_castle(&board2, Player::Black, king_pos2);
         let stats2 = recognizer.get_cache_stats();
         assert_eq!(stats2.evictions, 0);
@@ -1363,10 +1303,7 @@ mod tests {
         let mut board3 = BitboardBoard::empty();
         let king_pos3 = Position::new(8, 6);
         board3.place_piece(Piece::new(PieceType::King, Player::Black), king_pos3);
-        board3.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 6),
-        );
+        board3.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 6));
         recognizer.evaluate_castle(&board3, Player::Black, king_pos3);
         let stats3 = recognizer.get_cache_stats();
         assert!(stats3.evictions > 0);
@@ -1378,10 +1315,7 @@ mod tests {
         let mut board = BitboardBoard::empty();
         let king_pos = Position::new(8, 4);
         board.place_piece(Piece::new(PieceType::King, Player::Black), king_pos);
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 4),
-        );
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 4));
 
         // Evaluate multiple times
         for _ in 0..5 {
@@ -1400,10 +1334,7 @@ mod tests {
         let mut board = BitboardBoard::empty();
         let king_pos = Position::new(8, 4);
         board.place_piece(Piece::new(PieceType::King, Player::Black), king_pos);
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 4),
-        );
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 4));
 
         // Evaluate to populate cache
         recognizer.evaluate_castle(&board, Player::Black, king_pos);
@@ -1422,10 +1353,7 @@ mod tests {
         let mut board = BitboardBoard::empty();
         let king_pos = Position::new(8, 4);
         board.place_piece(Piece::new(PieceType::King, Player::Black), king_pos);
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 4),
-        );
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 4));
 
         // Evaluate to generate stats
         recognizer.evaluate_castle(&board, Player::Black, king_pos);
@@ -1448,14 +1376,9 @@ mod tests {
         let mut board1 = BitboardBoard::empty();
         let king_pos = Position::new(8, 4);
         board1.place_piece(Piece::new(PieceType::King, Player::Black), king_pos);
-        board1.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 4),
-        );
-        board1.place_piece(
-            Piece::new(PieceType::PromotedSilver, Player::Black),
-            Position::new(6, 4),
-        );
+        board1.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 4));
+        board1
+            .place_piece(Piece::new(PieceType::PromotedSilver, Player::Black), Position::new(6, 4));
 
         // First evaluation with promoted piece
         recognizer.evaluate_castle(&board1, Player::Black, king_pos);
@@ -1463,14 +1386,8 @@ mod tests {
         // Second board with non-promoted piece
         let mut board2 = BitboardBoard::empty();
         board2.place_piece(Piece::new(PieceType::King, Player::Black), king_pos);
-        board2.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 4),
-        );
-        board2.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(6, 4),
-        );
+        board2.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 4));
+        board2.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 4));
 
         // Second evaluation - should be different due to promotion hash
         recognizer.evaluate_castle(&board2, Player::Black, king_pos);
@@ -1501,43 +1418,19 @@ mod tests {
         let mut board1 = BitboardBoard::empty();
         let king_pos1 = Position::new(8, 2); // Left side
         board1.place_piece(Piece::new(PieceType::King, Player::Black), king_pos1);
-        board1.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 2),
-        );
-        board1.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(6, 2),
-        );
-        board1.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 1),
-        );
-        board1.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 3),
-        );
+        board1.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 2));
+        board1.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 2));
+        board1.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 1));
+        board1.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 3));
 
         // Create a mirrored castle on the right side
         let mut board2 = BitboardBoard::empty();
         let king_pos2 = Position::new(8, 6); // Right side (mirror of file 2)
         board2.place_piece(Piece::new(PieceType::King, Player::Black), king_pos2);
-        board2.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 6),
-        );
-        board2.place_piece(
-            Piece::new(PieceType::Silver, Player::Black),
-            Position::new(6, 6),
-        );
-        board2.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 5),
-        );
-        board2.place_piece(
-            Piece::new(PieceType::Pawn, Player::Black),
-            Position::new(6, 7),
-        );
+        board2.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 6));
+        board2.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 6));
+        board2.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 5));
+        board2.place_piece(Piece::new(PieceType::Pawn, Player::Black), Position::new(6, 7));
 
         // Evaluate both positions
         recognizer.evaluate_castle(&board1, Player::Black, king_pos1);
@@ -1558,10 +1451,7 @@ mod tests {
         let mut board = BitboardBoard::empty();
         let king_pos = Position::new(8, 4);
         board.place_piece(Piece::new(PieceType::King, Player::Black), king_pos);
-        board.place_piece(
-            Piece::new(PieceType::Gold, Player::Black),
-            Position::new(7, 4),
-        );
+        board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(7, 4));
 
         // Evaluate for Black
         recognizer.evaluate_castle(&board, Player::Black, king_pos);

@@ -4,8 +4,8 @@
 //! vs. the old simulation approach.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use shogi_engine::tuning::validator::{MockGamePlayer, ShogiEngineGamePlayer, StrengthTester};
 use shogi_engine::tuning::types::GameResult as TuningGameResult;
+use shogi_engine::tuning::validator::{MockGamePlayer, ShogiEngineGamePlayer, StrengthTester};
 use shogi_engine::types::NUM_EVAL_FEATURES;
 
 fn benchmark_strength_testing_with_mock(c: &mut Criterion) {
@@ -13,19 +13,16 @@ fn benchmark_strength_testing_with_mock(c: &mut Criterion) {
     let tuned_weights = vec![1.1; NUM_EVAL_FEATURES];
 
     c.bench_function("strength_testing_mock_10_games", |b| {
-        let mock_results = vec![
-            TuningGameResult::BlackWin,
-            TuningGameResult::WhiteWin,
-            TuningGameResult::Draw,
-        ];
+        let mock_results =
+            vec![TuningGameResult::BlackWin, TuningGameResult::WhiteWin, TuningGameResult::Draw];
         let mock_player = Box::new(MockGamePlayer::new(mock_results));
         let tester = StrengthTester::with_game_player(10, 1000, mock_player);
 
         b.iter(|| {
-            black_box(tester.test_engine_strength(
-                black_box(&original_weights),
-                black_box(&tuned_weights),
-            ))
+            black_box(
+                tester
+                    .test_engine_strength(black_box(&original_weights), black_box(&tuned_weights)),
+            )
         });
     });
 }
@@ -39,10 +36,10 @@ fn benchmark_strength_testing_with_engine(c: &mut Criterion) {
         let tester = StrengthTester::new(2, 50); // 2 games, 50ms per move
 
         b.iter(|| {
-            black_box(tester.test_engine_strength(
-                black_box(&original_weights),
-                black_box(&tuned_weights),
-            ))
+            black_box(
+                tester
+                    .test_engine_strength(black_box(&original_weights), black_box(&tuned_weights)),
+            )
         });
     });
 }
@@ -86,4 +83,3 @@ criterion_group!(
     benchmark_game_player_play_game
 );
 criterion_main!(benches);
-

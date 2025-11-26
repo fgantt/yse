@@ -63,12 +63,7 @@ impl TimeControl {
         let is_blitz = initial_time < 600; // Less than 10 minutes
         let is_bullet = initial_time < 180; // Less than 3 minutes
 
-        Self {
-            initial_time,
-            increment,
-            is_blitz,
-            is_bullet,
-        }
+        Self { initial_time, increment, is_blitz, is_bullet }
     }
 }
 
@@ -162,20 +157,9 @@ impl TrainingPosition {
             "Feature vector must have {} elements",
             NUM_EVAL_FEATURES
         );
-        assert!(
-            result >= -1.0 && result <= 1.0,
-            "Result must be between -1.0 and 1.0"
-        );
+        assert!(result >= -1.0 && result <= 1.0, "Result must be between -1.0 and 1.0");
 
-        Self {
-            features,
-            result,
-            game_phase,
-            is_quiet,
-            move_number,
-            player_to_move,
-            fen: None,
-        }
+        Self { features, result, game_phase, is_quiet, move_number, player_to_move, fen: None }
     }
 
     /// Check if this is an opening position (first 20 moves)
@@ -327,12 +311,7 @@ pub enum OptimizationMethod {
     ///
     /// These parameters can be tuned to adapt the optimizer behavior to different
     /// datasets and optimization landscapes.
-    Adam {
-        learning_rate: f64,
-        beta1: f64,
-        beta2: f64,
-        epsilon: f64,
-    },
+    Adam { learning_rate: f64, beta1: f64, beta2: f64, epsilon: f64 },
     /// Limited-memory BFGS quasi-Newton method with line search
     ///
     /// Line search ensures sufficient decrease in the objective function,
@@ -372,12 +351,7 @@ pub enum OptimizationMethod {
 
 impl Default for OptimizationMethod {
     fn default() -> Self {
-        OptimizationMethod::Adam {
-            learning_rate: 0.001,
-            beta1: 0.9,
-            beta2: 0.999,
-            epsilon: 1e-8,
-        }
+        OptimizationMethod::Adam { learning_rate: 0.001, beta1: 0.9, beta2: 0.999, epsilon: 1e-8 }
     }
 }
 
@@ -514,7 +488,7 @@ impl ParetoSolution {
         if self.objective_values.len() != other.objective_values.len() {
             return false;
         }
-        
+
         let mut strictly_better = false;
         for (a, b) in self.objective_values.iter().zip(other.objective_values.iter()) {
             // For minimization: lower is better
@@ -525,10 +499,10 @@ impl ParetoSolution {
                 strictly_better = true; // This solution is better in at least one objective
             }
         }
-        
+
         strictly_better
     }
-    
+
     /// Check if this solution is dominated by another solution
     pub fn is_dominated_by(&self, other: &ParetoSolution) -> bool {
         other.dominates(self)
@@ -547,28 +521,25 @@ pub struct ParetoFront {
 impl ParetoFront {
     /// Create a new empty Pareto front
     pub fn new(objectives: Vec<Objective>) -> Self {
-        Self {
-            solutions: Vec::new(),
-            objectives,
-        }
+        Self { solutions: Vec::new(), objectives }
     }
-    
+
     /// Add a solution to the Pareto front, removing any dominated solutions
     pub fn add_solution(&mut self, solution: ParetoSolution) {
         // Remove solutions dominated by the new solution
         self.solutions.retain(|s| !solution.dominates(s));
-        
+
         // Only add if the new solution is not dominated by any existing solution
         if !self.solutions.iter().any(|s| s.dominates(&solution)) {
             self.solutions.push(solution);
         }
     }
-    
+
     /// Get the number of Pareto-optimal solutions
     pub fn size(&self) -> usize {
         self.solutions.len()
     }
-    
+
     /// Select a solution from the Pareto front using weighted sum method
     ///
     /// Combines objectives into a single scalar value using weights.
@@ -576,22 +547,24 @@ impl ParetoFront {
         if self.solutions.is_empty() || weights.len() != self.objectives.len() {
             return None;
         }
-        
-        self.solutions
-            .iter()
-            .min_by(|a, b| {
-                let score_a: f64 = a.objective_values.iter()
-                    .zip(weights.iter())
-                    .map(|(val, weight)| val * weight)
-                    .sum();
-                let score_b: f64 = b.objective_values.iter()
-                    .zip(weights.iter())
-                    .map(|(val, weight)| val * weight)
-                    .sum();
-                score_a.partial_cmp(&score_b).unwrap()
-            })
+
+        self.solutions.iter().min_by(|a, b| {
+            let score_a: f64 = a
+                .objective_values
+                .iter()
+                .zip(weights.iter())
+                .map(|(val, weight)| val * weight)
+                .sum();
+            let score_b: f64 = b
+                .objective_values
+                .iter()
+                .zip(weights.iter())
+                .map(|(val, weight)| val * weight)
+                .sum();
+            score_a.partial_cmp(&score_b).unwrap()
+        })
     }
-    
+
     /// Select a solution from the Pareto front using epsilon-constraint method
     ///
     /// Optimizes one objective while constraining others to be within epsilon.
@@ -603,33 +576,35 @@ impl ParetoFront {
         if self.solutions.is_empty() || primary_objective >= self.objectives.len() {
             return None;
         }
-        
+
         // Filter solutions that satisfy epsilon constraints
-        let feasible: Vec<&ParetoSolution> = self.solutions
+        let feasible: Vec<&ParetoSolution> = self
+            .solutions
             .iter()
             .filter(|s| {
                 // Check that all non-primary objectives are within epsilon of the best
                 let best_values: Vec<f64> = (0..self.objectives.len())
                     .map(|i| {
-                        self.solutions.iter()
+                        self.solutions
+                            .iter()
                             .map(|sol| sol.objective_values[i])
                             .fold(f64::INFINITY, f64::min)
                     })
                     .collect();
-                
-                (0..self.objectives.len())
-                    .all(|i| {
-                        if i == primary_objective {
-                            true // Primary objective is optimized
-                        } else {
-                            s.objective_values[i] <= best_values[i] + epsilon
-                        }
-                    })
+
+                (0..self.objectives.len()).all(|i| {
+                    if i == primary_objective {
+                        true // Primary objective is optimized
+                    } else {
+                        s.objective_values[i] <= best_values[i] + epsilon
+                    }
+                })
             })
             .collect();
-        
+
         // Select the best in primary objective
-        feasible.iter()
+        feasible
+            .iter()
             .min_by(|a, b| {
                 a.objective_values[primary_objective]
                     .partial_cmp(&b.objective_values[primary_objective])
@@ -637,20 +612,18 @@ impl ParetoFront {
             })
             .copied()
     }
-    
+
     /// Get the best solution for a specific objective
     pub fn best_for_objective(&self, objective_index: usize) -> Option<&ParetoSolution> {
         if objective_index >= self.objectives.len() {
             return None;
         }
-        
-        self.solutions
-            .iter()
-            .min_by(|a, b| {
-                a.objective_values[objective_index]
-                    .partial_cmp(&b.objective_values[objective_index])
-                    .unwrap()
-            })
+
+        self.solutions.iter().min_by(|a, b| {
+            a.objective_values[objective_index]
+                .partial_cmp(&b.objective_values[objective_index])
+                .unwrap()
+        })
     }
 }
 
@@ -744,20 +717,24 @@ impl WeightConstraint {
             }
             WeightConstraint::GroupSum { indices, target, tolerance } => {
                 let tol = tolerance.unwrap_or(1e-6);
-                let current_sum: f64 = indices.iter()
+                let current_sum: f64 = indices
+                    .iter()
                     .filter_map(|&idx| if idx < weights.len() { Some(weights[idx]) } else { None })
                     .sum();
                 let diff = *target - current_sum;
-                
+
                 if diff.abs() < tol {
                     return false; // Already satisfied
                 }
-                
+
                 // Distribute the difference proportionally among weights
-                let total_abs: f64 = indices.iter()
-                    .filter_map(|&idx| if idx < weights.len() { Some(weights[idx].abs()) } else { None })
+                let total_abs: f64 = indices
+                    .iter()
+                    .filter_map(
+                        |&idx| if idx < weights.len() { Some(weights[idx].abs()) } else { None },
+                    )
                     .sum();
-                
+
                 if total_abs < 1e-10 {
                     // All weights are zero, distribute equally
                     let count = indices.iter().filter(|&&idx| idx < weights.len()).count();
@@ -784,7 +761,7 @@ impl WeightConstraint {
                 if *index1 >= weights.len() || *index2 >= weights.len() {
                     return false; // Invalid indices
                 }
-                
+
                 let tol = tolerance.unwrap_or(1e-6);
                 let current_ratio = if weights[*index2].abs() < 1e-10 {
                     if weights[*index1].abs() < 1e-10 {
@@ -795,11 +772,11 @@ impl WeightConstraint {
                 } else {
                     weights[*index1] / weights[*index2]
                 };
-                
+
                 if (current_ratio - *ratio).abs() < tol {
                     return false; // Already satisfied
                 }
-                
+
                 // Adjust to satisfy ratio: w1 / w2 = ratio => w1 = ratio * w2
                 // We'll adjust w1 to maintain the ratio
                 weights[*index1] = *ratio * weights[*index2];
@@ -807,7 +784,7 @@ impl WeightConstraint {
             }
         }
     }
-    
+
     /// Check if constraint is violated
     ///
     /// Returns true if constraint is violated, false if satisfied.
@@ -824,7 +801,8 @@ impl WeightConstraint {
             }
             WeightConstraint::GroupSum { indices, target, tolerance } => {
                 let tol = tolerance.unwrap_or(1e-6);
-                let current_sum: f64 = indices.iter()
+                let current_sum: f64 = indices
+                    .iter()
                     .filter_map(|&idx| if idx < weights.len() { Some(weights[idx]) } else { None })
                     .sum();
                 (current_sum - *target).abs() > tol
@@ -833,40 +811,52 @@ impl WeightConstraint {
                 if *index1 >= weights.len() || *index2 >= weights.len() {
                     return true; // Invalid indices = violation
                 }
-                
+
                 let tol = tolerance.unwrap_or(1e-6);
                 if weights[*index2].abs() < 1e-10 {
                     return true; // Division by zero = violation
                 }
-                
+
                 let current_ratio = weights[*index1] / weights[*index2];
                 (current_ratio - *ratio).abs() > tol
             }
         }
     }
-    
+
     /// Get a description of the constraint violation
     pub fn violation_description(&self, weights: &[f64]) -> Option<String> {
         if !self.is_violated(weights) {
             return None;
         }
-        
+
         match self {
             WeightConstraint::Bounds { indices, min, max } => {
                 let violations: Vec<String> = if indices.is_empty() {
-                    weights.iter().enumerate()
+                    weights
+                        .iter()
+                        .enumerate()
                         .filter(|(_, &w)| w < *min || w > *max)
                         .take(5)
-                        .map(|(i, &w)| format!("weight[{}]={:.6} (bounds: [{:.6}, {:.6}])", i, w, min, max))
+                        .map(|(i, &w)| {
+                            format!("weight[{}]={:.6} (bounds: [{:.6}, {:.6}])", i, w, min, max)
+                        })
                         .collect()
                 } else {
-                    indices.iter()
-                        .filter(|&&idx| idx < weights.len() && (weights[idx] < *min || weights[idx] > *max))
+                    indices
+                        .iter()
+                        .filter(|&&idx| {
+                            idx < weights.len() && (weights[idx] < *min || weights[idx] > *max)
+                        })
                         .take(5)
-                        .map(|&idx| format!("weight[{}]={:.6} (bounds: [{:.6}, {:.6}])", idx, weights[idx], min, max))
+                        .map(|&idx| {
+                            format!(
+                                "weight[{}]={:.6} (bounds: [{:.6}, {:.6}])",
+                                idx, weights[idx], min, max
+                            )
+                        })
                         .collect()
                 };
-                
+
                 if violations.is_empty() {
                     None
                 } else {
@@ -875,11 +865,12 @@ impl WeightConstraint {
             }
             WeightConstraint::GroupSum { indices, target, tolerance } => {
                 let tol = tolerance.unwrap_or(1e-6);
-                let current_sum: f64 = indices.iter()
+                let current_sum: f64 = indices
+                    .iter()
                     .filter_map(|&idx| if idx < weights.len() { Some(weights[idx]) } else { None })
                     .sum();
                 let diff = current_sum - *target;
-                
+
                 if diff.abs() > tol {
                     Some(format!(
                         "GroupSum violation: sum={:.6}, target={:.6}, diff={:.6}",
@@ -891,14 +882,20 @@ impl WeightConstraint {
             }
             WeightConstraint::Ratio { index1, index2, ratio, tolerance } => {
                 if *index1 >= weights.len() || *index2 >= weights.len() {
-                    return Some(format!("Ratio violation: invalid indices ({}, {})", index1, index2));
+                    return Some(format!(
+                        "Ratio violation: invalid indices ({}, {})",
+                        index1, index2
+                    ));
                 }
-                
+
                 let tol = tolerance.unwrap_or(1e-6);
                 if weights[*index2].abs() < 1e-10 {
-                    return Some(format!("Ratio violation: division by zero (weight[{}]={:.6})", index2, weights[*index2]));
+                    return Some(format!(
+                        "Ratio violation: division by zero (weight[{}]={:.6})",
+                        index2, weights[*index2]
+                    ));
                 }
-                
+
                 let current_ratio = weights[*index1] / weights[*index2];
                 if (current_ratio - *ratio).abs() > tol {
                     Some(format!(
@@ -950,40 +947,23 @@ impl ValidationResults {
     pub fn new(fold_results: Vec<FoldResult>) -> Self {
         let errors: Vec<f64> = fold_results.iter().map(|f| f.validation_error).collect();
         let mean_error = errors.iter().sum::<f64>() / errors.len() as f64;
-        let variance = errors
-            .iter()
-            .map(|&x| (x - mean_error).powi(2))
-            .sum::<f64>()
-            / errors.len() as f64;
+        let variance =
+            errors.iter().map(|&x| (x - mean_error).powi(2)).sum::<f64>() / errors.len() as f64;
         let std_error = variance.sqrt();
 
         let best_fold = fold_results
             .iter()
             .enumerate()
-            .min_by(|a, b| {
-                a.1.validation_error
-                    .partial_cmp(&b.1.validation_error)
-                    .unwrap()
-            })
+            .min_by(|a, b| a.1.validation_error.partial_cmp(&b.1.validation_error).unwrap())
             .map(|(i, _)| (i + 1) as u32);
 
         let worst_fold = fold_results
             .iter()
             .enumerate()
-            .max_by(|a, b| {
-                a.1.validation_error
-                    .partial_cmp(&b.1.validation_error)
-                    .unwrap()
-            })
+            .max_by(|a, b| a.1.validation_error.partial_cmp(&b.1.validation_error).unwrap())
             .map(|(i, _)| (i + 1) as u32);
 
-        Self {
-            mean_error,
-            std_error,
-            fold_results,
-            best_fold,
-            worst_fold,
-        }
+        Self { mean_error, std_error, fold_results, best_fold, worst_fold }
     }
 }
 
@@ -1012,14 +992,7 @@ impl MatchResult {
         let elo_confidence_interval =
             Self::calculate_confidence_interval(total_games, elo_difference);
 
-        Self {
-            wins,
-            losses,
-            draws,
-            elo_difference,
-            elo_confidence_interval,
-            total_games,
-        }
+        Self { wins, losses, draws, elo_difference, elo_confidence_interval, total_games }
     }
 
     /// Calculate ELO difference using the standard formula
@@ -1144,11 +1117,7 @@ pub fn sigmoid_derivative(x: f64) -> f64 {
 pub fn mean_squared_error(predictions: &[f64], actual: &[f64]) -> f64 {
     assert_eq!(predictions.len(), actual.len());
 
-    predictions
-        .iter()
-        .zip(actual.iter())
-        .map(|(p, a)| (p - a).powi(2))
-        .sum::<f64>()
+    predictions.iter().zip(actual.iter()).map(|(p, a)| (p - a).powi(2)).sum::<f64>()
         / predictions.len() as f64
 }
 
@@ -1169,10 +1138,7 @@ mod tests {
         assert_eq!(GameResult::BlackWin.to_score(), -1.0);
 
         assert_eq!(GameResult::WhiteWin.to_score_for_player(Player::White), 1.0);
-        assert_eq!(
-            GameResult::WhiteWin.to_score_for_player(Player::Black),
-            -1.0
-        );
+        assert_eq!(GameResult::WhiteWin.to_score_for_player(Player::Black), -1.0);
     }
 
     #[test]

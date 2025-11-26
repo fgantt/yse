@@ -165,10 +165,7 @@ fn play_game_direct(depth: u8, verbose: bool) -> Result<GameResult, Box<dyn std:
             // Apply the move to the engine
             if !engine.apply_move(&best_move) {
                 if verbose {
-                    println!(
-                        "Failed to apply move: {}, ending game",
-                        best_move.to_usi_string()
-                    );
+                    println!("Failed to apply move: {}, ending game", best_move.to_usi_string());
                 }
                 return Ok(GameResult::Draw);
             }

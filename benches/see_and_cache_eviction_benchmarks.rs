@@ -28,10 +28,7 @@ fn create_test_move(
         drop: from.is_none(),
         is_capture,
         captured_piece: if is_capture {
-            Some(shogi_engine::types::Piece::new(
-                PieceType::Pawn,
-                player.opposite(),
-            ))
+            Some(shogi_engine::types::Piece::new(PieceType::Pawn, player.opposite()))
         } else {
             None
         },
@@ -63,11 +60,7 @@ fn generate_test_moves(count: usize) -> Vec<Move> {
             Some(from),
             to,
             piece_type,
-            if i % 2 == 0 {
-                Player::Black
-            } else {
-                Player::White
-            },
+            if i % 2 == 0 { Player::Black } else { Player::White },
             is_capture,
         ));
     }
@@ -409,32 +402,28 @@ fn benchmark_cache_hit_rates_by_policy(c: &mut Criterion) {
 
         let policy_name = format!("{:?}", policy);
 
-        group.bench_with_input(
-            BenchmarkId::new("policy", &policy_name),
-            &policy_name,
-            |b, _| {
-                b.iter(|| {
-                    // Perform ordering multiple times at different depths
-                    // This simulates real search patterns
-                    for depth in 1..=6 {
-                        let ordered = orderer.order_moves_with_all_heuristics(
-                            black_box(&moves),
-                            black_box(&board),
-                            black_box(&captured),
-                            black_box(Player::Black),
-                            black_box(depth),
-                            black_box(None),
-                            black_box(None),
-                        );
-                        black_box(ordered);
-                    }
+        group.bench_with_input(BenchmarkId::new("policy", &policy_name), &policy_name, |b, _| {
+            b.iter(|| {
+                // Perform ordering multiple times at different depths
+                // This simulates real search patterns
+                for depth in 1..=6 {
+                    let ordered = orderer.order_moves_with_all_heuristics(
+                        black_box(&moves),
+                        black_box(&board),
+                        black_box(&captured),
+                        black_box(Player::Black),
+                        black_box(depth),
+                        black_box(None),
+                        black_box(None),
+                    );
+                    black_box(ordered);
+                }
 
-                    // Return cache stats for analysis
-                    let (hits, misses, hit_rate) = orderer.get_cache_stats();
-                    black_box((hits, misses, hit_rate));
-                });
-            },
-        );
+                // Return cache stats for analysis
+                let (hits, misses, hit_rate) = orderer.get_cache_stats();
+                black_box((hits, misses, hit_rate));
+            });
+        });
     }
 
     group.finish();

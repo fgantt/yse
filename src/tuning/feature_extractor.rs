@@ -80,8 +80,7 @@ impl FeatureExtractor {
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> Vec<f64> {
-        self.evaluator
-            .get_evaluation_features(board, player, captured_pieces)
+        self.evaluator.get_evaluation_features(board, player, captured_pieces)
     }
 
     /// Extract material features (piece count differences)
@@ -246,9 +245,7 @@ impl FeatureExtractor {
         let mut features = vec![0.0; 20]; // Various mobility components
 
         // Generate all legal moves once for efficiency
-        let legal_moves = self
-            .move_generator
-            .generate_legal_moves(board, player, captured_pieces);
+        let legal_moves = self.move_generator.generate_legal_moves(board, player, captured_pieces);
 
         // Calculate mobility for each piece type
         let piece_types = [
@@ -357,16 +354,9 @@ impl FeatureExtractor {
         let mut features = vec![0.0; 20]; // Development patterns
 
         // Count pieces in starting ranks vs advanced ranks
-        let starting_ranks = if player == Player::White {
-            [0, 1]
-        } else {
-            [7, 8]
-        };
-        let advanced_ranks = if player == Player::White {
-            [2, 3, 4, 5, 6]
-        } else {
-            [3, 4, 5, 6, 7]
-        };
+        let starting_ranks = if player == Player::White { [0, 1] } else { [7, 8] };
+        let advanced_ranks =
+            if player == Player::White { [2, 3, 4, 5, 6] } else { [3, 4, 5, 6, 7] };
 
         let mut starting_pieces = 0;
         let mut advanced_pieces = 0;
@@ -594,9 +584,7 @@ impl FeatureExtractor {
         captured_pieces: &CapturedPieces,
     ) -> f64 {
         // Generate all legal moves for the player
-        let legal_moves = self
-            .move_generator
-            .generate_legal_moves(board, player, captured_pieces);
+        let legal_moves = self.move_generator.generate_legal_moves(board, player, captured_pieces);
 
         // Count moves made by pieces of the specified type
         let mut mobility = 0.0;
@@ -810,9 +798,7 @@ impl FeatureExtractor {
         captured_pieces: &CapturedPieces,
     ) -> f64 {
         // Generate legal moves for the player
-        let legal_moves = self
-            .move_generator
-            .generate_legal_moves(board, player, captured_pieces);
+        let legal_moves = self.move_generator.generate_legal_moves(board, player, captured_pieces);
 
         let mut coordination = 0.0;
 
@@ -862,9 +848,7 @@ impl FeatureExtractor {
         captured_pieces: &CapturedPieces,
     ) -> f64 {
         // Generate legal moves (including captures)
-        let legal_moves = self
-            .move_generator
-            .generate_legal_moves(board, player, captured_pieces);
+        let legal_moves = self.move_generator.generate_legal_moves(board, player, captured_pieces);
 
         // Count how many enemy squares are attacked by multiple pieces
         let mut attack_targets: std::collections::HashMap<Position, usize> =
@@ -909,9 +893,8 @@ impl FeatureExtractor {
             Player::Black => Player::White,
             Player::White => Player::Black,
         };
-        let opponent_moves = self
-            .move_generator
-            .generate_legal_moves(board, opponent, captured_pieces);
+        let opponent_moves =
+            self.move_generator.generate_legal_moves(board, opponent, captured_pieces);
 
         // Find squares with friendly pieces
         let mut friendly_squares = std::collections::HashSet::new();
@@ -938,9 +921,8 @@ impl FeatureExtractor {
         let mut defense_coordination = 0.0;
         for &attacked_pos in &attacked_pieces {
             // Generate moves for friendly player to see defenders
-            let friendly_moves = self
-                .move_generator
-                .generate_legal_moves(board, player, captured_pieces);
+            let friendly_moves =
+                self.move_generator.generate_legal_moves(board, player, captured_pieces);
 
             let mut defenders = 0;
             for mv in &friendly_moves {
@@ -992,11 +974,7 @@ impl FeatureExtractor {
         let mut development = 0.0;
 
         // Count pieces that have moved from starting positions
-        let starting_ranks = if player == Player::White {
-            [0, 1]
-        } else {
-            [7, 8]
-        };
+        let starting_ranks = if player == Player::White { [0, 1] } else { [7, 8] };
 
         for row in 0..9 {
             for col in 0..9 {
@@ -1122,7 +1100,8 @@ mod tests {
         let board = BitboardBoard::new();
 
         let captured_pieces = CapturedPieces::new();
-        let features = extractor.extract_coordination_features(&board, Player::White, &captured_pieces);
+        let features =
+            extractor.extract_coordination_features(&board, Player::White, &captured_pieces);
         assert_eq!(features.len(), 25);
 
         // All features should be finite
@@ -1249,10 +1228,7 @@ mod tests {
         let test_features =
             extractor.extract_coordination_features(&test_board, Player::Black, &captured_pieces);
         // Connected rooks should be detected
-        assert!(
-            test_features[1] >= 0.0,
-            "Connected rooks feature should be non-negative"
-        );
+        assert!(test_features[1] >= 0.0, "Connected rooks feature should be non-negative");
     }
 
     #[test]
@@ -1277,8 +1253,10 @@ mod tests {
         }
 
         // Test that mobility features are consistent
-        let mobility1 = extractor.extract_mobility_features(&board, Player::Black, &captured_pieces);
-        let mobility2 = extractor.extract_mobility_features(&board, Player::Black, &captured_pieces);
+        let mobility1 =
+            extractor.extract_mobility_features(&board, Player::Black, &captured_pieces);
+        let mobility2 =
+            extractor.extract_mobility_features(&board, Player::Black, &captured_pieces);
 
         assert_eq!(mobility1.len(), mobility2.len());
         for (i, (m1, m2)) in mobility1.iter().zip(mobility2.iter()).enumerate() {
@@ -1357,7 +1335,8 @@ mod tests {
         let board = BitboardBoard::new();
 
         let captured_pieces = CapturedPieces::new();
-        let features = extractor.extract_coordination_features(&board, Player::White, &captured_pieces);
+        let features =
+            extractor.extract_coordination_features(&board, Player::White, &captured_pieces);
 
         // Bishop pair feature should be 0.0 or 1.0
         assert!(features[0] == 0.0 || features[0] == 1.0);

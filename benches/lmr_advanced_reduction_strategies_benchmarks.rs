@@ -234,9 +234,7 @@ fn benchmark_material_based_reduction(c: &mut Criterion) {
             let mut config = engine.get_lmr_config().clone();
             config.advanced_reduction_config.enabled = true;
             config.advanced_reduction_config.enable_material_based = true;
-            config
-                .advanced_reduction_config
-                .material_imbalance_threshold = 300;
+            config.advanced_reduction_config.material_imbalance_threshold = 300;
             engine.update_lmr_config(config).unwrap();
 
             let mut board_mut = board.clone();
@@ -339,12 +337,8 @@ fn benchmark_comprehensive_advanced_strategies(c: &mut Criterion) {
             config_advanced.advanced_reduction_config.strategy =
                 AdvancedReductionStrategy::Combined;
             config_advanced.advanced_reduction_config.enable_depth_based = true;
-            config_advanced
-                .advanced_reduction_config
-                .enable_material_based = true;
-            config_advanced
-                .advanced_reduction_config
-                .enable_history_based = true;
+            config_advanced.advanced_reduction_config.enable_material_based = true;
+            config_advanced.advanced_reduction_config.enable_history_based = true;
             engine.update_lmr_config(config_advanced).unwrap();
 
             let mut board_mut2 = board.clone();

@@ -21,7 +21,7 @@ use shogi_engine::types::*;
 /// Create a board with many pieces for realistic evaluation workload
 fn create_heavy_board() -> BitboardBoard {
     let mut board = BitboardBoard::new();
-    
+
     // Add many pieces to create cache pressure
     for row in 0..9 {
         for col in 0..9 {
@@ -36,39 +36,36 @@ fn create_heavy_board() -> BitboardBoard {
                     _ => PieceType::PromotedSilver,
                 };
                 let player = if row < 4 { Player::Black } else { Player::White };
-                board.place_piece(
-                    Piece::new(piece_type, player),
-                    Position::new(row, col),
-                );
+                board.place_piece(Piece::new(piece_type, player), Position::new(row, col));
             }
         }
     }
-    
+
     board
 }
 
 /// Create a board with sparse pieces (fewer cache misses expected)
 fn create_sparse_board() -> BitboardBoard {
     let mut board = BitboardBoard::empty();
-    
+
     // Add a few pieces strategically
     board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 4));
     board.place_piece(Piece::new(PieceType::Bishop, Player::Black), Position::new(4, 5));
     board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 3));
     board.place_piece(Piece::new(PieceType::Rook, Player::White), Position::new(3, 4));
     board.place_piece(Piece::new(PieceType::Bishop, Player::White), Position::new(2, 5));
-    
+
     board
 }
 
 /// Benchmark PST evaluation with memory optimizations
 fn benchmark_pst_evaluation_with_optimizations(c: &mut Criterion) {
     let mut group = c.benchmark_group("pst_evaluation_memory_optimized");
-    
+
     let heavy_board = create_heavy_board();
     let sparse_board = create_sparse_board();
     let captured = CapturedPieces::new();
-    
+
     // Benchmark with heavy board (more cache pressure)
     group.bench_with_input(
         BenchmarkId::new("heavy_board", "with_optimizations"),
@@ -80,7 +77,7 @@ fn benchmark_pst_evaluation_with_optimizations(c: &mut Criterion) {
             });
         },
     );
-    
+
     // Benchmark with sparse board (less cache pressure)
     group.bench_with_input(
         BenchmarkId::new("sparse_board", "with_optimizations"),
@@ -92,7 +89,7 @@ fn benchmark_pst_evaluation_with_optimizations(c: &mut Criterion) {
             });
         },
     );
-    
+
     // Benchmark multiple evaluations (simulating search tree)
     group.bench_function("multiple_evaluations", |b| {
         let evaluator = IntegratedEvaluator::new();
@@ -103,18 +100,18 @@ fn benchmark_pst_evaluation_with_optimizations(c: &mut Criterion) {
             }
         });
     });
-    
+
     group.finish();
 }
 
 /// Benchmark full evaluation with memory optimizations
 fn benchmark_full_evaluation_with_optimizations(c: &mut Criterion) {
     let mut group = c.benchmark_group("full_evaluation_memory_optimized");
-    
+
     let heavy_board = create_heavy_board();
     let sparse_board = create_sparse_board();
     let captured = CapturedPieces::new();
-    
+
     // Benchmark with heavy board
     group.bench_with_input(
         BenchmarkId::new("heavy_board", "full_eval"),
@@ -126,7 +123,7 @@ fn benchmark_full_evaluation_with_optimizations(c: &mut Criterion) {
             });
         },
     );
-    
+
     // Benchmark with sparse board
     group.bench_with_input(
         BenchmarkId::new("sparse_board", "full_eval"),
@@ -138,24 +135,24 @@ fn benchmark_full_evaluation_with_optimizations(c: &mut Criterion) {
             });
         },
     );
-    
+
     group.finish();
 }
 
 /// Benchmark cache performance with different access patterns
 fn benchmark_cache_access_patterns(c: &mut Criterion) {
     let mut group = c.benchmark_group("cache_access_patterns");
-    
+
     let board = create_heavy_board();
     let evaluator = IntegratedEvaluator::new();
-    
+
     // Sequential access (row by row) - should benefit from prefetching
     group.bench_function("sequential_access", |b| {
         b.iter(|| {
             black_box(evaluator.evaluate_pst(black_box(&board), Player::Black));
         });
     });
-    
+
     group.finish();
 }
 
@@ -166,4 +163,3 @@ criterion_group!(
     benchmark_cache_access_patterns
 );
 criterion_main!(benches);
-

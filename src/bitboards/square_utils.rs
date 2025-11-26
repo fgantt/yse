@@ -137,10 +137,7 @@ pub fn bit_to_coords(bit: u8) -> (u8, u8) {
 /// ```
 pub fn coords_to_bit(file: u8, rank: u8) -> u8 {
     if file >= 9 || rank >= 9 {
-        panic!(
-            "Coordinates ({}, {}) are out of range (must be < 9)",
-            file, rank
-        );
+        panic!("Coordinates ({}, {}) are out of range (must be < 9)", file, rank);
     }
 
     rank * 9 + file
@@ -224,10 +221,7 @@ pub fn square_name_to_bit(name: &str) -> u8 {
     // Parse file (1-9)
     let file = match file_char.to_digit(10) {
         Some(f) if f >= 1 && f <= 9 => (f - 1) as u8,
-        _ => panic!(
-            "Invalid file '{}' in square name '{}': must be 1-9",
-            file_char, name
-        ),
+        _ => panic!("Invalid file '{}' in square name '{}': must be 1-9", file_char, name),
     };
 
     // Parse rank (a-i)
@@ -241,10 +235,7 @@ pub fn square_name_to_bit(name: &str) -> u8 {
         'g' => 2,
         'h' => 1,
         'i' => 0,
-        _ => panic!(
-            "Invalid rank '{}' in square name '{}': must be a-i",
-            rank_char, name
-        ),
+        _ => panic!("Invalid rank '{}' in square name '{}': must be a-i", rank_char, name),
     };
 
     coords_to_bit(file, rank)
@@ -331,16 +322,8 @@ pub fn square_distance(bit1: u8, bit2: u8) -> u8 {
     let (file1, rank1) = bit_to_coords(bit1);
     let (file2, rank2) = bit_to_coords(bit2);
 
-    let file_diff = if file1 > file2 {
-        file1 - file2
-    } else {
-        file2 - file1
-    };
-    let rank_diff = if rank1 > rank2 {
-        rank1 - rank2
-    } else {
-        rank2 - rank1
-    };
+    let file_diff = if file1 > file2 { file1 - file2 } else { file2 - file1 };
+    let rank_diff = if rank1 > rank2 { rank1 - rank2 } else { rank2 - rank1 };
 
     file_diff + rank_diff
 }

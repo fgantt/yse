@@ -8,9 +8,7 @@ pub struct UsiHandler {
 
 impl UsiHandler {
     pub fn new() -> Self {
-        Self {
-            engine: ShogiEngine::new(),
-        }
+        Self { engine: ShogiEngine::new() }
     }
 
     pub fn handle_command(&mut self, command_str: &str) -> Vec<String> {
@@ -107,16 +105,11 @@ impl UsiHandler {
         crate::debug_utils::log_decision(
             "USI_GO",
             "Time allocation",
-            &format!(
-                "Player: {:?}, Allocated time: {}ms",
-                self.engine.current_player, time_to_use
-            ),
+            &format!("Player: {:?}, Allocated time: {}ms", self.engine.current_player, time_to_use),
             Some(time_to_use as i32),
         );
 
-        self.engine
-            .stop_flag
-            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.engine.stop_flag.store(false, std::sync::atomic::Ordering::Relaxed);
 
         crate::debug_utils::start_timing("best_move_search");
         let best_move = self.engine.get_best_move(

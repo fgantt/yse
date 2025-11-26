@@ -51,9 +51,7 @@ pub struct MoveOrderingBenchmarks {
 impl MoveOrderingTestSuite {
     /// Create a new test suite
     pub fn new() -> Self {
-        Self {
-            benchmarks: MoveOrderingBenchmarks::default(),
-        }
+        Self { benchmarks: MoveOrderingBenchmarks::default() }
     }
 
     /// Run comprehensive move ordering tests
@@ -109,10 +107,7 @@ impl MoveOrderingTestSuite {
                 is_promotion: false,
                 gives_check: false,
                 is_recapture: false,
-                captured_piece: Some(Piece {
-                    piece_type: PieceType::Pawn,
-                    player: Player::White,
-                }),
+                captured_piece: Some(Piece { piece_type: PieceType::Pawn, player: Player::White }),
                 player: Player::Black,
             },
         ];
@@ -145,9 +140,7 @@ impl MoveOrderingTestSuite {
 
         // Create a position and store it in TT
         let position_hash =
-            orderer
-                .hash_calculator
-                .get_position_hash(&board, Player::Black, &captured);
+            orderer.hash_calculator.get_position_hash(&board, Player::Black, &captured);
         let best_move = Move {
             from: Some(Position { row: 7, col: 4 }),
             to: Position { row: 6, col: 4 },
@@ -233,10 +226,7 @@ impl MoveOrderingTestSuite {
         // Performance should be reasonable (less than 1ms per ordering)
         let success = avg_time_per_ordering < 1.0;
 
-        println!(
-            "Average time per move ordering: {:.3}ms",
-            avg_time_per_ordering
-        );
+        println!("Average time per move ordering: {:.3}ms", avg_time_per_ordering);
 
         if success {
             println!("✅ Performance test passed");
@@ -278,10 +268,7 @@ impl MoveOrderingTestSuite {
                 is_promotion: false,
                 gives_check: false,
                 is_recapture: false,
-                captured_piece: Some(Piece {
-                    piece_type: PieceType::Rook,
-                    player: Player::White,
-                }),
+                captured_piece: Some(Piece { piece_type: PieceType::Rook, player: Player::White }),
                 player: Player::Black,
             },
             // Medium priority promotion
@@ -352,10 +339,7 @@ impl MoveOrderingTestSuite {
                 gives_check: i % 7 == 0,
                 is_recapture: false,
                 captured_piece: if i % 3 == 0 {
-                    Some(Piece {
-                        piece_type: PieceType::Pawn,
-                        player: Player::White,
-                    })
+                    Some(Piece { piece_type: PieceType::Pawn, player: Player::White })
                 } else {
                     None
                 },

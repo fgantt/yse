@@ -6,8 +6,8 @@
 use super::tablebase_config::EvictionStrategy;
 use super::TablebaseResult;
 use crate::search::BoardTrait;
-use crate::utils::time::TimeSource;
 use crate::types::core::Player;
+use crate::utils::time::TimeSource;
 use crate::BitboardBoard;
 use crate::CapturedPieces;
 use std::collections::HashMap;
@@ -302,12 +302,7 @@ impl PositionCache {
             .cache
             .iter()
             .map(|(key, entry)| {
-                (
-                    *key,
-                    entry.last_accessed,
-                    entry.access_count,
-                    entry.creation_time,
-                )
+                (*key, entry.last_accessed, entry.access_count, entry.creation_time)
             })
             .collect();
 
@@ -315,9 +310,7 @@ impl PositionCache {
         entries.sort_by(|a, b| {
             let score_a = self.calculate_adaptive_score(a.1, a.2, a.3);
             let score_b = self.calculate_adaptive_score(b.1, b.2, b.3);
-            score_a
-                .partial_cmp(&score_b)
-                .unwrap_or(std::cmp::Ordering::Equal)
+            score_a.partial_cmp(&score_b).unwrap_or(std::cmp::Ordering::Equal)
         });
 
         // Remove the lowest scoring entries
@@ -373,11 +366,8 @@ impl PositionCache {
             let mut entries_to_remove: Vec<u64> = Vec::new();
 
             // Collect entries to remove (oldest first)
-            let mut entries: Vec<(u64, u64)> = self
-                .cache
-                .iter()
-                .map(|(key, entry)| (*key, entry.last_accessed))
-                .collect();
+            let mut entries: Vec<(u64, u64)> =
+                self.cache.iter().map(|(key, entry)| (*key, entry.last_accessed)).collect();
 
             entries.sort_by_key(|(_, timestamp)| *timestamp);
 
@@ -434,11 +424,8 @@ impl PositionCache {
     /// Get cache statistics
     pub fn get_stats(&self) -> (u64, u64, f64) {
         let total_requests = self.hits + self.misses;
-        let hit_rate = if total_requests > 0 {
-            self.hits as f64 / total_requests as f64
-        } else {
-            0.0
-        };
+        let hit_rate =
+            if total_requests > 0 { self.hits as f64 / total_requests as f64 } else { 0.0 };
         (self.hits, self.misses, hit_rate)
     }
 
@@ -453,8 +440,6 @@ impl PositionCache {
         self.cache.clear();
     }
 }
-
-
 
 impl Default for PositionCache {
     fn default() -> Self {

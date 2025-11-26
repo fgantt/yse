@@ -51,10 +51,7 @@ fn test_thread_pool_creation() {
     // Test creating engine with custom thread count
     let config = ParallelSearchConfig::new(4);
     let engine_result = ParallelSearchEngine::new(config);
-    assert!(
-        engine_result.is_ok(),
-        "Thread pool creation with 4 threads should succeed"
-    );
+    assert!(engine_result.is_ok(), "Thread pool creation with 4 threads should succeed");
 
     let engine = engine_result.unwrap();
     assert_eq!(engine.num_threads(), 4);
@@ -63,10 +60,7 @@ fn test_thread_pool_creation() {
     // Test single-threaded configuration
     let config = ParallelSearchConfig::new(1);
     let engine_result = ParallelSearchEngine::new(config);
-    assert!(
-        engine_result.is_ok(),
-        "Single-threaded engine creation should succeed"
-    );
+    assert!(engine_result.is_ok(), "Single-threaded engine creation should succeed");
 
     let engine = engine_result.unwrap();
     assert_eq!(engine.num_threads(), 1);
@@ -85,10 +79,7 @@ fn test_usi_option_registration() {
         line.contains("USI_Threads") && line.contains("spin") && line.contains("min 1 max 32")
     });
 
-    assert!(
-        has_threads_option,
-        "USI_Threads option should be registered in USI response"
-    );
+    assert!(has_threads_option, "USI_Threads option should be registered in USI response");
 
     // Verify the option format is correct
     let threads_line = usi_response
@@ -130,10 +121,7 @@ fn test_parallel_search_engine_instantiation() {
     let stop_flag = Arc::new(AtomicBool::new(false));
     let engine_result = ParallelSearchEngine::new_with_stop_flag(config, Some(stop_flag));
 
-    assert!(
-        engine_result.is_ok(),
-        "Parallel search engine should be created successfully"
-    );
+    assert!(engine_result.is_ok(), "Parallel search engine should be created successfully");
     let engine = engine_result.unwrap();
     assert_eq!(engine.num_threads(), 2);
 }
@@ -158,10 +146,7 @@ fn test_board_cloning_correctness() {
     let context = engine.create_thread_context(&board, &captured_pieces, player, 16);
 
     // Verify cloned board matches original
-    assert_eq!(
-        context.board().to_string_for_debug(),
-        board.to_string_for_debug()
-    );
+    assert_eq!(context.board().to_string_for_debug(), board.to_string_for_debug());
 }
 
 #[test]
@@ -535,11 +520,7 @@ fn test_many_threads_work_stealing() {
         let stop_flag = Arc::new(AtomicBool::new(false));
         let engine_result = ParallelSearchEngine::new_with_stop_flag(config, Some(stop_flag));
 
-        assert!(
-            engine_result.is_ok(),
-            "Should create engine with {} threads",
-            num_threads
-        );
+        assert!(engine_result.is_ok(), "Should create engine with {} threads", num_threads);
         let engine = engine_result.unwrap();
         assert_eq!(engine.num_threads(), num_threads);
 

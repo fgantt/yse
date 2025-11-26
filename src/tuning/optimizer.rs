@@ -100,7 +100,8 @@ impl IncrementalState {
         // Reconstruct optimizer-specific state
         match method {
             OptimizationMethod::Adam { beta1, beta2, epsilon, .. } => {
-                state.adam_state = Some(AdamState::new(state.weights.len(), *beta1, *beta2, *epsilon));
+                state.adam_state =
+                    Some(AdamState::new(state.weights.len(), *beta1, *beta2, *epsilon));
             }
             OptimizationMethod::LBFGS { memory_size, .. } => {
                 state.lbfgs_state = Some(LBFGSState::new(*memory_size, state.weights.len()));
@@ -426,14 +427,7 @@ impl AdamState {
     /// * `beta2` - Exponential decay rate for second moment estimates (typically 0.999)
     /// * `epsilon` - Small constant for numerical stability (typically 1e-8)
     fn new(num_weights: usize, beta1: f64, beta2: f64, epsilon: f64) -> Self {
-        Self {
-            m: vec![0.0; num_weights],
-            v: vec![0.0; num_weights],
-            beta1,
-            beta2,
-            epsilon,
-            t: 0,
-        }
+        Self { m: vec![0.0; num_weights], v: vec![0.0; num_weights], beta1, beta2, epsilon, t: 0 }
     }
 
     /// Update weights using Adam optimizer
@@ -550,13 +544,7 @@ impl LineSearch {
 impl LBFGSState {
     /// Create new LBFGS state
     fn new(memory_size: usize, _num_weights: usize) -> Self {
-        Self {
-            s: Vec::new(),
-            y: Vec::new(),
-            rho: Vec::new(),
-            alpha: Vec::new(),
-            m: memory_size,
-        }
+        Self { s: Vec::new(), y: Vec::new(), rho: Vec::new(), alpha: Vec::new(), m: memory_size }
     }
 
     /// Update LBFGS state with new position and gradient
@@ -574,24 +562,13 @@ impl LBFGSState {
         }
 
         // Calculate position and gradient differences
-        let s_diff: Vec<f64> = weights
-            .iter()
-            .zip(prev_weights.iter())
-            .map(|(w, p)| w - p)
-            .collect();
-        let y_diff: Vec<f64> = gradients
-            .iter()
-            .zip(prev_gradients.iter())
-            .map(|(g, p)| g - p)
-            .collect();
+        let s_diff: Vec<f64> =
+            weights.iter().zip(prev_weights.iter()).map(|(w, p)| w - p).collect();
+        let y_diff: Vec<f64> =
+            gradients.iter().zip(prev_gradients.iter()).map(|(g, p)| g - p).collect();
 
         // Calculate rho (scaling factor)
-        let rho = 1.0
-            / s_diff
-                .iter()
-                .zip(y_diff.iter())
-                .map(|(s, y)| s * y)
-                .sum::<f64>();
+        let rho = 1.0 / s_diff.iter().zip(y_diff.iter()).map(|(s, y)| s * y).sum::<f64>();
 
         self.s.push(s_diff);
         self.y.push(y_diff);
@@ -608,12 +585,8 @@ impl LBFGSState {
 
         // Two-loop recursion
         for i in (0..self.s.len()).rev() {
-            let alpha_i = self.rho[i]
-                * self.s[i]
-                    .iter()
-                    .zip(q.iter())
-                    .map(|(s, q)| s * q)
-                    .sum::<f64>();
+            let alpha_i =
+                self.rho[i] * self.s[i].iter().zip(q.iter()).map(|(s, q)| s * q).sum::<f64>();
             self.alpha.push(alpha_i);
 
             for j in 0..q.len() {
@@ -638,12 +611,8 @@ impl LBFGSState {
 
         // Second loop
         for (i, &alpha_i) in self.alpha.iter().rev().enumerate() {
-            let beta = self.rho[i]
-                * self.y[i]
-                    .iter()
-                    .zip(q.iter())
-                    .map(|(y, q)| y * q)
-                    .sum::<f64>();
+            let beta =
+                self.rho[i] * self.y[i].iter().zip(q.iter()).map(|(y, q)| y * q).sum::<f64>();
 
             for j in 0..q.len() {
                 q[j] += (alpha_i - beta) * self.s[i][j];
@@ -655,7 +624,12 @@ impl LBFGSState {
     }
 
     /// Apply LBFGS update to weights with given step size
-    fn apply_update_with_step_size(&mut self, weights: &mut [f64], search_direction: &[f64], step_size: f64) {
+    fn apply_update_with_step_size(
+        &mut self,
+        weights: &mut [f64],
+        search_direction: &[f64],
+        step_size: f64,
+    ) {
         // Update weights: x_new = x + α * p
         for (weight, p) in weights.iter_mut().zip(search_direction.iter()) {
             *weight += step_size * p;
@@ -763,11 +737,8 @@ impl GeneticAlgorithmState {
         let mut total_error = 0.0;
 
         for position in positions {
-            let predicted = weights
-                .iter()
-                .zip(position.features.iter())
-                .map(|(w, f)| w * f)
-                .sum::<f64>();
+            let predicted =
+                weights.iter().zip(position.features.iter()).map(|(w, f)| w * f).sum::<f64>();
             let predicted_prob = 1.0 / (1.0 + (-k_factor * predicted).exp());
             let error = position.result - predicted_prob;
             total_error += error * error;
@@ -781,11 +752,8 @@ impl GeneticAlgorithmState {
     fn evolve(&mut self) {
         // Sort by fitness (descending)
         let mut indices: Vec<usize> = (0..self.population_size).collect();
-        indices.sort_by(|a, b| {
-            self.fitness_scores[*b]
-                .partial_cmp(&self.fitness_scores[*a])
-                .unwrap()
-        });
+        indices
+            .sort_by(|a, b| self.fitness_scores[*b].partial_cmp(&self.fitness_scores[*a]).unwrap());
 
         // Create new population
         let mut new_population = Vec::with_capacity(self.population_size);
@@ -850,7 +818,8 @@ impl GeneticAlgorithmState {
         for gene in &mut individual {
             if rand::random::<f64>() < self.mutation_rate {
                 // Apply mutation with configurable magnitude
-                let mutation = rand::random::<f64>() * self.mutation_magnitude * 2.0 - self.mutation_magnitude;
+                let mutation =
+                    rand::random::<f64>() * self.mutation_magnitude * 2.0 - self.mutation_magnitude;
                 *gene += mutation;
                 // Clamp to configurable bounds
                 *gene = gene.clamp(self.mutation_bounds.0, self.mutation_bounds.1);
@@ -875,10 +844,7 @@ impl GeneticAlgorithmState {
 impl Optimizer {
     /// Create a new optimizer
     pub fn new(method: OptimizationMethod) -> Self {
-        Self {
-            method,
-            config: TuningConfig::default(),
-        }
+        Self { method, config: TuningConfig::default() }
     }
 
     /// Create a new optimizer with custom configuration
@@ -904,7 +870,8 @@ impl Optimizer {
     ///
     /// Returns a vector of violation descriptions for all violated constraints.
     pub fn check_constraint_violations(&self, weights: &[f64]) -> Vec<String> {
-        self.config.constraints
+        self.config
+            .constraints
             .iter()
             .filter_map(|constraint| constraint.violation_description(weights))
             .collect()
@@ -958,15 +925,24 @@ impl Optimizer {
         let k_factor = 1.0;
 
         match self.method {
-            OptimizationMethod::GradientDescent { learning_rate } => {
-                self.gradient_descent_optimize(positions, learning_rate, 0.9, k_factor, initial_weights)
-            }
-            OptimizationMethod::Adam {
-                learning_rate,
-                beta1,
-                beta2,
-                epsilon,
-            } => self.adam_optimize(positions, learning_rate, beta1, beta2, epsilon, k_factor, initial_weights),
+            OptimizationMethod::GradientDescent { learning_rate } => self
+                .gradient_descent_optimize(
+                    positions,
+                    learning_rate,
+                    0.9,
+                    k_factor,
+                    initial_weights,
+                ),
+            OptimizationMethod::Adam { learning_rate, beta1, beta2, epsilon } => self
+                .adam_optimize(
+                    positions,
+                    learning_rate,
+                    beta1,
+                    beta2,
+                    epsilon,
+                    k_factor,
+                    initial_weights,
+                ),
             OptimizationMethod::LBFGS {
                 memory_size,
                 max_iterations,
@@ -1062,10 +1038,10 @@ impl Optimizer {
     ) -> Result<OptimizationResults, String> {
         let start_time = Instant::now();
         let mut weights = initial_weights.unwrap_or_else(|| vec![1.0; NUM_EVAL_FEATURES]);
-        
+
         // Apply constraints to initial weights
         self.apply_constraints(&mut weights);
-        
+
         let mut adam_state = AdamState::new(weights.len(), beta1, beta2, epsilon);
         let mut error_history = Vec::new();
         let mut prev_error = f64::INFINITY;
@@ -1113,7 +1089,7 @@ impl Optimizer {
 
             // Adam update
             adam_state.update(&mut weights, &gradients, learning_rate);
-            
+
             // Apply constraints after update
             self.apply_constraints(&mut weights);
         }
@@ -1159,10 +1135,10 @@ impl Optimizer {
     ) -> Result<OptimizationResults, String> {
         let start_time = Instant::now();
         let mut weights = initial_weights.unwrap_or_else(|| vec![1.0; NUM_EVAL_FEATURES]);
-        
+
         // Apply constraints to initial weights
         self.apply_constraints(&mut weights);
-        
+
         let mut lbfgs_state = LBFGSState::new(memory_size, weights.len());
         let line_search = LineSearch::new(
             line_search_type,
@@ -1213,11 +1189,8 @@ impl Optimizer {
                 let search_direction = lbfgs_state.compute_search_direction(&gradients);
 
                 // Compute directional derivative: ∇f(x)^T * p
-                let directional_derivative: f64 = gradients
-                    .iter()
-                    .zip(search_direction.iter())
-                    .map(|(g, p)| g * p)
-                    .sum();
+                let directional_derivative: f64 =
+                    gradients.iter().zip(search_direction.iter()).map(|(g, p)| g * p).sum();
 
                 // Perform line search to find step size
                 let step_size = match line_search_type {
@@ -1242,7 +1215,7 @@ impl Optimizer {
 
                 // Apply update with line search step size
                 lbfgs_state.apply_update_with_step_size(&mut weights, &search_direction, step_size);
-                
+
                 // Apply constraints after update
                 self.apply_constraints(&mut weights);
 
@@ -1266,11 +1239,8 @@ impl Optimizer {
             } else {
                 // First iteration: simple gradient descent with line search
                 let search_direction: Vec<f64> = gradients.iter().map(|&g| -g).collect();
-                let directional_derivative: f64 = gradients
-                    .iter()
-                    .zip(search_direction.iter())
-                    .map(|(g, p)| g * p)
-                    .sum();
+                let directional_derivative: f64 =
+                    gradients.iter().zip(search_direction.iter()).map(|(g, p)| g * p).sum();
 
                 let step_size = match line_search_type {
                     LineSearchType::Armijo => line_search.armijo_search(
@@ -1280,21 +1250,19 @@ impl Optimizer {
                         directional_derivative,
                         &calculate_error,
                     ),
-                    LineSearchType::Wolfe => {
-                        line_search.armijo_search(
-                            &weights,
-                            &search_direction,
-                            error,
-                            directional_derivative,
-                            &calculate_error,
-                        )
-                    }
+                    LineSearchType::Wolfe => line_search.armijo_search(
+                        &weights,
+                        &search_direction,
+                        error,
+                        directional_derivative,
+                        &calculate_error,
+                    ),
                 };
 
                 for i in 0..weights.len() {
                     weights[i] += step_size * search_direction[i];
                 }
-                
+
                 // Apply constraints after update
                 self.apply_constraints(&mut weights);
             }
@@ -1375,11 +1343,8 @@ impl Optimizer {
 
         for generation in 0..max_generations {
             ga_state.evaluate_fitness(positions, k_factor);
-            let best_fitness = ga_state
-                .fitness_scores
-                .iter()
-                .cloned()
-                .fold(f64::NEG_INFINITY, f64::max);
+            let best_fitness =
+                ga_state.fitness_scores.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
             let best_error = -best_fitness; // Convert fitness back to error
             error_history.push(best_error);
 
@@ -1396,7 +1361,7 @@ impl Optimizer {
             }
 
             ga_state.evolve();
-            
+
             // Apply constraints to population after evolution
             for individual in &mut ga_state.population {
                 self.apply_constraints(individual);
@@ -1425,11 +1390,8 @@ impl Optimizer {
         let mut gradients = vec![0.0; weights.len()];
 
         for position in positions {
-            let predicted = weights
-                .iter()
-                .zip(position.features.iter())
-                .map(|(w, f)| w * f)
-                .sum::<f64>();
+            let predicted =
+                weights.iter().zip(position.features.iter()).map(|(w, f)| w * f).sum::<f64>();
             let predicted_prob = 1.0 / (1.0 + (-k_factor * predicted).exp());
             let error = position.result - predicted_prob;
             total_error += error * error;
@@ -1456,11 +1418,8 @@ impl Optimizer {
         // Calculate validation error
         let mut total_error = 0.0;
         for position in positions {
-            let predicted = weights
-                .iter()
-                .zip(position.features.iter())
-                .map(|(w, f)| w * f)
-                .sum::<f64>();
+            let predicted =
+                weights.iter().zip(position.features.iter()).map(|(w, f)| w * f).sum::<f64>();
             let predicted_prob = 1.0 / (1.0 + (-1.0 * predicted).exp()); // Default k_factor
             let error = position.result - predicted_prob;
             total_error += error * error;
@@ -1502,7 +1461,8 @@ impl Optimizer {
             let value = match objective {
                 Objective::Accuracy => {
                     // Accuracy: minimize prediction error
-                    let (error, _) = self.calculate_error_and_gradients(weights, positions, k_factor);
+                    let (error, _) =
+                        self.calculate_error_and_gradients(weights, positions, k_factor);
                     error
                 }
                 Objective::Speed { .. } => {
@@ -1516,7 +1476,8 @@ impl Optimizer {
                 }
                 Objective::Custom { .. } => {
                     // Custom: for now, use accuracy as default
-                    let (error, _) = self.calculate_error_and_gradients(weights, positions, k_factor);
+                    let (error, _) =
+                        self.calculate_error_and_gradients(weights, positions, k_factor);
                     error
                 }
             };
@@ -1532,9 +1493,8 @@ impl Optimizer {
         }
 
         let mean: f64 = weights.iter().sum::<f64>() / weights.len() as f64;
-        let variance: f64 = weights.iter()
-            .map(|w| (w - mean).powi(2))
-            .sum::<f64>() / weights.len() as f64;
+        let variance: f64 =
+            weights.iter().map(|w| (w - mean).powi(2)).sum::<f64>() / weights.len() as f64;
         variance
     }
 
@@ -1551,12 +1511,8 @@ impl Optimizer {
         optimization_time: Duration,
         error_history: Vec<f64>,
     ) -> ParetoSolution {
-        let objective_values = self.calculate_objective_values(
-            &weights,
-            positions,
-            k_factor,
-            optimization_time,
-        );
+        let objective_values =
+            self.calculate_objective_values(&weights, positions, k_factor, optimization_time);
 
         ParetoSolution {
             weights,
@@ -1581,19 +1537,20 @@ impl Optimizer {
     ) -> Result<OptimizationResults, String> {
         let start_time = Instant::now();
         let mut weights = initial_weights.unwrap_or_else(|| vec![1.0; NUM_EVAL_FEATURES]);
-        
+
         // Apply constraints to initial weights
         self.apply_constraints(&mut weights);
-        
+
         let batch_size = self.config.batch_size.max(1);
         let k_factor = 1.0;
         let mut error_history = Vec::new();
         let mut incremental_state = IncrementalState::new(weights.clone());
-        
+
         // Initialize optimizer-specific state
         match self.method {
             OptimizationMethod::Adam { beta1, beta2, epsilon, .. } => {
-                incremental_state.adam_state = Some(AdamState::new(weights.len(), beta1, beta2, epsilon));
+                incremental_state.adam_state =
+                    Some(AdamState::new(weights.len(), beta1, beta2, epsilon));
             }
             OptimizationMethod::LBFGS { memory_size, .. } => {
                 incremental_state.lbfgs_state = Some(LBFGSState::new(memory_size, weights.len()));
@@ -1601,7 +1558,8 @@ impl Optimizer {
             OptimizationMethod::GeneticAlgorithm { .. } => {
                 // GA doesn't support incremental learning well, use batch processing
                 // Process all positions at once
-                let (error, gradients) = self.calculate_error_and_gradients(&weights, positions, k_factor);
+                let (error, gradients) =
+                    self.calculate_error_and_gradients(&weights, positions, k_factor);
                 error_history.push(error);
                 // Use simple gradient descent for GA in incremental mode
                 let learning_rate = 0.01;
@@ -1609,7 +1567,7 @@ impl Optimizer {
                     *w -= learning_rate * g;
                 }
                 self.apply_constraints(&mut weights);
-                
+
                 return Ok(OptimizationResults {
                     optimized_weights: weights,
                     final_error: error,
@@ -1624,20 +1582,20 @@ impl Optimizer {
                 // For other methods, use batch processing
             }
         }
-        
+
         // Process positions in batches
         for batch_start in (0..positions.len()).step_by(batch_size) {
             let batch_end = (batch_start + batch_size).min(positions.len());
             let batch = &positions[batch_start..batch_end];
-            
+
             if batch.is_empty() {
                 break;
             }
-            
+
             // Calculate gradients for this batch
             let (error, gradients) = self.calculate_error_and_gradients(&weights, batch, k_factor);
             error_history.push(error);
-            
+
             // Update weights based on optimizer method
             match self.method {
                 OptimizationMethod::GradientDescent { learning_rate } => {
@@ -1666,18 +1624,18 @@ impl Optimizer {
                     }
                 }
             }
-            
+
             // Apply constraints after update
             self.apply_constraints(&mut weights);
-            
+
             // Update incremental state
             incremental_state.update_weights(weights.clone());
             incremental_state.positions_processed += batch.len();
             incremental_state.update_count += 1;
         }
-        
+
         let final_error = error_history.last().copied().unwrap_or(0.0);
-        
+
         Ok(OptimizationResults {
             optimized_weights: weights,
             final_error,
@@ -1701,20 +1659,20 @@ impl Optimizer {
         if new_positions.is_empty() {
             return Ok((state.weights.clone(), state.error_history.last().copied().unwrap_or(0.0)));
         }
-        
+
         let k_factor = 1.0;
         let batch_size = self.config.batch_size.max(1);
         let mut weights = state.weights.clone();
-        
+
         // Process new positions in batches
         for batch_start in (0..new_positions.len()).step_by(batch_size) {
             let batch_end = (batch_start + batch_size).min(new_positions.len());
             let batch = &new_positions[batch_start..batch_end];
-            
+
             // Calculate gradients for this batch
             let (error, gradients) = self.calculate_error_and_gradients(&weights, batch, k_factor);
             state.error_history.push(error);
-            
+
             // Update weights based on optimizer method
             match self.method {
                 OptimizationMethod::GradientDescent { learning_rate } => {
@@ -1728,10 +1686,13 @@ impl Optimizer {
                     } else {
                         // Initialize Adam state if not present
                         let (beta1, beta2, epsilon) = match self.method {
-                            OptimizationMethod::Adam { beta1, beta2, epsilon, .. } => (beta1, beta2, epsilon),
+                            OptimizationMethod::Adam { beta1, beta2, epsilon, .. } => {
+                                (beta1, beta2, epsilon)
+                            }
                             _ => (0.9, 0.999, 1e-8),
                         };
-                        state.adam_state = Some(AdamState::new(weights.len(), beta1, beta2, epsilon));
+                        state.adam_state =
+                            Some(AdamState::new(weights.len(), beta1, beta2, epsilon));
                         if let Some(ref mut adam_state) = state.adam_state {
                             adam_state.update(&mut weights, &gradients, learning_rate);
                         }
@@ -1752,16 +1713,16 @@ impl Optimizer {
                     }
                 }
             }
-            
+
             // Apply constraints after update
             self.apply_constraints(&mut weights);
-            
+
             // Update state
             state.update_weights(weights.clone());
             state.positions_processed += batch.len();
             state.update_count += 1;
         }
-        
+
         let final_error = state.error_history.last().copied().unwrap_or(0.0);
         Ok((weights, final_error))
     }
@@ -1769,8 +1730,8 @@ impl Optimizer {
 
 #[cfg(test)]
 mod tests {
-    use crate::tuning::types::{OptimizationMethod, TrainingPosition};
     use super::*;
+    use crate::tuning::types::{OptimizationMethod, TrainingPosition};
     use crate::types::Player;
 
     #[test]
@@ -1884,10 +1845,7 @@ mod tests {
         assert_eq!(results.optimized_weights.len(), 3);
         assert_eq!(results.final_error, 0.001);
         assert_eq!(results.iterations, 100);
-        assert!(matches!(
-            results.convergence_reason,
-            ConvergenceReason::Converged
-        ));
+        assert!(matches!(results.convergence_reason, ConvergenceReason::Converged));
         assert_eq!(results.error_history.len(), 3);
     }
 
@@ -1933,16 +1891,7 @@ mod tests {
         features[0] = 1.0;
         features[1] = 2.0;
         features[2] = 3.0;
-        let positions = vec![
-            TrainingPosition::new(
-                features,
-                1.0,
-                128,
-                false,
-                10,
-                Player::White,
-            ),
-        ];
+        let positions = vec![TrainingPosition::new(features, 1.0, 128, false, 10, Player::White)];
 
         let optimizer = Optimizer::new(OptimizationMethod::Adam {
             learning_rate: 0.001,
@@ -1980,16 +1929,7 @@ mod tests {
         features[0] = 1.0;
         features[1] = 2.0;
         features[2] = 3.0;
-        let positions = vec![
-            TrainingPosition::new(
-                features,
-                1.0,
-                128,
-                false,
-                10,
-                Player::White,
-            ),
-        ];
+        let positions = vec![TrainingPosition::new(features, 1.0, 128, false, 10, Player::White)];
 
         let optimizer = Optimizer::new(OptimizationMethod::default());
         let result = optimizer.optimize(&positions);
@@ -2111,9 +2051,7 @@ mod tests {
     #[test]
     fn test_gradient_descent_optimization() {
         let positions = create_test_positions();
-        let method = OptimizationMethod::GradientDescent {
-            learning_rate: 0.01,
-        };
+        let method = OptimizationMethod::GradientDescent { learning_rate: 0.01 };
         let optimizer = Optimizer::new(method);
 
         let result = optimizer.optimize(&positions);
@@ -2217,10 +2155,10 @@ mod tests {
             memory_size: 10,
             max_iterations: 50,
             line_search_type: LineSearchType::Armijo,
-            initial_step_size: 10.0, // Very large initial step
+            initial_step_size: 10.0,       // Very large initial step
             max_line_search_iterations: 1, // Minimal backtracking
-            armijo_constant: 0.00001, // Very permissive
-            step_size_reduction: 0.9, // Minimal reduction
+            armijo_constant: 0.00001,      // Very permissive
+            step_size_reduction: 0.9,      // Minimal reduction
         });
 
         let result_with_line_search = optimizer_with_line_search.optimize(&positions).unwrap();
@@ -2303,7 +2241,7 @@ mod tests {
             0.8,
             3,
             0.1,
-            0.5, // Larger magnitude
+            0.5,         // Larger magnitude
             (-5.0, 5.0), // Tighter bounds
         );
 
@@ -2327,7 +2265,7 @@ mod tests {
             0.8,
             3,
             0.1,
-            1.0, // Even larger magnitude
+            1.0,           // Even larger magnitude
             (-20.0, 20.0), // Wider bounds
         );
 
@@ -2389,8 +2327,8 @@ mod tests {
     #[test]
     fn test_load_initial_weights_valid_file() {
         use crate::weights::{WeightFile, WeightFileHeader};
-        use tempfile::NamedTempFile;
         use std::io::Write;
+        use tempfile::NamedTempFile;
 
         // Create a temporary weight file
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -2415,7 +2353,8 @@ mod tests {
         temp_file.flush().unwrap();
 
         // Load weights
-        let result = Optimizer::load_initial_weights(&Some(temp_file.path().to_string_lossy().to_string()));
+        let result =
+            Optimizer::load_initial_weights(&Some(temp_file.path().to_string_lossy().to_string()));
         assert!(result.is_ok());
         let weights = result.unwrap();
         assert!(weights.is_some());
@@ -2427,8 +2366,8 @@ mod tests {
     #[test]
     fn test_load_initial_weights_wrong_size() {
         use crate::weights::{WeightFile, WeightFileHeader};
-        use tempfile::NamedTempFile;
         use std::io::Write;
+        use tempfile::NamedTempFile;
 
         // Create a temporary weight file with wrong size
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -2453,7 +2392,8 @@ mod tests {
         temp_file.flush().unwrap();
 
         // Load weights should fail
-        let result = Optimizer::load_initial_weights(&Some(temp_file.path().to_string_lossy().to_string()));
+        let result =
+            Optimizer::load_initial_weights(&Some(temp_file.path().to_string_lossy().to_string()));
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Weight count mismatch"));
     }
@@ -2461,8 +2401,8 @@ mod tests {
     #[test]
     fn test_warm_start_adam_optimizer() {
         use crate::weights::{WeightFile, WeightFileHeader};
-        use tempfile::NamedTempFile;
         use std::io::Write;
+        use tempfile::NamedTempFile;
 
         // Create test positions
         let positions = create_test_positions();
@@ -2515,8 +2455,8 @@ mod tests {
     #[test]
     fn test_warm_start_genetic_algorithm() {
         use crate::weights::{WeightFile, WeightFileHeader};
-        use tempfile::NamedTempFile;
         use std::io::Write;
+        use tempfile::NamedTempFile;
 
         // Create test positions
         let positions = create_test_positions();
@@ -2572,8 +2512,8 @@ mod tests {
     #[test]
     fn test_warm_start_vs_random_initialization() {
         use crate::weights::{WeightFile, WeightFileHeader};
-        use tempfile::NamedTempFile;
         use std::io::Write;
+        use tempfile::NamedTempFile;
 
         // Create test positions
         let positions = create_test_positions();
@@ -2631,9 +2571,9 @@ mod tests {
 
     #[test]
     fn test_pareto_solution_dominance() {
-        use crate::tuning::types::ParetoSolution;
         use crate::tuning::optimizer::ConvergenceReason;
-        
+        use crate::tuning::types::ParetoSolution;
+
         let sol1 = ParetoSolution {
             weights: vec![1.0, 2.0],
             objective_values: vec![0.1, 0.2],
@@ -2643,7 +2583,7 @@ mod tests {
             optimization_time: Duration::from_secs(1),
             error_history: vec![0.5, 0.2, 0.1],
         };
-        
+
         let sol2 = ParetoSolution {
             weights: vec![2.0, 3.0],
             objective_values: vec![0.2, 0.3],
@@ -2653,7 +2593,7 @@ mod tests {
             optimization_time: Duration::from_secs(1),
             error_history: vec![0.6, 0.3, 0.2],
         };
-        
+
         // sol1 dominates sol2 (better in both objectives)
         assert!(sol1.dominates(&sol2));
         assert!(!sol2.dominates(&sol1));
@@ -2661,11 +2601,12 @@ mod tests {
 
     #[test]
     fn test_pareto_front_add_solution() {
-        use crate::tuning::types::{ParetoFront, ParetoSolution, Objective};
         use crate::tuning::optimizer::ConvergenceReason;
-        
-        let mut front = ParetoFront::new(vec![Objective::Accuracy, Objective::Speed { weight: 1.0 }]);
-        
+        use crate::tuning::types::{Objective, ParetoFront, ParetoSolution};
+
+        let mut front =
+            ParetoFront::new(vec![Objective::Accuracy, Objective::Speed { weight: 1.0 }]);
+
         let sol1 = ParetoSolution {
             weights: vec![1.0],
             objective_values: vec![0.1, 0.5],
@@ -2675,7 +2616,7 @@ mod tests {
             optimization_time: Duration::from_secs(1),
             error_history: vec![0.1],
         };
-        
+
         let sol2 = ParetoSolution {
             weights: vec![2.0],
             objective_values: vec![0.2, 0.3],
@@ -2685,21 +2626,22 @@ mod tests {
             optimization_time: Duration::from_secs(1),
             error_history: vec![0.2],
         };
-        
+
         front.add_solution(sol1);
         front.add_solution(sol2);
-        
+
         // Both should be in the front (non-dominated)
         assert_eq!(front.size(), 2);
     }
 
     #[test]
     fn test_pareto_front_select_weighted_sum() {
-        use crate::tuning::types::{ParetoFront, ParetoSolution, Objective};
         use crate::tuning::optimizer::ConvergenceReason;
-        
-        let mut front = ParetoFront::new(vec![Objective::Accuracy, Objective::Speed { weight: 1.0 }]);
-        
+        use crate::tuning::types::{Objective, ParetoFront, ParetoSolution};
+
+        let mut front =
+            ParetoFront::new(vec![Objective::Accuracy, Objective::Speed { weight: 1.0 }]);
+
         let sol1 = ParetoSolution {
             weights: vec![1.0],
             objective_values: vec![0.1, 0.5],
@@ -2709,7 +2651,7 @@ mod tests {
             optimization_time: Duration::from_secs(1),
             error_history: vec![0.1],
         };
-        
+
         let sol2 = ParetoSolution {
             weights: vec![2.0],
             objective_values: vec![0.2, 0.3],
@@ -2719,10 +2661,10 @@ mod tests {
             optimization_time: Duration::from_secs(1),
             error_history: vec![0.2],
         };
-        
+
         front.add_solution(sol1);
         front.add_solution(sol2);
-        
+
         // Select using weighted sum (equal weights)
         let selected = front.select_weighted_sum(&[1.0, 1.0]);
         assert!(selected.is_some());
@@ -2731,7 +2673,7 @@ mod tests {
     #[test]
     fn test_calculate_objective_values() {
         use crate::tuning::types::Objective;
-        
+
         let positions = create_test_positions();
         let mut config = TuningConfig::default();
         config.objectives = vec![
@@ -2739,7 +2681,7 @@ mod tests {
             Objective::Speed { weight: 1.0 },
             Objective::Stability { weight: 1.0 },
         ];
-        
+
         let method = OptimizationMethod::Adam {
             learning_rate: 0.01,
             beta1: 0.9,
@@ -2747,17 +2689,13 @@ mod tests {
             epsilon: 1e-8,
         };
         let optimizer = Optimizer::with_config(method, config);
-        
+
         let weights = vec![1.0; NUM_EVAL_FEATURES];
         // Note: calculate_objective_values is now public for testing
         // In practice, this would be called internally during optimization
-        let objective_values = optimizer.calculate_objective_values(
-            &weights,
-            &positions,
-            1.0,
-            Duration::from_secs(1),
-        );
-        
+        let objective_values =
+            optimizer.calculate_objective_values(&weights, &positions, 1.0, Duration::from_secs(1));
+
         assert_eq!(objective_values.len(), 3);
         assert!(objective_values[0] >= 0.0); // Accuracy (error)
         assert!(objective_values[1] >= 0.0); // Speed (time)
@@ -2768,7 +2706,7 @@ mod tests {
     fn test_incremental_state_creation() {
         let weights = vec![1.0, 2.0, 3.0];
         let state = IncrementalState::new(weights.clone());
-        
+
         assert_eq!(state.get_weights(), weights.as_slice());
         assert_eq!(state.positions_processed, 0);
         assert_eq!(state.update_count, 0);
@@ -2777,20 +2715,20 @@ mod tests {
 
     #[test]
     fn test_incremental_state_checkpoint() {
-        use crate::tuning::types::OptimizationMethod;
         use crate::tuning::performance::IncrementalStateCheckpoint;
-        
+        use crate::tuning::types::OptimizationMethod;
+
         let mut state = IncrementalState::new(vec![1.0, 2.0, 3.0]);
         state.positions_processed = 100;
         state.update_count = 10;
         state.error_history = vec![0.5, 0.3, 0.2];
-        
+
         let checkpoint = state.to_checkpoint();
         assert_eq!(checkpoint.weights, vec![1.0, 2.0, 3.0]);
         assert_eq!(checkpoint.positions_processed, 100);
         assert_eq!(checkpoint.update_count, 10);
         assert_eq!(checkpoint.error_history, vec![0.5, 0.3, 0.2]);
-        
+
         // Restore from checkpoint
         let method = OptimizationMethod::Adam {
             learning_rate: 0.01,
@@ -2799,7 +2737,7 @@ mod tests {
             epsilon: 1e-8,
         };
         let restored = IncrementalState::from_checkpoint(checkpoint, &method);
-        
+
         assert_eq!(restored.get_weights(), state.get_weights());
         assert_eq!(restored.positions_processed, 100);
         assert_eq!(restored.update_count, 10);
@@ -2810,19 +2748,17 @@ mod tests {
     #[test]
     fn test_incremental_optimization() {
         let positions = create_test_positions();
-        
+
         let mut config = TuningConfig::default();
         config.enable_incremental = true;
         config.batch_size = 2;
-        
-        let method = OptimizationMethod::GradientDescent {
-            learning_rate: 0.01,
-        };
+
+        let method = OptimizationMethod::GradientDescent { learning_rate: 0.01 };
         let optimizer = Optimizer::with_config(method, config);
-        
+
         let result = optimizer.optimize(&positions);
         assert!(result.is_ok());
-        
+
         let results = result.unwrap();
         assert_eq!(results.optimized_weights.len(), NUM_EVAL_FEATURES);
         assert!(results.final_error >= 0.0);
@@ -2833,11 +2769,11 @@ mod tests {
     #[test]
     fn test_incremental_update() {
         let positions = create_test_positions();
-        
+
         let mut config = TuningConfig::default();
         config.enable_incremental = true;
         config.batch_size = 1;
-        
+
         let method = OptimizationMethod::Adam {
             learning_rate: 0.01,
             beta1: 0.9,
@@ -2845,24 +2781,26 @@ mod tests {
             epsilon: 1e-8,
         };
         let mut optimizer = Optimizer::with_config(method, config);
-        
+
         // Create initial state
         let mut state = IncrementalState::new(vec![1.0; NUM_EVAL_FEATURES]);
-        
+
         // Update with first batch
-        let (weights1, error1) = optimizer.update_incremental(&mut state, &positions[0..1]).unwrap();
+        let (weights1, error1) =
+            optimizer.update_incremental(&mut state, &positions[0..1]).unwrap();
         assert_eq!(weights1.len(), NUM_EVAL_FEATURES);
         assert!(error1 >= 0.0);
         assert_eq!(state.positions_processed, 1);
         assert_eq!(state.update_count, 1);
-        
+
         // Update with second batch
-        let (weights2, error2) = optimizer.update_incremental(&mut state, &positions[1..2]).unwrap();
+        let (weights2, error2) =
+            optimizer.update_incremental(&mut state, &positions[1..2]).unwrap();
         assert_eq!(weights2.len(), NUM_EVAL_FEATURES);
         assert!(error2 >= 0.0);
         assert_eq!(state.positions_processed, 2);
         assert_eq!(state.update_count, 2);
-        
+
         // Weights should have changed
         assert_ne!(weights1, weights2);
     }
@@ -2870,29 +2808,28 @@ mod tests {
     #[test]
     fn test_incremental_learning_streaming() {
         let mut positions = create_test_positions();
-        
+
         let mut config = TuningConfig::default();
         config.enable_incremental = true;
         config.batch_size = 1;
-        
-        let method = OptimizationMethod::GradientDescent {
-            learning_rate: 0.01,
-        };
+
+        let method = OptimizationMethod::GradientDescent { learning_rate: 0.01 };
         let mut optimizer = Optimizer::with_config(method, config);
-        
+
         // Create initial state
         let mut state = IncrementalState::new(vec![1.0; NUM_EVAL_FEATURES]);
-        
+
         // Simulate streaming data: process positions one at a time
         for i in 0..positions.len() {
-            let (weights, error) = optimizer.update_incremental(&mut state, &positions[i..i+1]).unwrap();
+            let (weights, error) =
+                optimizer.update_incremental(&mut state, &positions[i..i + 1]).unwrap();
             state.update_weights(weights);
-            
+
             assert!(error >= 0.0);
             assert_eq!(state.positions_processed, i + 1);
             assert_eq!(state.update_count, i + 1);
         }
-        
+
         // Verify final state
         assert_eq!(state.positions_processed, positions.len());
         assert_eq!(state.update_count, positions.len());
@@ -2902,38 +2839,30 @@ mod tests {
     #[test]
     fn test_bounds_constraint() {
         use crate::tuning::types::WeightConstraint;
-        
+
         // Test bounds constraint on specific indices
-        let constraint = WeightConstraint::Bounds {
-            indices: vec![0, 1, 2],
-            min: 0.0,
-            max: 10.0,
-        };
-        
+        let constraint = WeightConstraint::Bounds { indices: vec![0, 1, 2], min: 0.0, max: 10.0 };
+
         let mut weights = vec![15.0, -5.0, 5.0, 20.0, 3.0];
         constraint.project(&mut weights);
-        
+
         assert_eq!(weights[0], 10.0); // Clamped to max
-        assert_eq!(weights[1], 0.0);  // Clamped to min
-        assert_eq!(weights[2], 5.0);  // Within bounds
+        assert_eq!(weights[1], 0.0); // Clamped to min
+        assert_eq!(weights[2], 5.0); // Within bounds
         assert_eq!(weights[3], 20.0); // Not constrained
-        assert_eq!(weights[4], 3.0);  // Not constrained
+        assert_eq!(weights[4], 3.0); // Not constrained
     }
 
     #[test]
     fn test_bounds_constraint_all_weights() {
         use crate::tuning::types::WeightConstraint;
-        
+
         // Test bounds constraint on all weights
-        let constraint = WeightConstraint::Bounds {
-            indices: vec![],
-            min: -1.0,
-            max: 1.0,
-        };
-        
+        let constraint = WeightConstraint::Bounds { indices: vec![], min: -1.0, max: 1.0 };
+
         let mut weights = vec![2.0, -2.0, 0.5, -0.5, 0.0];
         constraint.project(&mut weights);
-        
+
         for &w in &weights {
             assert!(w >= -1.0 && w <= 1.0, "Weight {} is outside bounds", w);
         }
@@ -2942,16 +2871,13 @@ mod tests {
     #[test]
     fn test_group_sum_constraint() {
         use crate::tuning::types::WeightConstraint;
-        
-        let constraint = WeightConstraint::GroupSum {
-            indices: vec![0, 1, 2],
-            target: 10.0,
-            tolerance: None,
-        };
-        
+
+        let constraint =
+            WeightConstraint::GroupSum { indices: vec![0, 1, 2], target: 10.0, tolerance: None };
+
         let mut weights = vec![2.0, 3.0, 4.0, 5.0]; // Sum = 9.0, need +1.0
         constraint.project(&mut weights);
-        
+
         let sum: f64 = weights[0..3].iter().sum();
         assert!((sum - 10.0).abs() < 1e-6, "Sum should be 10.0, got {}", sum);
     }
@@ -2959,17 +2885,13 @@ mod tests {
     #[test]
     fn test_ratio_constraint() {
         use crate::tuning::types::WeightConstraint;
-        
-        let constraint = WeightConstraint::Ratio {
-            index1: 0,
-            index2: 1,
-            ratio: 2.0,
-            tolerance: None,
-        };
-        
+
+        let constraint =
+            WeightConstraint::Ratio { index1: 0, index2: 1, ratio: 2.0, tolerance: None };
+
         let mut weights = vec![5.0, 1.0, 3.0]; // Current ratio = 5.0/1.0 = 5.0, target = 2.0
         constraint.project(&mut weights);
-        
+
         let ratio = weights[0] / weights[1];
         assert!((ratio - 2.0).abs() < 1e-6, "Ratio should be 2.0, got {}", ratio);
     }
@@ -2977,16 +2899,12 @@ mod tests {
     #[test]
     fn test_constraint_violation_detection() {
         use crate::tuning::types::WeightConstraint;
-        
-        let constraint = WeightConstraint::Bounds {
-            indices: vec![0],
-            min: 0.0,
-            max: 10.0,
-        };
-        
+
+        let constraint = WeightConstraint::Bounds { indices: vec![0], min: 0.0, max: 10.0 };
+
         let weights = vec![15.0, 5.0];
         assert!(constraint.is_violated(&weights));
-        
+
         let weights_satisfied = vec![5.0, 5.0];
         assert!(!constraint.is_violated(&weights_satisfied));
     }
@@ -2994,13 +2912,9 @@ mod tests {
     #[test]
     fn test_constraint_violation_description() {
         use crate::tuning::types::WeightConstraint;
-        
-        let constraint = WeightConstraint::Bounds {
-            indices: vec![0, 1],
-            min: 0.0,
-            max: 10.0,
-        };
-        
+
+        let constraint = WeightConstraint::Bounds { indices: vec![0, 1], min: 0.0, max: 10.0 };
+
         let weights = vec![15.0, -5.0, 5.0];
         let description = constraint.violation_description(&weights);
         assert!(description.is_some());
@@ -3010,20 +2924,12 @@ mod tests {
     #[test]
     fn test_optimizer_apply_constraints() {
         use crate::tuning::types::WeightConstraint;
-        
+
         let constraints = vec![
-            WeightConstraint::Bounds {
-                indices: vec![0, 1],
-                min: 0.0,
-                max: 10.0,
-            },
-            WeightConstraint::GroupSum {
-                indices: vec![2, 3],
-                target: 5.0,
-                tolerance: None,
-            },
+            WeightConstraint::Bounds { indices: vec![0, 1], min: 0.0, max: 10.0 },
+            WeightConstraint::GroupSum { indices: vec![2, 3], target: 5.0, tolerance: None },
         ];
-        
+
         let mut config = TuningConfig::default();
         config.constraints = constraints;
         let method = OptimizationMethod::Adam {
@@ -3033,14 +2939,14 @@ mod tests {
             epsilon: 1e-8,
         };
         let optimizer = Optimizer::with_config(method, config);
-        
+
         let mut weights = vec![15.0, -5.0, 1.0, 2.0];
         let applied = optimizer.apply_constraints(&mut weights);
-        
+
         assert!(applied > 0, "At least one constraint should be applied");
         assert!(weights[0] <= 10.0 && weights[0] >= 0.0);
         assert!(weights[1] <= 10.0 && weights[1] >= 0.0);
-        
+
         let sum: f64 = weights[2..4].iter().sum();
         assert!((sum - 5.0).abs() < 1e-5);
     }
@@ -3048,15 +2954,9 @@ mod tests {
     #[test]
     fn test_optimizer_constraint_violations() {
         use crate::tuning::types::WeightConstraint;
-        
-        let constraints = vec![
-            WeightConstraint::Bounds {
-                indices: vec![0],
-                min: 0.0,
-                max: 10.0,
-            },
-        ];
-        
+
+        let constraints = vec![WeightConstraint::Bounds { indices: vec![0], min: 0.0, max: 10.0 }];
+
         let mut config = TuningConfig::default();
         config.constraints = constraints;
         let method = OptimizationMethod::Adam {
@@ -3066,10 +2966,10 @@ mod tests {
             epsilon: 1e-8,
         };
         let optimizer = Optimizer::with_config(method, config);
-        
+
         let weights = vec![15.0, 5.0];
         let violations = optimizer.check_constraint_violations(&weights);
-        
+
         assert!(!violations.is_empty());
         assert!(violations[0].contains("Bounds violation"));
     }
@@ -3077,17 +2977,11 @@ mod tests {
     #[test]
     fn test_constraints_in_optimization() {
         use crate::tuning::types::WeightConstraint;
-        
+
         let positions = create_test_positions();
-        
-        let constraints = vec![
-            WeightConstraint::Bounds {
-                indices: vec![],
-                min: -10.0,
-                max: 10.0,
-            },
-        ];
-        
+
+        let constraints = vec![WeightConstraint::Bounds { indices: vec![], min: -10.0, max: 10.0 }];
+
         let mut config = TuningConfig::default();
         config.constraints = constraints;
         let method = OptimizationMethod::Adam {
@@ -3097,16 +2991,16 @@ mod tests {
             epsilon: 1e-8,
         };
         let optimizer = Optimizer::with_config(method, config);
-        
+
         let result = optimizer.optimize(&positions);
         assert!(result.is_ok());
-        
+
         let results = result.unwrap();
         // Verify all weights satisfy constraints
         for &w in &results.optimized_weights {
             assert!(w >= -10.0 && w <= 10.0, "Weight {} violates bounds", w);
         }
-        
+
         // Check for violations
         let violations = optimizer.check_constraint_violations(&results.optimized_weights);
         assert!(violations.is_empty(), "Found violations: {:?}", violations);
@@ -3115,29 +3009,20 @@ mod tests {
     #[test]
     fn test_multiple_constraint_types() {
         use crate::tuning::types::WeightConstraint;
-        
+
         let positions = create_test_positions();
-        
+
         // Test with multiple constraint types
         let constraints = vec![
-            WeightConstraint::Bounds {
-                indices: vec![0, 1, 2],
-                min: 0.0,
-                max: 5.0,
-            },
+            WeightConstraint::Bounds { indices: vec![0, 1, 2], min: 0.0, max: 5.0 },
             WeightConstraint::GroupSum {
                 indices: vec![3, 4, 5],
                 target: 10.0,
                 tolerance: Some(0.01),
             },
-            WeightConstraint::Ratio {
-                index1: 6,
-                index2: 7,
-                ratio: 2.0,
-                tolerance: Some(0.01),
-            },
+            WeightConstraint::Ratio { index1: 6, index2: 7, ratio: 2.0, tolerance: Some(0.01) },
         ];
-        
+
         let mut config = TuningConfig::default();
         config.constraints = constraints;
         let method = OptimizationMethod::Adam {
@@ -3147,21 +3032,21 @@ mod tests {
             epsilon: 1e-8,
         };
         let optimizer = Optimizer::with_config(method, config);
-        
+
         let result = optimizer.optimize(&positions);
         assert!(result.is_ok());
-        
+
         let results = result.unwrap();
-        
+
         // Verify bounds constraint
         for i in 0..3 {
             assert!(results.optimized_weights[i] >= 0.0 && results.optimized_weights[i] <= 5.0);
         }
-        
+
         // Verify group sum constraint
         let sum: f64 = results.optimized_weights[3..6].iter().sum();
         assert!((sum - 10.0).abs() < 0.01);
-        
+
         // Verify ratio constraint
         if results.optimized_weights[7].abs() > 1e-10 {
             let ratio = results.optimized_weights[6] / results.optimized_weights[7];

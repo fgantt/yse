@@ -142,7 +142,11 @@ impl PVSHelper {
     }
 
     /// Determine transposition flag from score and bounds
-    pub fn determine_transposition_flag(score: i32, alpha: i32, beta: i32) -> crate::types::TranspositionFlag {
+    pub fn determine_transposition_flag(
+        score: i32,
+        alpha: i32,
+        beta: i32,
+    ) -> crate::types::TranspositionFlag {
         if score <= alpha {
             crate::types::TranspositionFlag::UpperBound
         } else if score >= beta {
@@ -236,4 +240,3 @@ mod tests {
         assert!(matches!(flag3, crate::types::TranspositionFlag::Exact));
     }
 }
-

@@ -199,11 +199,7 @@ fn test_nmp_performance_regression_different_depths() {
         );
         let elapsed = start.elapsed();
 
-        assert!(
-            result.is_some(),
-            "Search should complete at depth {}",
-            depth
-        );
+        assert!(result.is_some(), "Search should complete at depth {}", depth);
 
         let stats = engine.get_null_move_stats();
 
@@ -225,11 +221,7 @@ fn test_nmp_performance_regression_different_depths() {
 
         // If NMP was active, verify it had some effectiveness
         if stats.attempts > 0 {
-            assert!(
-                stats.cutoffs >= 0,
-                "NMP should have non-negative cutoffs at depth {}",
-                depth
-            );
+            assert!(stats.cutoffs >= 0, "NMP should have non-negative cutoffs at depth {}", depth);
         }
     }
 }
@@ -253,17 +245,13 @@ fn test_nmp_nodes_reduction_target() {
     let mut engine_enabled = create_test_engine();
     let mut config_enabled = engine_enabled.get_null_move_config().clone();
     config_enabled.enabled = true;
-    engine_enabled
-        .update_null_move_config(config_enabled)
-        .unwrap();
+    engine_enabled.update_null_move_config(config_enabled).unwrap();
     engine_enabled.reset_null_move_stats();
 
     let mut engine_disabled = create_test_engine();
     let mut config_disabled = engine_disabled.get_null_move_config().clone();
     config_disabled.enabled = false;
-    engine_disabled
-        .update_null_move_config(config_disabled)
-        .unwrap();
+    engine_disabled.update_null_move_config(config_disabled).unwrap();
     engine_disabled.reset_null_move_stats();
 
     let board = create_test_board();

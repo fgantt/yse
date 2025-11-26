@@ -238,12 +238,7 @@ fn benchmark_cache_effects(c: &mut Criterion) {
     });
 
     group.bench_function("different_pieces_1000x", |b| {
-        let piece_types = [
-            PieceType::Pawn,
-            PieceType::Rook,
-            PieceType::Bishop,
-            PieceType::Knight,
-        ];
+        let piece_types = [PieceType::Pawn, PieceType::Rook, PieceType::Bishop, PieceType::Knight];
 
         b.iter(|| {
             for i in 0..1000 {

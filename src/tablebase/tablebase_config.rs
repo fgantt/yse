@@ -199,8 +199,7 @@ impl SolverConfig {
     /// Merge with another solver configuration
     pub fn merge_with(&mut self, other: &SolverConfig) {
         self.king_gold_vs_king.merge_with(&other.king_gold_vs_king);
-        self.king_silver_vs_king
-            .merge_with(&other.king_silver_vs_king);
+        self.king_silver_vs_king.merge_with(&other.king_silver_vs_king);
         self.king_rook_vs_king.merge_with(&other.king_rook_vs_king);
     }
 }
@@ -737,10 +736,8 @@ impl TablebaseStats {
         let mut percentages = HashMap::new();
         if self.solver_hits > 0 {
             for (solver, hits) in &self.solver_breakdown {
-                percentages.insert(
-                    solver.clone(),
-                    (*hits as f64 / self.solver_hits as f64) * 100.0,
-                );
+                percentages
+                    .insert(solver.clone(), (*hits as f64 / self.solver_hits as f64) * 100.0);
             }
         }
         percentages

@@ -14,12 +14,7 @@ impl MemoryPool {
 
     /// Create a new memory pool with custom block size
     pub fn with_block_size(block_size: usize) -> Self {
-        Self {
-            blocks: Vec::new(),
-            current_block: 0,
-            current_offset: 0,
-            block_size,
-        }
+        Self { blocks: Vec::new(), current_block: 0, current_offset: 0, block_size }
     }
 
     /// Create a new memory pool with adaptive block sizing
@@ -37,12 +32,7 @@ impl MemoryPool {
             16384
         };
 
-        Self {
-            blocks: Vec::new(),
-            current_block: 0,
-            current_offset: 0,
-            block_size,
-        }
+        Self { blocks: Vec::new(), current_block: 0, current_offset: 0, block_size }
     }
 
     /// Allocate memory for attack table

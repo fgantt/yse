@@ -85,24 +85,15 @@ fn test_core_search_metrics_calculation() {
 
     // Test cutoff rate
     let cutoff_rate = metrics.cutoff_rate();
-    assert!(
-        (cutoff_rate - 15.0).abs() < 0.01,
-        "Cutoff rate should be ~15%"
-    );
+    assert!((cutoff_rate - 15.0).abs() < 0.01, "Cutoff rate should be ~15%");
 
     // Test TT hit rate
     let tt_hit_rate = metrics.tt_hit_rate();
-    assert!(
-        (tt_hit_rate - 40.0).abs() < 0.01,
-        "TT hit rate should be ~40%"
-    );
+    assert!((tt_hit_rate - 40.0).abs() < 0.01, "TT hit rate should be ~40%");
 
     // Test aspiration success rate
     let aspiration_success = metrics.aspiration_success_rate();
-    assert!(
-        (aspiration_success - 80.0).abs() < 0.01,
-        "Aspiration success rate should be ~80%"
-    );
+    assert!((aspiration_success - 80.0).abs() < 0.01, "Aspiration success rate should be ~80%");
 }
 
 #[test]
@@ -170,21 +161,12 @@ fn test_tt_hit_breakdown() {
 
     // Percentages should sum to 100% (within rounding)
     let total = exact_pct + lower_pct + upper_pct;
-    assert!(
-        (total - 100.0).abs() < 0.01,
-        "Percentages should sum to ~100%"
-    );
+    assert!((total - 100.0).abs() < 0.01, "Percentages should sum to ~100%");
 
     // Verify individual percentages
     assert!((exact_pct - 50.0).abs() < 0.01, "Exact should be ~50%");
-    assert!(
-        (lower_pct - 30.0).abs() < 0.01,
-        "Lower bound should be ~30%"
-    );
-    assert!(
-        (upper_pct - 20.0).abs() < 0.01,
-        "Upper bound should be ~20%"
-    );
+    assert!((lower_pct - 30.0).abs() < 0.01, "Lower bound should be ~30%");
+    assert!((upper_pct - 20.0).abs() < 0.01, "Upper bound should be ~20%");
 }
 
 #[test]

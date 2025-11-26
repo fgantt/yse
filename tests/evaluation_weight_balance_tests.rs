@@ -23,16 +23,12 @@ fn test_automatic_weight_validation() {
     };
 
     // Valid weight update should succeed
-    assert!(config
-        .update_weight("material", 1.5, Some(&components))
-        .is_ok());
+    assert!(config.update_weight("material", 1.5, Some(&components)).is_ok());
 
     // Invalid cumulative weight should fail
     // Set weights too high to exceed max cumulative weight
     config.weights.material_weight = 20.0;
-    assert!(config
-        .update_weight("position", 1.0, Some(&components))
-        .is_err());
+    assert!(config.update_weight("position", 1.0, Some(&components)).is_err());
 }
 
 #[test]
@@ -95,11 +91,7 @@ fn test_weight_normalization() {
         + config.weights.position_weight
         + config.weights.tactical_weight
         + config.weights.positional_weight;
-    assert!(
-        sum >= 5.0 && sum <= 15.0,
-        "Sum should be in range [5.0, 15.0]: sum={}",
-        sum
-    );
+    assert!(sum >= 5.0 && sum <= 15.0, "Sum should be in range [5.0, 15.0]: sum={}", sum);
 }
 
 #[test]
@@ -155,12 +147,8 @@ fn test_telemetry_driven_recommendations() {
 
     // Create mock telemetry with imbalanced contributions
     let mut telemetry = EvaluationTelemetry::default();
-    telemetry
-        .weight_contributions
-        .insert("material".to_string(), 0.30); // Too high (target: 0.15)
-    telemetry
-        .weight_contributions
-        .insert("tactical_patterns".to_string(), 0.05); // Too low (target: 0.15)
+    telemetry.weight_contributions.insert("material".to_string(), 0.30); // Too high (target: 0.15)
+    telemetry.weight_contributions.insert("tactical_patterns".to_string(), 0.05); // Too low (target: 0.15)
 
     let recommendations = config.analyze_telemetry_for_recommendations(&telemetry, None);
 
@@ -168,28 +156,18 @@ fn test_telemetry_driven_recommendations() {
     assert!(recommendations.len() >= 2);
 
     // Material should be recommended to decrease
-    let material_rec = recommendations
-        .iter()
-        .find(|(name, _, _, _)| name == "material");
+    let material_rec = recommendations.iter().find(|(name, _, _, _)| name == "material");
     assert!(material_rec.is_some());
     if let Some((_, current, target, change)) = material_rec {
-        assert!(
-            *current > *target,
-            "Material contribution should be above target"
-        );
+        assert!(*current > *target, "Material contribution should be above target");
         assert!(*change < 0.0, "Material weight should be decreased");
     }
 
     // Tactical should be recommended to increase
-    let tactical_rec = recommendations
-        .iter()
-        .find(|(name, _, _, _)| name == "tactical_patterns");
+    let tactical_rec = recommendations.iter().find(|(name, _, _, _)| name == "tactical_patterns");
     assert!(tactical_rec.is_some());
     if let Some((_, current, target, change)) = tactical_rec {
-        assert!(
-            *current < *target,
-            "Tactical contribution should be below target"
-        );
+        assert!(*current < *target, "Tactical contribution should be below target");
         assert!(*change > 0.0, "Tactical weight should be increased");
     }
 }
@@ -201,12 +179,8 @@ fn test_auto_balance_weights() {
 
     // Create mock telemetry with imbalanced contributions
     let mut telemetry = EvaluationTelemetry::default();
-    telemetry
-        .weight_contributions
-        .insert("material".to_string(), 0.30); // Too high
-    telemetry
-        .weight_contributions
-        .insert("tactical_patterns".to_string(), 0.05); // Too low
+    telemetry.weight_contributions.insert("material".to_string(), 0.30); // Too high
+    telemetry.weight_contributions.insert("tactical_patterns".to_string(), 0.05); // Too low
 
     let components = ComponentFlagsForValidation {
         material: true,
@@ -253,9 +227,7 @@ fn test_auto_normalize_weights() {
     };
 
     // Update a weight - should trigger normalization
-    assert!(config
-        .update_weight("material", 10.0, Some(&components))
-        .is_ok());
+    assert!(config.update_weight("material", 10.0, Some(&components)).is_ok());
 
     // Verify weights were normalized
     let sum = config.weights.material_weight + config.weights.position_weight;
@@ -287,9 +259,7 @@ fn test_auto_validate_weights_enabled() {
     config.weights.tactical_weight = 10.0;
 
     // Updating another weight should fail validation
-    assert!(config
-        .update_weight("positional", 10.0, Some(&components))
-        .is_err());
+    assert!(config.update_weight("positional", 10.0, Some(&components)).is_err());
 }
 
 #[test]
@@ -313,9 +283,7 @@ fn test_auto_validate_weights_disabled() {
     config.weights.tactical_weight = 10.0;
 
     // Update should succeed when validation is disabled
-    assert!(config
-        .update_weight("positional", 10.0, Some(&components))
-        .is_ok());
+    assert!(config.update_weight("positional", 10.0, Some(&components)).is_ok());
 }
 
 #[test]

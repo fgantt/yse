@@ -103,12 +103,7 @@ pub trait EndgameSolver: Send + Sync {
     /// # Returns
     /// A string containing configuration information
     fn get_config_info(&self) -> String {
-        format!(
-            "{} (priority: {}, enabled: {})",
-            self.name(),
-            self.priority(),
-            self.is_enabled()
-        )
+        format!("{} (priority: {}, enabled: {})", self.name(), self.priority(), self.is_enabled())
     }
 }
 
@@ -247,10 +242,7 @@ pub trait AdvancedEndgameSolver: EndgameSolver {
         _player: Player,
         _captured_pieces: &CapturedPieces,
     ) -> String {
-        format!(
-            "Position analysis by {}: Basic analysis available",
-            self.name()
-        )
+        format!("Position analysis by {}: Basic analysis available", self.name())
     }
 }
 
@@ -272,13 +264,7 @@ mod tests {
 
     impl MockSolver {
         fn new(name: &'static str, priority: u8) -> Self {
-            Self {
-                name,
-                priority,
-                enabled: true,
-                can_solve_result: false,
-                solve_result: None,
-            }
+            Self { name, priority, enabled: true, can_solve_result: false, solve_result: None }
         }
 
         fn with_can_solve(mut self, can_solve: bool) -> Self {
@@ -368,9 +354,8 @@ mod tests {
 
         assert!(solver.can_solve(&board, player, &captured_pieces));
 
-        let solver_disabled = MockSolver::new("TestSolver", 100)
-            .with_can_solve(true)
-            .with_enabled(false);
+        let solver_disabled =
+            MockSolver::new("TestSolver", 100).with_can_solve(true).with_enabled(false);
 
         assert!(!solver_disabled.is_enabled());
     }

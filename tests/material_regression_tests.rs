@@ -9,14 +9,8 @@ struct RegressionCase {
 
 fn base_board() -> BitboardBoard {
     let mut board = BitboardBoard::empty();
-    board.place_piece(
-        Piece::new(PieceType::King, Player::Black),
-        Position::new(8, 4),
-    );
-    board.place_piece(
-        Piece::new(PieceType::King, Player::White),
-        Position::new(0, 4),
-    );
+    board.place_piece(Piece::new(PieceType::King, Player::Black), Position::new(8, 4));
+    board.place_piece(Piece::new(PieceType::King, Player::White), Position::new(0, 4));
     board
 }
 
@@ -26,26 +20,16 @@ fn regression_cases() -> Vec<RegressionCase> {
             name: "start_position_is_balanced",
             setup: |_| {
                 let board = BitboardBoard::new();
-                (
-                    board,
-                    CapturedPieces::new(),
-                    Player::Black,
-                    TaperedScore::default(),
-                )
+                (board, CapturedPieces::new(), Player::Black, TaperedScore::default())
             },
         },
         RegressionCase {
             name: "board_material_advantage",
             setup: |evaluator| {
                 let mut board = base_board();
-                board.place_piece(
-                    Piece::new(PieceType::Rook, Player::Black),
-                    Position::new(4, 4),
-                );
-                board.place_piece(
-                    Piece::new(PieceType::Silver, Player::White),
-                    Position::new(3, 3),
-                );
+                board.place_piece(Piece::new(PieceType::Rook, Player::Black), Position::new(4, 4));
+                board
+                    .place_piece(Piece::new(PieceType::Silver, Player::White), Position::new(3, 3));
 
                 let rook = evaluator.get_piece_value(PieceType::Rook);
                 let silver = evaluator.get_piece_value(PieceType::Silver);
@@ -85,14 +69,8 @@ fn regression_cases() -> Vec<RegressionCase> {
             name: "hand_disabled_relies_on_board_only",
             setup: |evaluator| {
                 let mut board = base_board();
-                board.place_piece(
-                    Piece::new(PieceType::Gold, Player::Black),
-                    Position::new(5, 4),
-                );
-                board.place_piece(
-                    Piece::new(PieceType::Pawn, Player::White),
-                    Position::new(2, 4),
-                );
+                board.place_piece(Piece::new(PieceType::Gold, Player::Black), Position::new(5, 4));
+                board.place_piece(Piece::new(PieceType::Pawn, Player::White), Position::new(2, 4));
 
                 let gold = evaluator.get_piece_value(PieceType::Gold);
                 let pawn = evaluator.get_piece_value(PieceType::Pawn);
@@ -124,10 +102,7 @@ fn material_regression_respects_disabled_hand_pieces() {
     let mut evaluator = MaterialEvaluator::with_config(config);
 
     let mut board = base_board();
-    board.place_piece(
-        Piece::new(PieceType::Silver, Player::Black),
-        Position::new(5, 5),
-    );
+    board.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(5, 5));
     let mut captured = CapturedPieces::new();
     captured.add_piece(PieceType::Rook, Player::Black);
     captured.add_piece(PieceType::Pawn, Player::Black);

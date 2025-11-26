@@ -33,7 +33,7 @@ pub fn find_attackers_defenders(square: Position, board: &BitboardBoard) -> Vec<
             if position == square || piece.player != player {
                 continue;
             }
-            
+
             // Check if this piece attacks the target square
             if piece_attacks_square(&piece, position, square, board) {
                 all_attackers.push((position, piece.clone()));
@@ -339,11 +339,7 @@ pub struct SEECache {
 impl SEECache {
     /// Create a new SEE cache
     pub fn new(max_size: usize) -> Self {
-        Self {
-            cache: HashMap::new(),
-            max_size,
-            lru_access_counter: 0,
-        }
+        Self { cache: HashMap::new(), max_size, lru_access_counter: 0 }
     }
 
     /// Get a cached SEE value
@@ -420,32 +416,12 @@ impl SEECache {
         let value_weight = 0.4;
 
         // Find min/max for normalization
-        let max_access = self
-            .cache
-            .values()
-            .map(|e| e.last_access)
-            .max()
-            .unwrap_or(1);
-        let min_access = self
-            .cache
-            .values()
-            .map(|e| e.last_access)
-            .min()
-            .unwrap_or(1);
+        let max_access = self.cache.values().map(|e| e.last_access).max().unwrap_or(1);
+        let min_access = self.cache.values().map(|e| e.last_access).min().unwrap_or(1);
         let access_range = (max_access - min_access).max(1) as f32;
 
-        let max_value = self
-            .cache
-            .values()
-            .map(|e| e.see_abs_value)
-            .max()
-            .unwrap_or(1);
-        let min_value = self
-            .cache
-            .values()
-            .map(|e| e.see_abs_value)
-            .min()
-            .unwrap_or(0);
+        let max_value = self.cache.values().map(|e| e.see_abs_value).max().unwrap_or(1);
+        let min_value = self.cache.values().map(|e| e.see_abs_value).min().unwrap_or(0);
         let value_range = (max_value - min_value).max(1) as f32;
 
         let mut evict_key = None;

@@ -251,15 +251,12 @@ impl BookValidator {
 
         // Add warnings if any issues found
         if report.duplicates_found > 0 {
-            report.warnings.push(format!(
-                "Found {} duplicate positions",
-                report.duplicates_found
-            ));
-        }
-        if report.illegal_moves > 0 {
             report
                 .warnings
-                .push(format!("Found {} illegal moves", report.illegal_moves));
+                .push(format!("Found {} duplicate positions", report.duplicates_found));
+        }
+        if report.illegal_moves > 0 {
+            report.warnings.push(format!("Found {} illegal moves", report.illegal_moves));
         }
         if report.inconsistencies > 0 {
             report.warnings.push(format!(
@@ -268,16 +265,14 @@ impl BookValidator {
             ));
         }
         if report.invalid_fen_count > 0 {
-            report.warnings.push(format!(
-                "Found {} invalid FEN formats",
-                report.invalid_fen_count
-            ));
+            report
+                .warnings
+                .push(format!("Found {} invalid FEN formats", report.invalid_fen_count));
         }
         if report.out_of_bounds_count > 0 {
-            report.warnings.push(format!(
-                "Found {} out-of-bounds positions",
-                report.out_of_bounds_count
-            ));
+            report
+                .warnings
+                .push(format!("Found {} out-of-bounds positions", report.out_of_bounds_count));
         }
 
         report

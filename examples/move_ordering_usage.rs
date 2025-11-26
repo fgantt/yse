@@ -140,10 +140,7 @@ fn example_3_statistics() {
     println!("\nPerformance Statistics:");
     println!("  Total moves ordered: {}", stats.total_moves_ordered);
     println!("  Moves sorted: {}", stats.moves_sorted);
-    println!(
-        "  Average ordering time: {:.2}μs",
-        stats.avg_ordering_time_us
-    );
+    println!("  Average ordering time: {:.2}μs", stats.avg_ordering_time_us);
     println!("  Cache hit rate: {:.2}%", stats.cache_hit_rate);
     println!(
         "  Memory usage: {} bytes ({:.2} KB)",
