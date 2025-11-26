@@ -13571,12 +13571,10 @@ impl IterativeDeepening {
         captured_pieces: &CapturedPieces,
         player: Player,
     ) -> Option<(Move, i32)> {
-        println!("DEBUG_ENABLED: {}", crate::debug_utils::is_debug_enabled());
         trace_log!(
             "ITERATIVE_DEEPENING",
             &format!("Starting iterative deepening search with max_depth={}", self.max_depth),
         );
-        eprintln!("DEBUG: IterativeDeepening::search called with max_depth={}", self.max_depth);
         crate::debug_utils::start_timing("iterative_deepening_total");
 
         // Task 1.0: Record start time for total search time tracking
@@ -13692,18 +13690,9 @@ impl IterativeDeepening {
                 effective_max_depth >= 100
             ),
         );
-        eprintln!(
-            "DEBUG: effective_max_depth={}, self.max_depth={}, search_time_limit={}ms (original={}ms), is_in_check={}, legal_move_count={}, check_optimization_enabled={}, unlimited={}",
-            effective_max_depth, self.max_depth, search_time_limit, effective_time_limit, is_in_check, legal_move_count, search_engine.time_management_config.enable_check_optimization, effective_max_depth >= 100
-        );
-
         trace_log!("ITERATIVE_DEEPENING", "Starting depth iteration loop");
 
         for depth in 1..=effective_max_depth {
-            eprintln!(
-                "DEBUG: Starting depth iteration: depth={}, effective_max_depth={}",
-                depth, effective_max_depth
-            );
             // Reset global node counter for this depth and start periodic reporter
             GLOBAL_NODES_SEARCHED.store(0, Ordering::Relaxed);
             // Task 8.4: Force time check at depth boundaries (use should_stop_force)
@@ -13717,10 +13706,6 @@ impl IterativeDeepening {
             // Don't start a new depth if we have 0ms or negative time remaining
             // This prevents wasteful searches that immediately return with 0 nodes
             if remaining_ms == 0 {
-                eprintln!(
-                    "DEBUG: Breaking at depth {} - no time remaining (elapsed: {}ms, limit: {}ms)",
-                    depth, elapsed_ms, search_time_limit
-                );
                 break;
             }
 
@@ -13748,11 +13733,6 @@ impl IterativeDeepening {
                     depth, elapsed_ms, search_time_limit, remaining_ms, time_buffer_ms);
                 break;
             }
-            eprintln!(
-                "DEBUG: Starting depth {} with {}ms remaining (limit: {}ms, buffer: {}ms)",
-                depth, remaining_ms, search_time_limit, time_buffer_ms
-            );
-
             // CRITICAL: If we've been searching for too long without progress, force return
             // This prevents the search from getting stuck indefinitely
             let elapsed_so_far = start_time.elapsed_ms();
@@ -14178,10 +14158,6 @@ impl IterativeDeepening {
                         0
                     };
 
-                    // Profile output: show what took time at this depth
-                    eprintln!("DEBUG: Depth {} completed in {}ms - nodes: {}, nps: {}, depth_completion_time: {}ms", 
-                        depth, search_elapsed_ms, nodes_searched, nps, depth_completion_time);
-
                     search_engine.record_depth_completion(depth, depth_completion_time);
 
                     search_result = Some((move_.clone(), score));
@@ -14522,27 +14498,16 @@ impl IterativeDeepening {
                             score, depth
                         ),
                     );
-                    eprintln!(
-                        "DEBUG: Breaking at depth {} due to extremely winning position (score: {})",
-                        depth, score
-                    );
                     break;
                 }
-                eprintln!(
-                    "DEBUG: Completed depth {}, continuing to next depth (effective_max_depth={})",
-                    depth, effective_max_depth
-                );
             } else {
                 crate::debug_utils::trace_log(
                     "ITERATIVE_DEEPENING",
                     &format!("No result at depth {}, breaking", depth),
                 );
-                eprintln!("DEBUG: Breaking at depth {} due to no result", depth);
                 break;
             }
         }
-
-        eprintln!("DEBUG: Iterative deepening loop ended. Final depth reached, effective_max_depth was {}", effective_max_depth);
 
         crate::debug_utils::end_timing("iterative_deepening_total", "ITERATIVE_DEEPENING");
 
@@ -14581,6 +14546,12 @@ impl IterativeDeepening {
         // Fallback: if we're in check and didn't find a move, just pick the first legal move
         if is_in_check && best_move.is_none() && !legal_moves.is_empty() {
             let fallback_move = legal_moves[0].clone();
+            let board_state_fen = board.to_fen(player, captured_pieces);
+            eprintln!(
+                "DEBUG: Returning fallback move {} (score 0) for board_fen={}",
+                fallback_move.to_usi_string(),
+                board_state_fen
+            );
             crate::debug_utils::trace_log(
                 "ITERATIVE_DEEPENING",
                 &format!(
@@ -14613,6 +14584,15 @@ impl IterativeDeepening {
         // CRITICAL: Always return a move if we have one, even if search didn't complete all depths
         // This ensures we never return None when legal moves exist
         if best_move.is_some() {
+            if let Some(ref mv) = best_move {
+                let board_state_fen = board.to_fen(player, captured_pieces);
+                eprintln!(
+                    "DEBUG: Bestmove recommendation: {} (score {}), board_fen={}",
+                    mv.to_usi_string(),
+                    best_score,
+                    board_state_fen
+                );
+            }
             best_move.map(|m| (m, best_score))
         } else if !legal_moves.is_empty() {
             // Final fallback: use first legal move if we somehow don't have a best move
@@ -14622,6 +14602,12 @@ impl IterativeDeepening {
                     "FINAL FALLBACK: No best move found, using first legal move {}",
                     legal_moves[0].to_usi_string()
                 ),
+            );
+            let board_state_fen = board.to_fen(player, captured_pieces);
+            eprintln!(
+                "DEBUG: Returning default fallback move {} (score 0) for board_fen={}",
+                legal_moves[0].to_usi_string(),
+                board_state_fen
             );
             Some((legal_moves[0].clone(), 0))
         } else {
