@@ -3,11 +3,11 @@
 //! This module provides optimized move generation for sliding pieces (rook, bishop)
 //! using magic bitboards for maximum performance.
 
-use crate::bitboards::BitboardBoard;
 use crate::bitboards::integration::GlobalOptimizer;
+use crate::bitboards::BitboardBoard;
 #[cfg(feature = "simd")]
-use crate::bitboards::{SimdBitboard, batch_ops::AlignedBitboardArray};
-use crate::types::core::{Move, PieceType, Player, Position};
+use crate::bitboards::{batch_ops::AlignedBitboardArray, SimdBitboard};
+use crate::types::core::{Move, Piece, PieceType, Player, Position};
 use crate::types::{Bitboard, MagicTable};
 use std::sync::Arc;
 
@@ -26,7 +26,7 @@ impl SimpleLookupEngine {
     fn get_attacks(&self, square: u8, piece_type: PieceType, occupied: Bitboard) -> Bitboard {
         self.magic_table.get_attacks(square, piece_type, occupied)
     }
-    
+
     /// Get reference to the magic table for prefetching
     /// Task 3.12.1: Access magic table for prefetching hints
     fn magic_table(&self) -> &MagicTable {
@@ -50,19 +50,13 @@ impl SlidingMoveGenerator {
     /// Create a new sliding move generator
     /// Task 2.0.2.1: Accepts Arc<MagicTable> to share without cloning
     pub fn new(magic_table: Arc<MagicTable>) -> Self {
-        Self {
-            lookup_engine: SimpleLookupEngine::new(magic_table),
-            magic_enabled: true,
-        }
+        Self { lookup_engine: SimpleLookupEngine::new(magic_table), magic_enabled: true }
     }
 
     /// Create a new sliding move generator with custom settings
     /// Task 2.0.2.1: Accepts Arc<MagicTable> to share without cloning
     pub fn with_settings(magic_table: Arc<MagicTable>, magic_enabled: bool) -> Self {
-        Self {
-            lookup_engine: SimpleLookupEngine::new(magic_table),
-            magic_enabled,
-        }
+        Self { lookup_engine: SimpleLookupEngine::new(magic_table), magic_enabled }
     }
 
     /// Generate moves for a sliding piece using magic bitboards
@@ -176,7 +170,7 @@ impl SlidingMoveGenerator {
         // Use batch lookup for performance
         for &(from, piece_type) in pieces {
             let square = from.to_index();
-            
+
             // Get attack pattern - use magic if enabled, otherwise fall back to ray-casting
             let attacks = if self.magic_enabled {
                 self.lookup_engine.get_attacks(square, piece_type, occupied)
@@ -193,9 +187,31 @@ impl SlidingMoveGenerator {
 
                     // Check if target square is occupied by own piece
                     if !board.is_occupied_by_player(target_pos, player) {
+                        let captured_piece = board.get_piece(target_pos);
+
                         // Create move
-                        let move_ = Move::new_move(from, target_pos, piece_type, player, false);
+                        let mut move_ = Move::new_move(from, target_pos, piece_type, player, false);
+                        if let Some(captured) = captured_piece {
+                            move_.is_capture = true;
+                            move_.captured_piece = Some(captured);
+                        }
                         all_moves.push(move_);
+
+                        let from_in_opponent_promo = from.is_in_promotion_zone(player.opposite());
+                        let to_in_opponent_promo =
+                            target_pos.is_in_promotion_zone(player.opposite());
+
+                        if piece_type.can_promote()
+                            && (from_in_opponent_promo || to_in_opponent_promo)
+                        {
+                            let mut promoted_move =
+                                Move::new_move(from, target_pos, piece_type, player, true);
+                            if let Some(captured) = captured_piece {
+                                promoted_move.is_capture = true;
+                                promoted_move.captured_piece = Some(captured);
+                            }
+                            all_moves.push(promoted_move);
+                        }
                     }
 
                     // Clear the processed bit
@@ -210,37 +226,37 @@ impl SlidingMoveGenerator {
     }
 
     /// Generate sliding moves for multiple pieces using SIMD batch operations
-    /// 
+    ///
     /// This method uses SIMD batch operations to process multiple pieces simultaneously,
     /// providing improved performance over sequential processing.
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// Uses `AlignedBitboardArray` and batch operations to combine attack patterns
     /// from multiple pieces, achieving 4-8x speedup for attack combination.
-    /// 
+    ///
     /// # Memory Optimizations (Task 3.12)
-    /// 
+    ///
     /// This method includes several memory optimizations:
     /// - **Prefetching**: Prefetches upcoming magic table entries and attack patterns
     /// - **Cache-friendly access**: Processes pieces in batches for better cache locality
     /// - **Sequential prefetching**: Prefetches next pieces in batch ahead of time
-    /// 
+    ///
     /// These optimizations provide an additional 5-10% performance improvement
     /// on top of SIMD optimizations.
-    /// 
+    ///
     /// # Example
-    /// 
+    ///
     /// ```rust
     /// # use shogi_engine::bitboards::sliding_moves::SlidingMoveGenerator;
-    /// # use shogi_engine::types::{MagicTable, PieceType, Player, Position};
+    /// # use shogi_engine::types::{MagicTable, Piece, PieceType, Player, Position};
     /// # use std::sync::Arc;
     /// # let magic_table = Arc::new(MagicTable::default());
     /// # let generator = SlidingMoveGenerator::new(magic_table);
     /// # let board = shogi_engine::bitboards::BitboardBoard::default();
     /// let pieces = vec![
-    ///     (Position::new(0, 0), PieceType::Rook),
-    ///     (Position::new(0, 8), PieceType::Rook),
+    ///     (Position::new(0, 0), Piece::new(PieceType::Rook, Player::Black)),
+    ///     (Position::new(0, 8), Piece::new(PieceType::Rook, Player::Black)),
     /// ];
     /// let moves = generator.generate_sliding_moves_batch_vectorized(&board, &pieces, Player::Black);
     /// ```
@@ -248,7 +264,7 @@ impl SlidingMoveGenerator {
     pub fn generate_sliding_moves_batch_vectorized(
         &self,
         board: &BitboardBoard,
-        pieces: &[(Position, PieceType)],
+        pieces: &[(Position, Piece)],
         player: Player,
     ) -> Vec<Move> {
         if pieces.is_empty() {
@@ -263,17 +279,20 @@ impl SlidingMoveGenerator {
         const BATCH_SIZE: usize = 4;
         // Prefetch distance: prefetch 2-3 pieces ahead for better cache utilization
         const PREFETCH_DISTANCE: usize = 2;
-        
+
         for (chunk_idx, chunk) in pieces.chunks(BATCH_SIZE).enumerate() {
             // Task 3.12.3: Prefetch upcoming pieces in the next chunk
             let next_chunk_start = (chunk_idx + 1) * BATCH_SIZE;
-            if next_chunk_start < pieces.len() && next_chunk_start + PREFETCH_DISTANCE <= pieces.len() {
+            if next_chunk_start < pieces.len()
+                && next_chunk_start + PREFETCH_DISTANCE <= pieces.len()
+            {
                 for i in 0..PREFETCH_DISTANCE.min(pieces.len() - next_chunk_start) {
                     let prefetch_idx = next_chunk_start + i;
                     if prefetch_idx < pieces.len() {
-                        let (prefetch_from, prefetch_piece_type) = pieces[prefetch_idx];
+                        let (prefetch_from, prefetch_piece) = pieces[prefetch_idx];
+                        let prefetch_piece_type = prefetch_piece.piece_type;
                         let prefetch_square = prefetch_from.to_index();
-                        
+
                         // Prefetch magic table entry
                         if self.magic_enabled {
                             // Task 3.12.1: Prefetch magic table entry for upcoming piece
@@ -288,20 +307,26 @@ impl SlidingMoveGenerator {
                                     match prefetch_piece_type {
                                         PieceType::Rook | PieceType::PromotedRook => {
                                             if prefetch_square < 81 {
-                                                let magic_entry_ptr = &magic_table.rook_magics[prefetch_square as usize] as *const _ as *const i8;
+                                                let magic_entry_ptr = &magic_table.rook_magics
+                                                    [prefetch_square as usize]
+                                                    as *const _
+                                                    as *const i8;
                                                 _mm_prefetch(magic_entry_ptr, _MM_HINT_T0);
                                             }
                                         }
                                         PieceType::Bishop | PieceType::PromotedBishop => {
                                             if prefetch_square < 81 {
-                                                let magic_entry_ptr = &magic_table.bishop_magics[prefetch_square as usize] as *const _ as *const i8;
+                                                let magic_entry_ptr = &magic_table.bishop_magics
+                                                    [prefetch_square as usize]
+                                                    as *const _
+                                                    as *const i8;
                                                 _mm_prefetch(magic_entry_ptr, _MM_HINT_T0);
                                             }
                                         }
                                         _ => {}
                                     }
                                 }
-                                
+
                                 #[cfg(target_arch = "aarch64")]
                                 {
                                     // ARM64 prefetch is not stable in std::arch yet
@@ -313,14 +338,15 @@ impl SlidingMoveGenerator {
                     }
                 }
             }
-            
+
             // Collect attack patterns for this batch
             let mut attack_patterns = Vec::new();
             let mut piece_info = Vec::new();
-            
-            for (local_idx, &(from, piece_type)) in chunk.iter().enumerate() {
+
+            for (local_idx, &(from, piece)) in chunk.iter().enumerate() {
+                let piece_type = piece.piece_type;
                 let square = from.to_index();
-                
+
                 // Task 3.12.1: Prefetch magic table entry for current piece if not already prefetched
                 if self.magic_enabled && local_idx == 0 {
                     unsafe {
@@ -331,13 +357,17 @@ impl SlidingMoveGenerator {
                             match piece_type {
                                 PieceType::Rook | PieceType::PromotedRook => {
                                     if square < 81 {
-                                        let magic_entry_ptr = &magic_table.rook_magics[square as usize] as *const _ as *const i8;
+                                        let magic_entry_ptr =
+                                            &magic_table.rook_magics[square as usize] as *const _
+                                                as *const i8;
                                         _mm_prefetch(magic_entry_ptr, _MM_HINT_T0);
                                     }
                                 }
                                 PieceType::Bishop | PieceType::PromotedBishop => {
                                     if square < 81 {
-                                        let magic_entry_ptr = &magic_table.bishop_magics[square as usize] as *const _ as *const i8;
+                                        let magic_entry_ptr =
+                                            &magic_table.bishop_magics[square as usize] as *const _
+                                                as *const i8;
                                         _mm_prefetch(magic_entry_ptr, _MM_HINT_T0);
                                     }
                                 }
@@ -346,7 +376,7 @@ impl SlidingMoveGenerator {
                         }
                     }
                 }
-                
+
                 let attacks = if self.magic_enabled {
                     // Task 3.12.1: Prefetch attack_storage entry if we can predict it
                     // We prefetch based on a likely attack_index (using empty occupied as estimate)
@@ -361,15 +391,27 @@ impl SlidingMoveGenerator {
                                 match piece_type {
                                     PieceType::Rook | PieceType::PromotedRook => {
                                         if square < 81 {
-                                            let magic_entry = &magic_table.rook_magics[square as usize];
+                                            let magic_entry =
+                                                &magic_table.rook_magics[square as usize];
                                             // Only prefetch if magic entry is initialized
-                                            if magic_entry.magic_number != 0 && magic_entry.attack_base < magic_table.attack_storage.len() {
+                                            if magic_entry.magic_number != 0
+                                                && magic_entry.attack_base
+                                                    < magic_table.attack_storage.len()
+                                            {
                                                 // Prefetch likely attack_storage entry (using empty occupied as estimate)
-                                                let likely_hash = (0u128.wrapping_mul(magic_entry.magic_number as u128)) >> magic_entry.shift;
-                                                let likely_attack_index = magic_entry.attack_base + likely_hash as usize;
+                                                let likely_hash = (0u128.wrapping_mul(
+                                                    magic_entry.magic_number as u128,
+                                                )) >> magic_entry.shift;
+                                                let likely_attack_index =
+                                                    magic_entry.attack_base + likely_hash as usize;
                                                 // Double-check bounds before prefetching
-                                                if likely_attack_index < magic_table.attack_storage.len() {
-                                                    let attack_storage_ptr = &magic_table.attack_storage[likely_attack_index] as *const _ as *const i8;
+                                                if likely_attack_index
+                                                    < magic_table.attack_storage.len()
+                                                {
+                                                    let attack_storage_ptr = &magic_table
+                                                        .attack_storage[likely_attack_index]
+                                                        as *const _
+                                                        as *const i8;
                                                     _mm_prefetch(attack_storage_ptr, _MM_HINT_T0);
                                                 }
                                             }
@@ -377,15 +419,27 @@ impl SlidingMoveGenerator {
                                     }
                                     PieceType::Bishop | PieceType::PromotedBishop => {
                                         if square < 81 {
-                                            let magic_entry = &magic_table.bishop_magics[square as usize];
+                                            let magic_entry =
+                                                &magic_table.bishop_magics[square as usize];
                                             // Only prefetch if magic entry is initialized
-                                            if magic_entry.magic_number != 0 && magic_entry.attack_base < magic_table.attack_storage.len() {
+                                            if magic_entry.magic_number != 0
+                                                && magic_entry.attack_base
+                                                    < magic_table.attack_storage.len()
+                                            {
                                                 // Prefetch likely attack_storage entry
-                                                let likely_hash = (0u128.wrapping_mul(magic_entry.magic_number as u128)) >> magic_entry.shift;
-                                                let likely_attack_index = magic_entry.attack_base + likely_hash as usize;
+                                                let likely_hash = (0u128.wrapping_mul(
+                                                    magic_entry.magic_number as u128,
+                                                )) >> magic_entry.shift;
+                                                let likely_attack_index =
+                                                    magic_entry.attack_base + likely_hash as usize;
                                                 // Double-check bounds before prefetching
-                                                if likely_attack_index < magic_table.attack_storage.len() {
-                                                    let attack_storage_ptr = &magic_table.attack_storage[likely_attack_index] as *const _ as *const i8;
+                                                if likely_attack_index
+                                                    < magic_table.attack_storage.len()
+                                                {
+                                                    let attack_storage_ptr = &magic_table
+                                                        .attack_storage[likely_attack_index]
+                                                        as *const _
+                                                        as *const i8;
                                                     _mm_prefetch(attack_storage_ptr, _MM_HINT_T0);
                                                 }
                                             }
@@ -396,46 +450,75 @@ impl SlidingMoveGenerator {
                             }
                         }
                     }
-                    
+
                     self.lookup_engine.get_attacks(square, piece_type, occupied)
                 } else {
                     board.get_attack_pattern(from, piece_type)
                 };
-                
+
                 // Convert to SimdBitboard for batch operations
                 attack_patterns.push(SimdBitboard::from_u128(attacks.to_u128()));
-                piece_info.push((from, piece_type));
+                piece_info.push((from, piece));
             }
-            
+
             // Pad to BATCH_SIZE if needed
             while attack_patterns.len() < BATCH_SIZE {
                 attack_patterns.push(SimdBitboard::empty());
-                piece_info.push((Position::new(0, 0), PieceType::Pawn)); // Dummy, won't be used
+                piece_info.push((Position::new(0, 0), Piece::new(PieceType::Pawn, player)));
+                // Dummy, won't be used
             }
-            
+
             // Use batch operations to combine attacks if needed
             // For now, process individually but use batch operations for filtering
-            let attack_array = AlignedBitboardArray::<BATCH_SIZE>::from_slice(&attack_patterns[..BATCH_SIZE]);
-            
+            let attack_array =
+                AlignedBitboardArray::<BATCH_SIZE>::from_slice(&attack_patterns[..BATCH_SIZE]);
+
             // Process each piece's attacks
-            for (i, &(from, piece_type)) in piece_info.iter().enumerate() {
+            for (i, &(from, piece)) in piece_info.iter().enumerate() {
                 if i >= chunk.len() {
                     break; // Skip padding
                 }
-                
+
+                let piece_type = piece.piece_type;
+
                 let attacks = attack_array.get(i);
                 let mut remaining_attacks = Bitboard::from_u128(attacks.to_u128());
-                
+
                 // Use bit scans to generate moves
                 while !remaining_attacks.is_empty() {
-                    if let Some(target_square) = GlobalOptimizer::bit_scan_forward(remaining_attacks) {
+                    if let Some(target_square) =
+                        GlobalOptimizer::bit_scan_forward(remaining_attacks)
+                    {
                         let target_pos = Position::from_index(target_square);
-                        
+
                         if !board.is_occupied_by_player(target_pos, player) {
-                            let move_ = Move::new_move(from, target_pos, piece_type, player, false);
-                            all_moves.push(move_);
+                            let captured_piece = board.get_piece(target_pos);
+
+                            let mut base_move =
+                                Move::new_move(from, target_pos, piece_type, player, false);
+                            if let Some(captured) = captured_piece {
+                                base_move.is_capture = true;
+                                base_move.captured_piece = Some(captured);
+                            }
+                            all_moves.push(base_move);
+
+                            let from_in_opponent_promo =
+                                from.is_in_promotion_zone(player.opposite());
+                            let to_in_opponent_promo =
+                                target_pos.is_in_promotion_zone(player.opposite());
+                            if piece_type.can_promote()
+                                && (from_in_opponent_promo || to_in_opponent_promo)
+                            {
+                                let mut promoted_move =
+                                    Move::new_move(from, target_pos, piece_type, player, true);
+                                if let Some(captured) = captured_piece {
+                                    promoted_move.is_capture = true;
+                                    promoted_move.captured_piece = Some(captured);
+                                }
+                                all_moves.push(promoted_move);
+                            }
                         }
-                        
+
                         remaining_attacks &= Bitboard::from_u128(remaining_attacks.to_u128() - 1);
                     } else {
                         break;
@@ -443,7 +526,7 @@ impl SlidingMoveGenerator {
                 }
             }
         }
-        
+
         all_moves
     }
 
@@ -543,7 +626,7 @@ mod tests {
         let player = Player::Black;
 
         let moves = generator.generate_sliding_moves(&board, from, piece_type, player);
-        
+
         // Rook from center should have moves in 4 directions
         // Should have at least some moves (exact count depends on board state)
         assert!(!moves.is_empty() || !board.get_occupied_bitboard().is_empty());
@@ -559,7 +642,7 @@ mod tests {
         let player = Player::Black;
 
         let moves = generator.generate_sliding_moves(&board, from, piece_type, player);
-        
+
         // Bishop from center should have moves in 4 diagonal directions
         assert!(!moves.is_empty() || !board.get_occupied_bitboard().is_empty());
     }
@@ -575,7 +658,7 @@ mod tests {
         let player = Player::Black;
 
         let moves = generator.generate_sliding_moves(&board, from, piece_type, player);
-        
+
         // Should use ray-cast fallback and still generate moves
         // The exact count depends on board state, but should not panic
         assert!(moves.len() <= 16); // Rook can move at most 8 squares in each direction
@@ -591,7 +674,7 @@ mod tests {
         let player = Player::Black;
 
         let moves = generator.generate_sliding_moves(&board, from, piece_type, player);
-        
+
         // Should use ray-cast fallback and still generate moves
         assert!(moves.len() <= 16); // Bishop from center can move at most 16 squares on 9x9
     }
@@ -606,7 +689,7 @@ mod tests {
         let player = Player::Black;
 
         let moves = generator.generate_promoted_sliding_moves(&board, from, piece_type, player);
-        
+
         // Promoted rook should have more moves than regular rook (includes king moves)
         assert!(moves.len() <= 24); // Rook moves + 8 king moves
     }
@@ -617,19 +700,19 @@ mod tests {
         let magic_table = Arc::new(MagicTable::default());
         let generator = SlidingMoveGenerator::new(magic_table);
         let mut board = BitboardBoard::empty();
-        
+
         // Place a rook
         let from = Position::new(4, 4);
         let rook = Piece::new(PieceType::Rook, Player::Black);
         board.place_piece(rook, from);
-        
+
         // Place a blocker in one direction
         let blocker_pos = Position::new(6, 4);
         let blocker = Piece::new(PieceType::Pawn, Player::White);
         board.place_piece(blocker, blocker_pos);
-        
+
         let moves = generator.generate_sliding_moves(&board, from, PieceType::Rook, Player::Black);
-        
+
         // Should generate moves but not past the blocker
         // Should include the capture move
         assert!(moves.iter().any(|m| m.to == blocker_pos));
@@ -640,19 +723,19 @@ mod tests {
         let magic_table = Arc::new(MagicTable::default());
         let generator = SlidingMoveGenerator::with_settings(magic_table, false);
         let mut board = BitboardBoard::empty();
-        
+
         // Place a rook
         let from = Position::new(4, 4);
         let rook = Piece::new(PieceType::Rook, Player::Black);
         board.place_piece(rook, from);
-        
+
         // Place a blocker in one direction
         let blocker_pos = Position::new(6, 4);
         let blocker = Piece::new(PieceType::Pawn, Player::White);
         board.place_piece(blocker, blocker_pos);
-        
+
         let moves = generator.generate_sliding_moves(&board, from, PieceType::Rook, Player::Black);
-        
+
         // Fallback should also respect blockers
         assert!(moves.iter().any(|m| m.to == blocker_pos));
         // Should not generate moves past the blocker
@@ -670,7 +753,7 @@ mod tests {
         let player = Player::Black;
 
         let moves = generator.generate_sliding_moves(&board, from, piece_type, player);
-        
+
         // Rook from corner should have moves in 2 directions (right and down)
         // Verify moves are generated correctly using bit scans
         assert!(moves.len() <= 16); // At most 8 squares in each direction
@@ -682,14 +765,12 @@ mod tests {
         let magic_table = Arc::new(MagicTable::default());
         let generator = SlidingMoveGenerator::new(magic_table);
         let board = BitboardBoard::empty();
-        let pieces = vec![
-            (Position::new(0, 0), PieceType::Rook),
-            (Position::new(4, 4), PieceType::Bishop),
-        ];
+        let pieces =
+            vec![(Position::new(0, 0), PieceType::Rook), (Position::new(4, 4), PieceType::Bishop)];
         let player = Player::Black;
 
         let moves = generator.generate_sliding_moves_batch(&board, &pieces, player);
-        
+
         // Should generate moves for both pieces
         assert!(!moves.is_empty());
     }
@@ -699,14 +780,12 @@ mod tests {
         let magic_table = Arc::new(MagicTable::default());
         let generator = SlidingMoveGenerator::with_settings(magic_table, false);
         let board = BitboardBoard::empty();
-        let pieces = vec![
-            (Position::new(0, 0), PieceType::Rook),
-            (Position::new(4, 4), PieceType::Bishop),
-        ];
+        let pieces =
+            vec![(Position::new(0, 0), PieceType::Rook), (Position::new(4, 4), PieceType::Bishop)];
         let player = Player::Black;
 
         let moves = generator.generate_sliding_moves_batch(&board, &pieces, player);
-        
+
         // Fallback should also work for batch generation
         assert!(!moves.is_empty());
     }

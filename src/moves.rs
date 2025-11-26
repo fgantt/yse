@@ -1,6 +1,6 @@
-use crate::bitboards::*;
 #[cfg(feature = "simd")]
 use crate::bitboards::sliding_moves::SlidingMoveGenerator;
+use crate::bitboards::*;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{Move, Piece, PieceType, Player, Position};
 use crate::types::Bitboard;
@@ -20,10 +20,10 @@ pub struct MoveGenerator {
     magic_generation_time: std::time::Duration,
     raycast_generation_time: std::time::Duration,
     /// SIMD optimization configuration
-    /// 
+    ///
     /// Controls runtime enabling/disabling of SIMD optimizations for move generation.
     /// Only effective when the `simd` feature is enabled at compile time.
-    /// 
+    ///
     /// # Task 4.0 (Task 4.6)
     #[cfg(feature = "simd")]
     simd_config: crate::config::SimdConfig,
@@ -72,17 +72,17 @@ impl MoveGenerator {
     pub fn is_magic_bitboard_enabled(&self) -> bool {
         self.magic_bitboard_enabled
     }
-    
+
     /// Set SIMD configuration
-    /// 
+    ///
     /// # Task 4.0 (Task 4.6)
     #[cfg(feature = "simd")]
     pub fn set_simd_config(&mut self, config: crate::config::SimdConfig) {
         self.simd_config = config;
     }
-    
+
     /// Get SIMD configuration
-    /// 
+    ///
     /// # Task 4.0 (Task 4.6)
     #[cfg(feature = "simd")]
     pub fn simd_config(&self) -> &crate::config::SimdConfig {
@@ -342,31 +342,31 @@ impl MoveGenerator {
     }
 
     /// Generate moves for all pieces on the board
-    /// 
+    ///
     /// Uses SIMD-optimized batch generation for sliding pieces when the `simd` feature is enabled,
     /// falling back to scalar implementation otherwise.
-    /// 
+    ///
     /// # Performance
-    /// 
+    ///
     /// When SIMD is enabled, sliding pieces (rook, bishop, lance) are processed in batches
     /// using vectorized operations, achieving 2-4x speedup over scalar implementation.
-    /// 
+    ///
     /// # Memory Optimizations (Task 3.12)
-    /// 
+    ///
     /// This method includes several memory optimizations when SIMD is enabled:
     /// - **Prefetching**: Prefetches upcoming magic table entries for better cache utilization
     /// - **Batch processing**: Processes sliding pieces in batches for improved cache locality
     /// - **Sequential prefetching**: Prefetches next pieces in batch ahead of time
-    /// 
+    ///
     /// These optimizations provide an additional 5-10% performance improvement
     /// on top of SIMD optimizations.
     pub fn generate_all_piece_moves(&self, board: &BitboardBoard, player: Player) -> Vec<Move> {
         #[cfg(feature = "simd")]
         {
             // Collect pieces by type for batch processing
-            let mut sliding_pieces = Vec::new();
-            let mut non_sliding_pieces = Vec::new();
-            
+            let mut sliding_pieces: Vec<(Position, Piece)> = Vec::new();
+            let mut non_sliding_pieces: Vec<(Position, Piece)> = Vec::new();
+
             for r in 0..9 {
                 for c in 0..9 {
                     let pos = Position::new(r, c);
@@ -374,8 +374,11 @@ impl MoveGenerator {
                         if piece.player == player {
                             // Check if this is a sliding piece that can use SIMD batch processing
                             match piece.piece_type {
-                                PieceType::Rook | PieceType::Bishop | PieceType::Lance => {
-                                    sliding_pieces.push((pos, piece.piece_type));
+                                PieceType::Rook
+                                | PieceType::Bishop
+                                | PieceType::PromotedRook
+                                | PieceType::PromotedBishop => {
+                                    sliding_pieces.push((pos, piece));
                                 }
                                 _ => {
                                     non_sliding_pieces.push((pos, piece));
@@ -385,14 +388,14 @@ impl MoveGenerator {
                     }
                 }
             }
-            
+
             let mut moves = Vec::new();
-            
+
             // Use SIMD batch generation for sliding pieces if magic table is available and SIMD is enabled
             if !sliding_pieces.is_empty() && self.simd_config.enable_simd_move_generation {
                 // Try to get magic table from board
                 let magic_table = board.get_magic_table();
-                
+
                 if let Some(magic_table) = magic_table {
                     // Record SIMD move generation call
                     crate::utils::telemetry::SIMD_TELEMETRY.record_simd_move_gen();
@@ -407,31 +410,27 @@ impl MoveGenerator {
                     // Record scalar move generation call
                     crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_move_gen();
                     // Fallback: use scalar generation if magic table not available
-                    for (pos, piece_type) in sliding_pieces {
-                        if let Some(piece) = board.get_piece(pos) {
-                            moves.extend(self.generate_moves_for_single_piece(board, &piece, pos));
-                        }
+                    for (pos, piece) in &sliding_pieces {
+                        moves.extend(self.generate_moves_for_single_piece(board, piece, *pos));
                     }
                 }
             } else {
                 // Record scalar move generation call
                 crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_move_gen();
                 // Fallback: use scalar generation if SIMD disabled or no sliding pieces
-                for (pos, piece_type) in sliding_pieces {
-                    if let Some(piece) = board.get_piece(pos) {
-                        moves.extend(self.generate_moves_for_single_piece(board, &piece, pos));
-                    }
+                for (pos, piece) in &sliding_pieces {
+                    moves.extend(self.generate_moves_for_single_piece(board, piece, *pos));
                 }
             }
-            
+
             // Generate moves for non-sliding pieces using existing logic
             for (pos, piece) in non_sliding_pieces {
                 moves.extend(self.generate_moves_for_single_piece(board, &piece, pos));
             }
-            
+
             moves
         }
-        
+
         #[cfg(not(feature = "simd"))]
         {
             // Scalar implementation (fallback when SIMD feature is disabled)
@@ -583,11 +582,8 @@ impl MoveGenerator {
     ) -> Vec<Move> {
         let mut moves = Vec::new();
         let mut processed_pieces = HashSet::new();
-        let captured = if player == Player::Black {
-            &captured_pieces.black
-        } else {
-            &captured_pieces.white
-        };
+        let captured =
+            if player == Player::Black { &captured_pieces.black } else { &captured_pieces.white };
 
         for &piece_type in captured {
             if !processed_pieces.insert(piece_type) {
@@ -791,11 +787,7 @@ impl MoveGenerator {
         captured_pieces: &CapturedPieces,
     ) -> Vec<Move> {
         // Create cache key from board state
-        let cache_key = format!(
-            "q_{}_{}",
-            board.to_fen(player, captured_pieces),
-            player as u8
-        );
+        let cache_key = format!("q_{}_{}", board.to_fen(player, captured_pieces), player as u8);
 
         // Check cache first
         if let Some(cached_moves) = self.move_cache.get(&cache_key) {
@@ -1009,7 +1001,7 @@ impl MoveGenerator {
 mod tests {
     use super::*;
     use crate::bitboards::BitboardBoard;
-use crate::types::Bitboard;
+    use crate::types::Bitboard;
     use crate::types::{CapturedPieces, Piece, PieceType, Player, Position};
 
     #[test]
@@ -1057,10 +1049,7 @@ use crate::types::Bitboard;
                 is_promotion: false,
                 gives_check: false,
                 is_recapture: false,
-                captured_piece: Some(Piece {
-                    piece_type: PieceType::Pawn,
-                    player: Player::White,
-                }),
+                captured_piece: Some(Piece { piece_type: PieceType::Pawn, player: Player::White }),
             },
             // Check move
             Move {
