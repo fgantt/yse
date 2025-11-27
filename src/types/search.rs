@@ -152,17 +152,17 @@ pub enum MoveType {
 /// Configuration for quiescence search parameters
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QuiescenceConfig {
-    pub max_depth: u8,                              // Maximum quiescence depth
-    pub enable_delta_pruning: bool,                 // Enable delta pruning
-    pub enable_futility_pruning: bool,              // Enable futility pruning
-    pub enable_selective_extensions: bool,          // Enable selective extensions
-    pub enable_tt: bool,                            // Enable transposition table
-    pub enable_adaptive_pruning: bool,              /* Enable adaptive pruning (adjusts margins
-                                                     * based on depth/move count) */
-    pub futility_margin: i32,              // Futility pruning margin
-    pub delta_margin: i32,                 // Delta pruning margin
+    pub max_depth: u8,                     // Maximum quiescence depth
+    pub enable_delta_pruning: bool,        // Enable delta pruning
+    pub enable_futility_pruning: bool,     // Enable futility pruning
+    pub enable_selective_extensions: bool, // Enable selective extensions
+    pub enable_tt: bool,                   // Enable transposition table
+    pub enable_adaptive_pruning: bool,     /* Enable adaptive pruning (adjusts margins
+                                            * based on depth/move count) */
+    pub futility_margin: i32, // Futility pruning margin
+    pub delta_margin: i32,    // Delta pruning margin
     pub high_value_capture_threshold: i32, /* Threshold for high-value captures (excluded from
-                                            * futility pruning) */
+                               * futility pruning) */
     pub tt_size_mb: usize,                          // Quiescence TT size in MB
     pub tt_cleanup_threshold: usize,                // Threshold for TT cleanup
     pub tt_replacement_policy: TTReplacementPolicy, // Replacement policy for TT cleanup
@@ -184,7 +184,7 @@ impl Default for QuiescenceConfig {
             tt_size_mb: 4,               // 4MB for quiescence TT
             tt_cleanup_threshold: 10000, // Clean up when TT has 10k entries
             tt_replacement_policy: TTReplacementPolicy::DepthPreferred, /* Default to
-                                                                         * depth-preferred */
+                                          * depth-preferred */
         }
     }
 }
@@ -293,7 +293,7 @@ pub struct QuiescenceStats {
     pub promotion_moves_found: u64,
     pub checks_excluded_from_futility: u64, // Checks excluded from futility pruning
     pub high_value_captures_excluded_from_futility: u64, /* High-value captures excluded from
-                                                          * futility pruning */
+                                             * futility pruning */
     pub move_ordering_cutoffs: u64, // Number of beta cutoffs from move ordering
     pub move_ordering_total_moves: u64, // Total moves ordered
     pub move_ordering_first_move_cutoffs: u64, // Cutoffs from first move in ordering

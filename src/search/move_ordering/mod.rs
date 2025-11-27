@@ -2459,7 +2459,7 @@ impl MoveOrdering {
             move_score_cache_bytes: self.move_score_cache.memory_bytes(),
             fast_cache_bytes: 0, // Task 1.22: Fast cache is now part of MoveScoreCache
             pv_cache_bytes: self.pv_ordering.cache_memory_bytes(), /* Task 6.0: use PVOrdering
-                                                                    * module */
+                                  * module */
             killer_moves_bytes: self.killer_move_manager.memory_bytes(), /* Task 6.0: use
                                                                           * KillerMoveManager */
             history_table_bytes: self.history_manager.memory_bytes(), /* Task 6.0: use HistoryHeuristicManager */

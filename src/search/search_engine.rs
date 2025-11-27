@@ -2519,7 +2519,7 @@ impl SearchEngine {
                 crate::types::search::PositionComplexity::High => {
                     self.iid_config.time_pressure_complexity_multiplier
                 } /* More pressure in
-                                                                           * complex positions */
+                * complex positions */
                 crate::types::search::PositionComplexity::Unknown => 1.0, // Default
             };
             threshold *= complexity_multiplier;
@@ -3745,7 +3745,7 @@ impl SearchEngine {
             let phase = match complexity {
                 PositionComplexity::Low => GamePhase::Endgame, // Endgames often simpler
                 PositionComplexity::Medium => GamePhase::Middlegame, /* Middlegames medium
-                                                                       * complexity */
+                * complexity */
                 PositionComplexity::High => GamePhase::Opening, // Openings can be complex
                 PositionComplexity::Unknown => game_phase,      // Use current phase for unknown
             };
@@ -6542,41 +6542,34 @@ impl SearchEngine {
             // Check if move should be pruned using advanced pruning techniques with
             // conditional logic Convert search_state to all::SearchState for
             // PruningManager
-            let mut all_search_state =
-                crate::types::all::SearchState {
-                    depth: search_state.depth,
-                    move_number: search_state.move_number,
-                    alpha: search_state.alpha,
-                    beta: search_state.beta,
-                    is_in_check: search_state.is_in_check,
-                    static_eval: search_state.static_eval,
-                    best_move: search_state
-                        .best_move
-                        .as_ref()
-                        .map(|m| convert_move_to_all(m.clone())),
-                    position_hash: search_state.position_hash,
-                    game_phase: match search_state.game_phase {
-                        GamePhase::Opening => crate::types::all::GamePhase::Opening,
-                        GamePhase::Middlegame => crate::types::all::GamePhase::Middlegame,
-                        GamePhase::Endgame => crate::types::all::GamePhase::Endgame,
-                    },
-                    position_classification: search_state.position_classification.map(
-                        |pc| match pc {
-                            crate::types::search::PositionClassification::Tactical => {
-                                crate::types::all::PositionClassification::Tactical
-                            }
-                            crate::types::search::PositionClassification::Quiet => {
-                                crate::types::all::PositionClassification::Quiet
-                            }
-                            crate::types::search::PositionClassification::Neutral => {
-                                crate::types::all::PositionClassification::Neutral
-                            }
-                        },
-                    ),
-                    tt_move: search_state.tt_move.as_ref().map(|m| convert_move_to_all(m.clone())),
-                    advanced_reduction_config:
-                        search_state.advanced_reduction_config.map(|arc| {
-                            crate::types::all::AdvancedReductionConfig {
+            let mut all_search_state = crate::types::all::SearchState {
+                depth: search_state.depth,
+                move_number: search_state.move_number,
+                alpha: search_state.alpha,
+                beta: search_state.beta,
+                is_in_check: search_state.is_in_check,
+                static_eval: search_state.static_eval,
+                best_move: search_state.best_move.as_ref().map(|m| convert_move_to_all(m.clone())),
+                position_hash: search_state.position_hash,
+                game_phase: match search_state.game_phase {
+                    GamePhase::Opening => crate::types::all::GamePhase::Opening,
+                    GamePhase::Middlegame => crate::types::all::GamePhase::Middlegame,
+                    GamePhase::Endgame => crate::types::all::GamePhase::Endgame,
+                },
+                position_classification: search_state.position_classification.map(|pc| match pc {
+                    crate::types::search::PositionClassification::Tactical => {
+                        crate::types::all::PositionClassification::Tactical
+                    }
+                    crate::types::search::PositionClassification::Quiet => {
+                        crate::types::all::PositionClassification::Quiet
+                    }
+                    crate::types::search::PositionClassification::Neutral => {
+                        crate::types::all::PositionClassification::Neutral
+                    }
+                }),
+                tt_move: search_state.tt_move.as_ref().map(|m| convert_move_to_all(m.clone())),
+                advanced_reduction_config: search_state.advanced_reduction_config.map(|arc| {
+                    crate::types::all::AdvancedReductionConfig {
                         enabled: arc.enabled,
                         strategy: match arc.strategy {
                             crate::types::search::AdvancedReductionStrategy::Basic => {
@@ -6600,13 +6593,13 @@ impl SearchEngine {
                         material_imbalance_threshold: 300, // Default
                         history_score_threshold: 0, // Default
                     }
-                        }),
-                    best_score: search_state.best_score,
-                    nodes_searched: search_state.nodes_searched,
-                    aspiration_enabled: search_state.aspiration_enabled,
-                    researches: search_state.researches,
-                    health_score: search_state.health_score,
-                };
+                }),
+                best_score: search_state.best_score,
+                nodes_searched: search_state.nodes_searched,
+                aspiration_enabled: search_state.aspiration_enabled,
+                researches: search_state.researches,
+                health_score: search_state.health_score,
+            };
             let all_move = convert_move_to_all(move_.clone());
             let should_consider_pruning = self
                 .pruning_manager
@@ -10838,41 +10831,34 @@ impl SearchEngine {
             0 // Escape moves and IID moves are exempted from LMR
         } else {
             // Convert search_state to all::SearchState for PruningManager
-            let all_search_state =
-                crate::types::all::SearchState {
-                    depth: search_state.depth,
-                    move_number: search_state.move_number,
-                    alpha: search_state.alpha,
-                    beta: search_state.beta,
-                    is_in_check: search_state.is_in_check,
-                    static_eval: search_state.static_eval,
-                    best_move: search_state
-                        .best_move
-                        .as_ref()
-                        .map(|m| convert_move_to_all(m.clone())),
-                    position_hash: search_state.position_hash,
-                    game_phase: match search_state.game_phase {
-                        GamePhase::Opening => crate::types::all::GamePhase::Opening,
-                        GamePhase::Middlegame => crate::types::all::GamePhase::Middlegame,
-                        GamePhase::Endgame => crate::types::all::GamePhase::Endgame,
-                    },
-                    position_classification: search_state.position_classification.map(
-                        |pc| match pc {
-                            crate::types::search::PositionClassification::Tactical => {
-                                crate::types::all::PositionClassification::Tactical
-                            }
-                            crate::types::search::PositionClassification::Quiet => {
-                                crate::types::all::PositionClassification::Quiet
-                            }
-                            crate::types::search::PositionClassification::Neutral => {
-                                crate::types::all::PositionClassification::Neutral
-                            }
-                        },
-                    ),
-                    tt_move: search_state.tt_move.as_ref().map(|m| convert_move_to_all(m.clone())),
-                    advanced_reduction_config:
-                        search_state.advanced_reduction_config.map(|arc| {
-                            crate::types::all::AdvancedReductionConfig {
+            let all_search_state = crate::types::all::SearchState {
+                depth: search_state.depth,
+                move_number: search_state.move_number,
+                alpha: search_state.alpha,
+                beta: search_state.beta,
+                is_in_check: search_state.is_in_check,
+                static_eval: search_state.static_eval,
+                best_move: search_state.best_move.as_ref().map(|m| convert_move_to_all(m.clone())),
+                position_hash: search_state.position_hash,
+                game_phase: match search_state.game_phase {
+                    GamePhase::Opening => crate::types::all::GamePhase::Opening,
+                    GamePhase::Middlegame => crate::types::all::GamePhase::Middlegame,
+                    GamePhase::Endgame => crate::types::all::GamePhase::Endgame,
+                },
+                position_classification: search_state.position_classification.map(|pc| match pc {
+                    crate::types::search::PositionClassification::Tactical => {
+                        crate::types::all::PositionClassification::Tactical
+                    }
+                    crate::types::search::PositionClassification::Quiet => {
+                        crate::types::all::PositionClassification::Quiet
+                    }
+                    crate::types::search::PositionClassification::Neutral => {
+                        crate::types::all::PositionClassification::Neutral
+                    }
+                }),
+                tt_move: search_state.tt_move.as_ref().map(|m| convert_move_to_all(m.clone())),
+                advanced_reduction_config: search_state.advanced_reduction_config.map(|arc| {
+                    crate::types::all::AdvancedReductionConfig {
                         enabled: arc.enabled,
                         strategy: match arc.strategy {
                             crate::types::search::AdvancedReductionStrategy::Basic => {
@@ -10896,13 +10882,13 @@ impl SearchEngine {
                         material_imbalance_threshold: 300, // Default
                         history_score_threshold: 0, // Default
                     }
-                        }),
-                    best_score: search_state.best_score,
-                    nodes_searched: search_state.nodes_searched,
-                    aspiration_enabled: search_state.aspiration_enabled,
-                    researches: search_state.researches,
-                    health_score: search_state.health_score,
-                };
+                }),
+                best_score: search_state.best_score,
+                nodes_searched: search_state.nodes_searched,
+                aspiration_enabled: search_state.aspiration_enabled,
+                researches: search_state.researches,
+                health_score: search_state.health_score,
+            };
             let all_move = convert_move_to_all(move_.clone());
             self.pruning_manager.calculate_lmr_reduction(
                 &all_search_state,
@@ -11639,7 +11625,7 @@ impl SearchEngine {
             let position_factor = match position_class {
                 crate::types::PositionClassification::Tactical => 0.9, /* Tactical positions should be conservative */
                 crate::types::PositionClassification::Quiet => 1.1,    /* Quiet positions can be
-                                                                         * more aggressive */
+                * more aggressive */
                 crate::types::PositionClassification::Neutral => 1.0,
             };
 

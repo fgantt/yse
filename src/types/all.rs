@@ -759,7 +759,7 @@ pub struct QuiescenceEntry {
     pub access_count: u64, // For LRU tracking - number of times this entry was accessed
     pub last_access_age: u64, // For LRU tracking - age when last accessed
     pub stand_pat_score: Option<i32>, /* Task 6.0: Cached stand-pat evaluation (optional, not
-                                       * all entries have it) */
+                            * all entries have it) */
 }
 
 /// Represents a dual-phase evaluation score for tapered evaluation
@@ -1272,17 +1272,17 @@ impl Default for TTReplacementPolicy {
 /// Configuration for quiescence search parameters
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct QuiescenceConfig {
-    pub max_depth: u8,                              // Maximum quiescence depth
-    pub enable_delta_pruning: bool,                 // Enable delta pruning
-    pub enable_futility_pruning: bool,              // Enable futility pruning
-    pub enable_selective_extensions: bool,          // Enable selective extensions
-    pub enable_tt: bool,                            // Enable transposition table
-    pub enable_adaptive_pruning: bool,              /* Enable adaptive pruning (adjusts margins
-                                                     * based on depth/move count) */
-    pub futility_margin: i32,              // Futility pruning margin
-    pub delta_margin: i32,                 // Delta pruning margin
+    pub max_depth: u8,                     // Maximum quiescence depth
+    pub enable_delta_pruning: bool,        // Enable delta pruning
+    pub enable_futility_pruning: bool,     // Enable futility pruning
+    pub enable_selective_extensions: bool, // Enable selective extensions
+    pub enable_tt: bool,                   // Enable transposition table
+    pub enable_adaptive_pruning: bool,     /* Enable adaptive pruning (adjusts margins
+                                            * based on depth/move count) */
+    pub futility_margin: i32, // Futility pruning margin
+    pub delta_margin: i32,    // Delta pruning margin
     pub high_value_capture_threshold: i32, /* Threshold for high-value captures (excluded from
-                                            * futility pruning) */
+                               * futility pruning) */
     pub tt_size_mb: usize,                          // Quiescence TT size in MB
     pub tt_cleanup_threshold: usize,                // Threshold for TT cleanup
     pub tt_replacement_policy: TTReplacementPolicy, // Replacement policy for TT cleanup
@@ -1304,7 +1304,7 @@ impl Default for QuiescenceConfig {
             tt_size_mb: 4,               // 4MB for quiescence TT
             tt_cleanup_threshold: 10000, // Clean up when TT has 10k entries
             tt_replacement_policy: TTReplacementPolicy::DepthPreferred, /* Default to
-                                                                         * depth-preferred */
+                                          * depth-preferred */
         }
     }
 }
@@ -1393,7 +1393,7 @@ pub struct QuiescenceStats {
     pub promotion_moves_found: u64,
     pub checks_excluded_from_futility: u64, // Checks excluded from futility pruning
     pub high_value_captures_excluded_from_futility: u64, /* High-value captures excluded from
-                                                          * futility pruning */
+                                             * futility pruning */
     pub move_ordering_cutoffs: u64, // Number of beta cutoffs from move ordering
     pub move_ordering_total_moves: u64, // Total moves ordered
     pub move_ordering_first_move_cutoffs: u64, // Cutoffs from first move in ordering
@@ -1823,23 +1823,23 @@ impl NullMovePreset {
 /// Configuration for null move pruning parameters
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct NullMoveConfig {
-    pub enabled: bool,                                      // Enable null move pruning
-    pub min_depth: u8,                                      // Minimum depth to use NMP
-    pub reduction_factor: u8,                               // Static reduction factor (R)
-    pub max_pieces_threshold: u8,                           // Disable NMP when pieces < threshold
-    pub enable_dynamic_reduction: bool,                     /* Use dynamic reduction
-                                                             * (deprecated, use
-                                                             * dynamic_reduction_formula
-                                                             * instead) */
+    pub enabled: bool,            // Enable null move pruning
+    pub min_depth: u8,            // Minimum depth to use NMP
+    pub reduction_factor: u8,     // Static reduction factor (R)
+    pub max_pieces_threshold: u8, // Disable NMP when pieces < threshold
+    pub enable_dynamic_reduction: bool, /* Use dynamic reduction
+                                   * (deprecated, use
+                                   * dynamic_reduction_formula
+                                   * instead) */
     pub enable_endgame_detection: bool, // Disable NMP in endgame
     pub verification_margin: i32,       // Safety margin for verification search (centipawns)
     pub dynamic_reduction_formula: DynamicReductionFormula, /* Formula for dynamic reduction
-                                                             * calculation */
+                                         * calculation */
     pub enable_mate_threat_detection: bool, /* Enable mate threat detection (default: false,
                                              * opt-in feature) */
     pub mate_threat_margin: i32, // Threshold for mate threat detection (default: 500 centipawns)
     pub enable_endgame_type_detection: bool, /* Enable endgame type detection (default: false,
-                                              * opt-in feature) */
+                                  * opt-in feature) */
     pub material_endgame_threshold: u8, /* Threshold for material endgame detection (default: 12
                                          * pieces) */
     pub king_activity_threshold: u8, /* Threshold for king activity endgame detection (default:
@@ -1870,7 +1870,7 @@ pub struct NullMoveConfig {
     // Per-depth reduction tuning
     pub enable_per_depth_reduction: bool, // Enable per-depth reduction factors (default: false)
     pub reduction_factor_by_depth: HashMap<u8, u8>, /* Depth -> reduction_factor mapping
-                                                     * (optional, for fine-tuning) */
+                                           * (optional, for fine-tuning) */
     // Per-position-type endgame thresholds
     pub enable_per_position_type_threshold: bool, /* Enable per-position-type thresholds
                                                    * (default: false) */
@@ -2223,19 +2223,19 @@ impl NullMoveConfig {
 /// Performance statistics for null move pruning
 #[derive(Debug, Clone, Default)]
 pub struct NullMoveStats {
-    pub attempts: u64,                       // Number of null move attempts
-    pub cutoffs: u64,                        // Number of successful cutoffs
-    pub depth_reductions: u64,               // Total depth reductions applied
-    pub disabled_in_check: u64,              // Times disabled due to check
-    pub disabled_endgame: u64,               // Times disabled due to endgame
-    pub verification_attempts: u64,          // Number of verification searches attempted
-    pub verification_cutoffs: u64,           /* Number of verification searches that resulted in
-                                              * cutoffs */
+    pub attempts: u64,              // Number of null move attempts
+    pub cutoffs: u64,               // Number of successful cutoffs
+    pub depth_reductions: u64,      // Total depth reductions applied
+    pub disabled_in_check: u64,     // Times disabled due to check
+    pub disabled_endgame: u64,      // Times disabled due to endgame
+    pub verification_attempts: u64, // Number of verification searches attempted
+    pub verification_cutoffs: u64,  /* Number of verification searches that resulted in
+                                     * cutoffs */
     pub mate_threat_attempts: u64, // Number of mate threat detection attempts
     pub mate_threat_detected: u64, // Number of mate threats detected and verified
     pub disabled_material_endgame: u64, // Times disabled due to material endgame detection
     pub disabled_king_activity_endgame: u64, /* Times disabled due to king activity endgame
-                                              * detection */
+                                    * detection */
     pub disabled_zugzwang: u64, // Times disabled due to zugzwang-prone endgame detection
     pub skipped_time_pressure: u64, // Times skipped due to time pressure (Task 7.0.2.8)
 }
@@ -2920,18 +2920,18 @@ impl LMRPhaseStats {
 /// Performance statistics for Late Move Reductions
 #[derive(Debug, Clone, Default)]
 pub struct LMRStats {
-    pub moves_considered: u64,             // Total moves considered for LMR
-    pub reductions_applied: u64,           // Number of reductions applied
-    pub researches_triggered: u64,         // Number of full-depth re-searches
-    pub cutoffs_after_reduction: u64,      // Cutoffs after reduced search
-    pub cutoffs_after_research: u64,       // Cutoffs after full re-search
-    pub total_depth_saved: u64,            // Total depth reduction applied
-    pub average_reduction: f64,            // Average reduction applied
-    pub re_search_margin_prevented: u64,   // Number of re-searches prevented by margin
-    pub re_search_margin_allowed: u64,     // Number of re-searches allowed despite margin
-    pub tt_move_exempted: u64,             // Number of TT moves exempted from LMR
-    pub tt_move_missed: u64,               /* Number of moves that should have been TT moves but
-                                            * weren't detected */
+    pub moves_considered: u64,           // Total moves considered for LMR
+    pub reductions_applied: u64,         // Number of reductions applied
+    pub researches_triggered: u64,       // Number of full-depth re-searches
+    pub cutoffs_after_reduction: u64,    // Cutoffs after reduced search
+    pub cutoffs_after_research: u64,     // Cutoffs after full re-search
+    pub total_depth_saved: u64,          // Total depth reduction applied
+    pub average_reduction: f64,          // Average reduction applied
+    pub re_search_margin_prevented: u64, // Number of re-searches prevented by margin
+    pub re_search_margin_allowed: u64,   // Number of re-searches allowed despite margin
+    pub tt_move_exempted: u64,           // Number of TT moves exempted from LMR
+    pub tt_move_missed: u64,             /* Number of moves that should have been TT moves but
+                                          * weren't detected */
     pub iid_move_explicitly_exempted: u64, /* Number of IID moves explicitly exempted from LMR
                                             * (Task 7.0.1) */
     pub iid_move_reduced_count: u64, /* Number of times IID move was reduced (should be 0!)
@@ -5042,7 +5042,7 @@ impl Default for AspirationWindowConfig {
             enable_statistics: true,
             use_static_eval_for_init: true, // Use static eval for first window (Task 4.1)
             enable_position_type_tracking: true, /* Task 7.1: Enable position type tracking by
-                                                  * default */
+                                             * default */
             disable_statistics_in_production: false, /* Task 7.2: Allow statistics in production
                                                       * by default */
         }
