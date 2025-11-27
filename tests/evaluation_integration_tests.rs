@@ -41,7 +41,8 @@ fn test_simd_evaluation_same_results_as_scalar() {
     let result = evaluator.evaluate(&board, Player::Black, &captured);
 
     // Verify evaluation completed successfully
-    // Note: Starting position may have zero or small PST score depending on PST configuration
+    // Note: Starting position may have zero or small PST score depending on PST
+    // configuration
     assert!(
         result.score.abs() < 100000,
         "PST evaluation should produce reasonable score (got {})",
@@ -52,8 +53,9 @@ fn test_simd_evaluation_same_results_as_scalar() {
     let telemetry = evaluator.telemetry_snapshot();
     assert!(telemetry.is_some(), "Telemetry should be available");
 
-    // Note: PST telemetry may be zero on starting position depending on PST configuration
-    // The important thing is that telemetry is present and the evaluation completed
+    // Note: PST telemetry may be zero on starting position depending on PST
+    // configuration The important thing is that telemetry is present and the
+    // evaluation completed
     if let Some(tel) = telemetry {
         // PST telemetry should be present (even if zero)
         // This verifies that SIMD evaluation path was used
@@ -169,9 +171,14 @@ fn test_simd_evaluator_direct_comparison() {
 
     // Allow small differences due to phase interpolation
     let diff = (integrated_result.score - pst_component).abs();
-    assert!(diff < 100, 
-           "IntegratedEvaluator PST component should match SimdEvaluator (diff: {}, integrated: {}, simd: {})",
-           diff, integrated_result.score, pst_component);
+    assert!(
+        diff < 100,
+        "IntegratedEvaluator PST component should match SimdEvaluator (diff: {}, integrated: {}, \
+         simd: {})",
+        diff,
+        integrated_result.score,
+        pst_component
+    );
 }
 
 #[test]
