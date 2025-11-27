@@ -1182,6 +1182,8 @@ impl OrderingStrategy {
                 killer_move_weight: 600,
                 counter_move_weight: 500,
                 history_weight: 400,
+                castle_progress_weight: 1200,
+                storm_response_weight: 1500,
             },
             priority_adjustments: PriorityAdjustments {
                 development_priority: 1.5,
@@ -1217,6 +1219,8 @@ impl OrderingStrategy {
                 killer_move_weight: 700,
                 counter_move_weight: 600,
                 history_weight: 600,
+                castle_progress_weight: 1200,
+                storm_response_weight: 1500,
             },
             priority_adjustments: PriorityAdjustments {
                 capture_priority: 1.2,
@@ -1252,6 +1256,8 @@ impl OrderingStrategy {
                 killer_move_weight: 600,
                 counter_move_weight: 500,
                 history_weight: 500,
+                castle_progress_weight: 1200,
+                storm_response_weight: 1500,
             },
             priority_adjustments: PriorityAdjustments {
                 promotion_priority: 1.5,
@@ -1288,6 +1294,8 @@ impl OrderingStrategy {
                 killer_move_weight: 800,
                 counter_move_weight: 600,
                 history_weight: 400,
+                castle_progress_weight: 1200,
+                storm_response_weight: 1500,
             },
             priority_adjustments: PriorityAdjustments {
                 capture_priority: 1.5,
@@ -1324,6 +1332,8 @@ impl OrderingStrategy {
                 killer_move_weight: 500,
                 counter_move_weight: 600,
                 history_weight: 700,
+                castle_progress_weight: 1200,
+                storm_response_weight: 1500,
             },
             priority_adjustments: PriorityAdjustments {
                 // position_weight: 1.4, // Not available in PriorityAdjustments
@@ -1587,6 +1597,10 @@ pub struct OrderingWeights {
     pub see_weight: i32,
     /// Weight for counter-move heuristic moves
     pub counter_move_weight: i32,
+    /// Weight for castle-progressing moves (Task 3.1)
+    pub castle_progress_weight: i32,
+    /// Weight for storm-response moves (Task 3.1)
+    pub storm_response_weight: i32,
 }
 
 // CacheEvictionPolicy, MoveOrderingCacheEntry, and CacheConfig moved to cache
@@ -1711,6 +1725,8 @@ impl Default for OrderingWeights {
             history_weight: 2500,      // Medium-high priority for history moves
             see_weight: 2000,          // High priority for SEE moves
             counter_move_weight: 3000, // Medium-high priority for counter-moves
+            castle_progress_weight: 1200, // Medium priority for castle-progressing moves (Task 3.1)
+            storm_response_weight: 1500, // Medium-high priority for storm-response moves (Task 3.1)
         }
     }
 }
@@ -1994,6 +2010,8 @@ impl MoveOrderingConfig {
                 counter_move_weight: other.weights.counter_move_weight,
                 history_weight: other.weights.history_weight,
                 see_weight: other.weights.see_weight,
+                castle_progress_weight: other.weights.castle_progress_weight,
+                storm_response_weight: other.weights.storm_response_weight,
             },
             cache_config: CacheConfig {
                 max_cache_size: other.cache_config.max_cache_size,
@@ -2854,6 +2872,194 @@ impl MoveOrdering {
         }
 
         0
+    }
+
+    /// Score castle-progressing moves (Task 3.1)
+    ///
+    /// Detects moves that progress castle formation by moving defensive pieces
+    /// (gold, silver, pawns) toward the king or placing them in castle positions.
+    fn score_castle_progress_move(
+        &self,
+        move_: &Move,
+        board: &crate::bitboards::BitboardBoard,
+    ) -> Option<i32> {
+        use crate::types::core::{PieceType, Player};
+
+        // Only consider defensive pieces for castle formation
+        let is_defensive_piece = matches!(
+            move_.piece_type,
+            PieceType::Gold
+                | PieceType::Silver
+                | PieceType::Pawn
+                | PieceType::PromotedSilver
+                | PieceType::PromotedPawn
+        );
+
+        if !is_defensive_piece {
+            return None;
+        }
+
+        // Find king position
+        let player = move_.player;
+        let king_pos = board.find_king_position(player)?;
+
+        // Check if move places piece near king (within 2 squares)
+        let distance_to_king = {
+            let dr = if move_.to.row > king_pos.row {
+                move_.to.row - king_pos.row
+            } else {
+                king_pos.row - move_.to.row
+            };
+            let dc = if move_.to.col > king_pos.col {
+                move_.to.col - king_pos.col
+            } else {
+                king_pos.col - move_.to.col
+            };
+            dr + dc
+        };
+
+        // Bonus for moving defensive pieces closer to king
+        if distance_to_king <= 2 {
+            let bonus = match move_.piece_type {
+                PieceType::Gold | PieceType::PromotedSilver => {
+                    self.config.weights.castle_progress_weight
+                }
+                PieceType::Silver => (self.config.weights.castle_progress_weight * 3) / 4,
+                PieceType::Pawn | PieceType::PromotedPawn => {
+                    self.config.weights.castle_progress_weight / 2
+                }
+                _ => 0,
+            };
+
+            // Additional bonus if moving from far away (development)
+            if let Some(from) = move_.from {
+                let from_distance = {
+                    let dr = if from.row > king_pos.row {
+                        from.row - king_pos.row
+                    } else {
+                        king_pos.row - from.row
+                    };
+                    let dc = if from.col > king_pos.col {
+                        from.col - king_pos.col
+                    } else {
+                        king_pos.col - from.col
+                    };
+                    dr + dc
+                };
+
+                if from_distance > distance_to_king {
+                    return Some(bonus + (self.config.weights.castle_progress_weight / 4));
+                }
+            }
+
+            return Some(bonus);
+        }
+
+        None
+    }
+
+    /// Score storm-response moves (Task 3.1)
+    ///
+    /// Detects moves that respond to opponent pawn storms by blocking advancing
+    /// pawns or placing defensive pieces in threatened areas.
+    fn score_storm_response_move(
+        &self,
+        move_: &Move,
+        board: &crate::bitboards::BitboardBoard,
+    ) -> Option<i32> {
+        use crate::types::core::{PieceType, Player};
+
+        let player = move_.player;
+        let opponent = player.opposite();
+
+        // Check for opponent pawns advancing on files 6, 7, 8 (for Black) or 0, 1, 2 (for White)
+        let threatened_files = match player {
+            Player::Black => [6u8, 7u8, 8u8],
+            Player::White => [0u8, 1u8, 2u8],
+        };
+
+        let mut storm_detected = false;
+        let mut move_responds_to_storm = false;
+
+        // Check if opponent has advancing pawns
+        for &file in &threatened_files {
+            for row in 0..9 {
+                let pos = crate::types::core::Position::new(row, file);
+                if let Some(piece) = board.get_piece(pos) {
+                    if piece.player == opponent && piece.piece_type == PieceType::Pawn {
+                        // Check if pawn has advanced significantly
+                        let progress = match player {
+                            Player::Black => {
+                                if row < 5 {
+                                    storm_detected = true;
+                                    Some(5 - row)
+                                } else {
+                                    None
+                                }
+                            }
+                            Player::White => {
+                                if row > 3 {
+                                    storm_detected = true;
+                                    Some(row - 3)
+                                } else {
+                                    None
+                                }
+                            }
+                        };
+
+                        if let Some(advance) = progress {
+                            if advance >= 2 {
+                                // Check if our move blocks or responds to this storm
+                                if move_.to.col == file {
+                                    // Move is on the threatened file
+                                    let blocking_row = match player {
+                                        Player::Black => row + 1,
+                                        Player::White => row - 1,
+                                    };
+                                    if move_.to.row == blocking_row {
+                                        move_responds_to_storm = true;
+                                    }
+                                }
+
+                                // Check if move places defensive piece (gold, silver, pawn) near threatened area
+                                if matches!(
+                                    move_.piece_type,
+                                    PieceType::Gold
+                                        | PieceType::Silver
+                                        | PieceType::Pawn
+                                        | PieceType::PromotedSilver
+                                        | PieceType::PromotedPawn
+                                ) {
+                                    let distance = {
+                                        let dr = if move_.to.row > row {
+                                            move_.to.row - row
+                                        } else {
+                                            row - move_.to.row
+                                        };
+                                        let dc = if move_.to.col > file {
+                                            move_.to.col - file
+                                        } else {
+                                            file - move_.to.col
+                                        };
+                                        dr + dc
+                                    };
+
+                                    if distance <= 2 {
+                                        move_responds_to_storm = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if storm_detected && move_responds_to_storm {
+            Some(self.config.weights.storm_response_weight)
+        } else {
+            None
+        }
     }
 
     /// Fast center distance calculation (optimized for hot path)
@@ -5935,6 +6141,25 @@ impl MoveOrdering {
                 }
             }
             // Fall through to regular scoring if SEE fails or returns 0
+        }
+
+        // Task 3.1: Check for stability-aware bonuses (castle progress and storm response)
+        let mut stability_bonus = 0;
+        
+        // Check if move progresses castle formation
+        if let Some(castle_bonus) = self.score_castle_progress_move(move_, board) {
+            stability_bonus += castle_bonus;
+        }
+        
+        // Check if move responds to pawn storms
+        if let Some(storm_bonus) = self.score_storm_response_move(move_, board) {
+            stability_bonus += storm_bonus;
+        }
+        
+        // If stability bonuses are significant, return early with bonus
+        if stability_bonus > 0 {
+            let base_score = self.score_move(move_).unwrap_or(0);
+            return base_score + stability_bonus;
         }
 
         // Use regular move scoring (MVV/LVA for captures)

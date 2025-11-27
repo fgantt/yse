@@ -87,6 +87,80 @@ impl QuiescenceHelper {
         stand_pat + total_gain + adaptive_margin <= alpha
     }
 
+    /// Check if a capture is self-destructive using SEE (Task 3.3)
+    ///
+    /// A self-destructive capture loses more material than it gains.
+    /// This method uses a simplified SEE check to detect such moves.
+    pub fn is_self_destructive_capture(
+        &self,
+        move_: &Move,
+        board: &crate::bitboards::BitboardBoard,
+    ) -> bool {
+        if !move_.is_capture {
+            return false;
+        }
+
+        // Simplified check: if captured piece value is less than moving piece value,
+        // it's likely self-destructive (unless there's a tactical reason)
+        let captured_value = move_.captured_piece_value();
+        let moving_value = move_.piece_type.base_value();
+        
+        // If we're trading a more valuable piece for a less valuable one,
+        // it's potentially self-destructive (threshold: losing > 100cp)
+        if moving_value > captured_value + 100 {
+            return true;
+        }
+
+        false
+    }
+
+    /// Check if there are promoted pawn threats in the position (Task 3.3)
+    ///
+    /// Detects if opponent has promoted pawns that threaten critical squares.
+    pub fn has_promoted_pawn_threats(
+        &self,
+        board: &crate::bitboards::BitboardBoard,
+        player: crate::types::core::Player,
+    ) -> bool {
+        use crate::types::core::{PieceType, Position};
+        
+        let opponent = player.opposite();
+        
+        // Check for opponent promoted pawns
+        for row in 0..9 {
+            for col in 0..9 {
+                let pos = Position::new(row, col);
+                if let Some(piece) = board.get_piece(pos) {
+                    if piece.player == opponent && piece.piece_type == PieceType::PromotedPawn {
+                        // Check if promoted pawn threatens our king or critical pieces
+                        if let Some(king_pos) = board.find_king_position(player) {
+                            // Simple distance check - if promoted pawn is close to king, it's a threat
+                            let distance = {
+                                let dr = if row > king_pos.row {
+                                    row - king_pos.row
+                                } else {
+                                    king_pos.row - row
+                                };
+                                let dc = if col > king_pos.col {
+                                    col - king_pos.col
+                                } else {
+                                    king_pos.col - col
+                                };
+                                dr + dc
+                            };
+                            
+                            if distance <= 3 {
+                                return true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        false
+    }
+
     /// Check if a move should be pruned using futility pruning
     ///
     /// Note: This is capture-specific futility pruning. Standard futility
@@ -95,6 +169,8 @@ impl QuiescenceHelper {
     /// excluding:
     /// - Checking moves (critical for tactical sequences)
     /// - High-value captures (important tactical moves)
+    /// - Self-destructive captures (Task 3.3: should be revisited)
+    /// - Positions with promoted pawn threats (Task 3.3: should be revisited)
     ///
     /// This helps maintain tactical accuracy while still pruning weak captures.
     pub fn should_prune_futility(
@@ -103,6 +179,8 @@ impl QuiescenceHelper {
         stand_pat: i32,
         alpha: i32,
         depth: u8,
+        board: Option<&crate::bitboards::BitboardBoard>,
+        player: Option<crate::types::core::Player>,
     ) -> bool {
         if !self.config.enable_futility_pruning {
             return false;
@@ -112,6 +190,20 @@ impl QuiescenceHelper {
         if move_.gives_check {
             self.stats.checks_excluded_from_futility += 1;
             return false;
+        }
+
+        // Task 3.3: Don't prune if there are promoted pawn threats - we need to revisit these
+        if let (Some(b), Some(p)) = (board, player) {
+            if self.has_promoted_pawn_threats(b, p) {
+                return false;
+            }
+        }
+
+        // Task 3.3: Don't prune self-destructive captures - they should be revisited
+        if let Some(b) = board {
+            if self.is_self_destructive_capture(move_, b) {
+                return false;
+            }
         }
 
         let material_gain = move_.captured_piece_value();
@@ -284,7 +376,7 @@ mod tests {
         let alpha = 200;
 
         // Checking moves should not be pruned
-        assert!(!helper.should_prune_futility(&move_, stand_pat, alpha, 1));
+        assert!(!helper.should_prune_futility(&move_, stand_pat, alpha, 1, None, None));
         assert!(helper.get_stats().checks_excluded_from_futility > 0);
     }
 

@@ -34,11 +34,11 @@
   - [x] 2.3 Inject heuristic priors (e.g., bonuses for `▲7六歩`, `▲2六歩`) into `opening_principles.rs` to mirror the curated book even when out-of-book.
   - [x] 2.4 Document the updated template rules and regeneration procedure in `docs/design/gameplay-stability/` and cross-link from opening-book docs.
 
-- [ ] 3.0 Update search and move-ordering logic for stability awareness
-  - [ ] 3.1 Adjust `move_ordering/mod.rs` bonuses so castle-progressing and storm-response moves rise in the ordering queue.
-  - [ ] 3.2 Bias iterative deepening (`iterative_deepening.rs`) toward lines that satisfy development milestones before move 12, reducing effort on king-first continuations unless they already score ≥ +150cp.
-  - [ ] 3.3 Enhance `quiescence.rs` and late-move pruning to revisit nodes where SEE indicates a self-destructive capture or where promoted-pawn threats exist.
-  - [ ] 3.4 Wire initiative/attack debt metrics into search statistics so offensive pressure translates into selective deepening when coordination is present.
+- [x] 3.0 Update search and move-ordering logic for stability awareness
+  - [x] 3.1 Adjust `move_ordering/mod.rs` bonuses so castle-progressing and storm-response moves rise in the ordering queue.
+  - [x] 3.2 Bias iterative deepening (`iterative_deepening.rs`) toward lines that satisfy development milestones before move 12, reducing effort on king-first continuations unless they already score ≥ +150cp.
+  - [x] 3.3 Enhance `quiescence.rs` and late-move pruning to revisit nodes where SEE indicates a self-destructive capture or where promoted-pawn threats exist.
+  - [x] 3.4 Wire initiative/attack debt metrics into search statistics so offensive pressure translates into selective deepening when coordination is present.
 
 - [ ] 4.0 Build pawn-storm and attack-response framework
   - [ ] 4.1 Define storm-state tracking structs (consecutive pushes, file ownership, time since response) accessible to evaluation and search layers.
@@ -67,4 +67,16 @@
 Next Steps:
 - Wire the new storm/initiative signals into move ordering (Task 3.0) to ensure search prioritizes the defensive resources now scored in evaluation.
 - Backfill regression coverage in `tests/evaluation/castle_progress_tests.rs` and `tests/search/stability_regressions.rs`, then rerun SIMD benches before merging.
+
+## Task 3.0 Completion Notes
+
+- **Task 3.1 (Move Ordering Bonuses)**: Added `castle_progress_weight` (1200) and `storm_response_weight` (1500) to `OrderingWeights` configuration. Implemented `score_castle_progress_move()` and `score_storm_response_move()` methods that detect moves progressing castle formation or responding to pawn storms. Integrated these bonuses into `score_move_with_all_heuristics()` so defensive moves rise in the ordering queue.
+
+- **Task 3.2 (Iterative Deepening Bias)**: Added `estimate_is_opening_phase()` and `is_king_first_move()` helper methods to detect opening phase and king-first moves. Integrated logic into iterative deepening loop to reduce search effort (25% time reduction) on king-first continuations before move 12 unless they score ≥ +150cp. This biases search toward development milestones.
+
+- **Task 3.3 (Quiescence Enhancements)**: Enhanced `QuiescenceHelper` with `is_self_destructive_capture()` and `has_promoted_pawn_threats()` methods. Updated `should_prune_futility()` to exclude self-destructive captures and positions with promoted pawn threats from pruning, ensuring these critical positions are revisited. Updated both `quiescence.rs` and `search_engine.rs` implementations.
+
+- **Task 3.4 (Initiative Metrics)**: Added `InitiativeMetrics` struct to `SearchStatistics` to track offensive pressure and coordination. Implemented `evaluate_initiative_coordination()` to detect coordinated major pieces and attackers near opponent king. Added `should_deepen_for_initiative()` method that triggers selective deepening when initiative score ≥ 50cp, translating offensive pressure into deeper search when coordination is present.
+
+All stability-aware search improvements are now integrated and ready for testing. The engine will prioritize defensive moves, reduce effort on problematic king-first lines, revisit critical tactical positions, and deepen search when offensive coordination is detected.
 

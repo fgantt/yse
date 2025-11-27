@@ -96,12 +96,32 @@ pub struct SearchStatistics {
     nodes_searched: u64,
     /// Core search metrics (TT hits, cutoffs, etc.)
     core_metrics: CoreSearchMetrics,
+    /// Initiative/attack debt metrics (Task 3.4)
+    /// Tracks offensive pressure and coordination for selective deepening
+    pub initiative_metrics: InitiativeMetrics,
+}
+
+/// Initiative/attack debt metrics (Task 3.4)
+///
+/// Tracks offensive pressure and coordination to guide selective deepening.
+#[derive(Debug, Clone, Default)]
+pub struct InitiativeMetrics {
+    /// Number of positions with detected initiative/coordination
+    pub positions_with_initiative: u64,
+    /// Number of times selective deepening was triggered by initiative
+    pub selective_deepening_triggered: u64,
+    /// Cumulative initiative score (for tracking offensive pressure)
+    pub cumulative_initiative_score: i64,
 }
 
 impl SearchStatistics {
     /// Create a new SearchStatistics instance
     pub fn new() -> Self {
-        Self { nodes_searched: 0, core_metrics: CoreSearchMetrics::default() }
+        Self {
+            nodes_searched: 0,
+            core_metrics: CoreSearchMetrics::default(),
+            initiative_metrics: InitiativeMetrics::default(),
+        }
     }
 
     /// Increment nodes searched counter
@@ -176,10 +196,22 @@ impl SearchStatistics {
         &mut self.core_metrics
     }
 
+    /// Record initiative/coordination detected (Task 3.4)
+    pub fn record_initiative(&mut self, initiative_score: i32) {
+        self.initiative_metrics.positions_with_initiative += 1;
+        self.initiative_metrics.cumulative_initiative_score += initiative_score as i64;
+    }
+
+    /// Record selective deepening triggered by initiative (Task 3.4)
+    pub fn record_selective_deepening(&mut self) {
+        self.initiative_metrics.selective_deepening_triggered += 1;
+    }
+
     /// Reset all statistics
     pub fn reset(&mut self) {
         self.nodes_searched = 0;
         self.core_metrics = CoreSearchMetrics::default();
+        self.initiative_metrics = InitiativeMetrics::default();
     }
 
     /// Reset nodes counter (but keep other metrics)

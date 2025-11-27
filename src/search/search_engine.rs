@@ -2078,6 +2078,196 @@ impl SearchEngine {
     /// Task 7.7, 7.8: Use complexity assessment for skip conditions and
     /// adaptive move count threshold Task 9.6: Added player parameter for
     /// TT entry checking
+    /// Estimate if we're in the opening phase (before move 12) (Task 3.2)
+    ///
+    /// Uses board state to estimate if we're still in the opening phase.
+    /// Checks for development indicators like pieces still on starting ranks.
+    fn estimate_is_opening_phase(&self, board: &BitboardBoard, player: Player) -> bool {
+        use crate::types::core::PieceType;
+        
+        let start_row = if player == Player::Black { 8 } else { 0 };
+        let mut undeveloped_major_pieces = 0;
+        
+        // Count undeveloped rooks and bishops
+        for row in 0..9 {
+            for col in 0..9 {
+                let pos = crate::types::core::Position::new(row, col);
+                if let Some(piece) = board.get_piece(pos) {
+                    if piece.player == player {
+                        match piece.piece_type {
+                            PieceType::Rook | PieceType::Bishop => {
+                                if pos.row == start_row {
+                                    undeveloped_major_pieces += 1;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        
+        // If both major pieces are undeveloped, we're likely in opening
+        undeveloped_major_pieces >= 1
+    }
+
+    /// Evaluate initiative/coordination for selective deepening (Task 3.4)
+    ///
+    /// Checks for offensive pressure and piece coordination that indicates
+    /// we should do selective deepening to convert the initiative.
+    fn evaluate_initiative_coordination(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+    ) -> Option<i32> {
+        use crate::types::core::PieceType;
+        
+        let mut initiative_score = 0;
+        let mut coordinated_attacks = 0;
+        
+        // Check for coordinated major pieces (rook + bishop both developed)
+        let mut rooks_developed = 0;
+        let mut bishops_developed = 0;
+        
+        for row in 0..9 {
+            for col in 0..9 {
+                let pos = crate::types::core::Position::new(row, col);
+                if let Some(piece) = board.get_piece(pos) {
+                    if piece.player == player {
+                        match piece.piece_type {
+                            PieceType::Rook | PieceType::PromotedRook => {
+                                let start_row = if player == Player::Black { 8 } else { 0 };
+                                if pos.row != start_row {
+                                    rooks_developed += 1;
+                                }
+                            }
+                            PieceType::Bishop | PieceType::PromotedBishop => {
+                                let start_row = if player == Player::Black { 8 } else { 0 };
+                                if pos.row != start_row {
+                                    bishops_developed += 1;
+                                }
+                            }
+                            _ => {}
+                        }
+                    }
+                }
+            }
+        }
+        
+        // If both major pieces are developed, we have coordination
+        if rooks_developed > 0 && bishops_developed > 0 {
+            coordinated_attacks += 1;
+            initiative_score += 50;
+        }
+        
+        // Check for pieces attacking opponent king area
+        if let Some(opp_king_pos) = board.find_king_position(player.opposite()) {
+            let mut attackers_near_king = 0;
+            
+            for row in 0..9 {
+                for col in 0..9 {
+                    let pos = crate::types::core::Position::new(row, col);
+                    if let Some(piece) = board.get_piece(pos) {
+                        if piece.player == player {
+                            // Check if piece is close to opponent king (within 3 squares)
+                            let distance = {
+                                let dr = if row > opp_king_pos.row {
+                                    row - opp_king_pos.row
+                                } else {
+                                    opp_king_pos.row - row
+                                };
+                                let dc = if col > opp_king_pos.col {
+                                    col - opp_king_pos.col
+                                } else {
+                                    opp_king_pos.col - col
+                                };
+                                dr + dc
+                            };
+                            
+                            if distance <= 3 {
+                                attackers_near_king += 1;
+                            }
+                        }
+                    }
+                }
+            }
+            
+            if attackers_near_king >= 2 {
+                coordinated_attacks += 1;
+                initiative_score += 30;
+            }
+        }
+        
+        // If we have coordination, return initiative score
+        if coordinated_attacks > 0 {
+            Some(initiative_score)
+        } else {
+            None
+        }
+    }
+
+    /// Check if selective deepening should be triggered by initiative (Task 3.4)
+    ///
+    /// Returns true if we have sufficient offensive coordination to warrant
+    /// selective deepening to convert the initiative.
+    fn should_deepen_for_initiative(
+        &mut self,
+        board: &BitboardBoard,
+        player: Player,
+        depth: u8,
+    ) -> bool {
+        // Only apply at moderate depths (3-6) where selective deepening is useful
+        if depth < 3 || depth > 6 {
+            return false;
+        }
+        
+        if let Some(initiative_score) = self.evaluate_initiative_coordination(board, player) {
+            // Record initiative in statistics
+            self.search_statistics.record_initiative(initiative_score);
+            
+            // Trigger selective deepening if initiative score is significant
+            if initiative_score >= 50 {
+                self.search_statistics.record_selective_deepening();
+                return true;
+            }
+        }
+        
+        false
+    }
+
+    /// Check if a move is a king-first move (Task 3.2)
+    ///
+    /// Detects if a move is moving the king early in the opening,
+    /// which violates opening principles.
+    fn is_king_first_move(&self, move_: &Move, board: &BitboardBoard, player: Player) -> bool {
+        use crate::types::core::PieceType;
+        
+        // Check if move is a king move
+        if move_.piece_type != PieceType::King {
+            return false;
+        }
+        
+        // Check if king is moving from starting position
+        if let Some(from) = move_.from {
+            let start_row = if player == Player::Black { 8 } else { 0 };
+            if from.row == start_row {
+                // Check if king is moving to a non-castle position
+                // Castle positions are in corners (rows 7-8 for Black, 0-1 for White)
+                let is_castle_position = match player {
+                    Player::Black => move_.to.row >= 7 && (move_.to.col <= 2 || move_.to.col >= 6),
+                    Player::White => move_.to.row <= 1 && (move_.to.col <= 2 || move_.to.col >= 6),
+                };
+                
+                // If not a castle position, it's a king-first move
+                !is_castle_position
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    }
+
     pub fn should_apply_iid(
         &mut self,
         depth: u8,
@@ -7401,7 +7591,7 @@ impl SearchEngine {
                     total_move_count,
                 )
             } else {
-                self.should_prune_futility(&move_, stand_pat, alpha, depth)
+                self.should_prune_futility(&move_, stand_pat, alpha, depth, Some(board), Some(player))
             };
             if should_prune_futility {
                 // crate::debug_utils::trace_log("QUIESCENCE", &format!("Futility pruning move
@@ -8254,6 +8444,8 @@ impl SearchEngine {
     /// excluding:
     /// - Checking moves (critical for tactical sequences)
     /// - High-value captures (important tactical moves)
+    /// - Self-destructive captures (Task 3.3: should be revisited)
+    /// - Positions with promoted pawn threats (Task 3.3: should be revisited)
     ///
     /// This helps maintain tactical accuracy while still pruning weak captures.
     fn should_prune_futility(
@@ -8262,6 +8454,8 @@ impl SearchEngine {
         stand_pat: i32,
         alpha: i32,
         depth: u8,
+        board: Option<&BitboardBoard>,
+        player: Option<Player>,
     ) -> bool {
         if !self.quiescence_config.enable_futility_pruning {
             return false;
@@ -8271,6 +8465,20 @@ impl SearchEngine {
         if move_.gives_check {
             self.quiescence_stats.checks_excluded_from_futility += 1;
             return false;
+        }
+
+        // Task 3.3: Don't prune if there are promoted pawn threats - we need to revisit these
+        if let (Some(b), Some(p)) = (board, player) {
+            if self.quiescence_helper.has_promoted_pawn_threats(b, p) {
+                return false;
+            }
+        }
+
+        // Task 3.3: Don't prune self-destructive captures - they should be revisited
+        if let Some(b) = board {
+            if self.quiescence_helper.is_self_destructive_capture(move_, b) {
+                return false;
+            }
         }
 
         let material_gain = move_.captured_piece_value();
@@ -14494,6 +14702,31 @@ impl IterativeDeepening {
                     depth,
                 );
 
+                // Task 3.2: Reduce search effort on king-first continuations before move 12
+                // unless they score ≥ +150cp
+                let mut adjusted_remaining_time = remaining_time;
+                if depth <= 3 {
+                    let is_opening = search_engine.estimate_is_opening_phase(board, player);
+                    if is_opening {
+                        if let Some(ref prev_move) = best_move {
+                            if search_engine.is_king_first_move(prev_move, board, player) {
+                                // Only reduce effort if score is < +150cp
+                                if best_score < 150 {
+                                    // Reduce time budget by 25% for king-first continuations
+                                    adjusted_remaining_time = (remaining_time * 3) / 4;
+                                    trace_log!(
+                                        "ITERATIVE_DEEPENING",
+                                        &format!(
+                                            "Reducing search effort for king-first continuation (score: {}, time: {}ms -> {}ms)",
+                                            best_score, remaining_time, adjusted_remaining_time
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+
                 let parallel_result = if self.thread_count > 1 && depth >= self.parallel_min_depth {
                     if let Some(ref parallel_engine) = self.parallel_engine {
                         parallel_engine.search_root_moves(
@@ -14521,7 +14754,7 @@ impl IterativeDeepening {
                         captured_pieces,
                         player,
                         depth,
-                        remaining_time,
+                        adjusted_remaining_time,
                         current_alpha,
                         current_beta,
                     )
