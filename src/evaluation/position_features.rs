@@ -27,6 +27,7 @@
 //! ```
 
 use crate::bitboards::BitboardBoard;
+use crate::evaluation::storm_tracking::StormState;
 use crate::moves::MoveGenerator;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{Piece, PieceType, Player, Position};
@@ -755,6 +756,120 @@ impl PositionFeatureEvaluator {
         if pawn > 0 {
             mg_score += pawn * 2;
             eg_score += pawn;
+        }
+
+        TaperedScore::new_tapered(mg_score, eg_score)
+    }
+
+    /// Evaluate storm-aware drop heuristics (Task 4.2)
+    ///
+    /// This method expands drop heuristics to automatically trigger pawn/gold drops
+    /// when storm severity crosses a threshold. Returns bonus score for having
+    /// appropriate pieces in hand to respond to storms.
+    fn evaluate_storm_aware_drops(
+        &self,
+        board: &BitboardBoard,
+        king_pos: Position,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+        storm_state: &StormState,
+    ) -> TaperedScore {
+        if !storm_state.has_active_storm() {
+            return TaperedScore::default();
+        }
+
+        let mut mg_score = 0;
+        let mut eg_score = 0;
+
+        // Storm severity threshold for triggering drop recommendations
+        const STORM_SEVERITY_THRESHOLD: f32 = 1.5;
+
+        // Check each file with an active storm
+        for col in 0..9 {
+            let file_state = storm_state.get_file_state(col);
+            if !file_state.is_active() {
+                continue;
+            }
+
+            let severity = file_state.severity();
+            if severity < STORM_SEVERITY_THRESHOLD {
+                continue;
+            }
+
+            // Calculate blocking position (one square in front of the advancing pawn)
+            let blocking_row = match player {
+                Player::Black => {
+                    // Opponent pawn advancing from lower rows, block one row ahead
+                    if file_state.deepest_penetration >= 2 {
+                        Some((5 - file_state.deepest_penetration).max(6))
+                    } else {
+                        None
+                    }
+                }
+                Player::White => {
+                    // Opponent pawn advancing from higher rows, block one row ahead
+                    if file_state.deepest_penetration >= 2 {
+                        Some((3 + file_state.deepest_penetration).min(2))
+                    } else {
+                        None
+                    }
+                }
+            };
+
+            if let Some(block_row) = blocking_row {
+                let block_pos = Position::new(block_row, col);
+
+                // Check if we can drop a pawn to block
+                if captured_pieces.count(PieceType::Pawn, player) > 0
+                    && self.can_drop_pawn_at(board, player, block_pos)
+                {
+                    // Bonus for having pawn available to block storm
+                    let pawn_bonus = (severity * 25.0) as i32;
+                    mg_score += pawn_bonus;
+                    eg_score += pawn_bonus / 2;
+                }
+
+                // Check if we can drop a gold to block (stronger defense)
+                if captured_pieces.count(PieceType::Gold, player) > 0
+                    && !board.is_square_occupied(block_pos)
+                {
+                    // Gold is even better for blocking storms
+                    let gold_bonus = (severity * 35.0) as i32;
+                    mg_score += gold_bonus;
+                    eg_score += gold_bonus / 2;
+                }
+
+                // Check for gold drop near king zone (7八金 style)
+                let king_zone_drop_pos = match player {
+                    Player::Black => {
+                        // Drop gold at 7八 (row 7, col near king)
+                        if king_pos.row >= 7 && (king_pos.col as i8 - col as i8).abs() <= 1 {
+                            Some(Position::new(7, col))
+                        } else {
+                            None
+                        }
+                    }
+                    Player::White => {
+                        // Drop gold at 1二 (row 1, col near king)
+                        if king_pos.row <= 1 && (king_pos.col as i8 - col as i8).abs() <= 1 {
+                            Some(Position::new(1, col))
+                        } else {
+                            None
+                        }
+                    }
+                };
+
+                if let Some(zone_pos) = king_zone_drop_pos {
+                    if captured_pieces.count(PieceType::Gold, player) > 0
+                        && !board.is_square_occupied(zone_pos)
+                    {
+                        // Bonus for defensive gold drop in king zone
+                        let zone_bonus = (severity * 40.0) as i32;
+                        mg_score += zone_bonus;
+                        eg_score += zone_bonus / 2;
+                    }
+                }
+            }
         }
 
         TaperedScore::new_tapered(mg_score, eg_score)

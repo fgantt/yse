@@ -1,6 +1,5 @@
 use crate::bitboards::*;
 use crate::evaluation::piece_square_tables::PieceSquareTables;
-use crate::moves::MoveGenerator;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{PieceType, Player, Position};
 use crate::types::evaluation::{
@@ -67,6 +66,8 @@ pub mod tactical_patterns_simd;
 // Newly extracted modules (Task 1.0: File Modularization)
 pub mod component_coordinator;
 pub mod dependency_graph;
+pub mod initiative_tracking;
+pub mod storm_tracking;
 pub mod telemetry;
 pub mod weight_tuning;
 

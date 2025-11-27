@@ -40,11 +40,11 @@
   - [x] 3.3 Enhance `quiescence.rs` and late-move pruning to revisit nodes where SEE indicates a self-destructive capture or where promoted-pawn threats exist.
   - [x] 3.4 Wire initiative/attack debt metrics into search statistics so offensive pressure translates into selective deepening when coordination is present.
 
-- [ ] 4.0 Build pawn-storm and attack-response framework
-  - [ ] 4.1 Define storm-state tracking structs (consecutive pushes, file ownership, time since response) accessible to evaluation and search layers.
-  - [ ] 4.2 Expand drop heuristics (pawn/gold drops such as `▲8八歩打`, `▲7八金`) so they trigger automatically when storm severity crosses a threshold.
-  - [ ] 4.3 Implement initiative tracking that recognizes climbing silver, edge attacks, and prepared pawn breaks; ensure scoring kicks in only after development prerequisites are met.
-  - [ ] 4.4 Add “attack debt” penalties that escalate when the engine amasses attacking resources but fails to convert within a configurable ply window.
+- [x] 4.0 Build pawn-storm and attack-response framework
+  - [x] 4.1 Define storm-state tracking structs (consecutive pushes, file ownership, time since response) accessible to evaluation and search layers.
+  - [x] 4.2 Expand drop heuristics (pawn/gold drops such as `▲8八歩打`, `▲7八金`) so they trigger automatically when storm severity crosses a threshold.
+  - [x] 4.3 Implement initiative tracking that recognizes climbing silver, edge attacks, and prepared pawn breaks; ensure scoring kicks in only after development prerequisites are met.
+  - [x] 4.4 Add "attack debt" penalties that escalate when the engine amasses attacking resources but fails to convert within a configurable ply window.
 
 - [ ] 5.0 Expand validation and performance safeguards
   - [ ] 5.1 Capture FENs for △8七歩成 and ▲4四角?? critical positions; craft targeted self-play suites verifying protective responses.
@@ -79,4 +79,16 @@ Next Steps:
 - **Task 3.4 (Initiative Metrics)**: Added `InitiativeMetrics` struct to `SearchStatistics` to track offensive pressure and coordination. Implemented `evaluate_initiative_coordination()` to detect coordinated major pieces and attackers near opponent king. Added `should_deepen_for_initiative()` method that triggers selective deepening when initiative score ≥ 50cp, translating offensive pressure into deeper search when coordination is present.
 
 All stability-aware search improvements are now integrated and ready for testing. The engine will prioritize defensive moves, reduce effort on problematic king-first lines, revisit critical tactical positions, and deepen search when offensive coordination is detected.
+
+## Task 4.0 Completion Notes
+
+- **Task 4.1 (Storm-State Tracking)**: Created comprehensive `StormState` and `FileStormState` structs in `src/evaluation/storm_tracking.rs` that track consecutive pawn pushes, file ownership, time since response, and penetration depth. The `StormState::analyze()` method processes the board and updates storm metrics accessible to both evaluation and search layers. Integrated into `KingSafetyEvaluator` via `get_storm_state()` method, with storm penalties that escalate based on time since response.
+
+- **Task 4.2 (Storm-Aware Drop Heuristics)**: Added `evaluate_storm_aware_drops()` method to `PositionFeatureEvaluator` that automatically triggers pawn/gold drop bonuses when storm severity crosses a threshold (1.5). The method recommends blocking drops (e.g., `▲8八歩打`, `▲7八金`) on files with active storms, with bonuses scaling by storm severity. Gold drops receive higher bonuses than pawn drops, and king-zone defensive drops (7八金 style) get additional priority.
+
+- **Task 4.3 (Initiative Tracking)**: Implemented comprehensive initiative tracking in `src/evaluation/initiative_tracking.rs` with `InitiativeState` that recognizes climbing silver attacks, edge attacks (files 1/9), prepared pawn breaks, coordinated major pieces, and rook file openings. All scoring is gated by `check_development_prerequisites()` which requires at least one developed major piece and 6+ moves before initiative bonuses apply, ensuring scoring only kicks in after development milestones are met.
+
+- **Task 4.4 (Attack Debt Penalties)**: Added `AttackDebt` struct that tracks when the engine accumulates attacking resources (initiative score ≥ 30cp) but fails to convert them within a configurable ply window (default 8 plies). Penalties escalate based on how many plies have passed beyond the window, calculated as `base_penalty * (1.0 + debt_multiplier)` where the multiplier increases by 0.1 per extra ply. The attack debt is integrated into `InitiativeState::analyze()` and automatically applied when resources are present but unconverted.
+
+All pawn-storm and attack-response framework components are now integrated. The engine can detect storms, recommend defensive drops, track offensive initiative patterns, and penalize failure to convert attacking advantages, providing a comprehensive framework for handling both defensive and offensive gameplay stability.
 

@@ -1,6 +1,7 @@
 use crate::bitboards::*;
 use crate::evaluation::attacks::{AttackAnalyzer, ThreatEvaluator};
 use crate::evaluation::castles::{CastleCacheStats, CastleRecognizer};
+use crate::evaluation::storm_tracking::StormState;
 use crate::types::core::{PieceType, Player, Position};
 use crate::types::evaluation::{KingSafetyConfig, TaperedScore};
 use serde::{Deserialize, Serialize};
@@ -379,8 +380,13 @@ impl KingSafetyEvaluator {
             // Castle structure evaluation
             if let Some(king_pos) = self.find_king_position(board, player) {
                 let castle_eval = self.castle_recognizer.evaluate_castle(board, player, king_pos);
-                let storm_metrics = analyze_pawn_storms(board, player);
-                if storm_metrics.is_active() {
+                
+                // Use comprehensive storm tracking (Task 4.1)
+                let mut storm_state = StormState::new();
+                storm_state.analyze(board, player, 0, None); // TODO: Pass actual move_count and last_storm_state
+                let storm_metrics = analyze_pawn_storms(board, player); // Keep for backward compatibility
+                
+                if storm_state.has_active_storm() || storm_metrics.is_active() {
                     let mut stats = self.stats.borrow_mut();
                     stats.storm_events += 1;
                 }
@@ -518,16 +524,33 @@ impl KingSafetyEvaluator {
 
                 let progress_ratio = castle_eval.progress_ratio().clamp(0.0, 1.0);
                 let mut progress_adjustment = TaperedScore::default();
-                if storm_metrics.is_active() {
+                
+                // Use comprehensive storm state for more accurate penalties (Task 4.1)
+                let storm_severity = if storm_state.has_active_storm() {
+                    storm_state.total_severity
+                } else if storm_metrics.is_active() {
+                    storm_metrics.severity()
+                } else {
+                    0.0
+                };
+                
+                if storm_severity > 0.0 {
                     progress_adjustment +=
-                        self.config.storm_pressure_penalty * storm_metrics.severity();
+                        self.config.storm_pressure_penalty * storm_severity;
                     let deficit = (self.config.minimum_castle_progress - progress_ratio).max(0.0);
                     if deficit > 0.0 {
+                        // Escalate penalty based on time since response (Task 4.1)
+                        let time_multiplier = if let Some(critical_file) = storm_state.get_most_critical_file() {
+                            let file_state = storm_state.get_file_state(critical_file);
+                            1.0 + (file_state.plies_since_response as f32 * 0.1).min(0.5)
+                        } else {
+                            1.0
+                        };
                         progress_adjustment += self.config.castle_progress_penalty
-                            * (deficit * storm_metrics.severity());
+                            * (deficit * storm_severity * time_multiplier);
                     } else {
                         progress_adjustment += self.config.castle_progress_bonus
-                            * (progress_ratio * storm_metrics.severity());
+                            * (progress_ratio * storm_severity);
                     }
                 } else {
                     let deficit = (self.config.minimum_castle_progress - progress_ratio).max(0.0);
@@ -719,6 +742,22 @@ impl KingSafetyEvaluator {
     pub fn evaluate_quiescence(&self, _board: &BitboardBoard, _player: Player) -> TaperedScore {
         // Return zero for quiescence search to avoid expensive evaluation
         TaperedScore::default()
+    }
+
+    /// Get comprehensive storm state for the given player (Task 4.1)
+    ///
+    /// This method analyzes the board and returns detailed storm tracking
+    /// information that can be used by both evaluation and search layers.
+    pub fn get_storm_state(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        move_count: u32,
+        last_storm_state: Option<&StormState>,
+    ) -> StormState {
+        let mut storm_state = StormState::new();
+        storm_state.analyze(board, player, move_count, last_storm_state);
+        storm_state
     }
 
     /// Find king position for a player
