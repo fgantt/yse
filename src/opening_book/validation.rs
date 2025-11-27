@@ -4,7 +4,8 @@
 /// including duplicate detection, move legality, weight/evaluation consistency,
 /// FEN format validation, and position bounds checking.
 use super::OpeningBook;
-use std::collections::HashSet;
+use crate::opening_book::templates;
+use std::collections::{BTreeMap, HashSet};
 
 /// Validator for opening book data
 pub struct BookValidator;
@@ -36,6 +37,16 @@ pub struct ValidationReport {
     pub warnings: Vec<String>,
     /// Whether validation passed (no errors)
     pub is_valid: bool,
+    /// Number of king-first / rook-swing policy violations
+    pub policy_violation_count: usize,
+    /// Details for each policy violation
+    pub policy_violation_details: Vec<(String, String)>,
+    /// Number of openings that failed to map onto an approved template
+    pub template_mismatch_count: usize,
+    /// Details for each template mismatch
+    pub template_mismatch_details: Vec<(String, String)>,
+    /// Coverage summary by canonical template name
+    pub template_summary: Vec<(String, usize)>,
 }
 
 impl Default for ValidationReport {
@@ -53,6 +64,11 @@ impl Default for ValidationReport {
             out_of_bounds_details: Vec::new(),
             warnings: Vec::new(),
             is_valid: true,
+            policy_violation_count: 0,
+            policy_violation_details: Vec::new(),
+            template_mismatch_count: 0,
+            template_mismatch_details: Vec::new(),
+            template_summary: Vec::new(),
         }
     }
 }
@@ -245,12 +261,23 @@ impl BookValidator {
         report.out_of_bounds_count = out_of_bounds;
         report.out_of_bounds_details = out_of_bounds_details;
 
+        let (policy_violations, policy_violation_details) = Self::validate_opening_policies(book);
+        report.policy_violation_count = policy_violations;
+        report.policy_violation_details = policy_violation_details;
+
+        let (template_summary, template_mismatches) = Self::summarize_templates(book);
+        report.template_summary = template_summary;
+        report.template_mismatch_count = template_mismatches.len();
+        report.template_mismatch_details = template_mismatches;
+
         // Determine if validation passed
         report.is_valid = report.duplicates_found == 0
             && report.illegal_moves == 0
             && report.inconsistencies == 0
             && report.invalid_fen_count == 0
-            && report.out_of_bounds_count == 0;
+            && report.out_of_bounds_count == 0
+            && report.policy_violation_count == 0
+            && report.template_mismatch_count == 0;
 
         // Add warnings if any issues found
         if report.duplicates_found > 0 {
@@ -277,7 +304,60 @@ impl BookValidator {
                 .warnings
                 .push(format!("Found {} out-of-bounds positions", report.out_of_bounds_count));
         }
+        if report.policy_violation_count > 0 {
+            report
+                .warnings
+                .push(format!("Found {} policy violations", report.policy_violation_count));
+        }
+        if report.template_mismatch_count > 0 {
+            report.warnings.push(format!(
+                "Found {} openings without a registered template",
+                report.template_mismatch_count
+            ));
+        }
 
         report
+    }
+
+    fn summarize_templates(book: &OpeningBook) -> (Vec<(String, usize)>, Vec<(String, String)>) {
+        let mut summary: BTreeMap<String, usize> = BTreeMap::new();
+        let mut mismatches = Vec::new();
+
+        for (fen, moves) in book.get_all_positions() {
+            for book_move in moves {
+                match book_move.opening_name.as_deref() {
+                    Some(name) => {
+                        if let Some(template) = templates::find_template_for_opening(name) {
+                            *summary.entry(template.canonical_name.to_string()).or_insert(0) += 1;
+                        } else {
+                            mismatches.push((
+                                fen.clone(),
+                                format!("Opening '{}' is missing from template registry", name),
+                            ));
+                        }
+                    }
+                    None => mismatches
+                        .push((fen.clone(), "Opening metadata missing opening_name".to_string())),
+                }
+            }
+        }
+
+        (summary.into_iter().collect(), mismatches)
+    }
+
+    fn validate_opening_policies(book: &OpeningBook) -> (usize, Vec<(String, String)>) {
+        let mut violations = 0;
+        let mut details = Vec::new();
+
+        for (fen, moves) in book.get_all_positions() {
+            for book_move in moves {
+                if let Some(reason) = OpeningBook::detect_policy_violation(&fen, &book_move) {
+                    violations += 1;
+                    details.push((fen.clone(), reason));
+                }
+            }
+        }
+
+        (violations, details)
     }
 }

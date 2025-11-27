@@ -32,6 +32,7 @@ Strategic Mitigations
 - Populate the opening book and heuristic priors with vetted structures (static rook, ranging rook, disciplined Ureshino) ensuring early pawn pushes (`▲7六歩`, `▲2六歩`) precede king/rook moves.
 - Hard-block first-ply king moves and aimless major-piece moves via evaluation penalties unless a tactical PV proves ≥ +150 centipawns.
 - Track “opening debt” (count of non-developing moves) and penalize exceeding a configurable threshold before move 12.
+- Canonical templates plus ply thresholds live in `docs/design/gameplay-stability/OPENING_TEMPLATE_POLICY.md` and drive the enforcement hooks in `src/opening_book/templates.rs`.
 
 ### 2. Castle Formation Requirements
 - Define minimum castle targets (e.g., simple gold castle: `▲6八玉`, `▲7八玉`, `▲6八金`) and award increasing penalties per ply when unmet once opponent starts edge or central pawn storms.

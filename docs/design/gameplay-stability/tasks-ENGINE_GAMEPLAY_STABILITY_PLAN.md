@@ -28,11 +28,11 @@
 - [x] 1.5 Extend `KingSafetyConfig`/`OpeningPrincipleConfig` so castle progress, storm pressure, redundant-move, and opening-debt heuristics have explicit weight knobs for future tuning.
   - [x] 1.6 Update evaluation weight configs/tuning defaults so new terms get sensible initial values and can be tuned later.
 
-- [ ] 2.0 Enforce disciplined opening templates and king-safety policies
-  - [ ] 2.1 Review `openingBook.json` plus generation scripts to enumerate approved templates (static rook, ranging rook, disciplined Ureshino).
-  - [ ] 2.2 Encode “no king-first / no early rook swings” constraints inside `opening_book.rs` and validation routines so illegal sequences are filtered during book compilation.
-  - [ ] 2.3 Inject heuristic priors (e.g., bonuses for `▲7六歩`, `▲2六歩`) into `opening_principles.rs` to mirror the curated book even when out-of-book.
-  - [ ] 2.4 Document the updated template rules and regeneration procedure in `docs/design/gameplay-stability/` and cross-link from opening-book docs.
+- [x] 2.0 Enforce disciplined opening templates and king-safety policies
+  - [x] 2.1 Review `openingBook.json` plus generation scripts to enumerate approved templates (static rook, ranging rook, disciplined Ureshino).
+  - [x] 2.2 Encode “no king-first / no early rook swings” constraints inside `opening_book.rs` and validation routines so illegal sequences are filtered during book compilation.
+  - [x] 2.3 Inject heuristic priors (e.g., bonuses for `▲7六歩`, `▲2六歩`) into `opening_principles.rs` to mirror the curated book even when out-of-book.
+  - [x] 2.4 Document the updated template rules and regeneration procedure in `docs/design/gameplay-stability/` and cross-link from opening-book docs.
 
 - [ ] 3.0 Update search and move-ordering logic for stability awareness
   - [ ] 3.1 Adjust `move_ordering/mod.rs` bonuses so castle-progressing and storm-response moves rise in the ordering queue.
@@ -59,6 +59,10 @@
 - Extended `KingSafetyConfig` defaults with progress/ storm weights so the new heuristics appear in tuning manifests out of the box.
 - Expanded `OpeningPrincipleConfig` and `evaluate_opening_penalties` to model redundant major-piece shuffles and opening-debt accumulation, giving early-line evaluations concrete incentives to develop instead of oscillating.
 - Wired redundant-move penalties to favor productive moves (captures/checks) and added opening debt scaling that matches move count, keeping enforcement soft but unavoidable.
+
+- Registered Static Rook, Ranging Rook, and Disciplined Ureshino templates in `src/opening_book/templates.rs`; validation now reports coverage and blocks king-first / premature rook-swing moves per template policy.
+- Added opening priors in `opening_principles.rs` so the evaluator rewards early `7g7f`/`2g2f` pawn pushes out of book, keeping the engine aligned with curated plans.
+- Authored `docs/design/gameplay-stability/OPENING_TEMPLATE_POLICY.md` (cross-linked from `docs/design/opening-book/README.md`) describing regeneration steps and guardrails enforced during book compilation.
 
 Next Steps:
 - Wire the new storm/initiative signals into move ordering (Task 3.0) to ensure search prioritizes the defensive resources now scored in evaluation.

@@ -1238,7 +1238,7 @@ impl TaperedEvalConfig {
                 "material" => Some("material"),
                 "piece_square_tables" => Some("position"),
                 "position_features" => None, /* Position features has multiple weights, skip
-                                               * aggregate */
+                * aggregate */
                 "tactical_patterns" => Some("tactical"),
                 "positional_patterns" => Some("positional"),
                 "castle_patterns" => Some("castle"),

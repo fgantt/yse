@@ -144,6 +144,15 @@ impl OpeningPrincipleEvaluator {
             score += coord_score;
         }
 
+        // 7. Opening priors (Task 2.3)
+        if self.config.enable_opening_priors {
+            let prior_score = self.evaluate_opening_priors(board, player, move_count);
+            let prior_interp = prior_score.interpolate(256);
+            self.stats.opening_priors_score += prior_interp as i64;
+            self.stats.opening_priors_evaluations += 1;
+            score += prior_score;
+        }
+
         // Telemetry: Log component contributions that exceed threshold (Task 19.0 -
         // Task 5.0)
         self.log_component_contributions(&score, move_count);
@@ -892,6 +901,70 @@ impl OpeningPrincipleEvaluator {
     }
 
     // =======================================================================
+    // OPENING PRIORS (STATIC ROOK HEURISTICS)
+    // =======================================================================
+
+    fn evaluate_opening_priors(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        move_count: u32,
+    ) -> TaperedScore {
+        if move_count > self.config.opening_prior_window {
+            return TaperedScore::default();
+        }
+
+        let mut mg_score = 0;
+        // Encourage 7g7f and 2g2f (mirrored for White)
+        for file in [7u8, 2u8] {
+            if self.pawn_has_advanced(board, player, file, 1) {
+                mg_score += self.config.static_rook_prior_bonus;
+            }
+        }
+
+        TaperedScore::new_tapered(mg_score, mg_score / 4)
+    }
+
+    fn pawn_has_advanced(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        file: u8,
+        min_steps: u8,
+    ) -> bool {
+        let start_row = if player == Player::Black { 6 } else { 2 };
+        let col = Self::file_to_col(file);
+        let start_pos = Position::new(start_row, col);
+
+        if let Some(piece) = board.get_piece(start_pos) {
+            if piece.player == player && piece.piece_type == PieceType::Pawn {
+                return false;
+            }
+        }
+
+        let dir: i8 = if player == Player::Black { -1 } else { 1 };
+        for step in 1..=min_steps {
+            let target_row = start_row as i8 + dir * step as i8;
+            if !(0..=8).contains(&target_row) {
+                break;
+            }
+            let pos = Position::new(target_row as u8, col);
+            if let Some(piece) = board.get_piece(pos) {
+                if piece.player == player && piece.piece_type == PieceType::Pawn {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    #[inline]
+    fn file_to_col(file: u8) -> u8 {
+        9 - file
+    }
+
+    // =======================================================================
     // PIECE COORDINATION EVALUATION (Task 19.0 - Task 2.0)
     // =======================================================================
 
@@ -1313,6 +1386,15 @@ impl OpeningPrincipleEvaluator {
                     0.0
                 },
             },
+            opening_priors: ComponentStats {
+                total_score: stats.opening_priors_score,
+                evaluation_count: stats.opening_priors_evaluations,
+                average_score: if stats.opening_priors_evaluations > 0 {
+                    stats.opening_priors_score as f64 / stats.opening_priors_evaluations as f64
+                } else {
+                    0.0
+                },
+            },
         }
     }
 }
@@ -1357,6 +1439,12 @@ pub struct OpeningPrincipleConfig {
     /// Penalty per missing developed piece relative to expected development
     /// count
     pub opening_debt_penalty: i32,
+    /// Enable bonuses for book-aligned pawn pushes (7g7f, 2g2f)
+    pub enable_opening_priors: bool,
+    /// Max ply where opening priors still apply
+    pub opening_prior_window: u32,
+    /// Bonus applied when a required pawn advances
+    pub static_rook_prior_bonus: i32,
 }
 
 impl Default for OpeningPrincipleConfig {
@@ -1375,6 +1463,9 @@ impl Default for OpeningPrincipleConfig {
             redundant_move_escalation: 4,
             opening_debt_grace: 4,
             opening_debt_penalty: 8,
+            enable_opening_priors: true,
+            opening_prior_window: 8,
+            static_rook_prior_bonus: 18,
         }
     }
 }
@@ -1405,6 +1496,8 @@ pub struct OpeningPrincipleStats {
     pub penalties_score: i64,
     /// Piece coordination component score sum
     pub piece_coordination_score: i64,
+    /// Opening priors component score sum
+    pub opening_priors_score: i64,
     /// Development component evaluation count
     pub development_evaluations: u64,
     /// Center control component evaluation count
@@ -1417,6 +1510,8 @@ pub struct OpeningPrincipleStats {
     pub penalties_evaluations: u64,
     /// Piece coordination component evaluation count
     pub piece_coordination_evaluations: u64,
+    /// Opening priors component evaluation count
+    pub opening_priors_evaluations: u64,
     /// Telemetry: Track if opening principles influenced move selection (Task
     /// 19.0 - Task 5.0)
     pub opening_principles_influenced_move: u64,
@@ -1449,6 +1544,8 @@ pub struct ComponentStatistics {
     pub penalties: ComponentStats,
     /// Piece coordination component statistics
     pub piece_coordination: ComponentStats,
+    /// Opening priors component statistics
+    pub opening_priors: ComponentStats,
 }
 
 /// Statistics for a single component
@@ -1634,5 +1731,43 @@ mod tests {
         // Starting position has no development
         assert_eq!(major.mg, 0);
         assert_eq!(minor.mg, 0);
+    }
+}
+
+#[cfg(test)]
+mod opening_prior_tests {
+    use super::*;
+    use crate::types::core::Piece;
+
+    #[test]
+    fn static_rook_pawn_pushes_score_bonus() {
+        let evaluator = OpeningPrincipleEvaluator::new();
+        let mut board = BitboardBoard::new();
+
+        let baseline = evaluator.evaluate_opening_priors(&board, Player::Black, 2);
+        assert_eq!(baseline.mg, 0);
+
+        let from = Position::from_usi_string("7g").unwrap();
+        let to = Position::from_usi_string("7f").unwrap();
+        board.remove_piece(from);
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), to);
+
+        let boosted = evaluator.evaluate_opening_priors(&board, Player::Black, 2);
+        assert!(boosted.mg >= evaluator.config.static_rook_prior_bonus);
+    }
+
+    #[test]
+    fn priors_stop_after_window() {
+        let evaluator = OpeningPrincipleEvaluator::new();
+        let mut board = BitboardBoard::new();
+
+        let from = Position::from_usi_string("2g").unwrap();
+        let to = Position::from_usi_string("2f").unwrap();
+        board.remove_piece(from);
+        board.place_piece(Piece::new(PieceType::Pawn, Player::Black), to);
+
+        let late_move = evaluator.config.opening_prior_window + 1;
+        let score = evaluator.evaluate_opening_priors(&board, Player::Black, late_move);
+        assert_eq!(score.mg, 0);
     }
 }

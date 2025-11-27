@@ -55,6 +55,8 @@ pub enum OpeningBookError {
     InvalidFen(String),
     /// Invalid move data
     InvalidMove(String),
+    /// Violates stability policy (king-first, premature rook swing, etc.)
+    PolicyViolation(String),
     /// Binary format parsing error
     BinaryFormatError(String),
     /// JSON parsing error
@@ -1347,6 +1349,8 @@ impl OpeningBook {
 
         // Validate each position entry
         for (_hash, entry) in &self.positions {
+            self.check_opening_policies(entry)?;
+
             // Validate FEN is not empty
             if entry.fen.is_empty() {
                 return Err(OpeningBookError::InvalidFen("Empty FEN string".to_string()));
@@ -1390,6 +1394,79 @@ impl OpeningBook {
         }
 
         Ok(())
+    }
+
+    fn check_opening_policies(&self, entry: &PositionEntry) -> Result<(), OpeningBookError> {
+        for book_move in &entry.moves {
+            if let Some(reason) = Self::detect_policy_violation(&entry.fen, book_move) {
+                return Err(OpeningBookError::PolicyViolation(format!(
+                    "{} | {}",
+                    entry.fen, reason
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Shared helper so validation/CLI tooling can surface policy violations.
+    pub(crate) fn detect_policy_violation(fen: &str, book_move: &BookMove) -> Option<String> {
+        // Only enforce during the first 12 plies – later king/rook moves are governed by eval.
+        let ply = Self::ply_from_fen(fen);
+        if ply > 12 {
+            return None;
+        }
+
+        let template = book_move
+            .opening_name
+            .as_deref()
+            .and_then(templates::find_template_for_opening)
+            .unwrap_or_else(templates::default_template);
+
+        let is_rook_swing = Self::is_rook_swing(book_move);
+        if template.violates_policy(book_move.piece_type, ply, is_rook_swing) {
+            let descriptor = Self::describe_book_move(book_move);
+            let rationale = match book_move.piece_type {
+                PieceType::King => format!(
+                    "{} before ply {} breaks {} king-first ban",
+                    descriptor, template.king_move_min_ply, template.canonical_name
+                ),
+                PieceType::Rook if is_rook_swing => format!(
+                    "{} before ply {} breaks {} rook-swing guardrail",
+                    descriptor, template.rook_swing_min_ply, template.canonical_name
+                ),
+                _ => return None,
+            };
+            return Some(rationale);
+        }
+
+        None
+    }
+
+    fn ply_from_fen(fen: &str) -> u32 {
+        fen.split_whitespace()
+            .nth(3)
+            .and_then(|field| field.parse::<u32>().ok())
+            .unwrap_or(1)
+    }
+
+    fn is_rook_swing(book_move: &BookMove) -> bool {
+        if book_move.piece_type != PieceType::Rook {
+            return false;
+        }
+        match book_move.from {
+            Some(from) => from.row == book_move.to.row && from.col != book_move.to.col,
+            None => false, // Drops are not swings
+        }
+    }
+
+    fn describe_book_move(book_move: &BookMove) -> String {
+        if let Some(notation) = &book_move.move_notation {
+            notation.clone()
+        } else if let Some(from) = book_move.from {
+            format!("{}{}", from, book_move.to)
+        } else {
+            format!("{:?}->{}", book_move.piece_type, book_move.to)
+        }
     }
 
     /// Refresh evaluations for all positions using current engine evaluation
@@ -1747,6 +1824,9 @@ pub mod statistics;
 #[path = "opening_book/coverage.rs"]
 pub mod coverage;
 
+/// Template registry for opening book policy enforcement
+#[path = "opening_book/templates.rs"]
+pub mod templates;
 /// Validation tools for opening book
 #[path = "opening_book/validation.rs"]
 pub mod validation;
