@@ -87,18 +87,6 @@ macro_rules! log_move_eval {
     };
 }
 
-macro_rules! time_eval {
-    ($expr:expr) => {{
-        let start = std::time::Instant::now();
-        let res = $expr;
-        let elapsed = start.elapsed();
-        if elapsed.as_millis() > 10 {
-            println!("Slow eval: {}ms", elapsed.as_millis());
-        }
-        res
-    }};
-}
-
 #[cfg(test)]
 mod search_tests {
     use super::*;
@@ -2239,7 +2227,7 @@ impl SearchEngine {
     ///
     /// Detects if a move is moving the king early in the opening,
     /// which violates opening principles.
-    fn is_king_first_move(&self, move_: &Move, board: &BitboardBoard, player: Player) -> bool {
+    fn is_king_first_move(&self, move_: &Move, _board: &BitboardBoard, player: Player) -> bool {
         use crate::types::core::PieceType;
         
         // Check if move is a king move
@@ -14768,7 +14756,7 @@ impl IterativeDeepening {
                     let depth_completion_time = depth_start_time.elapsed_ms();
                     let search_elapsed_ms = search_start_time.elapsed().as_millis() as u32;
                     let nodes_searched = GLOBAL_NODES_SEARCHED.load(Ordering::Relaxed);
-                    let nps = if search_elapsed_ms > 0 {
+                    let _nps = if search_elapsed_ms > 0 {
                         nodes_searched.saturating_mul(1000) / (search_elapsed_ms as u64)
                     } else {
                         0

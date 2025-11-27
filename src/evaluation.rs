@@ -933,9 +933,9 @@ impl PositionEvaluator {
     /// Evaluate mobility (number of legal moves)
     fn evaluate_mobility(
         &self,
-        board: &BitboardBoard,
-        player: Player,
-        captured_pieces: &CapturedPieces,
+        _board: &BitboardBoard,
+        _player: Player,
+        _captured_pieces: &CapturedPieces,
     ) -> TaperedScore {
         // Task: Optimize mobility evaluation (removed expensive MoveGenerator)
         // For now, return 0 to fix performance regression.

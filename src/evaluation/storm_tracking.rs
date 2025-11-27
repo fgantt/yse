@@ -75,7 +75,7 @@ impl StormState {
         &mut self,
         board: &BitboardBoard,
         player: Player,
-        move_count: u32,
+        _move_count: u32,
         last_storm_state: Option<&StormState>,
     ) {
         let opponent = player.opposite();

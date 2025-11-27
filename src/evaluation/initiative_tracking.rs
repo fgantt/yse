@@ -347,7 +347,7 @@ impl InitiativeState {
         &self,
         board: &BitboardBoard,
         player: Player,
-        opponent: Player,
+        _opponent: Player,
     ) -> Option<i32> {
         let mut edge_score = 0;
         let edge_files = [0u8, 8u8]; // Files 1 and 9 (0-indexed)

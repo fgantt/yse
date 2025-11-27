@@ -48,7 +48,9 @@ use crate::types::{set_bit, Bitboard};
 /// SIMD-optimized pattern matcher for tactical patterns
 pub struct SimdPatternMatcher {
     // Pattern templates for common tactical patterns
+    #[allow(dead_code)]
     fork_patterns: Vec<ForkPattern>,
+    #[allow(dead_code)]
     pin_patterns: Vec<PinPattern>,
 }
 
@@ -56,8 +58,10 @@ pub struct SimdPatternMatcher {
 #[derive(Clone, Copy)]
 struct ForkPattern {
     /// Attack pattern that indicates a fork
+    #[allow(dead_code)]
     attack_mask: SimdBitboard,
     /// Minimum number of targets required
+    #[allow(dead_code)]
     min_targets: u32,
 }
 
@@ -65,8 +69,10 @@ struct ForkPattern {
 #[derive(Clone, Copy)]
 struct PinPattern {
     /// Line pattern for pin detection
+    #[allow(dead_code)]
     line_mask: SimdBitboard,
     /// Direction of the pin
+    #[allow(dead_code)]
     direction: (i8, i8),
 }
 
@@ -268,7 +274,7 @@ impl SimdPatternMatcher {
         &self,
         board: &BitboardBoard,
         from: Position,
-        piece_type: PieceType,
+        _piece_type: PieceType,
         player: Player,
         dr: i8,
         dc: i8,

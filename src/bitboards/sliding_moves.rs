@@ -29,6 +29,7 @@ impl SimpleLookupEngine {
 
     /// Get reference to the magic table for prefetching
     /// Task 3.12.1: Access magic table for prefetching hints
+    #[allow(dead_code)]
     fn magic_table(&self) -> &MagicTable {
         &self.magic_table
     }
@@ -305,10 +306,10 @@ impl SlidingMoveGenerator {
                         if self.magic_enabled {
                             // Task 3.12.1: Prefetch magic table entry for upcoming piece
                             // Safety: Only prefetch magic entries (arrays are always valid)
-                            unsafe {
-                                #[cfg(target_arch = "x86_64")]
-                                {
-                                    use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+                            #[cfg(target_arch = "x86_64")]
+                            {
+                                use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+                                unsafe {
                                     // Prefetch the magic entry (rook_magics or bishop_magics)
                                     // These are fixed-size arrays, so bounds check is sufficient
                                     let magic_table = self.lookup_engine.magic_table();
@@ -334,13 +335,13 @@ impl SlidingMoveGenerator {
                                         _ => {}
                                     }
                                 }
+                            }
 
-                                #[cfg(target_arch = "aarch64")]
-                                {
-                                    // ARM64 prefetch is not stable in std::arch yet
-                                    // Use compiler hint as fallback
-                                    let _ = (prefetch_square, prefetch_piece_type);
-                                }
+                            #[cfg(target_arch = "aarch64")]
+                            {
+                                // ARM64 prefetch is not stable in std::arch yet
+                                // Use compiler hint as fallback
+                                let _ = (prefetch_square, prefetch_piece_type);
                             }
                         }
                     }
@@ -358,10 +359,10 @@ impl SlidingMoveGenerator {
                 // Task 3.12.1: Prefetch magic table entry for current piece if not already
                 // prefetched
                 if self.magic_enabled && local_idx == 0 {
-                    unsafe {
-                        #[cfg(target_arch = "x86_64")]
-                        {
-                            use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+                    #[cfg(target_arch = "x86_64")]
+                    {
+                        use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+                        unsafe {
                             let magic_table = self.lookup_engine.magic_table();
                             match piece_type {
                                 PieceType::Rook | PieceType::PromotedRook => {
@@ -390,10 +391,10 @@ impl SlidingMoveGenerator {
                     // Task 3.12.1: Prefetch attack_storage entry if we can predict it
                     // We prefetch based on a likely attack_index (using empty occupied as estimate)
                     // Safety: Only prefetch if attack_storage is initialized and non-empty
-                    unsafe {
-                        #[cfg(target_arch = "x86_64")]
-                        {
-                            use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+                    #[cfg(target_arch = "x86_64")]
+                    {
+                        use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+                        unsafe {
                             let magic_table = self.lookup_engine.magic_table();
                             // Only prefetch if attack_storage is actually populated
                             if !magic_table.attack_storage.is_empty() {

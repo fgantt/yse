@@ -94,7 +94,7 @@ impl QuiescenceHelper {
     pub fn is_self_destructive_capture(
         &self,
         move_: &Move,
-        board: &crate::bitboards::BitboardBoard,
+        _board: &crate::bitboards::BitboardBoard,
     ) -> bool {
         if !move_.is_capture {
             return false;

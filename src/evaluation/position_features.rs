@@ -158,6 +158,7 @@ enum GuardState {
 }
 
 const MOBILITY_BOARD_AREA: usize = 81;
+#[allow(dead_code)]
 const ALL_PIECE_TYPES: [PieceType; PieceType::COUNT] = [
     PieceType::Pawn,
     PieceType::Lance,
@@ -181,6 +182,7 @@ fn index_for_position(pos: Position) -> usize {
 }
 
 #[derive(Default, Clone, Copy)]
+#[allow(dead_code)]
 struct PieceMobilityStats {
     total_moves: i32,
     central_moves: i32,
@@ -188,6 +190,7 @@ struct PieceMobilityStats {
 }
 
 #[derive(Default, Clone, Copy)]
+#[allow(dead_code)]
 struct DropMobilityStats {
     total_moves: i32,
     central_moves: i32,
@@ -766,6 +769,7 @@ impl PositionFeatureEvaluator {
     /// This method expands drop heuristics to automatically trigger pawn/gold drops
     /// when storm severity crosses a threshold. Returns bonus score for having
     /// appropriate pieces in hand to respond to storms.
+    #[allow(dead_code)]
     fn evaluate_storm_aware_drops(
         &self,
         board: &BitboardBoard,
@@ -1932,6 +1936,7 @@ impl PositionFeatureEvaluator {
         TaperedScore::default()
     }
 
+    #[allow(dead_code)]
     fn evaluate_piece_mobility_from_stats(
         &self,
         piece_type: PieceType,
@@ -1963,6 +1968,7 @@ impl PositionFeatureEvaluator {
         TaperedScore::new_tapered(mg_score, eg_score)
     }
 
+    #[allow(dead_code)]
     fn evaluate_drop_mobility(
         &self,
         piece_type: PieceType,
@@ -1986,6 +1992,7 @@ impl PositionFeatureEvaluator {
     }
 
     /// Get mobility weight for piece type (mg, eg)
+    #[allow(dead_code)]
     fn get_mobility_weight(&self, piece_type: PieceType) -> (i32, i32) {
         match piece_type {
             // Major pieces - high mobility value
@@ -2013,6 +2020,7 @@ impl PositionFeatureEvaluator {
     }
 
     /// Get restriction penalty for piece type (mg, eg)
+    #[allow(dead_code)]
     fn get_restriction_penalty(&self, piece_type: PieceType) -> (i32, i32) {
         match piece_type {
             // Major pieces suffer most from restriction
@@ -2036,6 +2044,7 @@ impl PositionFeatureEvaluator {
     }
 
     /// Get central mobility bonus for piece type (mg, eg)
+    #[allow(dead_code)]
     fn get_central_mobility_bonus(&self, piece_type: PieceType) -> (i32, i32) {
         match piece_type {
             // Major pieces benefit most from central mobility
@@ -2061,6 +2070,7 @@ impl PositionFeatureEvaluator {
         }
     }
 
+    #[allow(dead_code)]
     fn get_drop_mobility_weight(&self, piece_type: PieceType) -> (i32, i32) {
         let base = self.get_mobility_weight(piece_type);
         let mg = (base.0 + 1) / 2;
@@ -2068,6 +2078,7 @@ impl PositionFeatureEvaluator {
         (mg.max(1), eg.max(1))
     }
 
+    #[allow(dead_code)]
     fn get_drop_central_bonus(&self, piece_type: PieceType) -> (i32, i32) {
         let base = self.get_central_mobility_bonus(piece_type);
         let mg = if base.0 == 0 { 0 } else { (base.0 + 1) / 2 };
@@ -2076,6 +2087,7 @@ impl PositionFeatureEvaluator {
     }
 
     /// Check if a square is in the center (3x3 center area)
+    #[allow(dead_code)]
     fn is_central_square(&self, pos: Position) -> bool {
         pos.row >= 3 && pos.row <= 5 && pos.col >= 3 && pos.col <= 5
     }

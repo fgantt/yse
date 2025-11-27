@@ -2883,7 +2883,7 @@ impl MoveOrdering {
         move_: &Move,
         board: &crate::bitboards::BitboardBoard,
     ) -> Option<i32> {
-        use crate::types::core::{PieceType, Player};
+        use crate::types::core::PieceType;
 
         // Only consider defensive pieces for castle formation
         let is_defensive_piece = matches!(

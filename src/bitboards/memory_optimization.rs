@@ -85,7 +85,7 @@ pub mod prefetch {
     /// # Arguments
     /// * `bb` - Reference to the bitboard to prefetch
     /// * `level` - Cache level to prefetch into
-    pub fn prefetch_bitboard(bb: &SimdBitboard, level: PrefetchLevel) {
+    pub fn prefetch_bitboard(bb: &SimdBitboard, _level: PrefetchLevel) {
         #[cfg(target_arch = "x86_64")]
         {
             let hint = match level {
@@ -158,7 +158,7 @@ pub mod prefetch {
     /// * `ptr` - Pointer to memory address to prefetch
     /// * `level` - Cache level to prefetch into
     #[inline(always)]
-    pub unsafe fn prefetch_ptr(ptr: *const i8, level: PrefetchLevel) {
+    pub unsafe fn prefetch_ptr(ptr: *const i8, _level: PrefetchLevel) {
         #[cfg(target_arch = "x86_64")]
         {
             let hint = match level {
@@ -366,8 +366,8 @@ pub mod adaptive_prefetch {
 
         /// Get optimal prefetch distance for current workload
         pub fn get_optimal_distance(&self, current_index: usize, total_items: usize) -> usize {
-            // Base distance from workload type
-            let base = match self.workload_type {
+            // Base distance from workload type (currently unused, kept for future use)
+            let _base = match self.workload_type {
                 WorkloadType::Sequential { base_distance } => base_distance,
                 WorkloadType::Random { base_distance } => base_distance,
                 WorkloadType::Batch { base_distance } => base_distance,

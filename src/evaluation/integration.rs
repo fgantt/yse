@@ -1145,10 +1145,10 @@ impl IntegratedEvaluator {
 
                                 // Prefetch both mg and eg table entries into L1 cache
                                 // This reduces cache misses when we access these values later
-                                unsafe {
-                                    #[cfg(target_arch = "x86_64")]
-                                    {
-                                        use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+                                #[cfg(target_arch = "x86_64")]
+                                {
+                                    use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+                                    unsafe {
                                         let mg_ptr = &mg_table[prefetch_row as usize]
                                             [prefetch_col as usize]
                                             as *const i32
@@ -1160,14 +1160,14 @@ impl IntegratedEvaluator {
                                         _mm_prefetch(mg_ptr, _MM_HINT_T0);
                                         _mm_prefetch(eg_ptr, _MM_HINT_T0);
                                     }
-                                    #[cfg(target_arch = "aarch64")]
-                                    {
-                                        // ARM64 prefetch - use compiler hint
-                                        let _ = (
-                                            &mg_table[prefetch_row as usize][prefetch_col as usize],
-                                            &eg_table[prefetch_row as usize][prefetch_col as usize],
-                                        );
-                                    }
+                                }
+                                #[cfg(target_arch = "aarch64")]
+                                {
+                                    // ARM64 prefetch - use compiler hint
+                                    let _ = (
+                                        &mg_table[prefetch_row as usize][prefetch_col as usize],
+                                        &eg_table[prefetch_row as usize][prefetch_col as usize],
+                                    );
                                 }
                             }
                         }
@@ -1222,10 +1222,10 @@ impl IntegratedEvaluator {
 
                             // Prefetch both mg and eg table entries into L1 cache
                             // This reduces cache misses when we access these values later
-                            unsafe {
-                                #[cfg(target_arch = "x86_64")]
-                                {
-                                    use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+                            #[cfg(target_arch = "x86_64")]
+                            {
+                                use std::arch::x86_64::{_mm_prefetch, _MM_HINT_T0};
+                                unsafe {
                                     let mg_ptr = &mg_table[prefetch_row as usize]
                                         [prefetch_col as usize]
                                         as *const i32
@@ -1237,14 +1237,14 @@ impl IntegratedEvaluator {
                                     _mm_prefetch(mg_ptr, _MM_HINT_T0);
                                     _mm_prefetch(eg_ptr, _MM_HINT_T0);
                                 }
-                                #[cfg(target_arch = "aarch64")]
-                                {
-                                    // ARM64 prefetch - use compiler hint
-                                    let _ = (
-                                        &mg_table[prefetch_row as usize][prefetch_col as usize],
-                                        &eg_table[prefetch_row as usize][prefetch_col as usize],
-                                    );
-                                }
+                            }
+                            #[cfg(target_arch = "aarch64")]
+                            {
+                                // ARM64 prefetch - use compiler hint
+                                let _ = (
+                                    &mg_table[prefetch_row as usize][prefetch_col as usize],
+                                    &eg_table[prefetch_row as usize][prefetch_col as usize],
+                                );
                             }
                         }
                     }
