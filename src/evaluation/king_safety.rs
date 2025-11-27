@@ -6,6 +6,91 @@ use crate::types::evaluation::{KingSafetyConfig, TaperedScore};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Copy, Default)]
+struct StormMetrics {
+    severity_sum: f32,
+    threatened_files: u8,
+    deepest_penetration: u8,
+    center_pressure: bool,
+}
+
+impl StormMetrics {
+    fn is_active(&self) -> bool {
+        self.severity_sum > f32::EPSILON
+    }
+
+    fn severity(&self) -> f32 {
+        self.severity_sum
+    }
+}
+
+fn analyze_pawn_storms(board: &BitboardBoard, player: Player) -> StormMetrics {
+    let mut file_pressure = [0f32; 9];
+    let mut file_depth = [0u8; 9];
+    let mut center_pressure = false;
+    let enemy = player.opposite();
+
+    for (pos, piece) in board.iter_pieces() {
+        if piece.player != enemy {
+            continue;
+        }
+        if piece.piece_type != PieceType::Pawn {
+            continue;
+        }
+
+        let progress = match player {
+            Player::Black => pos.row.saturating_sub(5),
+            Player::White => (3i32 - pos.row as i32).max(0) as u8,
+        };
+
+        if progress == 0 {
+            continue;
+        }
+
+        let severity = match progress {
+            1 => 0.6,
+            2 => 1.0,
+            3 => 1.4,
+            _ => 1.7,
+        };
+
+        let mut adjusted = severity;
+
+        // If there is no friendly pawn or gold blocking on this file, escalate penalty
+        let blocking_square = match player {
+            Player::Black => pos.row.saturating_add(1).min(8),
+            Player::White => pos.row.saturating_sub(1),
+        };
+        let blocking_piece = board.get_piece(Position::new(blocking_square, pos.col));
+        let friendly_blocker = blocking_piece.filter(|p| p.player == player).filter(|p| {
+            matches!(p.piece_type, PieceType::Pawn | PieceType::Gold | PieceType::Silver)
+        });
+        if friendly_blocker.is_none() {
+            adjusted += 0.3;
+        }
+
+        let idx = pos.col as usize;
+        if [3, 4, 5].contains(&pos.col) {
+            center_pressure = true;
+        }
+        file_pressure[idx] = file_pressure[idx].max(adjusted);
+        file_depth[idx] = file_depth[idx].max(progress);
+    }
+
+    let mut metrics = StormMetrics::default();
+    metrics.center_pressure = center_pressure;
+
+    for col in 0..9 {
+        if file_pressure[col] > f32::EPSILON {
+            metrics.threatened_files += 1;
+            metrics.severity_sum += file_pressure[col];
+            metrics.deepest_penetration = metrics.deepest_penetration.max(file_depth[col]);
+        }
+    }
+
+    metrics
+}
+
 /// Statistics tracking for king safety evaluation
 #[derive(Debug, Clone, Default)]
 pub struct KingSafetyStats {
@@ -35,6 +120,10 @@ pub struct KingSafetyStats {
     pub partial_castle_penalties: u64,
     /// Total bare king penalties applied
     pub bare_king_penalties: u64,
+    /// Number of detected pawn storms
+    pub storm_events: u64,
+    /// Number of storm penalties applied
+    pub storm_penalties: u64,
 }
 
 /// Snapshot of king safety statistics for telemetry
@@ -55,6 +144,10 @@ pub struct KingSafetyStatsSnapshot {
     pub bare_king_penalties: u64,
     /// Castle recognition cache statistics
     pub castle_cache_stats: Option<CastleCacheStatsTelemetry>,
+    /// Number of storm detections
+    pub storm_events: u64,
+    /// Number of storm penalties applied
+    pub storm_penalties: u64,
 }
 
 /// Castle cache statistics for telemetry
@@ -98,11 +191,14 @@ impl KingSafetyStats {
             partial_castle_penalties: self.partial_castle_penalties,
             bare_king_penalties: self.bare_king_penalties,
             castle_cache_stats: castle_cache_telemetry,
+            storm_events: self.storm_events,
+            storm_penalties: self.storm_penalties,
         }
     }
 
     /// Merge statistics from another snapshot
-    /// Note: Castle cache stats are not merged as they're point-in-time snapshots
+    /// Note: Castle cache stats are not merged as they're point-in-time
+    /// snapshots
     pub fn merge_from(&mut self, snapshot: &KingSafetyStatsSnapshot) {
         self.evaluations += snapshot.evaluations;
         self.castle_matches += snapshot.castle_matches;
@@ -117,7 +213,10 @@ impl KingSafetyStats {
         self.exposure_penalties += snapshot.exposure_penalties;
         self.partial_castle_penalties += snapshot.partial_castle_penalties;
         self.bare_king_penalties += snapshot.bare_king_penalties;
-        // Castle cache stats are not merged - they represent point-in-time state
+        self.storm_events += snapshot.storm_events;
+        self.storm_penalties += snapshot.storm_penalties;
+        // Castle cache stats are not merged - they represent point-in-time
+        // state
     }
 
     /// Reset all statistics to zero
@@ -126,7 +225,8 @@ impl KingSafetyStats {
     }
 }
 
-/// Main king safety evaluator that combines castle recognition, attack analysis, and threat evaluation
+/// Main king safety evaluator that combines castle recognition, attack
+/// analysis, and threat evaluation
 ///
 /// This evaluator focuses on general king safety aspects:
 /// - King shields (protective pieces around the king)
@@ -134,17 +234,18 @@ impl KingSafetyStats {
 /// - Infiltration and exposure penalties
 /// - Partial castle detection (for penalty calculation)
 ///
-/// **Note on Castle Patterns**: This evaluator uses `CastleRecognizer` internally for detecting
-/// castle formations as part of king safety evaluation. However, in `IntegratedEvaluator`, castle
-/// patterns are also evaluated separately as a first-class component (`castle_patterns` flag).
+/// **Note on Castle Patterns**: This evaluator uses `CastleRecognizer`
+/// internally for detecting castle formations as part of king safety
+/// evaluation. However, in `IntegratedEvaluator`, castle patterns are also
+/// evaluated separately as a first-class component (`castle_patterns` flag).
 /// These are complementary:
-/// - `KingSafetyEvaluator` uses castle recognition to assess king safety (penalties for missing
-///   castle pieces, bonuses for complete castles)
-/// - `CastleRecognizer` in `IntegratedEvaluator` evaluates castle patterns as a positional feature
-///   with its own weight (`castle_weight`)
+/// - `KingSafetyEvaluator` uses castle recognition to assess king safety
+///   (penalties for missing castle pieces, bonuses for complete castles)
+/// - `CastleRecognizer` in `IntegratedEvaluator` evaluates castle patterns as a
+///   positional feature with its own weight (`castle_weight`)
 ///
-/// Both can be enabled simultaneously for comprehensive evaluation, though there may be some
-/// overlap in castle pattern detection.
+/// Both can be enabled simultaneously for comprehensive evaluation, though
+/// there may be some overlap in castle pattern detection.
 pub struct KingSafetyEvaluator {
     config: KingSafetyConfig,
     castle_recognizer: CastleRecognizer,
@@ -249,11 +350,13 @@ impl KingSafetyEvaluator {
             stats.evaluations += 1;
         }
 
-        // Check king safety evaluation cache first (separate from castle recognition cache)
+        // Check king safety evaluation cache first (separate from castle recognition
+        // cache)
         let board_hash = self.get_board_hash(board);
         if let Some(cached_score) = self.evaluation_cache.borrow().get(&(board_hash, player)) {
-            // Note: This is the king safety evaluation cache, not the castle recognition cache
-            // Castle recognition cache stats are tracked separately in castle_recognizer
+            // Note: This is the king safety evaluation cache, not the castle recognition
+            // cache Castle recognition cache stats are tracked separately in
+            // castle_recognizer
             if self.debug_logging {
                 crate::utils::telemetry::trace_log(
                     "KING_SAFETY",
@@ -276,6 +379,11 @@ impl KingSafetyEvaluator {
             // Castle structure evaluation
             if let Some(king_pos) = self.find_king_position(board, player) {
                 let castle_eval = self.castle_recognizer.evaluate_castle(board, player, king_pos);
+                let storm_metrics = analyze_pawn_storms(board, player);
+                if storm_metrics.is_active() {
+                    let mut stats = self.stats.borrow_mut();
+                    stats.storm_events += 1;
+                }
 
                 // Track castle evaluation statistics
                 {
@@ -287,15 +395,18 @@ impl KingSafetyEvaluator {
                     stats.total_missing_primary += castle_eval.missing_primary as u64;
                     stats.total_missing_shield += castle_eval.missing_shield as u64;
 
-                    // Note: Castle cache stats are tracked separately and exposed through stats() snapshot
-                    // Don't overwrite king safety cache stats here - they track a different cache
+                    // Note: Castle cache stats are tracked separately and exposed through stats()
+                    // snapshot Don't overwrite king safety cache stats here -
+                    // they track a different cache
 
                     if self.debug_logging {
                         let cache_stats = self.castle_recognizer.get_cache_stats();
                         crate::utils::telemetry::trace_log(
                             "KING_SAFETY",
                             &format!(
-                                "Castle eval: pattern={:?}, variant={:?}, quality={:.2}, missing_required={}, missing_primary={}, missing_shield={}, cache_hit_rate={:.1}%",
+                                "Castle eval: pattern={:?}, variant={:?}, quality={:.2}, \
+                                 missing_required={}, missing_primary={}, missing_shield={}, \
+                                 cache_hit_rate={:.1}%",
                                 castle_eval.matched_pattern,
                                 castle_eval.variant_id,
                                 castle_eval.quality,
@@ -402,6 +513,36 @@ impl KingSafetyEvaluator {
                         let mut stats = self.stats.borrow_mut();
                         stats.bare_kings += 1;
                         stats.bare_king_penalties += 1;
+                    }
+                }
+
+                let progress_ratio = castle_eval.progress_ratio().clamp(0.0, 1.0);
+                let mut progress_adjustment = TaperedScore::default();
+                if storm_metrics.is_active() {
+                    progress_adjustment +=
+                        self.config.storm_pressure_penalty * storm_metrics.severity();
+                    let deficit = (self.config.minimum_castle_progress - progress_ratio).max(0.0);
+                    if deficit > 0.0 {
+                        progress_adjustment += self.config.castle_progress_penalty
+                            * (deficit * storm_metrics.severity());
+                    } else {
+                        progress_adjustment += self.config.castle_progress_bonus
+                            * (progress_ratio * storm_metrics.severity());
+                    }
+                } else {
+                    let deficit = (self.config.minimum_castle_progress - progress_ratio).max(0.0);
+                    if deficit > 0.0 {
+                        progress_adjustment += self.config.castle_progress_penalty * deficit;
+                    } else if progress_ratio > 0.0 {
+                        progress_adjustment += self.config.castle_progress_bonus * progress_ratio;
+                    }
+                }
+
+                if progress_adjustment != TaperedScore::default() {
+                    castle_score += progress_adjustment;
+                    if storm_metrics.is_active() {
+                        let mut stats = self.stats.borrow_mut();
+                        stats.storm_penalties += 1;
                     }
                 }
 
@@ -992,7 +1133,7 @@ mod tests {
         evaluator.set_debug_logging(false);
         // Note: We can't easily test that logging actually happens without
         // capturing stdout, but we can verify the method works
-        // In practice, debug logging would be verified through integration tests
-        // that check log output
+        // In practice, debug logging would be verified through integration
+        // tests that check log output
     }
 }

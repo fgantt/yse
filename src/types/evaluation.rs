@@ -1,9 +1,11 @@
 //! Evaluation-Related Types
 //!
-//! This module contains all types related to position evaluation: tapered evaluation,
-//! material evaluation, piece-square tables, king safety, and evaluation configuration.
+//! This module contains all types related to position evaluation: tapered
+//! evaluation, material evaluation, piece-square tables, king safety, and
+//! evaluation configuration.
 //!
-//! Extracted from `types.rs` (now `all.rs`) as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `types.rs` (now `all.rs`) as part of Task 1.0: File
+//! Modularization and Structure Improvements.
 
 use serde::{Deserialize, Serialize};
 
@@ -252,6 +254,18 @@ pub struct KingSafetyConfig {
     /// Penalty applied when the king is largely exposed (very low quality)
     #[serde(default = "KingSafetyConfig::default_exposed_king_penalty")]
     pub exposed_king_penalty: TaperedScore,
+    /// Minimum castle progress ratio we expect before storms escalate
+    #[serde(default = "KingSafetyConfig::default_minimum_castle_progress")]
+    pub minimum_castle_progress: f32,
+    /// Bonus applied when castle progress exceeds the minimum target
+    #[serde(default = "KingSafetyConfig::default_castle_progress_bonus")]
+    pub castle_progress_bonus: TaperedScore,
+    /// Penalty applied per deficit of castle progress relative to target
+    #[serde(default = "KingSafetyConfig::default_castle_progress_penalty")]
+    pub castle_progress_penalty: TaperedScore,
+    /// Penalty applied per unit of pawn-storm severity around the king
+    #[serde(default = "KingSafetyConfig::default_storm_pressure_penalty")]
+    pub storm_pressure_penalty: TaperedScore,
     /// Weighting for combining pattern-derived coverage with zone coverage
     #[serde(default = "KingSafetyConfig::default_pattern_coverage_weight")]
     pub pattern_coverage_weight: f32,
@@ -293,6 +307,10 @@ impl Default for KingSafetyConfig {
             primary_defender_penalty: Self::default_primary_defender_penalty(),
             pawn_shield_penalty: Self::default_pawn_shield_penalty(),
             exposed_king_penalty: Self::default_exposed_king_penalty(),
+            minimum_castle_progress: Self::default_minimum_castle_progress(),
+            castle_progress_bonus: Self::default_castle_progress_bonus(),
+            castle_progress_penalty: Self::default_castle_progress_penalty(),
+            storm_pressure_penalty: Self::default_storm_pressure_penalty(),
             pattern_coverage_weight: Self::default_pattern_coverage_weight(),
             zone_coverage_weight: Self::default_zone_coverage_weight(),
             pattern_shield_weight: Self::default_pattern_shield_weight(),
@@ -344,6 +362,22 @@ impl KingSafetyConfig {
 
     fn default_exposed_king_penalty() -> TaperedScore {
         TaperedScore::new_tapered(-120, -60)
+    }
+
+    fn default_minimum_castle_progress() -> f32 {
+        0.55
+    }
+
+    fn default_castle_progress_bonus() -> TaperedScore {
+        TaperedScore::new_tapered(40, 20)
+    }
+
+    fn default_castle_progress_penalty() -> TaperedScore {
+        TaperedScore::new_tapered(-50, -25)
+    }
+
+    fn default_storm_pressure_penalty() -> TaperedScore {
+        TaperedScore::new_tapered(-65, -35)
     }
 
     fn default_pattern_coverage_weight() -> f32 {

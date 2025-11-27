@@ -65,7 +65,8 @@ impl OpeningPrincipleEvaluator {
     /// * `board` - Current board state
     /// * `player` - Player to evaluate for
     /// * `move_count` - Number of moves played (for tempo/development tracking)
-    /// * `captured_pieces` - Current captured pieces state (for drop pressure evaluation)
+    /// * `captured_pieces` - Current captured pieces state (for drop pressure
+    ///   evaluation)
     /// * `move_history` - Optional move history for repeated move detection
     pub fn evaluate_opening(
         &mut self,
@@ -143,13 +144,15 @@ impl OpeningPrincipleEvaluator {
             score += coord_score;
         }
 
-        // Telemetry: Log component contributions that exceed threshold (Task 19.0 - Task 5.0)
+        // Telemetry: Log component contributions that exceed threshold (Task 19.0 -
+        // Task 5.0)
         self.log_component_contributions(&score, move_count);
 
         score
     }
 
-    /// Log component contributions when they exceed threshold (Task 19.0 - Task 5.0)
+    /// Log component contributions when they exceed threshold (Task 19.0 - Task
+    /// 5.0)
     fn log_component_contributions(&self, _total_score: &TaperedScore, _move_count: u32) {
         #[allow(dead_code)]
         const THRESHOLD_CP: i32 = 100; // Log when component contributes > 100cp
@@ -158,16 +161,15 @@ impl OpeningPrincipleEvaluator {
         {
             use crate::debug_utils::debug_log_fast;
 
-            // Check each component's contribution (simplified - would need to track per-component in real-time)
-            // For now, we log when total score is significant
+            // Check each component's contribution (simplified - would need to track
+            // per-component in real-time) For now, we log when total score is
+            // significant
             let total_interp = total_score.interpolate(256);
             if total_interp.abs() > THRESHOLD_CP {
                 debug_log_fast!(&format!(
-                    "[OPENING_PRINCIPLES] Significant contribution at move {}: total={}cp (mg={}, eg={})",
-                    move_count,
-                    total_interp,
-                    total_score.mg,
-                    total_score.eg
+                    "[OPENING_PRINCIPLES] Significant contribution at move {}: total={}cp (mg={}, \
+                     eg={})",
+                    move_count, total_interp, total_score.mg, total_score.eg
                 ));
             }
         }
@@ -362,7 +364,8 @@ impl OpeningPrincipleEvaluator {
     /// Evaluate center control via drop pressure (Task 19.0 - Task 5.0)
     ///
     /// This method evaluates center control based on potential piece drops.
-    /// It checks which center squares could be controlled via drops of captured pieces.
+    /// It checks which center squares could be controlled via drops of captured
+    /// pieces.
     ///
     /// # Arguments
     ///
@@ -453,7 +456,8 @@ impl OpeningPrincipleEvaluator {
         TaperedScore::new_tapered(mg_score, eg_score)
     }
 
-    /// Check if a piece dropped at a position could control a target square (Task 19.0 - Task 5.0)
+    /// Check if a piece dropped at a position could control a target square
+    /// (Task 19.0 - Task 5.0)
     fn can_piece_control_square_via_drop(
         &self,
         piece_type: PieceType,
@@ -466,8 +470,9 @@ impl OpeningPrincipleEvaluator {
 
         // Check if target square is in attack pattern
         // For now, we'll check if the piece could attack center squares
-        // This is a simplified check - in reality, we'd need to check if the drop is legal
-        // and if the piece could actually control the center from that position
+        // This is a simplified check - in reality, we'd need to check if the drop is
+        // legal and if the piece could actually control the center from that
+        // position
 
         // Center squares
         let center_squares = [
@@ -494,8 +499,9 @@ impl OpeningPrincipleEvaluator {
 
     /// Evaluate center control via piece attacks (Task 19.0 - Task 4.0)
     ///
-    /// This method evaluates center control based on pieces that attack center squares,
-    /// not just pieces that occupy them. This provides a more nuanced view of center control.
+    /// This method evaluates center control based on pieces that attack center
+    /// squares, not just pieces that occupy them. This provides a more
+    /// nuanced view of center control.
     fn evaluate_center_control_via_attacks(
         &self,
         board: &BitboardBoard,
@@ -772,14 +778,15 @@ impl OpeningPrincipleEvaluator {
     ) -> TaperedScore {
         let mut mg_penalty = 0;
 
+        // Redundant move penalties within configured window
+        if move_count <= self.config.redundant_move_window {
+            if let Some(history) = move_history {
+                mg_penalty += self.detect_repeated_piece_moves(history, player);
+            }
+        }
+
         // Early in opening (first 10 moves)
         if move_count <= 10 {
-            // 1. Penalty for moving the same piece multiple times (Task 19.0 - Task 5.0)
-            if let Some(history) = move_history {
-                let repeated_move_penalty = self.detect_repeated_piece_moves(history, player);
-                mg_penalty += repeated_move_penalty;
-            }
-
             // 2. Penalty for undeveloped major pieces
             let rooks_developed = self
                 .find_pieces(board, player, PieceType::Rook)
@@ -811,6 +818,8 @@ impl OpeningPrincipleEvaluator {
             }
         }
 
+        mg_penalty += self.calculate_opening_debt(board, player, move_count);
+
         TaperedScore::new_tapered(-mg_penalty, -mg_penalty / 5)
     }
 
@@ -820,36 +829,66 @@ impl OpeningPrincipleEvaluator {
     /// This addresses the TODO in evaluate_opening_penalties.
     fn detect_repeated_piece_moves(&self, move_history: &[Move], player: Player) -> i32 {
         let mut penalty = 0;
+        use std::collections::HashMap;
 
-        // Track how many times each piece position has been moved
-        let mut piece_move_count: std::collections::HashMap<(Option<Position>, PieceType), u32> =
-            std::collections::HashMap::new();
+        let mut origin_by_square: HashMap<Position, Position> = HashMap::new();
+        let mut redundancy_stacks: HashMap<Position, i32> = HashMap::new();
 
-        // Count moves for this player
         for move_ in move_history.iter() {
-            if move_.player == player {
-                // Get the piece that was moved (from position and piece type)
-                let key = (move_.from, move_.piece_type);
-                let count = piece_move_count.entry(key).or_insert(0);
-                *count += 1;
-
-                // Penalty increases with number of times same piece is moved
-                if *count > 1 {
-                    // Penalty: 15 cp for 2nd move, 30 cp for 3rd move, etc.
-                    penalty += 15 * (*count - 1) as i32;
-
-                    #[cfg(debug_assertions)]
-                    crate::utils::telemetry::debug_log(&format!(
-                        "[OPENING_PRINCIPLES] Repeated piece move detected: {:?} moved {} times (penalty: {}cp)",
-                        move_.piece_type,
-                        *count,
-                        15 * (*count - 1)
-                    ));
-                }
+            if move_.player != player {
+                continue;
             }
+
+            let from = match move_.from {
+                Some(pos) => pos,
+                None => continue,
+            };
+
+            let origin_entry = origin_by_square.remove(&from).unwrap_or(from);
+
+            if !matches!(
+                move_.piece_type,
+                PieceType::Bishop
+                    | PieceType::Rook
+                    | PieceType::PromotedBishop
+                    | PieceType::PromotedRook
+            ) {
+                origin_by_square.insert(move_.to, origin_entry);
+                continue;
+            }
+
+            let origin = origin_entry;
+            let entry = redundancy_stacks.entry(origin).or_insert(0);
+
+            if !move_.is_capture && !move_.gives_check {
+                *entry += 1;
+                let escalation = self.config.redundant_move_escalation.max(1);
+                let penalty_step =
+                    self.config.redundant_move_penalty * (1 + (*entry - 1) * escalation);
+                penalty += penalty_step;
+            } else {
+                *entry = 0;
+            }
+
+            origin_by_square.insert(move_.to, origin);
         }
 
         penalty
+    }
+
+    fn calculate_opening_debt(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        move_count: u32,
+    ) -> i32 {
+        if move_count <= self.config.opening_debt_grace {
+            return 0;
+        }
+        let developed = self.count_developed_pieces(board, player) as i32;
+        let expected = ((move_count - self.config.opening_debt_grace) as i32 / 2).max(0) + 1;
+        let debt = (expected - developed).max(0);
+        debt * self.config.opening_debt_penalty
     }
 
     // =======================================================================
@@ -904,7 +943,8 @@ impl OpeningPrincipleEvaluator {
                     && lance_developed
                 {
                     // Bishop-lance combination bonus
-                    mg_score += 20; // Moderate bonus for bishop-lance coordination
+                    mg_score += 20; // Moderate bonus for bishop-lance
+                                    // coordination
                 }
             }
         }
@@ -1034,9 +1074,10 @@ impl OpeningPrincipleEvaluator {
         }
 
         // Evaluate the resulting position using opening principles
-        // Note: After making the move, it's the opponent's turn, so we evaluate for the opponent
-        // But we want to evaluate how good the position is for the player who made the move
-        // So we evaluate for the original player (the one who made the move)
+        // Note: After making the move, it's the opponent's turn, so we evaluate for the
+        // opponent But we want to evaluate how good the position is for the
+        // player who made the move So we evaluate for the original player (the
+        // one who made the move)
         let score =
             self.evaluate_opening(&temp_board, player, move_count + 1, Some(&temp_captured), None);
 
@@ -1062,8 +1103,9 @@ impl OpeningPrincipleEvaluator {
 
     /// Validate book move against opening principles
     ///
-    /// Checks if a move violates opening principles (e.g., early king move, undeveloped major piece)
-    /// Returns true if move is valid, false if it violates principles
+    /// Checks if a move violates opening principles (e.g., early king move,
+    /// undeveloped major piece) Returns true if move is valid, false if it
+    /// violates principles
     ///
     /// # Arguments
     ///
@@ -1096,7 +1138,8 @@ impl OpeningPrincipleEvaluator {
                                 // Early king move violation
                                 #[cfg(debug_assertions)]
                                 crate::utils::telemetry::debug_log(&format!(
-                                    "[OPENING_PRINCIPLES] Book move warning: Early king move at move {} violates opening principles",
+                                    "[OPENING_PRINCIPLES] Book move warning: Early king move at \
+                                     move {} violates opening principles",
                                     move_count
                                 ));
                                 return false;
@@ -1116,11 +1159,13 @@ impl OpeningPrincipleEvaluator {
                         if from.row == start_row {
                             match piece.piece_type {
                                 PieceType::Rook | PieceType::Bishop => {
-                                    // Major piece still on starting row - not ideal but not a violation
-                                    // Just log a warning
+                                    // Major piece still on starting row - not ideal but not a
+                                    // violation Just log a
+                                    // warning
                                     #[cfg(debug_assertions)]
                                     crate::utils::telemetry::debug_log(&format!(
-                                        "[OPENING_PRINCIPLES] Book move note: {} still on starting row at move {}",
+                                        "[OPENING_PRINCIPLES] Book move note: {} still on \
+                                         starting row at move {}",
                                         format!("{:?}", piece.piece_type),
                                         move_count
                                     ));
@@ -1291,12 +1336,27 @@ pub struct OpeningPrincipleConfig {
     pub enable_tempo: bool,
     /// Enable opening penalties
     pub enable_opening_penalties: bool,
-    /// Enable piece coordination evaluation (rook-lance batteries, bishop-lance combinations, etc.)
+    /// Enable piece coordination evaluation (rook-lance batteries, bishop-lance
+    /// combinations, etc.)
     pub enable_piece_coordination: bool,
-    /// Enable attack-based center control evaluation (evaluates center control from piece attacks, not just occupied squares)
+    /// Enable attack-based center control evaluation (evaluates center control
+    /// from piece attacks, not just occupied squares)
     pub enable_attack_based_center_control: bool,
-    /// Enable drop pressure evaluation (evaluates center control via potential piece drops)
+    /// Enable drop pressure evaluation (evaluates center control via potential
+    /// piece drops)
     pub enable_drop_pressure_evaluation: bool,
+    /// Number of plies from the start where redundant-move penalties are active
+    pub redundant_move_window: u32,
+    /// Base penalty (in centipawns) for repeating a major-piece move without
+    /// gain
+    pub redundant_move_penalty: i32,
+    /// Escalation factor applied per additional redundant move
+    pub redundant_move_escalation: i32,
+    /// Grace plies before opening debt is accumulated
+    pub opening_debt_grace: u32,
+    /// Penalty per missing developed piece relative to expected development
+    /// count
+    pub opening_debt_penalty: i32,
 }
 
 impl Default for OpeningPrincipleConfig {
@@ -1310,6 +1370,11 @@ impl Default for OpeningPrincipleConfig {
             enable_piece_coordination: true,
             enable_attack_based_center_control: true,
             enable_drop_pressure_evaluation: true,
+            redundant_move_window: 12,
+            redundant_move_penalty: 12,
+            redundant_move_escalation: 4,
+            opening_debt_grace: 4,
+            opening_debt_penalty: 8,
         }
     }
 }
@@ -1352,7 +1417,8 @@ pub struct OpeningPrincipleStats {
     pub penalties_evaluations: u64,
     /// Piece coordination component evaluation count
     pub piece_coordination_evaluations: u64,
-    /// Telemetry: Track if opening principles influenced move selection (Task 19.0 - Task 5.0)
+    /// Telemetry: Track if opening principles influenced move selection (Task
+    /// 19.0 - Task 5.0)
     pub opening_principles_influenced_move: u64,
     /// Telemetry: Moves influenced by development component
     pub moves_influenced_by_development: u64,

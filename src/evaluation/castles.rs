@@ -18,7 +18,8 @@ pub use crate::evaluation::castle_geometry::{
 /// Default cache size for mid-search workloads
 const DEFAULT_CACHE_SIZE: usize = 500;
 
-/// Extended cache key that includes king position, local neighborhood hash, and promotion state
+/// Extended cache key that includes king position, local neighborhood hash, and
+/// promotion state
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 struct CastleCacheKey {
     /// King position
@@ -95,6 +96,14 @@ impl Default for CastleEvaluation {
 impl CastleEvaluation {
     pub fn score(self) -> TaperedScore {
         self.base_score
+    }
+
+    pub fn progress_ratio(&self) -> f32 {
+        let coverage = (self.pattern_coverage_ratio + self.zone_coverage_ratio) * 0.5;
+        let defenders = (self.primary_ratio * 0.6 + self.secondary_ratio * 0.4).clamp(0.0, 1.0);
+        let shield =
+            (self.pawn_shield_ratio + self.pattern_shield_ratio + self.zone_shield_ratio) / 3.0;
+        (0.4 * coverage + 0.4 * defenders + 0.2 * shield).clamp(0.0, 1.0)
     }
 
     fn is_better_than(&self, other: &CastleEvaluation) -> bool {
@@ -227,7 +236,8 @@ impl CastleRecognizer {
     }
 
     /// Generate a cache key for the given board position and king
-    /// If symmetry is enabled, normalizes the key to allow mirrored positions to share cache entries
+    /// If symmetry is enabled, normalizes the key to allow mirrored positions
+    /// to share cache entries
     fn generate_cache_key(
         &self,
         board: &BitboardBoard,
@@ -238,9 +248,10 @@ impl CastleRecognizer {
         let promotion_hash = self.hash_promotion_state(board, king_pos, player);
 
         // Normalize king position for symmetry (mirror left/right variants)
-        // Note: Full symmetry support would also require normalizing the neighborhood hash
-        // For now, we only normalize the king position, which provides partial symmetry support
-        // Positions with the king in the center (file 4) will benefit most from symmetry
+        // Note: Full symmetry support would also require normalizing the neighborhood
+        // hash For now, we only normalize the king position, which provides
+        // partial symmetry support Positions with the king in the center (file
+        // 4) will benefit most from symmetry
         let normalized_king_pos = if self.enable_symmetry {
             // Normalize file to prefer left side (mirror right-side positions)
             // This allows left/right mirrored castles to share cache entries
@@ -1251,7 +1262,8 @@ mod tests {
         board2.place_piece(Piece::new(PieceType::Silver, Player::Black), Position::new(6, 5));
         recognizer.evaluate_castle(&board2, Player::Black, king_pos2);
         let stats = recognizer.get_cache_stats();
-        assert_eq!(stats.misses, 2); // Both positions should be cache misses (different keys)
+        assert_eq!(stats.misses, 2); // Both positions should be cache misses
+                                     // (different keys)
     }
 
     #[test]
@@ -1437,7 +1449,8 @@ mod tests {
         recognizer.evaluate_castle(&board2, Player::Black, king_pos2);
 
         // With symmetry enabled, the cache should recognize these as similar
-        // (Note: Full symmetry requires neighborhood hash normalization, so this is a basic test)
+        // (Note: Full symmetry requires neighborhood hash normalization, so this is a
+        // basic test)
         let stats = recognizer.get_cache_stats();
         // Both should be cache misses since neighborhood hashes differ
         // but the king position normalization should work
