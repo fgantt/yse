@@ -25,7 +25,7 @@ use crate::CapturedPieces;
 ///
 /// ```rust
 /// use shogi_engine::tablebase::MicroTablebase;
-/// use shogi_engine::{BitboardBoard, Player, CapturedPieces};
+/// use shogi_engine::{BitboardBoard, CapturedPieces, Player};
 ///
 /// let mut tablebase = MicroTablebase::new();
 /// let board = BitboardBoard::new();
@@ -65,7 +65,8 @@ use crate::CapturedPieces;
 ///
 /// - Cache probe latency (warm cache): **< 1ms**
 /// - Solver computation latency (supported K+G/K+S/K+R endgames): **< 10ms**
-/// - Move ordering cache should prevent repeated tablebase probes during a search iteration
+/// - Move ordering cache should prevent repeated tablebase probes during a
+///   search iteration
 ///
 /// ## Memory Management
 ///
@@ -249,7 +250,8 @@ impl MicroTablebase {
             return Some(result);
         }
 
-        // Analyze position complexity for adaptive solver selection (skip trivial cases)
+        // Analyze position complexity for adaptive solver selection (skip trivial
+        // cases)
         let mut position_analysis = None;
         if !self.is_simple_endgame(board, captured_pieces) {
             let analysis_start = TimeSource::now();
@@ -258,7 +260,8 @@ impl MicroTablebase {
             position_analysis = Some(analysis);
         }
 
-        // Try each solver in priority order, but skip solvers that can't handle the complexity
+        // Try each solver in priority order, but skip solvers that can't handle the
+        // complexity
         let solver_timer = TimeSource::now();
         let mut solver_result = None;
         for solver in &self.solvers {

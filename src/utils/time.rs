@@ -1,4 +1,5 @@
-//! Time utilities: re-exports common time sources and provides convenience helpers.
+//! Time utilities: re-exports common time sources and provides convenience
+//! helpers.
 
 pub use crate::time_utils::TimeSource;
 

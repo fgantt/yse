@@ -1,7 +1,7 @@
 //! Centralized engine utilities.
 //!
-//! This module provides a single, documented entry point for shared helpers used
-//! across the engine. Prefer adding new reusable helpers here rather than
+//! This module provides a single, documented entry point for shared helpers
+//! used across the engine. Prefer adding new reusable helpers here rather than
 //! sprinkling small utilities across feature modules.
 //!
 //! Submodules:

@@ -61,7 +61,8 @@ fn test_time_limit_enforcement() {
         i32::MAX / 2 - 1,
     );
     let elapsed = t0.elapsed();
-    // Should return reasonably quickly (watchdog enforced); allow generous slack for CI
+    // Should return reasonably quickly (watchdog enforced); allow generous slack
+    // for CI
     assert!(elapsed.as_millis() < 1500, "Search exceeded expected time: {:?}", elapsed);
 }
 

@@ -190,7 +190,8 @@ mod performance_tests {
 
         // Verify performance is reasonable (should be very fast for empty board)
         assert!(duration.as_millis() < 1000); // Less than 1 second for 100 probes
-        assert!(stats.average_probe_time_ms < 1.0); // Less than 1ms per probe on average
+        assert!(stats.average_probe_time_ms < 1.0); // Less than 1ms per probe
+                                                    // on average
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Performance Benchmarks for Evaluation Result Caching
 //!
-//! This benchmark suite measures the impact of evaluation caching on search performance
+//! This benchmark suite measures the impact of evaluation caching on search
+//! performance
 //!
 //! Task 7.0.4.11: Measure evaluation overhead reduction
 //! Task 7.0.4.12: Verify 50-70% reduction in evaluation calls

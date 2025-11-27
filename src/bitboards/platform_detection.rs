@@ -1,7 +1,8 @@
 //! Platform detection and capability detection for bit-scanning optimizations
 //!
-//! This module provides runtime detection of CPU features and platform capabilities
-//! to select the optimal bit-scanning implementation for the current environment.
+//! This module provides runtime detection of CPU features and platform
+//! capabilities to select the optimal bit-scanning implementation for the
+//! current environment.
 
 // Note: Bitboard type will be used in future implementations
 
@@ -308,9 +309,10 @@ impl PlatformCapabilities {
     }
 
     /// Get recommended SIMD implementation for runtime feature selection
-    /// This provides information about what SIMD features are available at runtime
-    /// Note: Actual implementation selection is compile-time, but this can be used
-    /// for logging, diagnostics, or to inform build configuration
+    /// This provides information about what SIMD features are available at
+    /// runtime Note: Actual implementation selection is compile-time, but
+    /// this can be used for logging, diagnostics, or to inform build
+    /// configuration
     pub fn get_recommended_simd_impl(&self) -> &'static str {
         match self.get_simd_level() {
             SimdLevel::AVX512 => "AVX-512 (highest performance)",
@@ -534,8 +536,8 @@ mod tests {
     #[test]
     fn test_simd_level_ordering() {
         // Test that SimdLevel ordering is correct
-        // Note: With derive(PartialOrd, Ord), enum variants are ordered by declaration order
-        // AVX512 (0) < AVX2 (1) < SSE (2) < NEON (3) < Scalar (4)
+        // Note: With derive(PartialOrd, Ord), enum variants are ordered by declaration
+        // order AVX512 (0) < AVX2 (1) < SSE (2) < NEON (3) < Scalar (4)
         // For semantic correctness, we verify the ordering exists
         // (Lower numeric values come first, but semantically AVX512 is "best")
         assert!(SimdLevel::AVX512 < SimdLevel::AVX2);

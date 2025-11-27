@@ -151,7 +151,8 @@ pub mod prefetch {
 
     /// Prefetch a memory address directly
     ///
-    /// Optimization 6: Enhanced prefetching - provides direct prefetch for any pointer
+    /// Optimization 6: Enhanced prefetching - provides direct prefetch for any
+    /// pointer
     ///
     /// # Arguments
     /// * `ptr` - Pointer to memory address to prefetch
@@ -186,10 +187,12 @@ pub mod prefetch {
 
 /// Adaptive prefetching system
 ///
-/// Optimization 6: Enhanced prefetching - adaptive prefetching based on access patterns
+/// Optimization 6: Enhanced prefetching - adaptive prefetching based on access
+/// patterns
 ///
-/// This module provides an adaptive prefetching system that learns from access patterns
-/// and adjusts prefetch distances dynamically for optimal cache performance.
+/// This module provides an adaptive prefetching system that learns from access
+/// patterns and adjusts prefetch distances dynamically for optimal cache
+/// performance.
 pub mod adaptive_prefetch {
     use std::collections::VecDeque;
 
@@ -536,9 +539,10 @@ pub mod cache_friendly {
     ///
     /// # Memory Layout
     ///
-    /// Instead of Array of Arrays (AoA): `[[i32; 9]; 9]` for mg and eg separately,
-    /// this uses SoA: `[i32; 81]` for mg values and `[i32; 81]` for eg values.
-    /// This enables SIMD vectorization when processing multiple positions.
+    /// Instead of Array of Arrays (AoA): `[[i32; 9]; 9]` for mg and eg
+    /// separately, this uses SoA: `[i32; 81]` for mg values and `[i32; 81]`
+    /// for eg values. This enables SIMD vectorization when processing
+    /// multiple positions.
     #[repr(align(64))] // Cache line aligned
     pub struct PstSoA {
         /// Middlegame values for all 81 positions (flattened from 9x9)
@@ -692,7 +696,8 @@ pub mod access_patterns {
 
 /// Enhanced prefetching utilities for specific use cases
 ///
-/// Optimization 6: Enhanced prefetching - provides workload-specific prefetching helpers
+/// Optimization 6: Enhanced prefetching - provides workload-specific
+/// prefetching helpers
 pub mod enhanced_prefetch {
     use super::adaptive_prefetch::{
         get_recommended_distance, AdaptivePrefetchManager, WorkloadType,
@@ -736,7 +741,8 @@ pub mod enhanced_prefetch {
         let _manager = get_batch_manager();
         let _distance = _manager.lock().unwrap().get_optimal_distance(current_index, total_items);
 
-        // Prefetch the magic entry (distance tracked by adaptive manager for future adjustments)
+        // Prefetch the magic entry (distance tracked by adaptive manager for future
+        // adjustments)
         prefetch_ptr(magic_entry_ptr, PrefetchLevel::L1);
 
         // Also prefetch potential attack storage entry if we can calculate it
@@ -765,7 +771,8 @@ pub mod enhanced_prefetch {
         let _manager = get_sequential_manager();
         let _distance = _manager.lock().unwrap().get_optimal_distance(current_pos, total_positions);
 
-        // Prefetch both mg and eg entries (distance tracked by adaptive manager for future adjustments)
+        // Prefetch both mg and eg entries (distance tracked by adaptive manager for
+        // future adjustments)
         prefetch_ptr(mg_ptr, PrefetchLevel::L1);
         prefetch_ptr(eg_ptr, PrefetchLevel::L1);
     }

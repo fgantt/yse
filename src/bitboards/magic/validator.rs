@@ -68,8 +68,13 @@ impl MagicValidator {
                 self.stats.failed_tests += 1;
                 return Err(MagicError::ValidationFailed {
                     reason: format!(
-                        "Attack mismatch for square {} piece {:?} blockers {:016x}: magic={:016x}, reference={:016x}",
-                        square, piece_type, blockers.to_u128(), magic_attacks.to_u128(), reference_attacks.to_u128()
+                        "Attack mismatch for square {} piece {:?} blockers {:016x}: \
+                         magic={:016x}, reference={:016x}",
+                        square,
+                        piece_type,
+                        blockers.to_u128(),
+                        magic_attacks.to_u128(),
+                        reference_attacks.to_u128()
                     ),
                 });
             }
@@ -81,7 +86,8 @@ impl MagicValidator {
     /// Generate test blocker combinations for validation
     fn generate_test_combinations(&self, _square: u8, _piece_type: PieceType) -> Vec<Bitboard> {
         // Generate a representative set of blocker combinations
-        // This is a simplified version - in practice, you'd want more comprehensive testing
+        // This is a simplified version - in practice, you'd want more comprehensive
+        // testing
         vec![
             Bitboard::default(),
             Bitboard::from_u128(0b1),         // Single blocker

@@ -1,7 +1,8 @@
 //! Unified Engine Configuration
 //!
 //! This module provides a unified configuration system for the entire engine,
-//! nesting all module-specific configurations as fields. This is part of Task 4.0.
+//! nesting all module-specific configurations as fields. This is part of Task
+//! 4.0.
 //!
 //! # Task 4.0 (Tasks 4.14-4.30)
 //!
@@ -47,7 +48,8 @@
 //!
 //! # Errors
 //!
-//! - [`ConfigurationError`]: Returned when configuration validation fails or file I/O errors occur
+//! - [`ConfigurationError`]: Returned when configuration validation fails or
+//!   file I/O errors occur
 //!
 //! # Task 4.0 (Tasks 4.14-4.30)
 
@@ -339,7 +341,8 @@ impl EngineConfig {
     ///
     /// # Errors
     ///
-    /// Returns `ConfigurationError` if the file cannot be written or serialization fails.
+    /// Returns `ConfigurationError` if the file cannot be written or
+    /// serialization fails.
     pub fn to_file<P: AsRef<Path>>(&self, path: P) -> Result<()> {
         let path = path.as_ref();
         let json = serde_json::to_string_pretty(self).map_err(|e| {
@@ -358,8 +361,8 @@ impl EngineConfig {
 
     /// Validate the entire configuration
     ///
-    /// This validates all nested configurations and returns the first error found,
-    /// or Ok(()) if all configurations are valid.
+    /// This validates all nested configurations and returns the first error
+    /// found, or Ok(()) if all configurations are valid.
     ///
     /// # Task 4.0 (Task 4.24)
     ///
@@ -371,8 +374,8 @@ impl EngineConfig {
         self.search.validate()?;
 
         // Validate evaluation configuration
-        // TaperedEvalConfig::validate() returns Result<Vec<ComponentDependencyWarning>, ConfigError>
-        // We'll wrap any error as a ConfigurationError
+        // TaperedEvalConfig::validate() returns Result<Vec<ComponentDependencyWarning>,
+        // ConfigError> We'll wrap any error as a ConfigurationError
         if let Err(e) = self.evaluation.validate() {
             return Err(ShogiEngineError::Configuration(ConfigurationError::validation_failed(
                 format!("Evaluation config: {:?}", e),
@@ -389,7 +392,8 @@ impl EngineConfig {
         })?;
 
         // Validate time management configuration
-        // TimeManagementConfig doesn't have a validate method, so we'll check basic constraints
+        // TimeManagementConfig doesn't have a validate method, so we'll check basic
+        // constraints
         if self.time_management.min_time_ms > 0
             && self.time_management.max_time_ms > 0
             && self.time_management.min_time_ms > self.time_management.max_time_ms
@@ -426,8 +430,9 @@ impl EngineConfig {
 
 /// SIMD optimization configuration
 ///
-/// Controls runtime enabling/disabling of SIMD optimizations for different components.
-/// When the `simd` feature is disabled at compile time, these flags have no effect.
+/// Controls runtime enabling/disabling of SIMD optimizations for different
+/// components. When the `simd` feature is disabled at compile time, these flags
+/// have no effect.
 ///
 /// # Task 4.0 (Task 4.1)
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

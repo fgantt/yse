@@ -1,7 +1,8 @@
 #![cfg(feature = "legacy-tests")]
 //! Principal Variation move ordering performance benchmarks
 //!
-//! Measures the effectiveness and overhead of various PV move ordering heuristics
+//! Measures the effectiveness and overhead of various PV move ordering
+//! heuristics
 
 use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
 use shogi_engine::bitboards::BitboardBoard;

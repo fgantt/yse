@@ -1,7 +1,7 @@
 //! Benchmarks for strength testing performance
 //!
-//! These benchmarks measure the performance of strength testing with actual games
-//! vs. the old simulation approach.
+//! These benchmarks measure the performance of strength testing with actual
+//! games vs. the old simulation approach.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use shogi_engine::tuning::types::GameResult as TuningGameResult;

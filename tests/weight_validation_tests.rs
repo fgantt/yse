@@ -1,7 +1,8 @@
-//! Integration tests for weight validation and coordination in IntegratedEvaluator
+//! Integration tests for weight validation and coordination in
+//! IntegratedEvaluator
 //!
-//! Tests verify that weight validation, phase-dependent scaling, and large contribution
-//! logging work correctly.
+//! Tests verify that weight validation, phase-dependent scaling, and large
+//! contribution logging work correctly.
 
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::config::{ConfigError, TaperedEvalConfig};
@@ -231,8 +232,8 @@ fn test_weight_clamping() {
 
 #[test]
 fn test_large_contribution_logging() {
-    // Test that large contributions can be detected (though we can't easily verify logging)
-    // This test verifies the code path exists and doesn't crash
+    // Test that large contributions can be detected (though we can't easily verify
+    // logging) This test verifies the code path exists and doesn't crash
     let mut config = IntegratedEvaluationConfig::default();
 
     // Set a very high weight and low threshold to trigger logging
@@ -264,9 +265,9 @@ fn test_cumulative_weight_validation_with_partial_components() {
     config.components.material = true;
     config.components.tactical_patterns = true;
 
-    // This should pass validation (only material + tactical = 20.0, but only those are enabled)
-    // Actually, wait - if only 2 components are enabled and they sum to 20.0, that's still > 15.0
-    // Let me adjust the test
+    // This should pass validation (only material + tactical = 20.0, but only those
+    // are enabled) Actually, wait - if only 2 components are enabled and they
+    // sum to 20.0, that's still > 15.0 Let me adjust the test
     config.weights.material_weight = 3.0;
     config.weights.tactical_weight = 3.0;
 

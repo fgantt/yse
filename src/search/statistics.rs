@@ -1,7 +1,8 @@
 //! Search Statistics Module
 //!
-//! This module handles search statistics, telemetry, and profiling for the search engine.
-//! Extracted from `search_engine.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! This module handles search statistics, telemetry, and profiling for the
+//! search engine. Extracted from `search_engine.rs` as part of Task 1.0: File
+//! Modularization and Structure Improvements.
 
 use crate::types::search::CoreSearchMetrics;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -9,7 +10,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Global aggregate of nodes searched across all threads for live reporting.
 pub static GLOBAL_NODES_SEARCHED: AtomicU64 = AtomicU64::new(0);
 
-/// Global maximum search depth reached (seldepth) across all threads for live reporting.
+/// Global maximum search depth reached (seldepth) across all threads for live
+/// reporting.
 pub static GLOBAL_SELDEPTH: AtomicU64 = AtomicU64::new(0);
 
 // Global contention metrics for shared TT
@@ -68,15 +70,22 @@ pub fn snapshot_and_reset_metrics() -> SearchMetrics {
     }
 }
 
-/// Print and reset aggregated metrics once (used by benches when SHOGI_AGGREGATE_METRICS=1)
+/// Print and reset aggregated metrics once (used by benches when
+/// SHOGI_AGGREGATE_METRICS=1)
 pub fn print_and_reset_search_metrics(tag: &str) {
     let m = snapshot_and_reset_metrics();
     println!(
-        "metrics tag={} (aggregate) tt_reads={} tt_read_ok={} tt_read_fail={} tt_writes={} tt_write_ok={} tt_write_fail={} ybwc_batches={} ybwc_siblings={}",
+        "metrics tag={} (aggregate) tt_reads={} tt_read_ok={} tt_read_fail={} tt_writes={} \
+         tt_write_ok={} tt_write_fail={} ybwc_batches={} ybwc_siblings={}",
         tag,
-        m.tt_try_reads, m.tt_try_read_successes, m.tt_try_read_fails,
-        m.tt_try_writes, m.tt_try_write_successes, m.tt_try_write_fails,
-        m.ybwc_sibling_batches, m.ybwc_siblings_evaluated
+        m.tt_try_reads,
+        m.tt_try_read_successes,
+        m.tt_try_read_fails,
+        m.tt_try_writes,
+        m.tt_try_write_successes,
+        m.tt_try_write_fails,
+        m.ybwc_sibling_batches,
+        m.ybwc_siblings_evaluated
     );
     let _ = std::io::Write::flush(&mut std::io::stdout());
 }

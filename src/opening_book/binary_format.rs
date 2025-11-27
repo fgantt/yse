@@ -1,7 +1,8 @@
 /// Binary format implementation for opening books
 ///
-/// This module provides reading and writing of the Shogi Binary Opening Book (SBOB) format.
-/// The format is optimized for fast lookups and minimal memory usage.
+/// This module provides reading and writing of the Shogi Binary Opening Book
+/// (SBOB) format. The format is optimized for fast lookups and minimal memory
+/// usage.
 // Note: This module is a child module of opening_book
 // Types are imported from the parent module using super::
 use super::{

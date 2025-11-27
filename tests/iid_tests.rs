@@ -503,7 +503,8 @@ fn test_should_apply_iid_ideal_conditions() {
     ];
     let start_time = TimeSource::now();
 
-    // Ideal conditions: enabled, sufficient depth, no TT move, reasonable move count, no time pressure
+    // Ideal conditions: enabled, sufficient depth, no TT move, reasonable move
+    // count, no time pressure
     assert!(engine.should_apply_iid(5, None, &legal_moves, &start_time, 1000));
 }
 
@@ -540,7 +541,12 @@ fn test_calculate_iid_depth_relative_strategy() {
     assert_eq!(engine.calculate_iid_depth(10, None, None, None, None), 8); // 10 - 2 = 8
     assert_eq!(engine.calculate_iid_depth(3, None, None, None, None), 2); // 3 - 2 = 1, but minimum is 2
     assert_eq!(engine.calculate_iid_depth(2, None, None, None, None), 2); // 2 - 2 = 0, but minimum is 2
-    assert_eq!(engine.calculate_iid_depth(1, None, None, None, None), 2); // 1 - 2 = -1, but minimum is 2
+    assert_eq!(engine.calculate_iid_depth(1, None, None, None, None), 2); // 1 -
+                                                                          // 2 =
+                                                                          // -1,
+                                                                          // but
+                                                                          // minimum
+                                                                          // is 2
 }
 
 #[test]
@@ -604,7 +610,10 @@ fn test_calculate_iid_depth_strategy_switching() {
     // Adaptive strategy
     config.depth_strategy = IIDDepthStrategy::Adaptive;
     engine.update_iid_config(config).unwrap();
-    assert_eq!(engine.calculate_iid_depth(8, None, None, None, None), 3); // 8 > 6, so base_depth = 3
+    assert_eq!(engine.calculate_iid_depth(8, None, None, None, None), 3); // 8 >
+                                                                          // 6, so
+                                                                          // base_depth
+                                                                          // = 3
 }
 
 #[test]
@@ -665,7 +674,8 @@ fn test_perform_iid_search_with_initial_position() {
     let start_time = TimeSource::now();
     let mut history = Vec::new();
 
-    // Task 2.0: Test IID search from initial position - returns (score, Option<Move>)
+    // Task 2.0: Test IID search from initial position - returns (score,
+    // Option<Move>)
     let (score, result) = engine.perform_iid_search(
         &mut board,
         &captured_pieces,
@@ -757,7 +767,8 @@ fn test_perform_iid_search_alpha_beta_window() {
     let start_time = TimeSource::now();
     let mut history = Vec::new();
 
-    // Task 2.0: Test with narrow alpha-beta window (null window) - returns (score, Option<Move>)
+    // Task 2.0: Test with narrow alpha-beta window (null window) - returns (score,
+    // Option<Move>)
     let (score, result) = engine.perform_iid_search(
         &mut board,
         &captured_pieces,
@@ -784,7 +795,8 @@ fn test_perform_iid_search_history_handling() {
     // Task 2.0: History is now Vec<u64> (hash-based), not Vec<String>
     let mut history = Vec::new();
 
-    // Task 2.0: Test IID search with existing history - returns (score, Option<Move>)
+    // Task 2.0: Test IID search with existing history - returns (score,
+    // Option<Move>)
     let (score, result) = engine.perform_iid_search(
         &mut board,
         &captured_pieces,
@@ -1215,7 +1227,8 @@ fn test_iid_config_statistics_reset_on_update() {
     let mut engine = SearchEngine::new(None, 64);
 
     // Simulate some IID activity (this would normally happen during search)
-    // We can't directly modify private stats, but we can test the reset functionality
+    // We can't directly modify private stats, but we can test the reset
+    // functionality
 
     // Update configuration
     let mut new_config = IIDConfig::default();
@@ -1786,7 +1799,8 @@ fn test_dynamic_iid_depth_disabled() {
     // Disable adaptive tuning
     let mut config = engine.get_iid_config().clone();
     config.enable_adaptive_tuning = false;
-    // We can't update config in this test since engine is immutable, but we can test the logic
+    // We can't update config in this test since engine is immutable, but we can
+    // test the logic
 
     // Test that dynamic depth returns base depth when adaptive tuning is disabled
     // This would be tested in the actual implementation
@@ -1885,9 +1899,11 @@ fn test_dynamic_depth_edge_cases() {
     let depth_large = engine.calculate_dynamic_iid_depth(&board, &captured_pieces, 10);
 
     // Should handle edge cases gracefully
-    // Note: depth_zero might be 0 if base_depth was 0, but the function should handle it
+    // Note: depth_zero might be 0 if base_depth was 0, but the function should
+    // handle it
     assert!(depth_zero >= 0); // Allow 0 for edge case
-                              // The dynamic depth should be capped at 4, but let's be more lenient for testing
+                              // The dynamic depth should be capped at 4, but let's be more lenient for
+                              // testing
     assert!(depth_large <= 10); // Allow up to 10 for edge case testing
 }
 
@@ -1932,7 +1948,8 @@ fn test_board_state_creation() {
     assert_eq!(board_state.piece_count, 40); // Initial position has 40 pieces
     assert!(board_state.material_balance == 0); // Should be balanced initially
     assert!(board_state.king_positions.0.is_some()); // Black king should be present
-    assert!(board_state.king_positions.1.is_some()); // White king should be present
+    assert!(board_state.king_positions.1.is_some()); // White king should be
+                                                     // present
 }
 
 #[test]
@@ -2241,7 +2258,8 @@ fn test_overhead_monitoring_with_adaptive_tuning_disabled() {
 
 // ===== TASK 8.5: PERFORMANCE REGRESSION TESTS =====
 
-/// Task 8.5: Performance regression test - fails if IID effectiveness drops below thresholds
+/// Task 8.5: Performance regression test - fails if IID effectiveness drops
+/// below thresholds
 #[test]
 #[should_panic(expected = "IID performance regression")]
 fn test_iid_performance_regression_efficiency() {
@@ -2266,7 +2284,8 @@ fn test_iid_performance_regression_efficiency() {
     }
 }
 
-/// Task 8.5: Performance regression test - fails if overhead exceeds threshold (> 15%)
+/// Task 8.5: Performance regression test - fails if overhead exceeds threshold
+/// (> 15%)
 #[test]
 #[should_panic(expected = "IID performance regression")]
 fn test_iid_performance_regression_overhead() {
@@ -2290,7 +2309,8 @@ fn test_iid_performance_regression_overhead() {
     }
 }
 
-/// Task 8.5: Performance regression test - fails if cutoff rate is below threshold (< 20%)
+/// Task 8.5: Performance regression test - fails if cutoff rate is below
+/// threshold (< 20%)
 #[test]
 #[should_panic(expected = "IID performance regression")]
 fn test_iid_performance_regression_cutoff() {
@@ -3558,9 +3578,11 @@ fn test_iid_move_extraction_works_without_alpha_beating() {
 
     // Task 2.5: IID should still return a move even if score doesn't beat alpha
     // This is for move ordering, not for proving a move is good
-    // The move_result might be None if no moves were found, but if score < alpha, it should still return if found
+    // The move_result might be None if no moves were found, but if score < alpha,
+    // it should still return if found
     assert!(score >= -10000 && score <= 10000);
-    // Move might be None or Some, but the function shouldn't fail just because score < alpha
+    // Move might be None or Some, but the function shouldn't fail just because
+    // score < alpha
 }
 
 #[test]
@@ -3623,8 +3645,9 @@ fn test_iid_statistics_tracking_tt_vs_tracked() {
 
     let final_stats = engine.get_iid_stats();
 
-    // Statistics should be tracked (either TT or tracked count should increase if a move was found)
-    // Since we don't know which method will be used, we just verify the stats are accessible
+    // Statistics should be tracked (either TT or tracked count should increase if a
+    // move was found) Since we don't know which method will be used, we just
+    // verify the stats are accessible
     assert!(final_stats.iid_move_extracted_from_tt >= initial_tt_count);
     assert!(final_stats.iid_move_extracted_from_tracked >= initial_tracked_count);
 }
@@ -3640,7 +3663,8 @@ fn test_iid_move_none_when_no_moves_found() {
     let start_time = TimeSource::now();
     let mut history = Vec::new();
 
-    // Use very shallow depth and very short time to increase chance of no move found
+    // Use very shallow depth and very short time to increase chance of no move
+    // found
     let (score, move_result) = engine.perform_iid_search(
         &mut board,
         &captured_pieces,
@@ -3752,8 +3776,9 @@ fn test_advanced_ordering_iid_move_prioritization() {
         if ordered_moves[0] == *iid_mv {
             // IID move is first - advanced ordering is working
         } else {
-            // IID move might not be first if advanced ordering failed and fell back
-            // This is acceptable - the important thing is that it's prioritized
+            // IID move might not be first if advanced ordering failed and fell
+            // back This is acceptable - the important thing is that
+            // it's prioritized
         }
     }
 }
@@ -3806,7 +3831,8 @@ fn test_advanced_ordering_without_iid_move() {
     assert_eq!(ordered_without_iid.len(), ordered_with_iid.len());
     assert_eq!(ordered_without_iid.len(), legal_moves.len());
 
-    // With IID move, the IID move should be prioritized (first or early in the list)
+    // With IID move, the IID move should be prioritized (first or early in the
+    // list)
     if let Some(iid_mv) = iid_move {
         let iid_pos = ordered_with_iid.iter().position(|m| engine.moves_equal(m, iid_mv));
         assert!(iid_pos.is_some(), "IID move should be in ordered moves");
@@ -3818,7 +3844,8 @@ fn test_advanced_ordering_without_iid_move() {
             .position(|m| engine.moves_equal(m, iid_mv))
             .unwrap_or(legal_moves.len());
 
-        // IID move should be at least as good (or better) position when IID move is provided
+        // IID move should be at least as good (or better) position when IID move is
+        // provided
         assert!(
             iid_pos_with <= iid_pos_without || iid_pos_without >= legal_moves.len(),
             "IID move should be prioritized when provided"
@@ -3922,7 +3949,8 @@ fn test_calculate_dynamic_iid_depth_low_complexity() {
 
 #[test]
 fn test_calculate_dynamic_iid_depth_high_complexity() {
-    // Task 4.14: Test depth selection based on position complexity - High complexity
+    // Task 4.14: Test depth selection based on position complexity - High
+    // complexity
     let mut engine = SearchEngine::new(None, 64);
     let mut config = engine.get_iid_config().clone();
     config.dynamic_base_depth = 2;
@@ -3932,7 +3960,8 @@ fn test_calculate_dynamic_iid_depth_high_complexity() {
     let board = BitboardBoard::new();
     let captured_pieces = CapturedPieces::new();
 
-    // Test with base depth 2, high complexity should increase to 3 (capped at max_depth)
+    // Test with base depth 2, high complexity should increase to 3 (capped at
+    // max_depth)
     let depth = engine.calculate_dynamic_iid_depth(&board, &captured_pieces, 2);
 
     // High complexity positions should increase depth, but capped at max_depth
@@ -4277,7 +4306,8 @@ fn test_time_estimation_accuracy_tracking() {
         1.0
     };
 
-    // Accuracy should be between 0.5 and 2.0 (within 2x range is reasonable for estimates)
+    // Accuracy should be between 0.5 and 2.0 (within 2x range is reasonable for
+    // estimates)
     assert!(
         accuracy_ratio >= 0.5 && accuracy_ratio <= 2.0,
         "Time estimation accuracy ratio {} should be between 0.5 and 2.0",
@@ -4415,8 +4445,9 @@ fn test_enhanced_time_pressure_detection_simple_vs_complex() {
     let time_limit_ms = 1000;
 
     // Simulate simple position (Low complexity)
-    // With 10% base threshold and 1.5x multiplier, simple positions should have lower threshold
-    // (actually 1.0 / 1.5 = 0.667x multiplier for Low complexity)
+    // With 10% base threshold and 1.5x multiplier, simple positions should have
+    // lower threshold (actually 1.0 / 1.5 = 0.667x multiplier for Low
+    // complexity)
     let remaining_simple = 50; // 5% remaining - should be in pressure with default threshold
     let elapsed = time_limit_ms - remaining_simple;
     let test_start = TimeSource::now();
@@ -4500,7 +4531,8 @@ fn test_enhanced_time_pressure_detection_with_time_estimates() {
     let time_limit_ms = 1000;
 
     // Test time pressure detection with different IID time estimates
-    // This is tested indirectly through should_apply_iid which uses estimate_iid_time
+    // This is tested indirectly through should_apply_iid which uses
+    // estimate_iid_time
     let should_apply = engine.should_apply_iid(
         5,
         None,
@@ -4564,8 +4596,9 @@ fn test_tt_move_condition_depth_age_checking() {
         Some(player),
     );
 
-    // Result depends on other conditions, but TT move shouldn't skip IID if depth is too shallow
-    // Note: This test may need adjustment based on actual implementation behavior
+    // Result depends on other conditions, but TT move shouldn't skip IID if depth
+    // is too shallow Note: This test may need adjustment based on actual
+    // implementation behavior
     assert!(should_apply == true || should_apply == false);
 }
 
@@ -5242,7 +5275,8 @@ fn test_ordering_effectiveness_with_without_iid() {
     assert!(effectiveness_without_iid >= 0.0 && effectiveness_without_iid <= 100.0);
 }
 
-/// Task 12.5: Test correlation tracking between IID efficiency and ordering effectiveness
+/// Task 12.5: Test correlation tracking between IID efficiency and ordering
+/// effectiveness
 #[test]
 fn test_iid_efficiency_ordering_correlation() {
     let mut engine = SearchEngine::new(None, 64);
@@ -5282,7 +5316,8 @@ fn test_iid_efficiency_ordering_correlation() {
 
     // If we have correlation points, correlation should be calculated
     if stats.iid_efficiency_ordering_correlation_points > 0 {
-        assert!(correlation > 0.0 || correlation == 0.0); // Can be 0 if all values are 0
+        assert!(correlation > 0.0 || correlation == 0.0); // Can be 0 if all
+                                                          // values are 0
     }
 }
 

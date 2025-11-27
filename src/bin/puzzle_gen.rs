@@ -1,7 +1,8 @@
 //! Tactical Puzzle Generator
 //!
 //! A utility for generating tactical puzzles from shogi games.
-//! Extracts positions with tactical patterns (forks, pins, skewers, etc.) and creates training puzzles.
+//! Extracts positions with tactical patterns (forks, pins, skewers, etc.) and
+//! creates training puzzles.
 
 use clap::{Parser, Subcommand};
 use rand::seq::SliceRandom;

@@ -1,12 +1,14 @@
 //! Transposition Table Types
 //!
-//! This module contains types related to transposition tables: entry structures,
-//! flags, and quiescence search entries.
+//! This module contains types related to transposition tables: entry
+//! structures, flags, and quiescence search entries.
 //!
-//! Extracted from `types.rs` (now `all.rs`) as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `types.rs` (now `all.rs`) as part of Task 1.0: File
+//! Modularization and Structure Improvements.
 //!
-//! Note: `TranspositionFlag` and `EntrySource` are defined in the `search` module
-//! as they are used by search algorithms. They are re-exported here for convenience.
+//! Note: `TranspositionFlag` and `EntrySource` are defined in the `search`
+//! module as they are used by search algorithms. They are re-exported here for
+//! convenience.
 
 use serde::{Deserialize, Serialize};
 
@@ -100,7 +102,8 @@ impl TranspositionEntry {
         };
 
         format!(
-            "TranspositionEntry {{ score: {}, depth: {}, flag: {:?}, best_move: {}, hash_key: 0x{:016x}, age: {}, source: {:?} }}",
+            "TranspositionEntry {{ score: {}, depth: {}, flag: {:?}, best_move: {}, hash_key: \
+             0x{:016x}, age: {}, source: {:?} }}",
             self.score, self.depth, self.flag, move_str, self.hash_key, self.age, self.source
         )
     }

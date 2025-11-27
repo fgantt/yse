@@ -1,7 +1,7 @@
 //! Performance monitoring and automatic optimization for magic bitboards
 //!
-//! This module provides runtime performance monitoring and adaptive optimization
-//! for magic bitboard operations.
+//! This module provides runtime performance monitoring and adaptive
+//! optimization for magic bitboard operations.
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;

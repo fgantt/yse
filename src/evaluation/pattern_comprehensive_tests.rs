@@ -1,6 +1,7 @@
 //! Comprehensive Pattern Recognition Testing Module
 //!
-//! This module provides comprehensive testing for the pattern recognition system:
+//! This module provides comprehensive testing for the pattern recognition
+//! system:
 //! - Unit tests for all pattern types
 //! - Integration tests for pattern combinations
 //! - Performance benchmarks

@@ -423,7 +423,8 @@ mod quiescence_tests {
         assert!(stats.extensions >= 0);
 
         // Verify that with extensions enabled, we search deeper than without
-        // (This is an indirect test - the actual depth maintenance is verified by the fix)
+        // (This is an indirect test - the actual depth maintenance is verified by the
+        // fix)
         assert!(stats.nodes_searched > 0);
     }
 
@@ -480,7 +481,8 @@ mod quiescence_tests {
         let stats_without = engine.get_quiescence_stats();
 
         // With extensions, we should search more nodes (if extensions occurred)
-        // This verifies that extensions maintain depth and allow deeper tactical sequences
+        // This verifies that extensions maintain depth and allow deeper tactical
+        // sequences
         if extensions_count > 0 {
             assert!(stats_with.nodes_searched >= stats_without.nodes_searched);
         }
@@ -715,8 +717,8 @@ mod quiescence_tests {
         assert!(result_adaptive > -10000 && result_adaptive < 10000);
         assert!(result_non_adaptive > -10000 && result_non_adaptive < 10000);
 
-        // Adaptive pruning should generally be more effective (higher pruning efficiency)
-        // or search fewer nodes, but this depends on the position
+        // Adaptive pruning should generally be more effective (higher pruning
+        // efficiency) or search fewer nodes, but this depends on the position
         // For now, just verify both work correctly
         assert!(pruning_efficiency_adaptive >= 0.0 && pruning_efficiency_adaptive <= 100.0);
         assert!(pruning_efficiency_non_adaptive >= 0.0 && pruning_efficiency_non_adaptive <= 100.0);
@@ -825,7 +827,8 @@ mod quiescence_tests {
         assert!(stats.nodes_searched > 0);
 
         // High-value captures should be excluded from futility pruning
-        // (this is a basic test - high_value_captures_excluded_from_futility should be >= 0)
+        // (this is a basic test - high_value_captures_excluded_from_futility should be
+        // >= 0)
         assert!(stats.high_value_captures_excluded_from_futility >= 0);
     }
 
@@ -1040,7 +1043,8 @@ mod quiescence_tests {
         moves.push(move2);
 
         // Test that enhanced MVV-LVA orders captures correctly
-        // (Note: This is a basic test - actual implementation would need proper move setup)
+        // (Note: This is a basic test - actual implementation would need proper move
+        // setup)
         let sorted = engine.sort_quiescence_moves(&moves);
         assert_eq!(sorted.len(), moves.len());
     }
@@ -1301,8 +1305,9 @@ mod quiescence_tests {
         let time_source = TimeSource::new();
 
         // Create a position with no noisy moves (quiet position)
-        // This is a bit tricky - we need a position where there are no captures, checks, or promotions
-        // For now, we'll test that the function handles empty moves gracefully
+        // This is a bit tricky - we need a position where there are no captures,
+        // checks, or promotions For now, we'll test that the function handles
+        // empty moves gracefully
 
         // Run quiescence search
         let result = engine.quiescence_search(
@@ -1324,12 +1329,13 @@ mod quiescence_tests {
         assert!(stats.nodes_searched > 0);
     }
 
-    /// Task 10.2: Verify quiescence search handles null-move positions correctly
+    /// Task 10.2: Verify quiescence search handles null-move positions
+    /// correctly
     ///
     /// This test verifies that quiescence search correctly handles positions
-    /// regardless of whether null-move pruning was attempted in the main search.
-    /// Quiescence search should work correctly whether or not null-move pruning
-    /// occurred before it was called.
+    /// regardless of whether null-move pruning was attempted in the main
+    /// search. Quiescence search should work correctly whether or not
+    /// null-move pruning occurred before it was called.
     #[test]
     fn test_quiescence_null_move_coordination() {
         let mut engine = create_test_engine();
@@ -1367,7 +1373,8 @@ mod quiescence_tests {
         engine.reset_quiescence_stats();
 
         // Test quiescence search on the same position again
-        // This verifies that quiescence search is consistent regardless of null-move state
+        // This verifies that quiescence search is consistent regardless of null-move
+        // state
         let result2 = engine.quiescence_search(
             &mut board,
             &captured_pieces,
@@ -1389,10 +1396,12 @@ mod quiescence_tests {
         assert!(stats.nodes_searched > 0, "Quiescence search should have searched nodes");
     }
 
-    /// Task 10.2: Verify quiescence search is called correctly from main search after null-move pruning
+    /// Task 10.2: Verify quiescence search is called correctly from main search
+    /// after null-move pruning
     ///
-    /// This test verifies that when main search calls quiescence search at depth 0,
-    /// quiescence search correctly handles the position regardless of null-move pruning results.
+    /// This test verifies that when main search calls quiescence search at
+    /// depth 0, quiescence search correctly handles the position regardless
+    /// of null-move pruning results.
     #[test]
     fn test_quiescence_called_after_null_move() {
         let mut engine = create_test_engine();

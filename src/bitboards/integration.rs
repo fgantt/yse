@@ -8,17 +8,19 @@
 //! ## Adaptive Selection (Task 4.0.4.6)
 //!
 //! The `BitScanningOptimizer` uses adaptive algorithm selection based on:
-//! - **Platform capabilities**: Hardware support for POPCNT and BMI1 instructions
-//! - **Bit density**: Sparse boards (< 16 bits) use 4-bit lookup tables,
-//!   medium density (16-32 bits) use De Bruijn sequences, dense boards use SWAR
-//! - **Bit distribution**: The estimator counts high and low halves independently
-//!   to avoid misclassifying boards with bits concentrated in one half
+//! - **Platform capabilities**: Hardware support for POPCNT and BMI1
+//!   instructions
+//! - **Bit density**: Sparse boards (< 16 bits) use 4-bit lookup tables, medium
+//!   density (16-32 bits) use De Bruijn sequences, dense boards use SWAR
+//! - **Bit distribution**: The estimator counts high and low halves
+//!   independently to avoid misclassifying boards with bits concentrated in one
+//!   half
 //!
 //! ## Configuration
 //!
 //! - Use `BitScanningOptimizer::new()` for automatic adaptive selection
-//! - Use `BitScanningOptimizer::with_config(false)` to disable adaptive selection
-//!   and always use De Bruijn sequences
+//! - Use `BitScanningOptimizer::with_config(false)` to disable adaptive
+//!   selection and always use De Bruijn sequences
 //! - Access `get_strategy_counters()` to see which strategies are being used
 //! - Call `reset_counters()` to reset telemetry
 //!
@@ -26,8 +28,8 @@
 //!
 //! The adaptive system automatically selects optimal algorithms, but you can
 //! monitor strategy selection via `StrategyCounters` to understand which paths
-//! are taken. For platforms without hardware acceleration, the system falls back
-//! to software implementations optimized for different bit densities.
+//! are taken. For platforms without hardware acceleration, the system falls
+//! back to software implementations optimized for different bit densities.
 
 use crate::bitboards::{
     debruijn::{

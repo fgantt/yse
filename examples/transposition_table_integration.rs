@@ -327,7 +327,8 @@ fn configuration_integration() {
     println!("  Demonstrating runtime configuration updates...");
     let mut tt = ThreadSafeTranspositionTable::new(TranspositionConfig::default());
 
-    // Update configuration (this would be done through a configuration manager in practice)
+    // Update configuration (this would be done through a configuration manager in
+    // practice)
     println!("     Configuration updated at runtime");
     println!("     Transposition table adapts to new settings");
 }

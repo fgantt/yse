@@ -7,32 +7,35 @@
 //!
 //! The compression system uses multiple strategies to reduce memory usage:
 //!
-//! 1. **Pattern Deduplication**: Identical attack patterns across different squares
-//!    and blocker combinations are stored only once, with an index mapping duplicates
-//!    to the single storage location.
+//! 1. **Pattern Deduplication**: Identical attack patterns across different
+//!    squares and blocker combinations are stored only once, with an index
+//!    mapping duplicates to the single storage location.
 //!
 //! 2. **Run-Length Encoding (RLE)**: Sparse attack patterns (patterns with many
-//!    consecutive empty squares) are encoded using run-length encoding to reduce
-//!    storage requirements.
+//!    consecutive empty squares) are encoded using run-length encoding to
+//!    reduce storage requirements.
 //!
-//! 3. **Delta Encoding**: Similar patterns are stored as differences from a base
-//!    pattern, reducing storage for patterns that differ only slightly.
+//! 3. **Delta Encoding**: Similar patterns are stored as differences from a
+//!    base pattern, reducing storage for patterns that differ only slightly.
 //!
-//! 4. **Strategy Selection**: The system automatically chooses the best compression
-//!    method per pattern based on estimated savings (deduplication > RLE > delta > raw).
+//! 4. **Strategy Selection**: The system automatically chooses the best
+//!    compression method per pattern based on estimated savings (deduplication
+//!    > RLE > delta > raw).
 //!
 //! ## Trade-offs
 //!
 //! - **Memory Savings**: 30-50% reduction in memory usage (target)
-//! - **Lookup Performance**: <10% slowdown (target) due to decompression overhead
-//! - **Hot Path Caching**: Frequently accessed patterns are cached in decompressed form
-//!    to minimize performance impact
+//! - **Lookup Performance**: <10% slowdown (target) due to decompression
+//!   overhead
+//! - **Hot Path Caching**: Frequently accessed patterns are cached in
+//!   decompressed form to minimize performance impact
 //!
 //! ## Configuration
 //!
-//! Compression can be enabled/disabled via the `compression_enabled` parameter in
-//! `CompressedMagicTable::from_table_with_config()`. When disabled, the table
-//! behaves identically to an uncompressed table but with compression metadata.
+//! Compression can be enabled/disabled via the `compression_enabled` parameter
+//! in `CompressedMagicTable::from_table_with_config()`. When disabled, the
+//! table behaves identically to an uncompressed table but with compression
+//! metadata.
 
 use crate::types::core::PieceType;
 use crate::types::{Bitboard, MagicError, MagicTable};
@@ -205,7 +208,8 @@ impl CompressedMagicTable {
         }
 
         // Update lookup table to point to compressed patterns
-        // (lookup_table already points to dedup indices, which now map to compressed patterns)
+        // (lookup_table already points to dedup indices, which now map to compressed
+        // patterns)
 
         // Step 3: Calculate compression ratio
         let original_bytes = original_size * std::mem::size_of::<Bitboard>();
@@ -217,7 +221,8 @@ impl CompressedMagicTable {
         };
 
         // Step 4: Build square statistics
-        // (This is a simplified version - full implementation would track per-square stats)
+        // (This is a simplified version - full implementation would track per-square
+        // stats)
 
         Ok(Self {
             base_table: table,

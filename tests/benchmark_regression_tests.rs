@@ -42,7 +42,8 @@ fn test_regression_detection() {
     // Create test results
     let results = vec![
         RegressionTestResult::new("Position1".to_string(), 100, 110, 5.0), // 10% regression
-        RegressionTestResult::new("Position2".to_string(), 100, 103, 5.0), // 3% improvement (no regression)
+        RegressionTestResult::new("Position2".to_string(), 100, 103, 5.0), /* 3% improvement (no
+                                                                            * regression) */
         RegressionTestResult::new("Position3".to_string(), 100, 106, 5.0), // 6% regression
     ];
 

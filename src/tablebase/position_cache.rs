@@ -232,10 +232,11 @@ impl PositionCache {
     /// Optimized for speed using bitboard operations.
     /// Generate a stable cache key using the board's Zobrist hash.
     ///
-    /// Tablebase results depend only on the material arrangement and side to move,
-    /// not on repetition counters or move history. We therefore combine the board's
-    /// position hash (which already incorporates captured pieces) with the player
-    /// to move and rely on the Zobrist implementation for uniqueness.
+    /// Tablebase results depend only on the material arrangement and side to
+    /// move, not on repetition counters or move history. We therefore
+    /// combine the board's position hash (which already incorporates
+    /// captured pieces) with the player to move and rely on the Zobrist
+    /// implementation for uniqueness.
     fn generate_key(
         &self,
         board: &BitboardBoard,

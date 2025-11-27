@@ -96,11 +96,8 @@ impl EvaluationCacheConfig {
     /// Get a summary of the configuration
     pub fn summary(&self) -> String {
         format!(
-            "Cache Configuration:\n\
-             - Size: {} entries (~{:.2} MB)\n\
-             - Replacement Policy: {:?}\n\
-             - Statistics Enabled: {}\n\
-             - Verification Enabled: {}",
+            "Cache Configuration:\n- Size: {} entries (~{:.2} MB)\n- Replacement Policy: {:?}\n- \
+             Statistics Enabled: {}\n- Verification Enabled: {}",
             self.size,
             (self.size * 32) as f64 / (1024.0 * 1024.0),
             self.replacement_policy,
@@ -256,17 +253,8 @@ impl CacheStatistics {
     /// Export statistics as CSV string
     pub fn export_csv(&self) -> String {
         format!(
-            "metric,value\n\
-             hits,{}\n\
-             misses,{}\n\
-             collisions,{}\n\
-             replacements,{}\n\
-             stores,{}\n\
-             probes,{}\n\
-             hit_rate,{:.2}\n\
-             miss_rate,{:.2}\n\
-             collision_rate,{:.2}\n\
-             replacement_rate,{:.2}",
+            "metric,value\nhits,{}\nmisses,{}\ncollisions,{}\nreplacements,{}\nstores,{}\nprobes,\
+             {}\nhit_rate,{:.2}\nmiss_rate,{:.2}\ncollision_rate,{:.2}\nreplacement_rate,{:.2}",
             self.hits,
             self.misses,
             self.collisions,
@@ -283,12 +271,8 @@ impl CacheStatistics {
     /// Get a human-readable summary string
     pub fn summary(&self) -> String {
         format!(
-            "Cache Statistics:\n\
-             - Probes: {} (Hits: {}, Misses: {})\n\
-             - Hit Rate: {:.2}%\n\
-             - Collision Rate: {:.2}%\n\
-             - Stores: {} (Replacements: {})\n\
-             - Replacement Rate: {:.2}%",
+            "Cache Statistics:\n- Probes: {} (Hits: {}, Misses: {})\n- Hit Rate: {:.2}%\n- \
+             Collision Rate: {:.2}%\n- Stores: {} (Replacements: {})\n- Replacement Rate: {:.2}%",
             self.probes,
             self.hits,
             self.misses,
@@ -342,11 +326,8 @@ impl CachePerformanceMetrics {
     /// Get a human-readable summary string
     pub fn summary(&self) -> String {
         format!(
-            "Performance Metrics:\n\
-             - Avg Probe Time: {}ns\n\
-             - Avg Store Time: {}ns\n\
-             - Memory Usage: {} / {} bytes ({:.2}%)\n\
-             - Filled Entries: {} / {}",
+            "Performance Metrics:\n- Avg Probe Time: {}ns\n- Avg Store Time: {}ns\n- Memory \
+             Usage: {} / {} bytes ({:.2}%)\n- Filled Entries: {} / {}",
             self.avg_probe_time_ns,
             self.avg_store_time_ns,
             self.current_memory_bytes,
@@ -466,12 +447,8 @@ impl MultiLevelCacheStatistics {
     /// Get summary
     pub fn summary(&self) -> String {
         format!(
-            "Multi-Level Cache Statistics:\n\
-             - Total Probes: {}\n\
-             - L1 Hits: {} ({:.2}%)\n\
-             - L2 Hits: {} ({:.2}%)\n\
-             - Overall Hit Rate: {:.2}%\n\
-             - Promotions: {} ({:.2}%)",
+            "Multi-Level Cache Statistics:\n- Total Probes: {}\n- L1 Hits: {} ({:.2}%)\n- L2 \
+             Hits: {} ({:.2}%)\n- Overall Hit Rate: {:.2}%\n- Promotions: {} ({:.2}%)",
             self.total_probes,
             self.l1_hits,
             self.l1_hit_rate(),
@@ -973,10 +950,7 @@ impl EvaluationCache {
         let metrics = self.get_performance_metrics();
 
         format!(
-            "=== Evaluation Cache Status Report ===\n\n\
-             {}\n\n\
-             {}\n\n\
-             {}",
+            "=== Evaluation Cache Status Report ===\n\n{}\n\n{}\n\n{}",
             self.config.summary(),
             stats.summary(),
             metrics.summary()
@@ -990,16 +964,10 @@ impl EvaluationCache {
 
         // Simple format suitable for parsing by visualization tools
         format!(
-            "# Evaluation Cache Visualization Data\n\
-             # Format: metric,value,percentage\n\
-             hits,{},{:.2}\n\
-             misses,{},{:.2}\n\
-             hit_rate,{},{:.2}\n\
-             collisions,{},{:.2}\n\
-             collision_rate,{},{:.2}\n\
-             stores,{},100.00\n\
-             replacements,{},{:.2}\n\
-             replacement_rate,{},{:.2}",
+            "# Evaluation Cache Visualization Data\n# Format: \
+             metric,value,percentage\nhits,{},{:.2}\nmisses,{},{:.2}\nhit_rate,{},{:.2}\\
+             ncollisions,{},{:.2}\ncollision_rate,{},{:.2}\nstores,{},100.00\nreplacements,{},{:.\
+             2}\nreplacement_rate,{},{:.2}",
             stats.hits,
             (stats.hits as f64 / stats.probes.max(1) as f64) * 100.0,
             stats.misses,
@@ -1168,7 +1136,8 @@ impl CachePrefetcher {
             // Calculate priority based on move order
             let move_priority = priority.saturating_sub(i as u8);
 
-            // Clone the position for the child (simplified - would need full move application)
+            // Clone the position for the child (simplified - would need full move
+            // application)
             self.queue_prefetch(
                 board.clone(),
                 player.opposite(),
@@ -1769,12 +1738,8 @@ impl PrefetchStatistics {
     /// Get summary
     pub fn summary(&self) -> String {
         format!(
-            "Prefetch Statistics:\n\
-             - Positions Prefetched: {}\n\
-             - Prefetch Hits: {}\n\
-             - Prefetch Misses: {}\n\
-             - Effectiveness: {:.2}%\n\
-             - Queue Size: {}",
+            "Prefetch Statistics:\n- Positions Prefetched: {}\n- Prefetch Hits: {}\n- Prefetch \
+             Misses: {}\n- Effectiveness: {:.2}%\n- Queue Size: {}",
             self.prefetched,
             self.prefetch_hits,
             self.prefetch_misses,

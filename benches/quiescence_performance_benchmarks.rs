@@ -1,7 +1,9 @@
 //! Task 9.0: Performance Benchmarks for Quiescence Search
 //!
-//! This benchmark suite provides comprehensive performance monitoring for quiescence search:
-//! - Pruning effectiveness benchmarks: delta pruning, futility pruning, adaptive pruning
+//! This benchmark suite provides comprehensive performance monitoring for
+//! quiescence search:
+//! - Pruning effectiveness benchmarks: delta pruning, futility pruning,
+//!   adaptive pruning
 //! - Extension effectiveness benchmarks: selective extensions impact
 //! - TT effectiveness benchmarks: TT hit rate, stand-pat caching impact
 //! - Move ordering effectiveness benchmarks: cutoff rate, ordering quality
@@ -59,11 +61,13 @@
 //!
 //! ## CI/CD Integration
 //!
-//! Benchmarks can be integrated into CI/CD pipelines to detect performance regressions.
-//! Use `cargo bench --bench quiescence_performance_benchmarks -- --save-baseline baseline`
-//! to save a baseline, then compare with `--baseline baseline` in subsequent runs.
+//! Benchmarks can be integrated into CI/CD pipelines to detect performance
+//! regressions. Use `cargo bench --bench quiescence_performance_benchmarks --
+//! --save-baseline baseline` to save a baseline, then compare with `--baseline
+//! baseline` in subsequent runs.
 //!
-//! This suite is designed for CI/CD integration and performance regression detection.
+//! This suite is designed for CI/CD integration and performance regression
+//! detection.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use shogi_engine::{
@@ -94,7 +98,8 @@ fn create_test_position() -> (BitboardBoard, CapturedPieces, Player) {
     (board, captured_pieces, player)
 }
 
-/// Task 9.2: Benchmark pruning effectiveness (delta pruning, futility pruning, combined)
+/// Task 9.2: Benchmark pruning effectiveness (delta pruning, futility pruning,
+/// combined)
 fn benchmark_pruning_effectiveness(c: &mut Criterion) {
     let mut group = c.benchmark_group("quiescence_pruning_effectiveness");
     group.measurement_time(Duration::from_secs(10));
@@ -359,7 +364,8 @@ fn benchmark_move_ordering_effectiveness(c: &mut Criterion) {
     let (board, captured_pieces, player) = create_test_position();
     let time_source = TimeSource::now();
 
-    // Test different configurations (move ordering is always enabled, but we can test different configs)
+    // Test different configurations (move ordering is always enabled, but we can
+    // test different configs)
     let configs = vec![
         ("default", QuiescenceConfig::default()),
         ("with_tt", QuiescenceConfig { enable_tt: true, ..QuiescenceConfig::default() }),
@@ -405,7 +411,8 @@ fn benchmark_move_ordering_effectiveness(c: &mut Criterion) {
     group.finish();
 }
 
-/// Task 9.6: Benchmark different configurations (adaptive vs non-adaptive pruning, different margins)
+/// Task 9.6: Benchmark different configurations (adaptive vs non-adaptive
+/// pruning, different margins)
 fn benchmark_configuration_comparison(c: &mut Criterion) {
     let mut group = c.benchmark_group("quiescence_configuration_comparison");
     group.measurement_time(Duration::from_secs(10));
@@ -479,7 +486,8 @@ fn benchmark_tactical_positions(c: &mut Criterion) {
     // Starting position (simple)
     let (board1, captured_pieces1, player1) = create_test_position();
 
-    // For now, we use the same position for both (future: add specific tactical positions)
+    // For now, we use the same position for both (future: add specific tactical
+    // positions)
     let (board2, captured_pieces2, player2) = create_test_position();
 
     let time_source = TimeSource::now();

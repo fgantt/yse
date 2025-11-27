@@ -414,7 +414,8 @@ mod regression_tests {
         }
 
         // High weight move should be selected more often
-        assert!(high_weight_count > 500); // Should be selected more than 50% of the time
+        assert!(high_weight_count > 500); // Should be selected more than 50% of
+                                          // the time
     }
 
     #[test]

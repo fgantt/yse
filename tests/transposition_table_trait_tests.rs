@@ -1,6 +1,7 @@
 //! Integration tests for TranspositionTableTrait
 //!
-//! Tests for Task 3.0 - Task 3.30: Verify transposition table trait works with all table implementations
+//! Tests for Task 3.0 - Task 3.30: Verify transposition table trait works with
+//! all table implementations
 
 use shogi_engine::search::transposition_config::TranspositionConfig;
 use shogi_engine::search::transposition_table_config::{
@@ -85,7 +86,8 @@ fn test_thread_safe_table_trait() {
 
     // Test hit_rate (ThreadSafeTranspositionTable tracks statistics)
     let hit_rate = table.hit_rate();
-    // Hit rate should be calculated (may be 0.0 if statistics not enabled, but method should work)
+    // Hit rate should be calculated (may be 0.0 if statistics not enabled, but
+    // method should work)
     assert!(hit_rate >= 0.0 && hit_rate <= 100.0);
 
     // Test clear

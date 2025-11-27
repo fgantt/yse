@@ -88,7 +88,8 @@ impl Default for HierarchicalTranspositionConfig {
 }
 
 impl HierarchicalTranspositionConfig {
-    /// Set the desired number of entries in the L1 table (will be rounded to next power of two).
+    /// Set the desired number of entries in the L1 table (will be rounded to
+    /// next power of two).
     pub fn with_l1_table_size(mut self, entries: usize) -> Self {
         self.l1_config.table_size = entries.max(1);
         self

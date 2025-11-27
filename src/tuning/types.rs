@@ -303,14 +303,15 @@ pub enum OptimizationMethod {
     GradientDescent { learning_rate: f64 },
     /// Adam optimizer with adaptive learning rates
     ///
-    /// All parameters (`beta1`, `beta2`, `epsilon`) are honored from the configuration
-    /// and passed to the optimizer implementation. Default values are:
+    /// All parameters (`beta1`, `beta2`, `epsilon`) are honored from the
+    /// configuration and passed to the optimizer implementation. Default
+    /// values are:
     /// - `beta1`: 0.9 (exponential decay rate for first moment estimates)
     /// - `beta2`: 0.999 (exponential decay rate for second moment estimates)
     /// - `epsilon`: 1e-8 (small constant for numerical stability)
     ///
-    /// These parameters can be tuned to adapt the optimizer behavior to different
-    /// datasets and optimization landscapes.
+    /// These parameters can be tuned to adapt the optimizer behavior to
+    /// different datasets and optimization landscapes.
     Adam { learning_rate: f64, beta1: f64, beta2: f64, epsilon: f64 },
     /// Limited-memory BFGS quasi-Newton method with line search
     ///
@@ -320,9 +321,11 @@ pub enum OptimizationMethod {
     /// Configuration parameters:
     /// - `line_search_type`: Type of line search (currently supports Armijo)
     /// - `initial_step_size`: Initial step size for line search (typically 1.0)
-    /// - `max_line_search_iterations`: Maximum backtracking iterations (typically 20)
+    /// - `max_line_search_iterations`: Maximum backtracking iterations
+    ///   (typically 20)
     /// - `armijo_constant`: Armijo condition constant c1 (typically 0.0001)
-    /// - `step_size_reduction`: Step size reduction factor for backtracking (typically 0.5)
+    /// - `step_size_reduction`: Step size reduction factor for backtracking
+    ///   (typically 0.5)
     LBFGS {
         memory_size: usize,
         max_iterations: usize,
@@ -340,7 +343,8 @@ pub enum OptimizationMethod {
         max_generations: usize,
         /// Tournament size for tournament selection (default: 3)
         tournament_size: usize,
-        /// Percentage of population to preserve as elite (0.0 to 1.0, default: 0.1 = 10%)
+        /// Percentage of population to preserve as elite (0.0 to 1.0, default:
+        /// 0.1 = 10%)
         elite_percentage: f64,
         /// Magnitude of mutation changes (default: 0.2)
         mutation_magnitude: f64,
@@ -364,7 +368,8 @@ pub struct TuningConfig {
     pub output_path: String,
     /// Path to save intermediate results and checkpoints
     pub checkpoint_path: Option<String>,
-    /// Path to initial weights file for warm-starting (None = random initialization)
+    /// Path to initial weights file for warm-starting (None = random
+    /// initialization)
     pub initial_weights_path: Option<String>,
     /// Weight constraints to enforce during optimization
     pub constraints: Vec<WeightConstraint>,
@@ -416,9 +421,10 @@ impl Default for TuningConfig {
 
 /// Objective function for multi-objective optimization
 ///
-/// Multi-objective optimization allows optimizing for multiple goals simultaneously,
-/// such as accuracy, speed, and stability. The optimizer tracks Pareto-optimal
-/// solutions that represent the best trade-offs between objectives.
+/// Multi-objective optimization allows optimizing for multiple goals
+/// simultaneously, such as accuracy, speed, and stability. The optimizer tracks
+/// Pareto-optimal solutions that represent the best trade-offs between
+/// objectives.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum Objective {
     /// Accuracy objective: Minimize prediction error (mean squared error)
@@ -427,7 +433,8 @@ pub enum Objective {
     Accuracy,
     /// Speed objective: Minimize evaluation time or computational cost
     ///
-    /// Useful when optimizing for faster evaluation at the cost of some accuracy.
+    /// Useful when optimizing for faster evaluation at the cost of some
+    /// accuracy.
     Speed {
         /// Weight for speed objective (higher = more important)
         weight: f64,
@@ -459,8 +466,9 @@ impl Default for Objective {
 
 /// Pareto-optimal solution in multi-objective optimization
 ///
-/// A solution is Pareto-optimal if no other solution is better in all objectives.
-/// The Pareto front represents the set of all Pareto-optimal solutions.
+/// A solution is Pareto-optimal if no other solution is better in all
+/// objectives. The Pareto front represents the set of all Pareto-optimal
+/// solutions.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParetoSolution {
     /// Optimized weights
@@ -482,8 +490,8 @@ pub struct ParetoSolution {
 impl ParetoSolution {
     /// Check if this solution dominates another solution
     ///
-    /// Solution A dominates solution B if A is better or equal in all objectives
-    /// and strictly better in at least one objective.
+    /// Solution A dominates solution B if A is better or equal in all
+    /// objectives and strictly better in at least one objective.
     pub fn dominates(&self, other: &ParetoSolution) -> bool {
         if self.objective_values.len() != other.objective_values.len() {
             return false;
@@ -493,10 +501,12 @@ impl ParetoSolution {
         for (a, b) in self.objective_values.iter().zip(other.objective_values.iter()) {
             // For minimization: lower is better
             if a > b {
-                return false; // This solution is worse in at least one objective
+                return false; // This solution is worse in at least one
+                              // objective
             }
             if a < b {
-                strictly_better = true; // This solution is better in at least one objective
+                strictly_better = true; // This solution is better in at least
+                                        // one objective
             }
         }
 
@@ -638,11 +648,14 @@ impl ParetoFront {
 /// weight configurations and guides optimization toward valid solutions.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum WeightConstraint {
-    /// Bounds constraint: Enforce min/max bounds on a single weight or weight range
+    /// Bounds constraint: Enforce min/max bounds on a single weight or weight
+    /// range
     ///
     /// # Examples
-    /// - `Bounds { indices: vec![0, 1, 2], min: 0.0, max: 10.0 }` - Constrain weights 0-2 to [0, 10]
-    /// - `Bounds { indices: vec![100], min: -5.0, max: 5.0 }` - Constrain weight 100 to [-5, 5]
+    /// - `Bounds { indices: vec![0, 1, 2], min: 0.0, max: 10.0 }` - Constrain
+    ///   weights 0-2 to [0, 10]
+    /// - `Bounds { indices: vec![100], min: -5.0, max: 5.0 }` - Constrain
+    ///   weight 100 to [-5, 5]
     Bounds {
         /// Weight indices to constrain (empty = all weights)
         indices: Vec<usize>,
@@ -651,11 +664,14 @@ pub enum WeightConstraint {
         /// Maximum allowed value
         max: f64,
     },
-    /// Group sum constraint: Enforce that sum of weights in a group equals a target value
+    /// Group sum constraint: Enforce that sum of weights in a group equals a
+    /// target value
     ///
     /// # Examples
-    /// - `GroupSum { indices: vec![0, 1, 2], target: 3.0 }` - Sum of weights 0-2 must equal 3.0
-    /// - `GroupSum { indices: vec![10..20], target: 5.0 }` - Sum of weights 10-19 must equal 5.0
+    /// - `GroupSum { indices: vec![0, 1, 2], target: 3.0 }` - Sum of weights
+    ///   0-2 must equal 3.0
+    /// - `GroupSum { indices: vec![10..20], target: 5.0 }` - Sum of weights
+    ///   10-19 must equal 5.0
     GroupSum {
         /// Weight indices in the group
         indices: Vec<usize>,
@@ -667,8 +683,10 @@ pub enum WeightConstraint {
     /// Ratio constraint: Enforce a ratio between two weights or weight groups
     ///
     /// # Examples
-    /// - `Ratio { index1: 0, index2: 1, ratio: 2.0 }` - weight[0] / weight[1] = 2.0
-    /// - `Ratio { index1: 10, index2: 20, ratio: 0.5 }` - weight[10] / weight[20] = 0.5
+    /// - `Ratio { index1: 0, index2: 1, ratio: 2.0 }` - weight[0] / weight[1] =
+    ///   2.0
+    /// - `Ratio { index1: 10, index2: 20, ratio: 0.5 }` - weight[10] /
+    ///   weight[20] = 0.5
     Ratio {
         /// First weight index (or group start if using ranges)
         index1: usize,
@@ -685,7 +703,8 @@ impl WeightConstraint {
     /// Project weights to satisfy this constraint
     ///
     /// Modifies weights in-place to satisfy the constraint.
-    /// Returns true if projection was applied, false if constraint was already satisfied.
+    /// Returns true if projection was applied, false if constraint was already
+    /// satisfied.
     pub fn project(&self, weights: &mut [f64]) -> bool {
         match self {
             WeightConstraint::Bounds { indices, min, max } => {
@@ -899,8 +918,15 @@ impl WeightConstraint {
                 let current_ratio = weights[*index1] / weights[*index2];
                 if (current_ratio - *ratio).abs() > tol {
                     Some(format!(
-                        "Ratio violation: ratio={:.6}, target={:.6}, diff={:.6} (weight[{}]={:.6}, weight[{}]={:.6})",
-                        current_ratio, ratio, current_ratio - ratio, index1, weights[*index1], index2, weights[*index2]
+                        "Ratio violation: ratio={:.6}, target={:.6}, diff={:.6} \
+                         (weight[{}]={:.6}, weight[{}]={:.6})",
+                        current_ratio,
+                        ratio,
+                        current_ratio - ratio,
+                        index1,
+                        weights[*index1],
+                        index2,
+                        weights[*index2]
                     ))
                 } else {
                     None
@@ -1188,13 +1214,16 @@ mod tests {
         let result = MatchResult::new(10, 5, 5);
         assert_eq!(result.total_games, 20);
         assert_eq!(result.win_rate(), 0.5);
-        // With 10 wins and 5 losses, win rate is 66.7%, which gives a significant ELO difference
+        // With 10 wins and 5 losses, win rate is 66.7%, which gives a significant ELO
+        // difference
         assert!(result.elo_difference > 0.0); // Should be positive (tuned engine is stronger)
 
         // Test with equal wins/losses for ~0 ELO difference
         let equal_result = MatchResult::new(10, 10, 0);
         assert_eq!(equal_result.win_rate(), 0.5);
-        assert!(equal_result.elo_difference.abs() < 100.0); // Should be close to 0 for 50% win rate
+        assert!(equal_result.elo_difference.abs() < 100.0); // Should be close
+                                                            // to 0 for 50% win
+                                                            // rate
     }
 
     #[test]

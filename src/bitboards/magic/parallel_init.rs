@@ -1,6 +1,7 @@
 //! Parallel initialization for magic bitboards
 //!
-//! This module provides optimized initialization for magic tables with support for:
+//! This module provides optimized initialization for magic tables with support
+//! for:
 //! - Parallel initialization using rayon
 //! - Progress tracking and reporting
 //! - Configurable thread count
@@ -139,7 +140,8 @@ impl ParallelInitializer {
             })
             .collect();
 
-        // Process rook results and update table sequentially (to avoid mutability issues)
+        // Process rook results and update table sequentially (to avoid mutability
+        // issues)
         for result in rook_results? {
             let (square, magic_result, patterns) = result;
             let attack_base = table.memory_pool.allocate(magic_result.table_size)?;

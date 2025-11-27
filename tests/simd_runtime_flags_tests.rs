@@ -33,7 +33,8 @@ fn test_simd_evaluation_runtime_flag() {
     let _score2 = evaluator.evaluate(&board, Player::Black, &captured);
 
     // Both should complete without error
-    // (We can't easily verify which path was taken without telemetry, but at least we verify it doesn't crash)
+    // (We can't easily verify which path was taken without telemetry, but at
+    // least we verify it doesn't crash)
 }
 
 #[test]

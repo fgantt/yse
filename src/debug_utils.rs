@@ -7,12 +7,13 @@ use std::sync::Mutex;
 // Can be enabled via the USI "debug on" command
 static DEBUG_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-// Macros for lightweight debug logging that check runtime flag BEFORE string formatting
-// This prevents expensive string formatting when debug is disabled
-// When verbose-debug feature is disabled, these macros expand to nothing (zero overhead)
+// Macros for lightweight debug logging that check runtime flag BEFORE string
+// formatting This prevents expensive string formatting when debug is disabled
+// When verbose-debug feature is disabled, these macros expand to nothing (zero
+// overhead)
 
-/// Lightweight trace logging macro - checks runtime flag before string formatting
-/// Usage: trace_log_fast!("FEATURE", &format!(...))
+/// Lightweight trace logging macro - checks runtime flag before string
+/// formatting Usage: trace_log_fast!("FEATURE", &format!(...))
 /// The string formatting is only evaluated if debug is enabled
 #[macro_export]
 #[cfg(feature = "verbose-debug")]
@@ -33,7 +34,8 @@ macro_rules! trace_log_fast {
     };
 }
 
-/// Lightweight debug logging macro - checks runtime flag before string formatting
+/// Lightweight debug logging macro - checks runtime flag before string
+/// formatting
 #[macro_export]
 #[cfg(feature = "verbose-debug")]
 macro_rules! debug_log_fast {
@@ -52,7 +54,8 @@ macro_rules! debug_log_fast {
     };
 }
 
-/// Lightweight decision logging macro - checks runtime flag before string formatting
+/// Lightweight decision logging macro - checks runtime flag before string
+/// formatting
 #[macro_export]
 #[cfg(feature = "verbose-debug")]
 macro_rules! log_decision_fast {
@@ -90,13 +93,13 @@ macro_rules! log_move_eval_fast {
     };
 }
 
-// Note: The macros above still evaluate their arguments (including format! strings)
-// even when debug is disabled, because Rust evaluates macro arguments eagerly.
-// For maximum performance, use lazy evaluation with closures:
+// Note: The macros above still evaluate their arguments (including format!
+// strings) even when debug is disabled, because Rust evaluates macro arguments
+// eagerly. For maximum performance, use lazy evaluation with closures:
 // trace_log_fast!("FEATURE", || format!(...))
 
-/// Lightweight trace logging with lazy evaluation - only formats string if debug is enabled
-/// Usage: trace_log_lazy!("FEATURE", || format!(...))
+/// Lightweight trace logging with lazy evaluation - only formats string if
+/// debug is enabled Usage: trace_log_lazy!("FEATURE", || format!(...))
 #[macro_export]
 #[cfg(feature = "verbose-debug")]
 macro_rules! trace_log_lazy {

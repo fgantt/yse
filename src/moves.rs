@@ -21,8 +21,9 @@ pub struct MoveGenerator {
     raycast_generation_time: std::time::Duration,
     /// SIMD optimization configuration
     ///
-    /// Controls runtime enabling/disabling of SIMD optimizations for move generation.
-    /// Only effective when the `simd` feature is enabled at compile time.
+    /// Controls runtime enabling/disabling of SIMD optimizations for move
+    /// generation. Only effective when the `simd` feature is enabled at
+    /// compile time.
     ///
     /// # Task 4.0 (Task 4.6)
     #[cfg(feature = "simd")]
@@ -343,20 +344,24 @@ impl MoveGenerator {
 
     /// Generate moves for all pieces on the board
     ///
-    /// Uses SIMD-optimized batch generation for sliding pieces when the `simd` feature is enabled,
-    /// falling back to scalar implementation otherwise.
+    /// Uses SIMD-optimized batch generation for sliding pieces when the `simd`
+    /// feature is enabled, falling back to scalar implementation otherwise.
     ///
     /// # Performance
     ///
-    /// When SIMD is enabled, sliding pieces (rook, bishop, lance) are processed in batches
-    /// using vectorized operations, achieving 2-4x speedup over scalar implementation.
+    /// When SIMD is enabled, sliding pieces (rook, bishop, lance) are processed
+    /// in batches using vectorized operations, achieving 2-4x speedup over
+    /// scalar implementation.
     ///
     /// # Memory Optimizations (Task 3.12)
     ///
     /// This method includes several memory optimizations when SIMD is enabled:
-    /// - **Prefetching**: Prefetches upcoming magic table entries for better cache utilization
-    /// - **Batch processing**: Processes sliding pieces in batches for improved cache locality
-    /// - **Sequential prefetching**: Prefetches next pieces in batch ahead of time
+    /// - **Prefetching**: Prefetches upcoming magic table entries for better
+    ///   cache utilization
+    /// - **Batch processing**: Processes sliding pieces in batches for improved
+    ///   cache locality
+    /// - **Sequential prefetching**: Prefetches next pieces in batch ahead of
+    ///   time
     ///
     /// These optimizations provide an additional 5-10% performance improvement
     /// on top of SIMD optimizations.
@@ -391,7 +396,8 @@ impl MoveGenerator {
 
             let mut moves = Vec::new();
 
-            // Use SIMD batch generation for sliding pieces if magic table is available and SIMD is enabled
+            // Use SIMD batch generation for sliding pieces if magic table is available and
+            // SIMD is enabled
             if !sliding_pieces.is_empty() && self.simd_config.enable_simd_move_generation {
                 // Try to get magic table from board
                 let magic_table = board.get_magic_table();
@@ -500,7 +506,8 @@ impl MoveGenerator {
                 // Use precomputed attack patterns for better performance
                 let attacks = board.get_attack_pattern_precomputed(pos, piece.piece_type, player);
 
-                // Task 3.0.3.3: Convert attack bitboard to moves using bit scans instead of 0..81 loop
+                // Task 3.0.3.3: Convert attack bitboard to moves using bit scans instead of
+                // 0..81 loop
                 use crate::bitboards::integration::GlobalOptimizer;
                 let mut remaining = attacks;
                 while !remaining.is_empty() {
@@ -557,7 +564,8 @@ impl MoveGenerator {
                 // Use precomputed attack patterns for better performance
                 let attacks = board.get_attack_pattern_precomputed(pos, piece.piece_type, player);
 
-                // Task 3.0.3.3: Convert attack bitboard to moves using bit scans instead of 0..81 loop
+                // Task 3.0.3.3: Convert attack bitboard to moves using bit scans instead of
+                // 0..81 loop
                 use crate::bitboards::integration::GlobalOptimizer;
                 let mut remaining = attacks;
                 while !remaining.is_empty() {
@@ -672,7 +680,8 @@ impl MoveGenerator {
         let all_moves = self.generate_pseudo_legal_moves(board, player, captured_pieces);
 
         for move_ in all_moves {
-            // Check if this move creates a threat (attacks opponent pieces or creates tactical patterns)
+            // Check if this move creates a threat (attacks opponent pieces or creates
+            // tactical patterns)
             if self.is_tactical_threat(&move_, board, player) {
                 threat_moves.push(move_);
             }
@@ -1103,7 +1112,8 @@ fn is_legal_drop_location(
     player: Player,
 ) -> bool {
     if piece_type == PieceType::Pawn {
-        // Rule 1: Cannot drop on a file that already contains an unpromoted pawn of the same color (Nifu / 二歩)
+        // Rule 1: Cannot drop on a file that already contains an unpromoted pawn of the
+        // same color (Nifu / 二歩)
         for r in 0..9 {
             if let Some(p) = board.get_piece(Position::new(r, pos.col)) {
                 if p.piece_type == PieceType::Pawn && p.player == player {
@@ -1118,8 +1128,9 @@ fn is_legal_drop_location(
             }
         }
 
-        // Rule 2: Cannot drop pawn to give immediate checkmate (Uchifuzume / 打ち歩詰め)
-        // This rule only applies to drops that give checkmate, not just check
+        // Rule 2: Cannot drop pawn to give immediate checkmate (Uchifuzume /
+        // 打ち歩詰め) This rule only applies to drops that give checkmate, not
+        // just check
         if is_pawn_drop_mate(board, pos, player) {
             crate::utils::telemetry::debug_log(&format!(
                 "[UCHIFUZUME] Illegal pawn drop mate at {}{}",
@@ -1140,8 +1151,9 @@ fn is_legal_drop_location(
     }
 }
 
-/// Check if dropping a pawn at the given position gives immediate checkmate (Uchifuzume)
-/// This is illegal in Shogi - you cannot drop a pawn to deliver checkmate
+/// Check if dropping a pawn at the given position gives immediate checkmate
+/// (Uchifuzume) This is illegal in Shogi - you cannot drop a pawn to deliver
+/// checkmate
 fn is_pawn_drop_mate(board: &BitboardBoard, drop_pos: Position, player: Player) -> bool {
     // Find opponent's king
     let opponent = player.opposite();
@@ -1166,7 +1178,8 @@ fn is_pawn_drop_mate(board: &BitboardBoard, drop_pos: Position, player: Player) 
     }
 
     // Now check if it's actually checkmate (king has no escape)
-    // This requires simulating the pawn drop and checking if the king has any legal moves
+    // This requires simulating the pawn drop and checking if the king has any legal
+    // moves
     let mut temp_board = board.clone();
     temp_board.place_piece(Piece::new(PieceType::Pawn, player), drop_pos);
 

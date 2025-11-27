@@ -6,7 +6,8 @@ use shogi_engine::search::move_ordering::{MoveOrdering, OrderingWeights};
 /// Integration tests for killer move heuristic with search algorithm
 ///
 /// These tests verify that the killer move heuristic integrates correctly
-/// with the overall search system and provides the expected performance benefits.
+/// with the overall search system and provides the expected performance
+/// benefits.
 
 #[cfg(test)]
 mod killer_move_integration_tests {
@@ -187,7 +188,8 @@ mod killer_move_integration_tests {
         assert_eq!(hits, 2); // Two killer move detections
         assert_eq!(misses, 1); // One non-killer move
         assert_eq!(stored, 2); // Two killer moves stored
-        assert!((hit_rate - 66.67).abs() < 0.1); // Approximately 66.67% hit rate
+        assert!((hit_rate - 66.67).abs() < 0.1); // Approximately 66.67% hit
+                                                 // rate
     }
 
     /// Test killer move configuration and customization

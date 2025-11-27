@@ -1,7 +1,8 @@
 //! Performance benchmarks for endgame detection optimization
 //!
 //! This benchmark suite measures the performance improvement from optimizing
-//! piece counting to use bitboard popcount instead of iterating through all squares.
+//! piece counting to use bitboard popcount instead of iterating through all
+//! squares.
 //!
 //! Expected results:
 //! - Optimized counting should be 50-80% faster than iterative counting

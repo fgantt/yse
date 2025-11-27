@@ -463,8 +463,9 @@ impl KingSilverVsKingSolver {
         let moves_after =
             move_generator.generate_legal_moves(&temp_board, opponent, &temp_captured);
 
-        // If the move reduces the number of legal moves available to the defending king, it restricts mobility
-        // Also check if the move attacks squares adjacent to the defending king
+        // If the move reduces the number of legal moves available to the defending
+        // king, it restricts mobility Also check if the move attacks squares
+        // adjacent to the defending king
         let restricts_by_reducing_moves = moves_after.len() < moves_before.len();
 
         // Check if move attacks squares adjacent to defending king
@@ -481,7 +482,8 @@ impl KingSilverVsKingSolver {
 
                     if escape_row < 9 && escape_col < 9 {
                         let escape_pos = Position { row: escape_row, col: escape_col };
-                        // If the move's destination attacks this escape square, it restricts mobility
+                        // If the move's destination attacks this escape square, it restricts
+                        // mobility
                         if move_.to == escape_pos
                             || temp_board.is_square_attacked_by(escape_pos, player)
                         {

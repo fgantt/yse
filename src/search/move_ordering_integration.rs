@@ -6,11 +6,14 @@
 //!
 //! # Features
 //!
-//! - **Transposition Table Integration**: Uses stored best moves from previous searches
-//! - **MVV-LVA Ordering**: Captures ordered by Most Valuable Victim - Least Valuable Attacker
+//! - **Transposition Table Integration**: Uses stored best moves from previous
+//!   searches
+//! - **MVV-LVA Ordering**: Captures ordered by Most Valuable Victim - Least
+//!   Valuable Attacker
 //! - **Killer Move Heuristic**: Prioritizes moves that caused beta cutoffs
 //! - **History Heuristic**: Tracks successful quiet moves
-//! - **Performance Statistics**: Detailed metrics on move ordering effectiveness
+//! - **Performance Statistics**: Detailed metrics on move ordering
+//!   effectiveness
 //!
 //! # Usage
 //!
@@ -46,8 +49,10 @@
 //!
 //! # Move Ordering Heuristics
 //!
-//! 1. **Transposition Table Best Moves**: Highest priority for stored best moves
-//! 2. **Captures**: Ordered by MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
+//! 1. **Transposition Table Best Moves**: Highest priority for stored best
+//!    moves
+//! 2. **Captures**: Ordered by MVV-LVA (Most Valuable Victim - Least Valuable
+//!    Attacker)
 //! 3. **Killer Moves**: Moves that caused beta cutoffs at the same depth
 //! 4. **History Heuristic**: Quiet moves that have been successful in the past
 //! 5. **Default Ordering**: Remaining moves in original order
@@ -259,7 +264,8 @@ impl TranspositionMoveOrderer {
         categorized
     }
 
-    /// Order captures using MVV-LVA (Most Valuable Victim - Least Valuable Attacker)
+    /// Order captures using MVV-LVA (Most Valuable Victim - Least Valuable
+    /// Attacker)
     fn order_captures(
         &self,
         captures: &mut Vec<Move>,
@@ -352,7 +358,8 @@ impl TranspositionMoveOrderer {
             if let Some(k) = killer {
                 if self.moves_equal(mv, k) {
                     self.stats.killer_move_hits += 1;
-                    return 1000 - (i as i32 * 100); // First killer gets higher score
+                    return 1000 - (i as i32 * 100); // First killer gets higher
+                                                    // score
                 }
             }
         }

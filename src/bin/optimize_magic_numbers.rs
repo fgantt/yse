@@ -1,8 +1,9 @@
 //! Offline magic number optimization tool
 //!
 //! This tool precomputes optimal magic numbers for all squares and piece types,
-//! storing them in a resource file for use by the engine. This allows the engine
-//! to use pre-optimized magic numbers instead of generating them at runtime.
+//! storing them in a resource file for use by the engine. This allows the
+//! engine to use pre-optimized magic numbers instead of generating them at
+//! runtime.
 
 use serde::{Deserialize, Serialize};
 use shogi_engine::bitboards::magic::magic_finder::MagicFinder;

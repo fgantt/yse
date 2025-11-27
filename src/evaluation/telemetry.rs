@@ -1,10 +1,11 @@
 //! Telemetry Collection and Reporting
 //!
-//! This module provides telemetry collection, reporting, and export functionality
-//! for the evaluation system. It handles telemetry data aggregation, formatting,
-//! and export for tuning and analysis.
+//! This module provides telemetry collection, reporting, and export
+//! functionality for the evaluation system. It handles telemetry data
+//! aggregation, formatting, and export for tuning and analysis.
 //!
-//! Extracted from `integration.rs` and `statistics.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `integration.rs` and `statistics.rs` as part of Task 1.0:
+//! File Modularization and Structure Improvements.
 
 use crate::evaluation::statistics::EvaluationTelemetry;
 use std::collections::HashMap;

@@ -6,7 +6,8 @@ use shogi_engine::search::move_ordering::{MoveOrdering, OrderingWeights};
 /// Integration tests for move scoring system
 ///
 /// These tests verify that the move scoring system integrates correctly
-/// with the overall search system and provides the expected performance benefits.
+/// with the overall search system and provides the expected performance
+/// benefits.
 
 #[cfg(test)]
 mod move_scoring_integration_tests {

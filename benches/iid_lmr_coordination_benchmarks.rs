@@ -4,7 +4,8 @@
 //! This suite measures the impact of coordinated IID and LMR heuristics on
 //! search performance.
 //!
-//! Task 7.0.1.10: Measure impact of explicit IID exemption on search performance
+//! Task 7.0.1.10: Measure impact of explicit IID exemption on search
+//! performance
 //!
 //! Metrics:
 //! - Search time with/without explicit IID exemption

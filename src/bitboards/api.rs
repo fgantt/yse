@@ -9,9 +9,9 @@ use crate::types::Bitboard;
 
 /// Bit-scanning operations module
 ///
-/// This module provides optimized bit-scanning operations including population count,
-/// bit position finding, and bit iteration. All operations are optimized for native
-/// platform capabilities.
+/// This module provides optimized bit-scanning operations including population
+/// count, bit position finding, and bit iteration. All operations are optimized
+/// for native platform capabilities.
 pub mod bitscan {
     use super::*;
 
@@ -23,7 +23,8 @@ pub mod bitscan {
     /// Get the optimal population count for a bitboard
     ///
     /// This function automatically selects the best available implementation
-    /// based on platform capabilities (hardware acceleration, fallback paths, etc.).
+    /// based on platform capabilities (hardware acceleration, fallback paths,
+    /// etc.).
     ///
     /// # Arguments
     /// * `bb` - The bitboard to count
@@ -114,8 +115,8 @@ pub mod bitscan {
 
 /// Bit manipulation utilities module
 ///
-/// This module provides utility functions for common bit manipulation operations
-/// including bit isolation, clearing, and set operations.
+/// This module provides utility functions for common bit manipulation
+/// operations including bit isolation, clearing, and set operations.
 pub mod utils {
     // Re-export bit manipulation utilities
     pub use crate::bitboards::bit_utils::{

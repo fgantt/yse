@@ -1,6 +1,7 @@
 //! Tests for configuration validation and serialization
 //!
-//! Tests for Task 4.0 - Tasks 4.32-4.33: Verify configuration validation and serialization
+//! Tests for Task 4.0 - Tasks 4.32-4.33: Verify configuration validation and
+//! serialization
 
 use shogi_engine::config::*;
 use shogi_engine::error::*;

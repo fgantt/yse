@@ -1,7 +1,7 @@
 //! Advanced Interpolation Module
 //!
-//! This module provides advanced interpolation methods for the tapered evaluation system.
-//! Goes beyond basic linear interpolation to provide:
+//! This module provides advanced interpolation methods for the tapered
+//! evaluation system. Goes beyond basic linear interpolation to provide:
 //! - Cubic spline interpolation
 //! - Multi-phase evaluation (opening/middlegame/endgame)
 //! - Position-type specific phases

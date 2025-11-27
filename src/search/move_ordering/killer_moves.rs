@@ -63,12 +63,14 @@ impl KillerMoveManager {
     /// Add a killer move for the current depth
     ///
     /// This method stores a move that caused a beta cutoff, making it
-    /// a candidate for early consideration in future searches at the same depth.
+    /// a candidate for early consideration in future searches at the same
+    /// depth.
     ///
     /// # Arguments
     /// * `move_` - The move to add as a killer move
     /// * `moves_equal` - Function to check if two moves are equal
-    /// * `max_killer_moves_per_depth` - Maximum number of killer moves per depth
+    /// * `max_killer_moves_per_depth` - Maximum number of killer moves per
+    ///   depth
     ///
     /// # Returns
     /// True if the move was added (not a duplicate), false otherwise

@@ -26,7 +26,8 @@ pub mod weights;
 
 // Advanced alpha-beta pruning tests
 // Note: Comprehensive tests are implemented in the core functionality
-// The advanced pruning features are tested through integration with the search engine
+// The advanced pruning features are tested through integration with the search
+// engine
 
 // Advanced evaluation modules
 pub mod king_safety {
@@ -267,11 +268,8 @@ impl ShogiEngine {
         let stats = self.opening_book.get_stats();
 
         let mut info = format!(
-            "Opening Book Info:\n\
-            - Positions: {}\n\
-            - Total Moves: {}\n\
-            - Version: {}\n\
-            - Current Position: {}\n",
+            "Opening Book Info:\n- Positions: {}\n- Total Moves: {}\n- Version: {}\n- Current \
+             Position: {}\n",
             stats.position_count, stats.move_count, stats.version, fen
         );
 
@@ -526,8 +524,9 @@ impl ShogiEngine {
             legal_moves.len()
         ));
 
-        // Handle depth 0 (unlimited/adaptive) - use high limit, engine will adapt based on time
-        // Using 100 as practical maximum (deep searches rarely exceed this)
+        // Handle depth 0 (unlimited/adaptive) - use high limit, engine will adapt based
+        // on time Using 100 as practical maximum (deep searches rarely exceed
+        // this)
         let actual_depth = if depth == 0 { 100 } else { depth };
         crate::utils::telemetry::debug_log(&format!(
             "Creating searcher with depth: {} (requested: {}, 0 = unlimited), time_limit: {}ms",
@@ -547,7 +546,8 @@ impl ShogiEngine {
 
         // Try to get the search engine lock, but don't panic if it fails
         // Note: This engine runs as a separate process communicating via USI protocol.
-        // The search runs in this process, so periodic yielding helps keep the process responsive.
+        // The search runs in this process, so periodic yielding helps keep the process
+        // responsive.
         crate::utils::telemetry::debug_log("About to lock search engine");
         let search_result = self.search_engine.lock().map(|mut search_engine_guard| {
             crate::utils::telemetry::debug_log("Got search engine lock, starting search");
@@ -1116,7 +1116,11 @@ impl ShogiEngine {
                                 );
                             }
                             _ => {
-                                output.push("info string error TimeAllocationStrategy must be Equal, Exponential, or Adaptive".to_string());
+                                output.push(
+                                    "info string error TimeAllocationStrategy must be Equal, \
+                                     Exponential, or Adaptive"
+                                        .to_string(),
+                                );
                             }
                         }
                     }
@@ -1356,7 +1360,8 @@ impl ShogiEngine {
     pub fn get_tablebase_stats(&self) -> String {
         let stats = self.tablebase.get_stats();
         format!(
-            "Tablebase Stats: Probes={}, Cache Hits={}, Solver Hits={}, Misses={}, Cache Hit Rate={:.2}%, Solver Hit Rate={:.2}%, Overall Hit Rate={:.2}%, Avg Probe Time={:.2}ms",
+            "Tablebase Stats: Probes={}, Cache Hits={}, Solver Hits={}, Misses={}, Cache Hit \
+             Rate={:.2}%, Solver Hit Rate={:.2}%, Overall Hit Rate={:.2}%, Avg Probe Time={:.2}ms",
             stats.total_probes,
             stats.cache_hits,
             stats.solver_hits,
@@ -1379,4 +1384,5 @@ pub fn is_debug_enabled() -> bool {
 }
 
 // Web bindings removed - application now uses Tauri for desktop functionality
-// The engine is accessed via the standalone USI binary (src/bin/shogi_engine.rs)
+// The engine is accessed via the standalone USI binary
+// (src/bin/shogi_engine.rs)

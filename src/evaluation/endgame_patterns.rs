@@ -73,7 +73,8 @@ impl Default for CachedEvaluation {
 }
 
 /// King-square table for endgame king activity evaluation
-/// Values are tuned for shogi: center (rank 4-5) is optimal, edges are less valuable
+/// Values are tuned for shogi: center (rank 4-5) is optimal, edges are less
+/// valuable
 static KING_SQUARE_TABLE_EG: [i32; 81] = {
     let mut table = [0i32; 81];
     let mut idx = 0;
@@ -348,12 +349,16 @@ impl EndgamePatternEvaluator {
                 // Also apply penalty for unsafe advanced king
                 eg_score -= 20;
 
-                crate::utils::telemetry::trace_log("KING_ACTIVITY", &format!(
-                    "Advanced king in unsafe position: {} (row={}, col={}), penalty=-20, advancement bonus reduced by 50%",
-                    if player == Player::Black { "Black" } else { "White" },
-                    king_pos.row,
-                    king_pos.col
-                ));
+                crate::utils::telemetry::trace_log(
+                    "KING_ACTIVITY",
+                    &format!(
+                        "Advanced king in unsafe position: {} (row={}, col={}), penalty=-20, \
+                         advancement bonus reduced by 50%",
+                        if player == Player::Black { "Black" } else { "White" },
+                        king_pos.row,
+                        king_pos.col
+                    ),
+                );
             }
 
             mg_score += 5; // Risky in middlegame
@@ -674,8 +679,9 @@ impl EndgamePatternEvaluator {
         king_pos: Position,
         piece_type: PieceType,
     ) -> bool {
-        // Simplified check: see if dropping piece on same file/rank as king would attack it
-        // This is a heuristic - full implementation would check all legal drop squares
+        // Simplified check: see if dropping piece on same file/rank as king would
+        // attack it This is a heuristic - full implementation would check all
+        // legal drop squares
         match piece_type {
             PieceType::Rook => {
                 // Rook on same file or rank as king
@@ -1034,19 +1040,20 @@ impl EndgamePatternEvaluator {
 
     /// Evaluate zugzwang positions (where any move worsens the position)
     ///
-    /// Zugzwang detection compares the number of safe moves available to both players.
-    /// In shogi, zugzwang is rarer than in chess due to drop moves, which often break
-    /// zugzwang situations. However, zugzwang can still occur in pawn endgames or when
-    /// both sides are low on material.
+    /// Zugzwang detection compares the number of safe moves available to both
+    /// players. In shogi, zugzwang is rarer than in chess due to drop
+    /// moves, which often break zugzwang situations. However, zugzwang can
+    /// still occur in pawn endgames or when both sides are low on material.
     ///
-    /// The detection uses `MoveGenerator::generate_legal_moves()` to count actual legal
-    /// moves (including drops). Moves are already filtered for safety (no moves that
-    /// leave the king in check).
+    /// The detection uses `MoveGenerator::generate_legal_moves()` to count
+    /// actual legal moves (including drops). Moves are already filtered for
+    /// safety (no moves that leave the king in check).
     ///
     /// Configuration:
-    /// - `enable_zugzwang_drop_consideration`: If true (default), drop moves are included
-    ///   in the move count. If false, only regular moves are counted, making zugzwang
-    ///   detection more sensitive (useful for testing or chess-like evaluation).
+    /// - `enable_zugzwang_drop_consideration`: If true (default), drop moves
+    ///   are included in the move count. If false, only regular moves are
+    ///   counted, making zugzwang detection more sensitive (useful for testing
+    ///   or chess-like evaluation).
     ///
     /// Scoring:
     /// - If opponent has ≤2 moves and player has >5 moves: +80 (endgame score)
@@ -1085,10 +1092,19 @@ impl EndgamePatternEvaluator {
             self.stats.zugzwang_detections += 1;
             self.stats.zugzwang_benefits += 1;
 
-            crate::utils::telemetry::trace_log("ZUGZWANG", &format!(
-                "Zugzwang detected: player={} moves ({} regular, {} drops), opponent={} moves ({} regular, {} drops), score=+80",
-                player_total, player_moves, player_drops, opponent_total, opponent_moves, opponent_drops
-            ));
+            crate::utils::telemetry::trace_log(
+                "ZUGZWANG",
+                &format!(
+                    "Zugzwang detected: player={} moves ({} regular, {} drops), opponent={} moves \
+                     ({} regular, {} drops), score=+80",
+                    player_total,
+                    player_moves,
+                    player_drops,
+                    opponent_total,
+                    opponent_moves,
+                    opponent_drops
+                ),
+            );
 
             return TaperedScore::new_tapered(0, 80);
         }
@@ -1098,10 +1114,19 @@ impl EndgamePatternEvaluator {
             self.stats.zugzwang_detections += 1;
             self.stats.zugzwang_penalties += 1;
 
-            crate::utils::telemetry::trace_log("ZUGZWANG", &format!(
-                "Reverse zugzwang detected: player={} moves ({} regular, {} drops), opponent={} moves ({} regular, {} drops), score=-60",
-                player_total, player_moves, player_drops, opponent_total, opponent_moves, opponent_drops
-            ));
+            crate::utils::telemetry::trace_log(
+                "ZUGZWANG",
+                &format!(
+                    "Reverse zugzwang detected: player={} moves ({} regular, {} drops), \
+                     opponent={} moves ({} regular, {} drops), score=-60",
+                    player_total,
+                    player_moves,
+                    player_drops,
+                    opponent_total,
+                    opponent_moves,
+                    opponent_drops
+                ),
+            );
 
             return TaperedScore::new_tapered(0, -60);
         }
@@ -1117,7 +1142,8 @@ impl EndgamePatternEvaluator {
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> (i32, i32) {
-        // Generate all legal moves (already filtered for safety - no moves that leave king in check)
+        // Generate all legal moves (already filtered for safety - no moves that leave
+        // king in check)
         let legal_moves = self.move_generator.generate_legal_moves(board, player, captured_pieces);
 
         // Separate regular moves from drop moves
@@ -1193,7 +1219,8 @@ impl EndgamePatternEvaluator {
                 50
             };
 
-            // Shogi-specific: reduce opposition value if opponent has pieces in hand (drops can break opposition)
+            // Shogi-specific: reduce opposition value if opponent has pieces in hand (drops
+            // can break opposition)
             if self.config.enable_shogi_opposition_adjustment {
                 let opponent = player.opposite();
                 let pieces_in_hand = self.count_pieces_in_hand(captured_pieces, opponent);
@@ -1299,10 +1326,12 @@ impl EndgamePatternEvaluator {
             return TaperedScore::default(); // Opponent not cramped enough
         }
 
-        // Verify triangulation squares don't worsen position (squares should not be attacked)
-        // Simplified check: verify king's current position and potential triangulation squares are safe
+        // Verify triangulation squares don't worsen position (squares should not be
+        // attacked) Simplified check: verify king's current position and
+        // potential triangulation squares are safe
         if self.is_king_under_attack(board, king_pos, player) {
-            return TaperedScore::default(); // King is already under attack, triangulation risky
+            return TaperedScore::default(); // King is already under attack,
+                                            // triangulation risky
         }
 
         // Material balance check (triangulation more valuable when ahead)
@@ -1527,7 +1556,8 @@ impl EndgamePatternEvaluator {
         player_material - opponent_material
     }
 
-    /// Calculate material for a player (including pieces in hand - critical in shogi)
+    /// Calculate material for a player (including pieces in hand - critical in
+    /// shogi)
     fn calculate_material(
         &self,
         board: &BitboardBoard,
@@ -1565,7 +1595,8 @@ impl EndgamePatternEvaluator {
         material
     }
 
-    /// Calculate material for a player (legacy method - calls new version with empty captured pieces)
+    /// Calculate material for a player (legacy method - calls new version with
+    /// empty captured pieces)
     #[allow(dead_code)]
     fn calculate_material_legacy(&self, board: &BitboardBoard, player: Player) -> i32 {
         let captured_pieces = CapturedPieces::new();
@@ -1739,7 +1770,8 @@ pub struct EndgamePatternConfig {
     pub enable_piece_vs_pawns: bool,
     /// Enable fortress patterns
     pub enable_fortress: bool,
-    /// Enable drop move consideration in zugzwang detection (drops often break zugzwang in shogi)
+    /// Enable drop move consideration in zugzwang detection (drops often break
+    /// zugzwang in shogi)
     pub enable_zugzwang_drop_consideration: bool,
     /// King activity centralization bonus scaling factor (default: 1.0)
     pub king_activity_centralization_scale: f32,
@@ -1747,7 +1779,8 @@ pub struct EndgamePatternConfig {
     pub king_activity_activity_scale: f32,
     /// King activity advancement bonus scaling factor (default: 1.0)
     pub king_activity_advancement_scale: f32,
-    /// Enable shogi-specific opposition adjustment (reduce value when opponent has pieces in hand)
+    /// Enable shogi-specific opposition adjustment (reduce value when opponent
+    /// has pieces in hand)
     pub enable_shogi_opposition_adjustment: bool,
     /// Enable evaluation caching (default: true)
     pub enable_evaluation_caching: bool,
@@ -1819,17 +1852,11 @@ impl EndgamePatternStats {
     /// Generate a summary string of all statistics
     pub fn summary(&self) -> String {
         format!(
-            "EndgamePatternStats:\n\
-            \tEvaluations: {}\n\
-            \tZugzwang detections: {} (benefits: {}, penalties: {})\n\
-            \tOpposition detections: {} (broken by drops: {})\n\
-            \tTriangulation detections: {}\n\
-            \tUnsafe king penalties: {}\n\
-            \tDrop mate threats: {}\n\
-            \tKing activity bonuses: {}\n\
-            \tPassed pawn bonuses: {}\n\
-            \tMating pattern detections: {}\n\
-            \tFortress detections: {}",
+            "EndgamePatternStats:\n\tEvaluations: {}\n\tZugzwang detections: {} (benefits: {}, \
+             penalties: {})\n\tOpposition detections: {} (broken by drops: {})\n\tTriangulation \
+             detections: {}\n\tUnsafe king penalties: {}\n\tDrop mate threats: {}\n\tKing \
+             activity bonuses: {}\n\tPassed pawn bonuses: {}\n\tMating pattern detections: \
+             {}\n\tFortress detections: {}",
             self.evaluations,
             self.zugzwang_detections,
             self.zugzwang_benefits,

@@ -904,7 +904,8 @@ mod tests {
         assert!(manager.add_custom_template(custom_template).is_ok());
         assert!(manager.get_template("custom_test").is_some());
         assert!(manager.remove_custom_template("custom_test"));
-        assert!(!manager.remove_custom_template("default")); // Cannot remove built-in
+        assert!(!manager.remove_custom_template("default")); // Cannot remove
+                                                             // built-in
     }
 
     #[test]

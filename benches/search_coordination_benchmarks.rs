@@ -1,9 +1,11 @@
 //! Performance Benchmarks for Search Algorithm Coordination
 //!
-//! This benchmark suite measures the cumulative effectiveness of algorithm integration
+//! This benchmark suite measures the cumulative effectiveness of algorithm
+//! integration
 //!
-//! Task 7.0.5.15: Measure cumulative search efficiency (target ~80% node reduction)
-//! Task 7.0.5.16: Track time overhead distribution (NMP ~5-10%, IID ~10-15%, etc.)
+//! Task 7.0.5.15: Measure cumulative search efficiency (target ~80% node
+//! reduction) Task 7.0.5.16: Track time overhead distribution (NMP ~5-10%, IID
+//! ~10-15%, etc.)
 //!
 //! Metrics:
 //! - Node count reduction with all algorithms vs. baseline

@@ -89,8 +89,9 @@ pub const MAGIC_TABLE_FILE_VERSION: u8 = 1;
 
 /// Get the default path for the magic table file
 ///
-/// Checks environment variable `SHOGI_MAGIC_TABLE_PATH` first, then falls back to
-/// `resources/magic_tables/magic_table.bin` relative to the executable or workspace root.
+/// Checks environment variable `SHOGI_MAGIC_TABLE_PATH` first, then falls back
+/// to `resources/magic_tables/magic_table.bin` relative to the executable or
+/// workspace root.
 pub fn get_default_magic_table_path() -> std::path::PathBuf {
     // Check environment variable first
     if let Ok(custom_path) = std::env::var("SHOGI_MAGIC_TABLE_PATH") {
@@ -281,10 +282,11 @@ impl MagicTable {
     ///
     /// # Fallback Behavior
     ///
-    /// If the magic table lookup fails (invalid entry, out of bounds, or corruption),
-    /// this method automatically falls back to ray-casting attack generation. This ensures
-    /// the engine continues to function correctly even if the magic table is corrupted
-    /// or partially initialized.
+    /// If the magic table lookup fails (invalid entry, out of bounds, or
+    /// corruption), this method automatically falls back to ray-casting
+    /// attack generation. This ensures the engine continues to function
+    /// correctly even if the magic table is corrupted or partially
+    /// initialized.
     pub fn get_attacks(&self, square: u8, piece_type: PieceType, occupied: Bitboard) -> Bitboard {
         let magic_entry = match piece_type {
             PieceType::Rook | PieceType::PromotedRook => &self.rook_magics[square as usize],
@@ -365,8 +367,11 @@ impl MagicTable {
             if max_index > self.attack_storage.len() {
                 return Err(MagicError::ValidationFailed {
                     reason: format!(
-                        "Rook square {} table extends beyond storage (max_index: {}, storage size: {})",
-                        square, max_index, self.attack_storage.len()
+                        "Rook square {} table extends beyond storage (max_index: {}, storage \
+                         size: {})",
+                        square,
+                        max_index,
+                        self.attack_storage.len()
                     ),
                 });
             }
@@ -395,8 +400,11 @@ impl MagicTable {
             if max_index > self.attack_storage.len() {
                 return Err(MagicError::ValidationFailed {
                     reason: format!(
-                        "Bishop square {} table extends beyond storage (max_index: {}, storage size: {})",
-                        square, max_index, self.attack_storage.len()
+                        "Bishop square {} table extends beyond storage (max_index: {}, storage \
+                         size: {})",
+                        square,
+                        max_index,
+                        self.attack_storage.len()
                     ),
                 });
             }
@@ -487,7 +495,8 @@ impl MagicTable {
         // AttackGenerator instances are created fresh in get_attacks_fallback,
         // so there's no persistent cache to clear. This method exists for
         // API completeness and documentation purposes.
-        // If you maintain a long-lived AttackGenerator, call clear_cache() on it directly.
+        // If you maintain a long-lived AttackGenerator, call clear_cache() on
+        // it directly.
     }
 
     /// Serialize magic table to bytes
@@ -729,7 +738,8 @@ impl MagicTable {
 
     /// Try to load magic table from file, or generate if not found
     ///
-    /// If `save_if_generated` is true, saves the generated table to the file path.
+    /// If `save_if_generated` is true, saves the generated table to the file
+    /// path.
     pub fn try_load_or_generate<P: AsRef<Path>>(
         path: P,
         save_if_generated: bool,
@@ -875,8 +885,8 @@ mod tests {
 
     #[test]
     fn test_magic_table_creation() {
-        // Note: This test will fail until magic number generation is implemented
-        // let table = MagicTable::new();
+        // Note: This test will fail until magic number generation is
+        // implemented let table = MagicTable::new();
         // assert!(table.is_ok());
     }
 

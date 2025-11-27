@@ -59,7 +59,8 @@ fn integrated_evaluator_respects_positional_weights_on_fixtures() {
 
     assert!(
         emphasised_score.score.abs() >= suppressed_score.score.abs(),
-        "Positional patterns should increase absolute score (suppressed {suppressed_score:?}, emphasised {emphasised_score:?})"
+        "Positional patterns should increase absolute score (suppressed {suppressed_score:?}, \
+         emphasised {emphasised_score:?})"
     );
 }
 
@@ -91,7 +92,8 @@ fn assert_fixture_advantage(
         FixtureAdvantage::Black { min_cp } => {
             assert!(
                 delta >= min_cp.max(DEFAULT_THRESHOLD_CP),
-                "Expected black advantage of at least {} cp for fixture '{}' (delta {}, black {}, white {})",
+                "Expected black advantage of at least {} cp for fixture '{}' (delta {}, black {}, \
+                 white {})",
                 min_cp,
                 fixture.name,
                 delta,
@@ -102,7 +104,8 @@ fn assert_fixture_advantage(
         FixtureAdvantage::White { min_cp } => {
             assert!(
                 -delta >= min_cp.max(DEFAULT_THRESHOLD_CP),
-                "Expected white advantage of at least {} cp for fixture '{}' (delta {}, black {}, white {})",
+                "Expected white advantage of at least {} cp for fixture '{}' (delta {}, black {}, \
+                 white {})",
                 min_cp,
                 fixture.name,
                 delta,

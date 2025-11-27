@@ -550,7 +550,8 @@ pub struct AdvancedIntegrationStats {
     pub phase_specific_orderings: u64,
 }
 
-// ==================== Transposition Table Integration Statistics ====================
+// ==================== Transposition Table Integration Statistics
+// ====================
 
 /// Statistics for transposition table integration
 #[derive(Debug, Clone, PartialEq)]
@@ -694,7 +695,8 @@ pub enum TuningPriority {
 // ==================== Task 10.0: Enhanced Statistics ====================
 
 /// Move type distribution statistics
-/// Task 10.0: Tracks distribution of different move types and their ordering effectiveness
+/// Task 10.0: Tracks distribution of different move types and their ordering
+/// effectiveness
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct MoveTypeDistribution {
     /// Total number of capture moves ordered
@@ -722,7 +724,8 @@ pub struct MoveTypeDistribution {
 #[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct DepthSpecificStats {
     /// Statistics by depth (0-20)
-    /// Each entry contains: (moves_ordered, cache_hits, cache_misses, best_move_index_avg)
+    /// Each entry contains: (moves_ordered, cache_hits, cache_misses,
+    /// best_move_index_avg)
     pub stats_by_depth: Vec<DepthStats>,
 }
 
@@ -810,7 +813,8 @@ impl EnhancedStatistics {
     }
 
     /// Record a move ordering operation
-    /// Task 10.0: Updates appropriate statistics based on move type, depth, and phase
+    /// Task 10.0: Updates appropriate statistics based on move type, depth, and
+    /// phase
     pub fn record_ordering(
         &mut self,
         moves: &[crate::types::Move],
@@ -937,7 +941,8 @@ pub struct StatisticsSummary {
     pub overall_effectiveness: f64,
 }
 
-// Task 1.22: Extracted from mod.rs - Performance statistics and export structures
+// Task 1.22: Extracted from mod.rs - Performance statistics and export
+// structures
 
 /// Comprehensive performance statistics
 ///

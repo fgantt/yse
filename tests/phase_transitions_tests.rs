@@ -106,8 +106,8 @@ fn test_phase_transition_smoothness() {
     let evaluator = IntegratedEvaluator::with_config(config);
 
     // Evaluate at different phases to check smoothness
-    // Note: We can't easily control phase in a test, but we can verify the fade factors
-    // are calculated correctly for smooth transitions
+    // Note: We can't easily control phase in a test, but we can verify the fade
+    // factors are calculated correctly for smooth transitions
 
     let phases = vec![64, 68, 72, 76, 80];
     let mut previous_fade = 1.0;
@@ -178,7 +178,8 @@ fn test_abrupt_vs_gradual_transitions() {
     config_gradual.enable_gradual_phase_transitions = true;
 
     // Both should work, but gradual should have smoother transitions
-    // (We can't easily test this without controlling phase, but we verify both compile and run)
+    // (We can't easily test this without controlling phase, but we verify both
+    // compile and run)
     let mut evaluator_abrupt = IntegratedEvaluator::with_config(config_abrupt);
     let mut evaluator_gradual = IntegratedEvaluator::with_config(config_gradual);
 

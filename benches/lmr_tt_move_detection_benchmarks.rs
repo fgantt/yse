@@ -1,7 +1,7 @@
 //! Performance benchmarks for TT move detection in LMR
 //!
-//! This benchmark suite measures the performance impact of actual TT move detection
-//! vs heuristic-based detection. It compares:
+//! This benchmark suite measures the performance impact of actual TT move
+//! detection vs heuristic-based detection. It compares:
 //! - Heuristic-based TT move detection (old approach)
 //! - Actual TT move detection (new approach)
 //!
@@ -278,7 +278,8 @@ fn benchmark_performance_regression_validation(c: &mut Criterion) {
             // Validate performance requirements
             let overhead_percentage = if stats.moves_considered > 0 {
                 // Estimate overhead (simplified - would need baseline comparison)
-                0.5 // Placeholder - actual measurement would compare with/without
+                0.5 // Placeholder - actual measurement would compare
+                    // with/without
             } else {
                 0.0
             };

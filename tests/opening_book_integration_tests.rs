@@ -529,8 +529,8 @@ mod error_handling_tests {
         ]"#;
 
         let result = engine.load_opening_book_from_json(malformed_json);
-        // Should handle gracefully (either succeed with valid moves or fail cleanly)
-        // The exact behavior depends on the implementation
+        // Should handle gracefully (either succeed with valid moves or fail
+        // cleanly) The exact behavior depends on the implementation
     }
 }
 

@@ -1,8 +1,8 @@
 #![cfg(feature = "simd")]
 //! Performance validation tests for SIMD optimizations
 //!
-//! These tests measure actual execution time to ensure SIMD paths are faster than scalar.
-//! Task 5.6: Performance validation with timing
+//! These tests measure actual execution time to ensure SIMD paths are faster
+//! than scalar. Task 5.6: Performance validation with timing
 //!
 //! These tests:
 //! - Measure execution time for SIMD vs scalar implementations
@@ -95,14 +95,16 @@ fn test_evaluation_performance_simd_vs_scalar() {
         let speedup = scalar_ns as f64 / simd_ns as f64;
         assert!(
             speedup >= 1.0 || simd_ns < 1_000_000, // Allow < 1ms variance
-            "SIMD evaluation regression: SIMD took {}ns, scalar took {}ns (speedup: {:.2}x). SIMD should be faster.",
+            "SIMD evaluation regression: SIMD took {}ns, scalar took {}ns (speedup: {:.2}x). SIMD \
+             should be faster.",
             simd_ns,
             scalar_ns,
             speedup
         );
     }
 
-    // In debug builds, just ensure no major regression (function call overhead expected)
+    // In debug builds, just ensure no major regression (function call overhead
+    // expected)
     #[cfg(debug_assertions)]
     {
         assert!(
@@ -198,7 +200,8 @@ fn test_pattern_matching_performance_simd_vs_scalar() {
     }
 
     println!(
-        "Pattern Matching Performance: SIMD={}ns (avg {}ns), Scalar={}ns (avg {}ns), Speedup={:.2}x",
+        "Pattern Matching Performance: SIMD={}ns (avg {}ns), Scalar={}ns (avg {}ns), \
+         Speedup={:.2}x",
         simd_ns,
         simd_ns / iterations,
         scalar_ns,
@@ -303,7 +306,8 @@ fn test_performance_regression_detection() {
     reset_simd_telemetry();
     warmup_cpu();
 
-    // Threshold: SIMD should not be more than 10% slower than scalar in release builds
+    // Threshold: SIMD should not be more than 10% slower than scalar in release
+    // builds
     const REGRESSION_THRESHOLD: f64 = 0.9; // 90% of scalar speed = 10% regression
 
     let board = create_test_board();
@@ -417,7 +421,8 @@ fn test_performance_regression_detection() {
             // Allow small variance (< 1ms) or up to 10% regression
             assert!(
                 ratio <= 1.0 + (1.0 - REGRESSION_THRESHOLD) || simd_ns < 1_000_000.0,
-                "Performance regression detected in {}: SIMD is {:.2}x slower than scalar (threshold: {:.2}x). SIMD={:.0}ns, Scalar={:.0}ns",
+                "Performance regression detected in {}: SIMD is {:.2}x slower than scalar \
+                 (threshold: {:.2}x). SIMD={:.0}ns, Scalar={:.0}ns",
                 component_name,
                 ratio,
                 1.0 + (1.0 - REGRESSION_THRESHOLD),

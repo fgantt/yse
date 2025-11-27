@@ -271,7 +271,8 @@ fn integrated_evaluator_respects_tactical_polarity() {
     let attacker_score = evaluator.evaluate(&board, Player::Black, &captured);
     assert!(
         attacker_score.score > defender_score.score,
-        "Attacking side should evaluate better than the pinned defender (attacker {:?}, defender {:?})",
+        "Attacking side should evaluate better than the pinned defender (attacker {:?}, defender \
+         {:?})",
         attacker_score,
         defender_score
     );

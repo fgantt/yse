@@ -89,7 +89,8 @@ mod performance_benchmarks {
 
         // Verify that deeper searches take more time and search more nodes
         for i in 1..results.len() {
-            assert!(results[i].1 >= results[i - 1].1); // More nodes at deeper depth
+            assert!(results[i].1 >= results[i - 1].1); // More nodes at deeper
+                                                       // depth
         }
     }
 

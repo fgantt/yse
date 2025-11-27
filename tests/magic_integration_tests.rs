@@ -378,8 +378,9 @@ fn test_precomputed_table_loads_correctly() {
     if gen_time.as_millis() > 0 {
         let speedup = gen_time.as_millis() as f64 / load_time.as_millis().max(1) as f64;
         println!("Load speedup: {:.2}x faster than generation", speedup);
-        // Load should be at least 10x faster (generation takes 60s+, load should be <1s)
-        // But we'll be lenient in tests since generation might be fast in test environment
+        // Load should be at least 10x faster (generation takes 60s+, load should be
+        // <1s) But we'll be lenient in tests since generation might be fast in
+        // test environment
         assert!(
             load_time < gen_time,
             "Loading should be faster than generation (load: {:?}, gen: {:?})",
@@ -629,7 +630,8 @@ fn test_lazy_vs_full_initialization() {
 
             assert_eq!(
                 lazy_attacks, full_attacks,
-                "Lazy and full initialization should produce identical results for square {} piece {:?}",
+                "Lazy and full initialization should produce identical results for square {} \
+                 piece {:?}",
                 square, piece_type
             );
         }

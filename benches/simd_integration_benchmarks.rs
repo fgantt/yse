@@ -1,7 +1,7 @@
 //! SIMD Integration Benchmarks
 //!
-//! Benchmarks comparing SIMD-optimized implementations vs scalar implementations
-//! for evaluation, pattern matching, and move generation.
+//! Benchmarks comparing SIMD-optimized implementations vs scalar
+//! implementations for evaluation, pattern matching, and move generation.
 //!
 //! # Task 4.0 (Task 5.7-5.10)
 

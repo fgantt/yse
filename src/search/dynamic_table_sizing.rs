@@ -860,7 +860,8 @@ mod tests {
         sizer.record_performance(0.8, 120.0);
         assert_eq!(sizer.performance_stats.hit_rate, 0.8);
         assert_eq!(sizer.performance_stats.access_frequency, 120.0);
-        assert_eq!(sizer.performance_stats.avg_hit_rate, 0.75); // Average of 0.7 and 0.8
+        assert_eq!(sizer.performance_stats.avg_hit_rate, 0.75); // Average of
+                                                                // 0.7 and 0.8
     }
 
     #[test]
@@ -1032,6 +1033,7 @@ mod tests {
         };
 
         sizer.apply_resize(&decision);
-        assert_eq!(sizer.get_current_size(), 10000); // Should be clamped to maximum
+        assert_eq!(sizer.get_current_size(), 10000); // Should be clamped to
+                                                     // maximum
     }
 }

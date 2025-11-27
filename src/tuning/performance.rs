@@ -6,14 +6,15 @@
 //!
 //! ## Checkpoint Configuration
 //!
-//! Checkpoints can be saved to a configurable path via `PerformanceConfig::checkpoint_path`.
-//! If `checkpoint_path` is `None`, the default path "checkpoints/" is used.
-//! The checkpoint directory is automatically created if it doesn't exist.
+//! Checkpoints can be saved to a configurable path via
+//! `PerformanceConfig::checkpoint_path`. If `checkpoint_path` is `None`, the
+//! default path "checkpoints/" is used. The checkpoint directory is
+//! automatically created if it doesn't exist.
 //!
 //! Example:
 //! ```rust,no_run
-//! use shogi_engine::tuning::types::PerformanceConfig;
 //! use shogi_engine::tuning::performance::TuningProfiler;
+//! use shogi_engine::tuning::types::PerformanceConfig;
 //!
 //! let mut config = PerformanceConfig::default();
 //! config.checkpoint_path = Some("my_checkpoints/".to_string());
@@ -274,8 +275,9 @@ impl TuningProfiler {
 
     /// Create a checkpoint
     ///
-    /// Uses the checkpoint path from `PerformanceConfig`. If `checkpoint_path` is `None`,
-    /// defaults to "checkpoints/". The directory will be created if it doesn't exist.
+    /// Uses the checkpoint path from `PerformanceConfig`. If `checkpoint_path`
+    /// is `None`, defaults to "checkpoints/". The directory will be created
+    /// if it doesn't exist.
     pub fn create_checkpoint(
         &mut self,
         iteration: usize,
@@ -294,7 +296,8 @@ impl TuningProfiler {
 
     /// Create a checkpoint with incremental learning state
     ///
-    /// This method allows saving incremental learning state for resume functionality.
+    /// This method allows saving incremental learning state for resume
+    /// functionality.
     pub fn create_checkpoint_with_incremental_state(
         &mut self,
         iteration: usize,
@@ -451,36 +454,15 @@ impl TuningProfiler {
         let progress = self.get_progress();
 
         format!(
-            "=== PERFORMANCE REPORT ===\n\
-             Training Duration: {:.2} seconds\n\
-             Iterations Completed: {}\n\
-             Final Error: {:.6}\n\
-             Initial Error: {:.6}\n\
-             Improvement: {:.2}%\n\
-             \n\
-             === TIMING BREAKDOWN ===\n\
-             Feature Extraction: {:.2}s ({:.1}%)\n\
-             Optimization: {:.2}s ({:.1}%)\n\
-             Validation: {:.2}s ({:.1}%)\n\
-             Average Time per Iteration: {:?}\n\
-             \n\
-             === PERFORMANCE METRICS ===\n\
-             Memory Usage: {:.2} MB\n\
-             Convergence Rate: {:.6}\n\
-             Average Error Reduction: {:.6}\n\
-             Convergence Speed: {}\n\
-             Stability Metric: {:.6}\n\
-             \n\
-             === STATISTICAL ANALYSIS ===\n\
-             Mean Error: {:.6}\n\
-             Error Std Dev: {:.6}\n\
-             Min Error: {:.6}\n\
-             Max Error: {:.6}\n\
-             \n\
-             === CONVERGENCE STATUS ===\n\
-             Converged: {}\n\
-             ETA: {}\n\
-             Progress: {:.1}%",
+            "=== PERFORMANCE REPORT ===\nTraining Duration: {:.2} seconds\nIterations Completed: \
+             {}\nFinal Error: {:.6}\nInitial Error: {:.6}\nImprovement: {:.2}%\n\n=== TIMING \
+             BREAKDOWN ===\nFeature Extraction: {:.2}s ({:.1}%)\nOptimization: {:.2}s \
+             ({:.1}%)\nValidation: {:.2}s ({:.1}%)\nAverage Time per Iteration: {:?}\n\n=== \
+             PERFORMANCE METRICS ===\nMemory Usage: {:.2} MB\nConvergence Rate: {:.6}\nAverage \
+             Error Reduction: {:.6}\nConvergence Speed: {}\nStability Metric: {:.6}\n\n=== \
+             STATISTICAL ANALYSIS ===\nMean Error: {:.6}\nError Std Dev: {:.6}\nMin Error: \
+             {:.6}\nMax Error: {:.6}\n\n=== CONVERGENCE STATUS ===\nConverged: {}\nETA: \
+             {}\nProgress: {:.1}%",
             results.training_time_seconds,
             metrics.iterations_completed,
             metrics.final_error,

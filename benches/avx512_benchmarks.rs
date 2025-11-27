@@ -1,9 +1,11 @@
 //! AVX-512 Performance Benchmarks
 //!
-//! This benchmark suite compares AVX-512 vs AVX2 vs SSE performance for batch operations.
+//! This benchmark suite compares AVX-512 vs AVX2 vs SSE performance for batch
+//! operations.
 //!
-//! **Note**: These benchmarks require AVX-512 capable hardware to run. On systems without
-//! AVX-512, the benchmarks will fall back to AVX2 or SSE automatically.
+//! **Note**: These benchmarks require AVX-512 capable hardware to run. On
+//! systems without AVX-512, the benchmarks will fall back to AVX2 or SSE
+//! automatically.
 //!
 //! Run with: `cargo bench --features simd --bench avx512_benchmarks`
 

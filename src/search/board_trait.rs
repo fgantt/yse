@@ -33,7 +33,8 @@ pub trait BoardTrait {
     fn is_square_occupied_by_player(&self, position: Position, player: Player) -> bool;
 
     /// Get the occupied bitboard for a specific player
-    /// This should return a bitboard where each bit represents an occupied square
+    /// This should return a bitboard where each bit represents an occupied
+    /// square
     fn get_occupied_bitboard_for_player(&self, player: Player) -> Bitboard;
 
     /// Get the total occupied bitboard (both players)
@@ -76,7 +77,8 @@ pub trait BoardTrait {
     /// This is needed for move generation and position analysis
     fn clone_board(&self) -> Self;
 
-    /// Check if this position is a terminal position (checkmate, stalemate, etc.)
+    /// Check if this position is a terminal position (checkmate, stalemate,
+    /// etc.)
     fn is_terminal_position(&self, captured_pieces: &CapturedPieces) -> bool;
 
     /// Get the game phase (opening, middlegame, endgame)
@@ -250,7 +252,8 @@ impl BoardPositionAnalysis {
     /// Get a summary string for this analysis
     pub fn summary(&self) -> String {
         format!(
-            "Hash: 0x{:016x}, Phase: {:?}, Complexity: {:?}, Pieces: {}, Material: {}, Terminal: {}",
+            "Hash: 0x{:016x}, Phase: {:?}, Complexity: {:?}, Pieces: {}, Material: {}, Terminal: \
+             {}",
             self.position_hash,
             self.game_phase,
             self.complexity,

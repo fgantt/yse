@@ -444,7 +444,8 @@ impl KingRookVsKingSolver {
                 let rook_to_def_king = self.manhattan_distance(move_.to, defending_king);
 
                 // Rook should be within 3 squares of king and close to defending king
-                // Rook can attack from distance, so check if it's on same rank/file as defending king
+                // Rook can attack from distance, so check if it's on same rank/file as
+                // defending king
                 let on_same_rank_or_file =
                     move_.to.row == defending_king.row || move_.to.col == defending_king.col;
                 rook_to_king <= 3 && (rook_to_def_king <= 4 || on_same_rank_or_file)
@@ -477,10 +478,12 @@ impl KingRookVsKingSolver {
         let moves_after =
             move_generator.generate_legal_moves(&temp_board, opponent, &temp_captured);
 
-        // If the move reduces the number of legal moves available to the defending king, it restricts mobility
+        // If the move reduces the number of legal moves available to the defending
+        // king, it restricts mobility
         let restricts_by_reducing_moves = moves_after.len() < moves_before.len();
 
-        // Check if move attacks squares adjacent to defending king or controls key squares
+        // Check if move attacks squares adjacent to defending king or controls key
+        // squares
         let move_attacks_escape_squares = {
             let mut attacks_escape = false;
             // Check all 8 adjacent squares to defending king
@@ -494,7 +497,8 @@ impl KingRookVsKingSolver {
 
                     if escape_row < 9 && escape_col < 9 {
                         let escape_pos = Position { row: escape_row, col: escape_col };
-                        // If the move's destination attacks this escape square, it restricts mobility
+                        // If the move's destination attacks this escape square, it restricts
+                        // mobility
                         if move_.to == escape_pos
                             || temp_board.is_square_attacked_by(escape_pos, player)
                         {
@@ -522,7 +526,8 @@ impl KingRookVsKingSolver {
         defending_king: Position,
     ) -> bool {
         // For rook mating patterns, key squares are:
-        // 1. Squares on the same rank/file as defending king (rook can attack from distance)
+        // 1. Squares on the same rank/file as defending king (rook can attack from
+        //    distance)
         // 2. Squares that cut off the defending king's escape routes
         // 3. Squares that support the king in approaching the defending king
 
@@ -534,8 +539,9 @@ impl KingRookVsKingSolver {
             temp_captured.add_piece(captured.piece_type, player);
         }
 
-        // Key square control: Rook should control squares that restrict the defending king
-        // Check if the move places rook on same rank or file as defending king
+        // Key square control: Rook should control squares that restrict the defending
+        // king Check if the move places rook on same rank or file as defending
+        // king
         let on_same_rank_or_file =
             move_.to.row == defending_king.row || move_.to.col == defending_king.col;
 
@@ -568,7 +574,8 @@ impl KingRookVsKingSolver {
             controls
         };
 
-        // Rook controls key squares if it's on same rank/file OR if it attacks escape squares
+        // Rook controls key squares if it's on same rank/file OR if it attacks escape
+        // squares
         on_same_rank_or_file || controls_escape_squares
     }
 

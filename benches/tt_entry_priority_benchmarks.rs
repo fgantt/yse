@@ -1,6 +1,7 @@
 //! Performance Benchmarks for TT Entry Priority System
 //!
-//! This benchmark suite measures the effectiveness of TT entry priority management
+//! This benchmark suite measures the effectiveness of TT entry priority
+//! management
 //!
 //! Task 7.0.3.15: Compare TT pollution before and after priority system
 //!

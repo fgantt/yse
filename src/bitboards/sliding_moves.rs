@@ -1,7 +1,7 @@
 //! Magic bitboard-based sliding piece move generation
 //!
-//! This module provides optimized move generation for sliding pieces (rook, bishop)
-//! using magic bitboards for maximum performance.
+//! This module provides optimized move generation for sliding pieces (rook,
+//! bishop) using magic bitboards for maximum performance.
 
 use crate::bitboards::integration::GlobalOptimizer;
 use crate::bitboards::BitboardBoard;
@@ -36,8 +36,8 @@ impl SimpleLookupEngine {
 
 /// Magic-based sliding move generator
 ///
-/// This is a stateless generator that uses magic bitboards for fast move generation.
-/// Metrics are tracked externally to maintain immutability.
+/// This is a stateless generator that uses magic bitboards for fast move
+/// generation. Metrics are tracked externally to maintain immutability.
 #[derive(Clone)]
 pub struct SlidingMoveGenerator {
     /// Lookup engine for magic bitboard operations
@@ -61,9 +61,10 @@ impl SlidingMoveGenerator {
 
     /// Generate moves for a sliding piece using magic bitboards
     ///
-    /// This is a pure function with no side effects, making it safe for immutable usage.
-    /// Task 2.0.2.4: Uses bit scans instead of 81-square loops for performance
-    /// Task 2.0.2.2: Falls back to ray-casting when magic is disabled
+    /// This is a pure function with no side effects, making it safe for
+    /// immutable usage. Task 2.0.2.4: Uses bit scans instead of 81-square
+    /// loops for performance Task 2.0.2.2: Falls back to ray-casting when
+    /// magic is disabled
     pub fn generate_sliding_moves(
         &self,
         board: &BitboardBoard,
@@ -108,9 +109,10 @@ impl SlidingMoveGenerator {
 
     /// Generate moves for promoted sliding pieces
     ///
-    /// This is a pure function with no side effects, making it safe for immutable usage.
-    /// Task 2.0.2.4: Uses bit scans instead of 81-square loops for performance
-    /// Task 2.0.2.2: Falls back to ray-casting when magic is disabled
+    /// This is a pure function with no side effects, making it safe for
+    /// immutable usage. Task 2.0.2.4: Uses bit scans instead of 81-square
+    /// loops for performance Task 2.0.2.2: Falls back to ray-casting when
+    /// magic is disabled
     pub fn generate_promoted_sliding_moves(
         &self,
         board: &BitboardBoard,
@@ -155,9 +157,10 @@ impl SlidingMoveGenerator {
 
     /// Generate moves for multiple sliding pieces in batch
     ///
-    /// This is a pure function with no side effects, making it safe for immutable usage.
-    /// Task 2.0.2.4: Uses bit scans instead of 81-square loops for performance
-    /// Task 2.0.2.2: Falls back to ray-casting when magic is disabled
+    /// This is a pure function with no side effects, making it safe for
+    /// immutable usage. Task 2.0.2.4: Uses bit scans instead of 81-square
+    /// loops for performance Task 2.0.2.2: Falls back to ray-casting when
+    /// magic is disabled
     pub fn generate_sliding_moves_batch(
         &self,
         board: &BitboardBoard,
@@ -227,20 +230,25 @@ impl SlidingMoveGenerator {
 
     /// Generate sliding moves for multiple pieces using SIMD batch operations
     ///
-    /// This method uses SIMD batch operations to process multiple pieces simultaneously,
-    /// providing improved performance over sequential processing.
+    /// This method uses SIMD batch operations to process multiple pieces
+    /// simultaneously, providing improved performance over sequential
+    /// processing.
     ///
     /// # Performance
     ///
-    /// Uses `AlignedBitboardArray` and batch operations to combine attack patterns
-    /// from multiple pieces, achieving 4-8x speedup for attack combination.
+    /// Uses `AlignedBitboardArray` and batch operations to combine attack
+    /// patterns from multiple pieces, achieving 4-8x speedup for attack
+    /// combination.
     ///
     /// # Memory Optimizations (Task 3.12)
     ///
     /// This method includes several memory optimizations:
-    /// - **Prefetching**: Prefetches upcoming magic table entries and attack patterns
-    /// - **Cache-friendly access**: Processes pieces in batches for better cache locality
-    /// - **Sequential prefetching**: Prefetches next pieces in batch ahead of time
+    /// - **Prefetching**: Prefetches upcoming magic table entries and attack
+    ///   patterns
+    /// - **Cache-friendly access**: Processes pieces in batches for better
+    ///   cache locality
+    /// - **Sequential prefetching**: Prefetches next pieces in batch ahead of
+    ///   time
     ///
     /// These optimizations provide an additional 5-10% performance improvement
     /// on top of SIMD optimizations.
@@ -347,7 +355,8 @@ impl SlidingMoveGenerator {
                 let piece_type = piece.piece_type;
                 let square = from.to_index();
 
-                // Task 3.12.1: Prefetch magic table entry for current piece if not already prefetched
+                // Task 3.12.1: Prefetch magic table entry for current piece if not already
+                // prefetched
                 if self.magic_enabled && local_idx == 0 {
                     unsafe {
                         #[cfg(target_arch = "x86_64")]
@@ -398,7 +407,8 @@ impl SlidingMoveGenerator {
                                                 && magic_entry.attack_base
                                                     < magic_table.attack_storage.len()
                                             {
-                                                // Prefetch likely attack_storage entry (using empty occupied as estimate)
+                                                // Prefetch likely attack_storage entry (using empty
+                                                // occupied as estimate)
                                                 let likely_hash = (0u128.wrapping_mul(
                                                     magic_entry.magic_number as u128,
                                                 )) >> magic_entry.shift;
@@ -661,7 +671,8 @@ mod tests {
 
         // Should use ray-cast fallback and still generate moves
         // The exact count depends on board state, but should not panic
-        assert!(moves.len() <= 16); // Rook can move at most 8 squares in each direction
+        assert!(moves.len() <= 16); // Rook can move at most 8 squares in each
+                                    // direction
     }
 
     #[test]
@@ -676,7 +687,8 @@ mod tests {
         let moves = generator.generate_sliding_moves(&board, from, piece_type, player);
 
         // Should use ray-cast fallback and still generate moves
-        assert!(moves.len() <= 16); // Bishop from center can move at most 16 squares on 9x9
+        assert!(moves.len() <= 16); // Bishop from center can move at most 16
+                                    // squares on 9x9
     }
 
     #[test]

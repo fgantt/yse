@@ -1,6 +1,7 @@
 //! Performance benchmarks for move ordering effectiveness tracking
 //!
-//! This benchmark suite measures the correlation between move ordering quality and LMR effectiveness:
+//! This benchmark suite measures the correlation between move ordering quality
+//! and LMR effectiveness:
 //! - Correlation between ordering quality and LMR re-search rate
 //! - Average move index of cutoff-causing moves
 //! - Percentage of cutoffs from moves after LMR threshold
@@ -68,7 +69,8 @@ fn benchmark_move_ordering_effectiveness_tracking(c: &mut Criterion) {
     group.finish();
 }
 
-/// Benchmark correlation between ordering quality and LMR re-search rate (Task 10.10)
+/// Benchmark correlation between ordering quality and LMR re-search rate (Task
+/// 10.10)
 fn benchmark_ordering_correlation_with_research_rate(c: &mut Criterion) {
     let mut group = c.benchmark_group("ordering_correlation_with_research_rate");
     group.measurement_time(Duration::from_secs(20));

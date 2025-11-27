@@ -1,7 +1,9 @@
-//! Automated Performance Monitoring and Regression Testing for Null Move Pruning
+//! Automated Performance Monitoring and Regression Testing for Null Move
+//! Pruning
 //!
-//! This benchmark suite provides comprehensive performance monitoring, regression testing,
-//! and automated reporting for NMP effectiveness across different configurations and position types.
+//! This benchmark suite provides comprehensive performance monitoring,
+//! regression testing, and automated reporting for NMP effectiveness across
+//! different configurations and position types.
 //!
 //! Features:
 //! - Automated benchmark execution for CI/CD

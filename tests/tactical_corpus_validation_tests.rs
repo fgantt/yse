@@ -57,21 +57,24 @@ fn tactical_corpus_scores_match_expectations() {
         match case.expectation {
             Expectation::Positive => assert!(
                 mg >= opponent_mg - NEUTRAL_EPSILON_CP,
-                "Opponent score should not exceed attacker advantage by more than {NEUTRAL_EPSILON_CP} for {} (attacker {}, opponent {})",
+                "Opponent score should not exceed attacker advantage by more than \
+                 {NEUTRAL_EPSILON_CP} for {} (attacker {}, opponent {})",
                 case.name,
                 mg,
                 opponent_mg
             ),
             Expectation::Negative => assert!(
                 mg <= opponent_mg + NEUTRAL_EPSILON_CP,
-                "Opponent score should not be worse than defender penalty by more than {NEUTRAL_EPSILON_CP} for {} (defender {}, opponent {})",
+                "Opponent score should not be worse than defender penalty by more than \
+                 {NEUTRAL_EPSILON_CP} for {} (defender {}, opponent {})",
                 case.name,
                 mg,
                 opponent_mg
             ),
             Expectation::Neutral => assert!(
                 (opponent_mg - mg).abs() <= NEUTRAL_EPSILON_CP,
-                "Neutral scenario should evaluate symmetrically within ±{NEUTRAL_EPSILON_CP} for {} (attacker {}, opponent {})",
+                "Neutral scenario should evaluate symmetrically within ±{NEUTRAL_EPSILON_CP} for \
+                 {} (attacker {}, opponent {})",
                 case.name,
                 mg,
                 opponent_mg

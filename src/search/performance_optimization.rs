@@ -1,8 +1,9 @@
 //! Performance optimization utilities for transposition table
 //!
-//! This module provides advanced performance optimizations for the transposition table,
-//! including cache line alignment, prefetching, optimized hash mapping, and hot path
-//! optimizations while maintaining cross-platform compatibility.
+//! This module provides advanced performance optimizations for the
+//! transposition table, including cache line alignment, prefetching, optimized
+//! hash mapping, and hot path optimizations while maintaining cross-platform
+//! compatibility.
 
 use crate::types::core::Move;
 use crate::types::search::TranspositionFlag;
@@ -59,7 +60,8 @@ impl OptimizedHashMapper {
 
     /// Fast hash to index conversion
     ///
-    /// This method uses bit manipulation and lookup tables for optimal performance.
+    /// This method uses bit manipulation and lookup tables for optimal
+    /// performance.
     #[inline(always)]
     pub fn hash_to_index(&self, hash: u64) -> usize {
         // Use bit mask for power-of-2 table sizes (fastest method)
@@ -264,7 +266,8 @@ impl OptimizedEntryPacker {
     /// for maximum performance in atomic operations.
     #[inline(always)]
     pub fn pack_entry_fast(score: i32, depth: u8, flag: TranspositionFlag) -> u64 {
-        // Pack score (16 bits), depth (8 bits), flag (2 bits), reserved (6 bits) = 32 bits
+        // Pack score (16 bits), depth (8 bits), flag (2 bits), reserved (6 bits) = 32
+        // bits
         let upper_32 = ((score as u32 & 0xFFFF) << 16)
             | ((depth as u32 & 0xFF) << 8)
             | (Self::flag_to_bits(flag) as u32 & 0x03);
@@ -425,7 +428,8 @@ impl HotPathOptimizer {
         );
 
         // Store using atomic operations
-        // Note: This is a simplified version - in practice, you'd use proper atomic types
+        // Note: This is a simplified version - in practice, you'd use proper atomic
+        // types
         entries[index] =
             AtomicPackedEntry::new(entry.score, entry.depth, entry.flag, entry.best_move);
 

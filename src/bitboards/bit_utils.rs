@@ -1,8 +1,9 @@
 //! Bit manipulation utilities for bitboard operations
 //!
-//! This module provides a comprehensive collection of bit manipulation utilities
-//! for bitboard operations. These utilities are optimized for performance and
-//! provide essential building blocks for higher-level bitboard operations.
+//! This module provides a comprehensive collection of bit manipulation
+//! utilities for bitboard operations. These utilities are optimized for
+//! performance and provide essential building blocks for higher-level bitboard
+//! operations.
 
 use crate::bitboards::integration::GlobalOptimizer;
 use crate::types::Bitboard;
@@ -310,7 +311,8 @@ pub fn is_empty(bb: Bitboard) -> bool {
 /// The number of set bits
 ///
 /// # Performance
-/// This function uses the optimized population count from the integration module.
+/// This function uses the optimized population count from the integration
+/// module.
 ///
 /// # Examples
 /// ```
@@ -334,7 +336,8 @@ pub fn popcount(bb: Bitboard) -> u32 {
 /// The position of the LSB (0-based), or None if no bits are set
 ///
 /// # Performance
-/// This function uses the optimized bit scan forward from the integration module.
+/// This function uses the optimized bit scan forward from the integration
+/// module.
 ///
 /// # Examples
 /// ```
@@ -358,7 +361,8 @@ pub fn lsb_position(bb: Bitboard) -> Option<u8> {
 /// The position of the MSB (0-based), or None if no bits are set
 ///
 /// # Performance
-/// This function uses the optimized bit scan reverse from the integration module.
+/// This function uses the optimized bit scan reverse from the integration
+/// module.
 ///
 /// # Examples
 /// ```
@@ -560,7 +564,8 @@ pub fn union(bb1: Bitboard, bb2: Bitboard) -> Bitboard {
 /// * `bb2` - Second bitboard
 ///
 /// # Returns
-/// A bitboard containing bits that are set in exactly one of the input bitboards
+/// A bitboard containing bits that are set in exactly one of the input
+/// bitboards
 ///
 /// # Examples
 /// ```
@@ -814,7 +819,8 @@ mod tests {
         assert_eq!(clear_lsb(Bitboard::from_u128(1)), Bitboard::from_u128(0));
         assert_eq!(clear_msb(Bitboard::from_u128(1)), Bitboard::from_u128(0));
 
-        // Test with all bits set (for u128, this would be 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
+        // Test with all bits set (for u128, this would be
+        // 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
         let all_bits = !0u128;
         assert_eq!(popcount(Bitboard::from_u128(all_bits)), 128);
     }

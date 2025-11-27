@@ -1,8 +1,8 @@
 //! Advanced replacement policies for transposition table
 //!
-//! This module provides sophisticated replacement policies for the transposition table,
-//! including depth-preferred, age-based, and combined strategies that optimize
-//! hit rates and search performance.
+//! This module provides sophisticated replacement policies for the
+//! transposition table, including depth-preferred, age-based, and combined
+//! strategies that optimize hit rates and search performance.
 
 use crate::search::cache_management::AgeCounter;
 use crate::search::transposition_config::{ReplacementPolicy, TranspositionConfig};

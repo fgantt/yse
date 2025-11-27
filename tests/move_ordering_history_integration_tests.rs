@@ -6,7 +6,8 @@ use shogi_engine::search::move_ordering::{MoveOrdering, OrderingWeights};
 /// Integration tests for history heuristic with search algorithm
 ///
 /// These tests verify that the history heuristic integrates correctly
-/// with the overall search system and provides the expected performance benefits.
+/// with the overall search system and provides the expected performance
+/// benefits.
 
 #[cfg(test)]
 mod history_heuristic_integration_tests {
@@ -386,7 +387,8 @@ mod history_heuristic_integration_tests {
         // Test with drop moves (no from position)
         let drop_move = create_test_move(None, Position::new(1, 1), PieceType::Pawn, Player::Black);
         orderer.update_history_score(&drop_move, 3);
-        assert_eq!(orderer.get_history_score(&drop_move), 0); // Should not be stored
+        assert_eq!(orderer.get_history_score(&drop_move), 0); // Should not be
+                                                              // stored
     }
 
     /// Test history heuristic with different piece types

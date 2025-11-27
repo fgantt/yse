@@ -1,4 +1,5 @@
-//! Tests for performance baseline persistence and comparison (Task 26.0 - Task 1.0)
+//! Tests for performance baseline persistence and comparison (Task 26.0 - Task
+//! 1.0)
 
 use shogi_engine::search::performance_tuning::BaselineManager;
 use shogi_engine::types::{BaselineMoveOrderingMetrics, PerformanceBaseline};
@@ -97,7 +98,8 @@ fn test_baseline_no_regression() {
 
     // Should not detect regressions (improvements don't count as regressions)
     // Note: This test may need adjustment based on actual implementation
-    // If baseline has 0.0 values, improvements won't trigger regression detection
+    // If baseline has 0.0 values, improvements won't trigger regression
+    // detection
 }
 
 #[test]

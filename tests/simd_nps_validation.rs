@@ -51,8 +51,8 @@ fn test_simd_nps_improvement() {
     let iterations = 10_000;
     let nps = measure_bitboard_workload_nps(iterations);
 
-    // Target: At least 500k nodes per second for this workload (adjusted for debug builds)
-    // Release builds should achieve 1M+ NPS
+    // Target: At least 500k nodes per second for this workload (adjusted for debug
+    // builds) Release builds should achieve 1M+ NPS
     // This is a conservative target - actual search will be more complex
     // but this validates that SIMD operations are fast enough
     let min_nps = 500_000.0;
@@ -140,8 +140,8 @@ fn test_batch_operations_nps_contribution() {
 
 /// Measure NPS for a realistic search workload
 ///
-/// This simulates actual engine search with evaluation, pattern matching, and move generation.
-/// # Task 5.12.3
+/// This simulates actual engine search with evaluation, pattern matching, and
+/// move generation. # Task 5.12.3
 fn measure_search_nps(
     engine: &mut SearchEngine,
     board: &mut BitboardBoard,
@@ -176,8 +176,9 @@ fn measure_search_nps(
 /// Create a SearchEngine with SIMD enabled or disabled
 /// # Task 5.12.3
 /// Note: SIMD configuration is set on evaluator directly.
-/// Move generator SIMD is controlled by default config (enabled when simd feature is on).
-/// For move generation, we rely on the default which should be SIMD enabled when the feature is enabled.
+/// Move generator SIMD is controlled by default config (enabled when simd
+/// feature is on). For move generation, we rely on the default which should be
+/// SIMD enabled when the feature is enabled.
 fn create_engine_with_simd_config(simd_enabled: bool) -> SearchEngine {
     let mut engine = SearchEngine::new(None, 16);
 
@@ -205,8 +206,9 @@ fn create_engine_with_simd_config(simd_enabled: bool) -> SearchEngine {
 #[test]
 fn test_simd_nps_improvement_end_to_end() {
     // # Task 5.12.2: NPS validation test that requires 20%+ improvement
-    // This test validates that SIMD provides meaningful overall engine performance improvement
-    // by comparing end-to-end search performance with SIMD enabled vs disabled.
+    // This test validates that SIMD provides meaningful overall engine performance
+    // improvement by comparing end-to-end search performance with SIMD enabled
+    // vs disabled.
 
     // Skip in CI or if performance tests are disabled
     if std::env::var("CI").is_ok() || std::env::var("SHOGI_SKIP_PERFORMANCE_TESTS").is_ok() {
@@ -258,7 +260,8 @@ fn test_simd_nps_improvement_end_to_end() {
     {
         assert!(
             improvement >= 20.0,
-            "SIMD should provide at least 20% NPS improvement. Got {:.2}% improvement (SIMD: {:.2} NPS, Scalar: {:.2} NPS)",
+            "SIMD should provide at least 20% NPS improvement. Got {:.2}% improvement (SIMD: \
+             {:.2} NPS, Scalar: {:.2} NPS)",
             improvement,
             nps_simd,
             nps_scalar
@@ -267,14 +270,13 @@ fn test_simd_nps_improvement_end_to_end() {
 
     #[cfg(debug_assertions)]
     {
-        // In debug builds, allow up to 50% regression (expected due to function call overhead)
-        // But still prefer improvement
+        // In debug builds, allow up to 50% regression (expected due to function call
+        // overhead) But still prefer improvement
         if improvement < -50.0 {
             panic!(
-                "SIMD regression too large in debug build: {:.2}% (SIMD: {:.2} NPS, Scalar: {:.2} NPS)",
-                improvement,
-                nps_simd,
-                nps_scalar
+                "SIMD regression too large in debug build: {:.2}% (SIMD: {:.2} NPS, Scalar: {:.2} \
+                 NPS)",
+                improvement, nps_simd, nps_scalar
             );
         }
         println!("Debug build: Improvement {:.2}% (allowing up to 50% regression)", improvement);
@@ -333,7 +335,8 @@ fn test_simd_nps_regression_detection() {
         // Allow up to 5% regression in release builds (acceptable variance)
         assert!(
             regression <= 5.0,
-            "SIMD should not cause more than 5% regression. Got {:.2}% regression (SIMD: {:.2} NPS, Scalar: {:.2} NPS)",
+            "SIMD should not cause more than 5% regression. Got {:.2}% regression (SIMD: {:.2} \
+             NPS, Scalar: {:.2} NPS)",
             regression,
             nps_simd,
             nps_scalar
@@ -363,8 +366,8 @@ fn test_simd_realistic_workload_simulation() {
 
     // Test multiple positions to simulate realistic workload
     let positions = vec![
-        BitboardBoard::new(), // Starting position
-                              // Add more positions if needed
+        BitboardBoard::new(), /* Starting position
+                               * Add more positions if needed */
     ];
 
     // Measure with SIMD enabled

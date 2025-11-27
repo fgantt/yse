@@ -1,8 +1,8 @@
 //! Attack pattern generation for magic bitboards
 //!
-//! This module provides functionality to generate attack patterns for rook and bishop
-//! pieces using ray-casting algorithms. These patterns are used to build the magic
-//! bitboard lookup tables.
+//! This module provides functionality to generate attack patterns for rook and
+//! bishop pieces using ray-casting algorithms. These patterns are used to build
+//! the magic bitboard lookup tables.
 
 use crate::types::core::PieceType;
 use crate::types::Bitboard;
@@ -38,7 +38,8 @@ impl Default for AttackGeneratorConfig {
     }
 }
 
-// Precomputed direction vectors (optimized to const/lazy_static for zero-cost access)
+// Precomputed direction vectors (optimized to const/lazy_static for zero-cost
+// access)
 lazy_static! {
     static ref ROOK_DIRECTIONS: Vec<Direction> = vec![
         Direction { row_delta: 1, col_delta: 0 },   // Up
@@ -227,7 +228,8 @@ impl AttackGenerator {
         AttackGeneratorConfig { cache_size: self.pattern_cache.capacity() }
     }
 
-    // Removed initialize_direction_cache - now using lazy_static for zero-cost access
+    // Removed initialize_direction_cache - now using lazy_static for zero-cost
+    // access
 
     /// Generate all possible blocker combinations for a mask
     pub fn generate_all_blocker_combinations(&self, mask: Bitboard) -> Vec<Bitboard> {
@@ -246,7 +248,8 @@ impl AttackGenerator {
             .collect()
     }
 
-    /// Generate attack pattern for a specific square and piece type without blockers
+    /// Generate attack pattern for a specific square and piece type without
+    /// blockers
     pub fn generate_attack_pattern_no_blockers(
         &mut self,
         square: u8,
@@ -255,7 +258,8 @@ impl AttackGenerator {
         self.generate_attack_pattern(square, piece_type, Bitboard::default())
     }
 
-    /// Generate attack pattern for a specific square and piece type with all possible blockers
+    /// Generate attack pattern for a specific square and piece type with all
+    /// possible blockers
     pub fn generate_attack_pattern_all_blockers(
         &mut self,
         square: u8,
@@ -541,7 +545,9 @@ mod tests {
         let generator = AttackGenerator::new();
         let stats = generator.cache_stats();
         assert_eq!(stats.cache_size, 0);
-        assert_eq!(stats.direction_cache_size, 4); // Rook, Bishop, PromotedRook, PromotedBishop
+        assert_eq!(stats.direction_cache_size, 4); // Rook, Bishop,
+                                                   // PromotedRook,
+                                                   // PromotedBishop
     }
 
     #[test]

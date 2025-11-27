@@ -2,7 +2,8 @@
 //!
 //! This benchmark suite compares basic vs enhanced position classification:
 //! - Basic classification: cutoff ratio only
-//! - Enhanced classification: cutoff ratio + material balance + piece activity + game phase + threat analysis
+//! - Enhanced classification: cutoff ratio + material balance + piece activity
+//!   + game phase + threat analysis
 //!
 //! Metrics measured:
 //! - Classification accuracy (tactical vs quiet detection)
@@ -38,8 +39,8 @@ fn create_test_engine_enhanced_classification() -> SearchEngine {
     let mut engine = SearchEngine::new(None, 16);
     let mut config = LMRConfig::default();
     config.enable_adaptive_reduction = true;
-    // Enhanced classification uses all features (material, activity, phase, threats)
-    // This is the default behavior, so same as basic for now
+    // Enhanced classification uses all features (material, activity, phase,
+    // threats) This is the default behavior, so same as basic for now
     // But we can test different threshold configurations
     engine.update_lmr_config(config).unwrap();
     engine

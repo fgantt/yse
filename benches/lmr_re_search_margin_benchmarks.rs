@@ -14,9 +14,12 @@
 //! - Re-search margin effectiveness
 //!
 //! Expected results:
-//! - Re-search margin should reduce re-search rate (fewer unnecessary re-searches)
-//! - Re-search margin should improve efficiency without significantly impacting accuracy
-//! - Optimal margin value should balance re-search reduction with search accuracy
+//! - Re-search margin should reduce re-search rate (fewer unnecessary
+//!   re-searches)
+//! - Re-search margin should improve efficiency without significantly impacting
+//!   accuracy
+//! - Optimal margin value should balance re-search reduction with search
+//!   accuracy
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use shogi_engine::{

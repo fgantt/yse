@@ -2,7 +2,8 @@
 //!
 //! This module implements compressed storage for transposition table entries,
 //! significantly reducing memory usage while maintaining fast access times.
-//! It uses various compression techniques optimized for chess/Shogi position data.
+//! It uses various compression techniques optimized for chess/Shogi position
+//! data.
 //!
 //! # Features
 //!
@@ -10,7 +11,8 @@
 //! - **Adaptive Compression**: Automatically selects best compression method
 //! - **Fast Decompression**: Optimized for real-time game play
 //! - **Configurable Compression**: Adjustable compression levels and methods
-//! - **Memory Efficiency**: Significant memory savings with minimal performance impact
+//! - **Memory Efficiency**: Significant memory savings with minimal performance
+//!   impact
 //!
 //! # Usage
 //!

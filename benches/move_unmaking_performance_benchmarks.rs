@@ -1,7 +1,7 @@
 //! Performance benchmarks comparing board cloning vs move unmaking
 //!
-//! These benchmarks measure the performance improvement from using move unmaking
-//! instead of board cloning in the search engine.
+//! These benchmarks measure the performance improvement from using move
+//! unmaking instead of board cloning in the search engine.
 //!
 //! Target improvement: 10-30% speedup
 

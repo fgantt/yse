@@ -152,7 +152,8 @@ fn benchmark_overhead_monitoring(c: &mut Criterion) {
         let mut engine = SearchEngine::new(None, 64);
 
         b.iter(|| {
-            engine.monitor_iid_overhead(black_box(100), black_box(1000)); // 10% overhead
+            engine.monitor_iid_overhead(black_box(100), black_box(1000)); // 10%
+                                                                          // overhead
         });
     });
 

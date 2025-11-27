@@ -36,8 +36,9 @@ fn test_move_ordering_with_tt_integration() {
     let moves = move_generator.generate_legal_moves(&board, player, &captured);
     assert!(!moves.is_empty(), "Should have legal moves");
 
-    // Perform ordering - TT integration happens during search, which we verify via ordering
-    // The ordering will use TT data if available from previous searches
+    // Perform ordering - TT integration happens during search, which we verify via
+    // ordering The ordering will use TT data if available from previous
+    // searches
 
     // Test that move ordering integrates with TT
     let ordered_moves = engine.order_moves_for_negamax(
@@ -48,7 +49,8 @@ fn test_move_ordering_with_tt_integration() {
     assert_eq!(ordered_moves.len(), moves.len(), "Should have same number of moves");
 
     // Verify moves are ordered (best move from TT should be first if available)
-    // Note: We can't guarantee this without knowing TT contents, but we can verify ordering happened
+    // Note: We can't guarantee this without knowing TT contents, but we can verify
+    // ordering happened
     assert!(!ordered_moves.is_empty(), "Ordered moves should not be empty");
 }
 
@@ -71,7 +73,8 @@ fn test_move_ordering_with_caching() {
         engine.order_moves_for_negamax(&moves, &board, &captured, player, 3, -100000, 100000);
 
     // Cached result should match (if cache hit)
-    // Note: Cache might not hit if move list differs, but results should be consistent
+    // Note: Cache might not hit if move list differs, but results should be
+    // consistent
     assert_eq!(ordered1.len(), ordered2.len(), "Results should have same length");
 }
 
@@ -104,7 +107,8 @@ fn test_move_ordering_with_check_detection() {
     let (mut board, captured, player) = create_test_position();
 
     // Set up a position where king might be in check
-    // Note: This is a simplified test - actual check positions require specific board setup
+    // Note: This is a simplified test - actual check positions require specific
+    // board setup
     let move_generator = MoveGenerator::new();
     let moves = move_generator.generate_legal_moves(&board, player, &captured);
 
@@ -185,7 +189,8 @@ fn test_move_ordering_in_full_search() {
     let _ordered =
         engine.order_moves_for_negamax(&moves, &board, &captured, player, 3, -100000, 100000);
 
-    // Verify ordering completes successfully (the important part is that ordering was used)
+    // Verify ordering completes successfully (the important part is that ordering
+    // was used)
     assert!(true, "Move ordering should work correctly in search context");
 }
 
@@ -294,7 +299,8 @@ fn test_move_ordering_integration_with_lmr_context() {
     );
 
     // Perform a search that uses LMR - ordered moves should work correctly
-    // Note: find_best_move is private, but we can verify ordering works via order_moves_for_negamax
+    // Note: find_best_move is private, but we can verify ordering works via
+    // order_moves_for_negamax
     let _ordered_for_lmr = engine.order_moves_for_negamax(
         &ordered_moves,
         &board,

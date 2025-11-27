@@ -1,8 +1,8 @@
 //! Transposition Table Trait
 //!
-//! This module provides a unified trait for all transposition table implementations,
-//! enabling polymorphic usage and easier testing. This is part of Task 3.0 - Integration
-//! Synchronization and Coordination Fixes.
+//! This module provides a unified trait for all transposition table
+//! implementations, enabling polymorphic usage and easier testing. This is part
+//! of Task 3.0 - Integration Synchronization and Coordination Fixes.
 
 use crate::types::transposition::TranspositionEntry;
 use std::cell::RefCell;
@@ -10,12 +10,14 @@ use std::cell::RefCell;
 /// Unified trait for transposition table implementations
 ///
 /// This trait provides a common interface for all transposition table types,
-/// allowing polymorphic usage throughout the search engine. Different implementations
-/// provide different characteristics (thread-safety, memory efficiency, etc.).
+/// allowing polymorphic usage throughout the search engine. Different
+/// implementations provide different characteristics (thread-safety, memory
+/// efficiency, etc.).
 ///
-/// Note: Some implementations use interior mutability (e.g., ThreadSafeTranspositionTable)
-/// and can take `&self` for all methods, while others require `&mut self` for mutations.
-/// The trait signatures allow for both patterns via implementation.
+/// Note: Some implementations use interior mutability (e.g.,
+/// ThreadSafeTranspositionTable) and can take `&self` for all methods, while
+/// others require `&mut self` for mutations. The trait signatures allow for
+/// both patterns via implementation.
 ///
 /// # Task 3.0 (Task 3.15, Task 3.21)
 pub trait TranspositionTableTrait {
@@ -31,13 +33,15 @@ pub trait TranspositionTableTrait {
 
     /// Probe the table while optionally prefetching the next anticipated entry
     ///
-    /// This is a performance optimization for implementations that support prefetching.
-    /// The default implementation simply calls `probe()` ignoring the prefetch hint.
+    /// This is a performance optimization for implementations that support
+    /// prefetching. The default implementation simply calls `probe()`
+    /// ignoring the prefetch hint.
     ///
     /// # Arguments
     /// * `hash_key` - The hash key of the position to look up
     /// * `depth` - Minimum depth required for the entry to be valid
-    /// * `next_hash` - Optional hash key for the next anticipated probe (for prefetching)
+    /// * `next_hash` - Optional hash key for the next anticipated probe (for
+    ///   prefetching)
     ///
     /// # Returns
     /// `Some(TranspositionEntry)` if a valid entry is found, `None` otherwise
@@ -49,7 +53,8 @@ pub trait TranspositionTableTrait {
         depth: u8,
         _next_hash: Option<u64>,
     ) -> Option<TranspositionEntry> {
-        // Default implementation just calls probe - implementations can override for prefetching
+        // Default implementation just calls probe - implementations can override for
+        // prefetching
         self.probe(hash_key, depth)
     }
 
@@ -79,8 +84,9 @@ pub trait TranspositionTableTrait {
 
     /// Prefill the table with entries from an opening book.
     ///
-    /// This is an optional method - not all implementations support opening book prefilling.
-    /// The default implementation is a no-op that returns 0.
+    /// This is an optional method - not all implementations support opening
+    /// book prefilling. The default implementation is a no-op that returns
+    /// 0.
     ///
     /// # Arguments
     /// * `book` - The opening book to extract positions from
@@ -99,9 +105,10 @@ pub trait TranspositionTableTrait {
     }
 }
 
-// Task 3.16: Implement TranspositionTableTrait for TranspositionTable (basic, single-threaded)
-// Note: TranspositionTable requires &mut self for probe/store/clear, so we wrap it in RefCell
-// to provide the &self interface required by the trait.
+// Task 3.16: Implement TranspositionTableTrait for TranspositionTable (basic,
+// single-threaded) Note: TranspositionTable requires &mut self for
+// probe/store/clear, so we wrap it in RefCell to provide the &self interface
+// required by the trait.
 impl TranspositionTableTrait for RefCell<crate::search::transposition_table::TranspositionTable> {
     fn probe(&self, hash_key: u64, depth: u8) -> Option<TranspositionEntry> {
         self.borrow_mut().probe(hash_key, depth)
@@ -148,7 +155,8 @@ impl TranspositionTableTrait for crate::search::thread_safe_table::ThreadSafeTra
     }
 
     fn store(&mut self, entry: TranspositionEntry) {
-        // ThreadSafeTranspositionTable::store takes &self, so we can call it on &mut self
+        // ThreadSafeTranspositionTable::store takes &self, so we can call it on &mut
+        // self
         crate::search::thread_safe_table::ThreadSafeTranspositionTable::store(self, entry);
     }
 
@@ -176,12 +184,14 @@ impl TranspositionTableTrait for crate::search::thread_safe_table::ThreadSafeTra
     }
 }
 
-// Also implement the trait for RefCell<ThreadSafeTranspositionTable> for use in factory function
+// Also implement the trait for RefCell<ThreadSafeTranspositionTable> for use in
+// factory function
 impl TranspositionTableTrait
     for RefCell<crate::search::thread_safe_table::ThreadSafeTranspositionTable>
 {
     fn probe(&self, hash_key: u64, depth: u8) -> Option<TranspositionEntry> {
-        // ThreadSafeTranspositionTable uses interior mutability, so we can borrow immutably
+        // ThreadSafeTranspositionTable uses interior mutability, so we can borrow
+        // immutably
         self.borrow().probe(hash_key, depth)
     }
 
@@ -202,7 +212,8 @@ impl TranspositionTableTrait
 
     fn clear(&mut self) {
         // ThreadSafeTranspositionTable::clear takes &self, so we can borrow immutably
-        // Note: We take &mut self for the trait signature, but the underlying clear() only needs &self
+        // Note: We take &mut self for the trait signature, but the underlying clear()
+        // only needs &self
         self.get_mut().clear();
     }
 
@@ -220,16 +231,19 @@ impl TranspositionTableTrait
         book: &mut crate::opening_book::OpeningBook,
         depth: u8,
     ) -> usize {
-        // Note: prefill_from_book takes &mut self, but ThreadSafeTranspositionTable uses interior mutability
-        // so we can borrow immutably from RefCell, then call the method which takes &mut self on the inner value
-        // Actually, ThreadSafeTranspositionTable::prefill_from_book takes &mut self, so we need get_mut()
+        // Note: prefill_from_book takes &mut self, but ThreadSafeTranspositionTable
+        // uses interior mutability so we can borrow immutably from RefCell,
+        // then call the method which takes &mut self on the inner value
+        // Actually, ThreadSafeTranspositionTable::prefill_from_book takes &mut self, so
+        // we need get_mut()
         self.get_mut().prefill_from_book(book, depth)
     }
 }
 
 // Task 3.19: Implement TranspositionTableTrait for MultiLevelTranspositionTable
-// Note: MultiLevelTranspositionTable requires &mut self for probe/store/clear, so we wrap it in RefCell
-// to provide the &self interface required by the trait.
+// Note: MultiLevelTranspositionTable requires &mut self for probe/store/clear,
+// so we wrap it in RefCell to provide the &self interface required by the
+// trait.
 impl TranspositionTableTrait
     for RefCell<crate::search::multi_level_transposition_table::MultiLevelTranspositionTable>
 {
@@ -248,8 +262,9 @@ impl TranspositionTableTrait
     fn size(&self) -> usize {
         // Return total capacity across all levels
         let table = self.borrow();
-        // Use get_stats() which is public to get level memory usage, then estimate entries
-        // This is approximate - we could add a public method to get total size if needed
+        // Use get_stats() which is public to get level memory usage, then estimate
+        // entries This is approximate - we could add a public method to get
+        // total size if needed
         let stats = table.get_stats();
         // Estimate based on total memory usage (approximately 100 bytes per entry)
         (stats.total_memory_usage / 100) as usize
@@ -266,9 +281,10 @@ impl TranspositionTableTrait
     }
 }
 
-// Task 3.18: Implement TranspositionTableTrait for HierarchicalTranspositionTable
-// Note: HierarchicalTranspositionTable::probe returns Option<(TranspositionEntry, HitLevel)>
-// which is different from the trait signature, so we adapt it.
+// Task 3.18: Implement TranspositionTableTrait for
+// HierarchicalTranspositionTable Note: HierarchicalTranspositionTable::probe
+// returns Option<(TranspositionEntry, HitLevel)> which is different from the
+// trait signature, so we adapt it.
 impl TranspositionTableTrait
     for RefCell<crate::search::hierarchical_transposition_table::HierarchicalTranspositionTable>
 {
@@ -309,7 +325,8 @@ impl TranspositionTableTrait
 }
 
 // Task 3.20: Implement TranspositionTableTrait for CompressedTranspositionTable
-// Note: CompressedTranspositionTable::store takes &TranspositionEntry, so we adapt it.
+// Note: CompressedTranspositionTable::store takes &TranspositionEntry, so we
+// adapt it.
 impl TranspositionTableTrait
     for RefCell<crate::search::compressed_transposition_table::CompressedTranspositionTable>
 {

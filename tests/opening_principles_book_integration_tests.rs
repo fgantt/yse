@@ -1,6 +1,8 @@
-//! Tests for opening principles and opening book integration (Task 19.0 - Task 3.0)
+//! Tests for opening principles and opening book integration (Task 19.0 - Task
+//! 3.0)
 //!
-//! These tests verify that opening principles correctly evaluate and prioritize book moves:
+//! These tests verify that opening principles correctly evaluate and prioritize
+//! book moves:
 //! - Book move quality evaluation
 //! - Book move prioritization
 //! - Book move validation

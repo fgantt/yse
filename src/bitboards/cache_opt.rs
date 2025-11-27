@@ -44,7 +44,8 @@ impl CacheAlignedPopcountTable {
 
 /// Cache-aligned lookup table for bit positions
 ///
-/// This structure provides cache-aligned storage for bit position lookup tables.
+/// This structure provides cache-aligned storage for bit position lookup
+/// tables.
 #[repr(align(64))]
 pub struct CacheAlignedBitPositionTable {
     /// Bit positions for each 4-bit pattern

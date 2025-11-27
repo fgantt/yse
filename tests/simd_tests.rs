@@ -7,7 +7,8 @@
 /// 3. Platform detection works correctly
 ///
 /// Note: To verify SIMD instructions are generated, build with --release and
-/// disassemble: objdump -d target/release/deps/simd_tests-* | grep -E "(pand|por|pxor|vand|vorr|veor)"
+/// disassemble: objdump -d target/release/deps/simd_tests-* | grep -E
+/// "(pand|por|pxor|vand|vorr|veor)"
 use shogi_engine::bitboards::{platform_detection, SimdBitboard};
 
 #[test]
@@ -289,7 +290,8 @@ fn test_simd_operations_use_explicit_intrinsics() {
     let bb1 = SimdBitboard::from_u128(v1);
     let bb2 = SimdBitboard::from_u128(v2);
 
-    // Perform operations - these should use SIMD intrinsics when simd feature is enabled
+    // Perform operations - these should use SIMD intrinsics when simd feature is
+    // enabled
     let and_result = bb1 & bb2;
     let or_result = bb1 | bb2;
     let xor_result = bb1 ^ bb2;

@@ -29,7 +29,8 @@ mod search_integration_tests {
             engine.search_at_depth(&board, &captured_pieces, player, 3, 1000, -10000, 10000);
 
         // Should not panic and should return some result
-        assert!(result.is_some() || result.is_none()); // Either some move or no legal moves
+        assert!(result.is_some() || result.is_none()); // Either some move or no
+                                                       // legal moves
     }
 
     /// Test negamax integration with advanced move ordering

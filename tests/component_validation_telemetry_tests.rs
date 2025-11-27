@@ -87,7 +87,8 @@ fn test_weight_contributions_tracking() {
     // Check that enabled components have contributions
     if telemetry.weight_contributions.contains_key("material") {
         let _contrib = telemetry.weight_contributions.get("material").unwrap();
-        assert!(score.score >= -10000 && score.score <= 10000); // Should be a percentage
+        assert!(score.score >= -10000 && score.score <= 10000); // Should be a
+                                                                // percentage
     }
 }
 
@@ -150,7 +151,8 @@ fn test_component_zero_score_validation() {
     let captured = CapturedPieces::new();
 
     // Evaluate - validation code path should execute
-    // (zero score warnings would be logged if material produced zero, which is unlikely)
+    // (zero score warnings would be logged if material produced zero, which is
+    // unlikely)
     let _score = evaluator.evaluate(&board, Player::Black, &captured);
 
     // If we got here, the validation code path exists
@@ -167,7 +169,8 @@ fn test_endgame_patterns_phase_warning() {
     let captured = CapturedPieces::new();
 
     // Evaluate in opening phase (phase >= 64)
-    // Warning should be logged (we can't easily capture it, but code path should execute)
+    // Warning should be logged (we can't easily capture it, but code path should
+    // execute)
     let _score = evaluator.evaluate(&board, Player::Black, &captured);
 
     // If we got here, the phase warning code path exists

@@ -32,7 +32,8 @@
 //! ## Known Limitations
 //!
 //! - Current tests use starting position or basic FEN strings
-//! - Future enhancements should include specific tactical positions with known solutions
+//! - Future enhancements should include specific tactical positions with known
+//!   solutions
 //! - FEN parser is used but error handling falls back to default position
 
 use shogi_engine::*;
@@ -70,7 +71,8 @@ mod tactical_puzzles {
     // This creates a simple position where a capture sequence is available
     fn create_simple_capture_position() -> (BitboardBoard, CapturedPieces, Player) {
         // Create a position where Sente can capture a piece
-        // This is a simplified position - in practice, you'd use FEN for specific positions
+        // This is a simplified position - in practice, you'd use FEN for specific
+        // positions
         let board = BitboardBoard::new();
         let captured_pieces = CapturedPieces::new();
         let player = Player::Sente;
@@ -249,7 +251,8 @@ mod tactical_puzzles {
 
     #[test]
     fn test_tactical_sequence_with_extensions() {
-        // Task 8.3, 8.4: Test positions requiring extensions (checks, recaptures, promotions)
+        // Task 8.3, 8.4: Test positions requiring extensions (checks, recaptures,
+        // promotions)
         let mut engine = create_test_engine();
         let (mut board, captured_pieces, player) = match setup_position_from_fen(
             "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
@@ -286,7 +289,8 @@ mod tactical_puzzles {
 
     #[test]
     fn test_tactical_sequence_pruning_accuracy() {
-        // Task 8.3, 8.4: Test positions requiring pruning accuracy (verify pruning doesn't miss tactics)
+        // Task 8.3, 8.4: Test positions requiring pruning accuracy (verify pruning
+        // doesn't miss tactics)
         let mut engine = create_test_engine();
         let (mut board, captured_pieces, player) = match setup_position_from_fen(
             "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
@@ -431,7 +435,9 @@ mod tactical_puzzles {
         let static_eval = engine.evaluator.evaluate(&board, player, &captured_pieces);
         // In tactical positions, quiescence should differ from static eval
         // (This is a basic test - in practice, you'd test specific positions)
-        assert!(result != static_eval || result == static_eval); // Always true, but tests the comparison
+        assert!(result != static_eval || result == static_eval); // Always true,
+                                                                 // but tests the
+                                                                 // comparison
     }
 
     #[test]

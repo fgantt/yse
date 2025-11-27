@@ -16,29 +16,37 @@
 //!
 //! # Component Coordination
 //!
-//! This module coordinates between evaluation components to avoid double-counting:
-//! - **Passed Pawns**: When `endgame_patterns` is enabled and phase < endgame_threshold (default: 64),
-//!   passed pawn evaluation is skipped in `position_features` to avoid double-counting (endgame patterns
-//!   handle passed pawns with endgame-specific bonuses).
-//! - **Center Control**: Both `position_features` and `positional_patterns` evaluate center control,
-//!   but with different methods. Position features use control maps, while positional patterns use
-//!   more sophisticated evaluation including drop pressure and forward bonuses. When both are enabled,
-//!   the `center_control_precedence` configuration option determines which to use:
-//!   - `PositionalPatterns` (default): Use positional_patterns evaluation, skip position_features
-//!   - `PositionFeatures`: Use position_features evaluation, skip positional_patterns
+//! This module coordinates between evaluation components to avoid
+//! double-counting:
+//! - **Passed Pawns**: When `endgame_patterns` is enabled and phase <
+//!   endgame_threshold (default: 64), passed pawn evaluation is skipped in
+//!   `position_features` to avoid double-counting (endgame patterns handle
+//!   passed pawns with endgame-specific bonuses).
+//! - **Center Control**: Both `position_features` and `positional_patterns`
+//!   evaluate center control, but with different methods. Position features use
+//!   control maps, while positional patterns use more sophisticated evaluation
+//!   including drop pressure and forward bonuses. When both are enabled, the
+//!   `center_control_precedence` configuration option determines which to use:
+//!   - `PositionalPatterns` (default): Use positional_patterns evaluation, skip
+//!     position_features
+//!   - `PositionFeatures`: Use position_features evaluation, skip
+//!     positional_patterns
 //!   - `Both`: Evaluate both (not recommended due to double-counting risk)
-//! - **Development**: Both `position_features` and `opening_principles` evaluate development,
-//!   but opening_principles provides more sophisticated opening-specific evaluation. When `opening_principles`
-//!   is enabled and phase >= opening_threshold, development evaluation is automatically skipped in
-//!   `position_features` to avoid double-counting.
-//! - **King Safety**: `KingSafetyEvaluator` in position_features evaluates general king safety
-//!   (shields, attacks, etc.), while `CastleRecognizer` evaluates specific castle formation patterns.
-//!   These are complementary and should both be enabled for comprehensive king safety evaluation.
+//! - **Development**: Both `position_features` and `opening_principles`
+//!   evaluate development, but opening_principles provides more sophisticated
+//!   opening-specific evaluation. When `opening_principles` is enabled and
+//!   phase >= opening_threshold, development evaluation is automatically
+//!   skipped in `position_features` to avoid double-counting.
+//! - **King Safety**: `KingSafetyEvaluator` in position_features evaluates
+//!   general king safety (shields, attacks, etc.), while `CastleRecognizer`
+//!   evaluates specific castle formation patterns. These are complementary and
+//!   should both be enabled for comprehensive king safety evaluation.
 //!
 //! ## Pattern Recognition Responsibilities (Task 3.0 - Task 3.27)
 //!
 //! ### Tactical Patterns (Immediate Threats)
-//! - **`TacticalPatternRecognizer`** (used in `IntegratedEvaluator`): Comprehensive tactical pattern detection
+//! - **`TacticalPatternRecognizer`** (used in `IntegratedEvaluator`):
+//!   Comprehensive tactical pattern detection
 //!   - Forks (double attacks)
 //!   - Pins (pieces that cannot move without exposing valuable targets)
 //!   - Skewers (attacks through less valuable piece to more valuable)
@@ -47,37 +55,44 @@
 //!   - Back rank threats
 //!   - Drop threats (Shogi-specific: threats from captured pieces in hand)
 //!
-//! - **`ThreatEvaluator`** (used in `KingSafetyEvaluator`): Fast king threat detection for performance
+//! - **`ThreatEvaluator`** (used in `KingSafetyEvaluator`): Fast king threat
+//!   detection for performance
 //!   - Pins (simplified, king-focused)
 //!   - Skewers (simplified, king-focused)
 //!   - Forks (simplified, king-focused)
 //!   - Discovered attacks (simplified, king-focused)
-//!   - Note: Kept separate from `TacticalPatternRecognizer` for performance optimization in deep search nodes
+//!   - Note: Kept separate from `TacticalPatternRecognizer` for performance
+//!     optimization in deep search nodes
 //!
 //! ### Positional Patterns (Long-term Advantages)
-//! - **`PositionalPatternAnalyzer`** (used in `IntegratedEvaluator`): Long-term positional evaluation
+//! - **`PositionalPatternAnalyzer`** (used in `IntegratedEvaluator`): Long-term
+//!   positional evaluation
 //!   - Center control (with drop pressure analysis)
 //!   - Outposts (pieces on squares difficult to attack)
 //!   - Pawn structure (chains, weaknesses, passed pawns)
 //!   - Piece activity and mobility
 //!   - Space control
 //!
-//! - **`PositionFeatureEvaluator`** (used in `IntegratedEvaluator`): General position feature evaluation
+//! - **`PositionFeatureEvaluator`** (used in `IntegratedEvaluator`): General
+//!   position feature evaluation
 //!   - Center control (control maps)
 //!   - Piece development
 //!   - King safety (general shields, pawn cover, exposure)
 //!   - Pawn structure (general evaluation)
-//!   - Note: Center control conflict resolved via `center_control_precedence` config
+//!   - Note: Center control conflict resolved via `center_control_precedence`
+//!     config
 //!
 //! ### Endgame Patterns (Endgame-specific)
-//! - **`EndgamePatternEvaluator`** (used in `IntegratedEvaluator`): Endgame-specific patterns
+//! - **`EndgamePatternEvaluator`** (used in `IntegratedEvaluator`):
+//!   Endgame-specific patterns
 //!   - Passed pawn evaluation (with promotion paths)
 //!   - King activity in endgame
 //!   - Piece coordination in endgame
 //!   - Note: Evaluated only when phase < endgame_threshold (default: 64)
 //!
 //! ### Castle Patterns
-//! - **`CastleRecognizer`** (used in `IntegratedEvaluator` and `KingSafetyEvaluator`): Castle formation detection
+//! - **`CastleRecognizer`** (used in `IntegratedEvaluator` and
+//!   `KingSafetyEvaluator`): Castle formation detection
 //!   - Specific castle patterns (Mino, Anaguma, Yagura, etc.)
 //!   - Castle quality assessment
 //!   - Missing piece detection
@@ -86,56 +101,75 @@
 //!
 //! # Phase-Aware Gating and Gradual Transitions
 //!
-//! The evaluator uses phase-aware gating to conditionally evaluate patterns based on game phase:
-//! - **Opening Principles**: Evaluated when phase >= opening_threshold (default: 192)
-//! - **Endgame Patterns**: Evaluated when phase < endgame_threshold (default: 64)
+//! The evaluator uses phase-aware gating to conditionally evaluate patterns
+//! based on game phase:
+//! - **Opening Principles**: Evaluated when phase >= opening_threshold
+//!   (default: 192)
+//! - **Endgame Patterns**: Evaluated when phase < endgame_threshold (default:
+//!   64)
 //!
-//! When `enable_gradual_phase_transitions` is enabled, pattern scores are gradually faded out
-//! instead of abruptly cut off:
-//! - **Opening Principles**: Fade from `opening_fade_start` (default: 192) to `opening_fade_end` (default: 160)
-//! - **Endgame Patterns**: Fade from `endgame_fade_start` (default: 80) to `endgame_fade_end` (default: 64)
+//! When `enable_gradual_phase_transitions` is enabled, pattern scores are
+//! gradually faded out instead of abruptly cut off:
+//! - **Opening Principles**: Fade from `opening_fade_start` (default: 192) to
+//!   `opening_fade_end` (default: 160)
+//! - **Endgame Patterns**: Fade from `endgame_fade_start` (default: 80) to
+//!   `endgame_fade_end` (default: 64)
 //!
-//! This produces smoother evaluation transitions and avoids sudden score jumps when crossing phase boundaries.
-//! Phase boundaries are configurable via `PhaseBoundaryConfig` in `IntegratedEvaluationConfig`.
+//! This produces smoother evaluation transitions and avoids sudden score jumps
+//! when crossing phase boundaries. Phase boundaries are configurable via
+//! `PhaseBoundaryConfig` in `IntegratedEvaluationConfig`.
 //!
 //! # Phase-Dependent Weight Scaling (Task 20.0 - Task 3.0)
 //!
-//! When `enable_phase_dependent_weights` is enabled (default: `true`), evaluation weights automatically
-//! adjust based on game phase to reflect the changing importance of different evaluation aspects:
+//! When `enable_phase_dependent_weights` is enabled (default: `true`),
+//! evaluation weights automatically adjust based on game phase to reflect the
+//! changing importance of different evaluation aspects:
 //!
-//! - **Opening (phase >= 192)**: Development weight is emphasized (1.2x), as piece development matters most
-//!   in the opening phase. Pawn structure is de-emphasized (0.8x).
+//! - **Opening (phase >= 192)**: Development weight is emphasized (1.2x), as
+//!   piece development matters most in the opening phase. Pawn structure is
+//!   de-emphasized (0.8x).
 //!
-//! - **Middlegame (64 <= phase < 192)**: Tactical patterns (1.2x) and mobility (1.1x) are emphasized, as
-//!   tactical opportunities and piece activity are crucial in middlegame play.
+//! - **Middlegame (64 <= phase < 192)**: Tactical patterns (1.2x) and mobility
+//!   (1.1x) are emphasized, as tactical opportunities and piece activity are
+//!   crucial in middlegame play.
 //!
-//! - **Endgame (phase < 64)**: Positional patterns (1.2x) and pawn structure (1.2x) are emphasized, as
-//!   positional factors and pawn structures become decisive in endgame play. Development is de-emphasized (0.6x).
+//! - **Endgame (phase < 64)**: Positional patterns (1.2x) and pawn structure
+//!   (1.2x) are emphasized, as positional factors and pawn structures become
+//!   decisive in endgame play. Development is de-emphasized (0.6x).
 //!
 //! Weight scaling supports three curve types for transitions:
 //! - **Linear** (default): Smooth linear interpolation between phases
 //! - **Sigmoid**: Smooth S-curve transitions for gradual changes
 //! - **Step**: Discrete jumps at phase boundaries for abrupt changes
 //!
-//! Scaling factors are configurable via `phase_scaling_config` in `TaperedEvalConfig`. If `None`, defaults
-//! are used which provide good balance across all phases.
+//! Scaling factors are configurable via `phase_scaling_config` in
+//! `TaperedEvalConfig`. If `None`, defaults are used which provide good balance
+//! across all phases.
 //!
 //! # Component Dependency Validation and Coordination (Task 20.0 - Task 5.0)
 //!
-//! The evaluator includes comprehensive component dependency validation to ensure optimal
-//! configuration and avoid conflicts:
+//! The evaluator includes comprehensive component dependency validation to
+//! ensure optimal configuration and avoid conflicts:
 //!
-//! - **Dependency Graph**: Maps component relationships (Conflicts, Complements, Requires, Optional)
-//! - **Conflict Detection**: Warns when conflicting components are both enabled (e.g., center control overlap)
-//! - **Complement Validation**: Warns when complementary components are not both enabled (e.g., king safety + castle patterns)
-//! - **Requirement Validation**: Errors when required components are missing (e.g., endgame patterns requires position features)
-//! - **Auto-Resolution**: Optionally automatically resolves conflicts based on precedence rules
-//! - **Phase-Aware Validation**: Warns when components are enabled but phase is outside their effective range
+//! - **Dependency Graph**: Maps component relationships (Conflicts,
+//!   Complements, Requires, Optional)
+//! - **Conflict Detection**: Warns when conflicting components are both enabled
+//!   (e.g., center control overlap)
+//! - **Complement Validation**: Warns when complementary components are not
+//!   both enabled (e.g., king safety + castle patterns)
+//! - **Requirement Validation**: Errors when required components are missing
+//!   (e.g., endgame patterns requires position features)
+//! - **Auto-Resolution**: Optionally automatically resolves conflicts based on
+//!   precedence rules
+//! - **Phase-Aware Validation**: Warns when components are enabled but phase is
+//!   outside their effective range
 //!
 //! The dependency graph includes known relationships:
 //! - `position_features.center_control` CONFLICTS with `positional_patterns`
-//! - `position_features.development` CONFLICTS with `opening_principles` (in opening)
-//! - `position_features.passed_pawns` CONFLICTS with `endgame_patterns` (in endgame)
+//! - `position_features.development` CONFLICTS with `opening_principles` (in
+//!   opening)
+//! - `position_features.passed_pawns` CONFLICTS with `endgame_patterns` (in
+//!   endgame)
 //! - `position_features.king_safety` COMPLEMENTS `castle_patterns`
 //! - `endgame_patterns` REQUIRES `position_features` (for pawn structure)
 //!
@@ -146,20 +180,24 @@
 //!
 //! The evaluator supports weight tuning through the tuning infrastructure:
 //!
-//! - **`tune_weights()`**: Optimizes evaluation weights using training positions with expected scores.
-//!   Uses gradient descent to minimize error between predicted and expected evaluations.
+//! - **`tune_weights()`**: Optimizes evaluation weights using training
+//!   positions with expected scores. Uses gradient descent to minimize error
+//!   between predicted and expected evaluations.
 //!
-//! - **`tune_from_telemetry()`**: Uses accumulated telemetry to suggest weight adjustments based on
-//!   component contributions.
+//! - **`tune_from_telemetry()`**: Uses accumulated telemetry to suggest weight
+//!   adjustments based on component contributions.
 //!
-//! - **`telemetry_to_tuning_pipeline()`**: Converts collected telemetry into a tuning position set
-//!   for weight optimization.
+//! - **`telemetry_to_tuning_pipeline()`**: Converts collected telemetry into a
+//!   tuning position set for weight optimization.
 //!
-//! - **`TuningPositionSet`**: Collection of training positions with expected evaluations.
+//! - **`TuningPositionSet`**: Collection of training positions with expected
+//!   evaluations.
 //!
-//! - **`TuningConfig`**: Configuration for the tuning process (optimizer, learning rate, iterations, etc.).
+//! - **`TuningConfig`**: Configuration for the tuning process (optimizer,
+//!   learning rate, iterations, etc.).
 //!
-//! - **`TuningResult`**: Contains optimized weights and tuning statistics (error, iterations, convergence reason).
+//! - **`TuningResult`**: Contains optimized weights and tuning statistics
+//!   (error, iterations, convergence reason).
 //!
 //! Example usage:
 //! ```rust,ignore
@@ -229,7 +267,8 @@ pub use crate::evaluation::weight_tuning::{
 use std::collections::HashMap;
 use std::time::Instant;
 
-/// Immutable evaluation result containing the final score, phase, and optional component contributions.
+/// Immutable evaluation result containing the final score, phase, and optional
+/// component contributions.
 ///
 /// This struct is returned from `IntegratedEvaluator::evaluate()` to separate
 /// immutable evaluation results from mutable statistics tracking.
@@ -261,10 +300,10 @@ impl EvaluationResult {
 
 /// Integrated tapered evaluator
 ///
-/// This evaluator uses direct ownership with `&mut self` methods instead of `RefCell`
-/// for better performance and clearer ownership semantics. Evaluation results are returned
-/// as immutable `EvaluationResult` structs, and statistics are updated separately via
-/// `update_stats()`.
+/// This evaluator uses direct ownership with `&mut self` methods instead of
+/// `RefCell` for better performance and clearer ownership semantics. Evaluation
+/// results are returned as immutable `EvaluationResult` structs, and statistics
+/// are updated separately via `update_stats()`.
 pub struct IntegratedEvaluator {
     /// Configuration
     config: IntegratedEvaluationConfig,
@@ -324,7 +363,9 @@ impl IntegratedEvaluator {
                     "[IntegratedEvaluator] Auto-resolving {} component dependency conflicts",
                     warnings.len()
                 ));
-                config.auto_resolve_conflicts(); // This logs resolutions but conflicts are handled during evaluation
+                config.auto_resolve_conflicts(); // This logs resolutions but
+                                                 // conflicts are handled during
+                                                 // evaluation
             }
         }
 
@@ -337,7 +378,8 @@ impl IntegratedEvaluator {
             Ok(pst) => pst,
             Err(err) => {
                 debug_log!(&format!(
-                    "[IntegratedEvaluator] Failed to load PST definition: {}. Falling back to built-in tables.",
+                    "[IntegratedEvaluator] Failed to load PST definition: {}. Falling back to \
+                     built-in tables.",
                     err
                 ));
                 PieceSquareTables::new()
@@ -392,8 +434,9 @@ impl IntegratedEvaluator {
 
     /// Main evaluation entry point
     ///
-    /// Returns an immutable `EvaluationResult` containing the score, phase, and component contributions.
-    /// Statistics are not updated automatically - call `update_stats()` separately if needed.
+    /// Returns an immutable `EvaluationResult` containing the score, phase, and
+    /// component contributions. Statistics are not updated automatically -
+    /// call `update_stats()` separately if needed.
     ///
     /// # Arguments
     ///
@@ -428,16 +471,18 @@ impl IntegratedEvaluator {
 
     /// Evaluate with move count
     ///
-    /// Returns an immutable `EvaluationResult` containing the score, phase, and component contributions.
-    /// Statistics are not updated automatically - call `update_stats()` separately if needed.
+    /// Returns an immutable `EvaluationResult` containing the score, phase, and
+    /// component contributions. Statistics are not updated automatically -
+    /// call `update_stats()` separately if needed.
     ///
     /// # Arguments
     ///
     /// * `board` - Current board state
     /// * `player` - Player to evaluate for
     /// * `captured_pieces` - Captured pieces for both players
-    /// * `move_count` - Optional move count (number of moves played in the game).
-    ///                  If None, will be estimated from phase for opening principles evaluation.
+    /// * `move_count` - Optional move count (number of moves played in the
+    ///   game). If None, will be estimated from phase for opening principles
+    ///   evaluation.
     pub fn evaluate_with_move_count(
         &mut self,
         board: &BitboardBoard,
@@ -468,8 +513,9 @@ impl IntegratedEvaluator {
 
     /// Update statistics from an evaluation result
     ///
-    /// This method should be called after `evaluate()` if statistics tracking is enabled.
-    /// It updates timing, evaluation count, phase history, and telemetry.
+    /// This method should be called after `evaluate()` if statistics tracking
+    /// is enabled. It updates timing, evaluation count, phase history, and
+    /// telemetry.
     pub fn update_stats(&mut self, result: &EvaluationResult) {
         if !self.statistics.is_enabled() {
             return;
@@ -565,8 +611,8 @@ impl IntegratedEvaluator {
             if self.config.enable_component_validation && material_score == TaperedScore::default()
             {
                 debug_log!(&format!(
-                    "WARNING: material component is enabled but produced zero score. \
-                    This may indicate a configuration issue or bug."
+                    "WARNING: material component is enabled but produced zero score. This may \
+                     indicate a configuration issue or bug."
                 ));
             }
 
@@ -587,7 +633,7 @@ impl IntegratedEvaluator {
             if self.config.enable_component_validation && pst_score == TaperedScore::default() {
                 debug_log!(&format!(
                     "WARNING: piece_square_tables component is enabled but produced zero score. \
-                    This may indicate a configuration issue or bug."
+                     This may indicate a configuration issue or bug."
                 ));
             }
 
@@ -601,7 +647,8 @@ impl IntegratedEvaluator {
         }
 
         // Position features
-        // Use ComponentCoordination from extracted module to determine coordination decisions
+        // Use ComponentCoordination from extracted module to determine coordination
+        // decisions
         let coordination = ComponentCoordination::new(
             &self.config.components,
             phase,
@@ -627,7 +674,8 @@ impl IntegratedEvaluator {
                 (king_safety_score.interpolate(phase) as f32) * weights.king_safety_weight;
             if contribution.abs() > self.config.weight_contribution_threshold {
                 debug_log!(&format!(
-                    "Large king_safety contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp",
+                    "Large king_safety contribution: score={:.1} cp, weight={:.2}, \
+                     contribution={:.1} cp",
                     king_safety_score.interpolate(phase),
                     weights.king_safety_weight,
                     contribution
@@ -638,8 +686,8 @@ impl IntegratedEvaluator {
                 && king_safety_score == TaperedScore::default()
             {
                 debug_log!(&format!(
-                    "WARNING: king_safety component is enabled but produced zero score. \
-                    This may indicate a configuration issue or bug."
+                    "WARNING: king_safety component is enabled but produced zero score. This may \
+                     indicate a configuration issue or bug."
                 ));
             }
 
@@ -658,7 +706,8 @@ impl IntegratedEvaluator {
                 (pawn_score.interpolate(phase) as f32) * weights.pawn_structure_weight;
             if contribution.abs() > self.config.weight_contribution_threshold {
                 debug_log!(&format!(
-                    "Large pawn_structure contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp",
+                    "Large pawn_structure contribution: score={:.1} cp, weight={:.2}, \
+                     contribution={:.1} cp",
                     pawn_score.interpolate(phase),
                     weights.pawn_structure_weight,
                     contribution
@@ -674,7 +723,8 @@ impl IntegratedEvaluator {
             let contribution = (mobility_score.interpolate(phase) as f32) * weights.mobility_weight;
             if contribution.abs() > self.config.weight_contribution_threshold {
                 debug_log!(&format!(
-                    "Large mobility contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp",
+                    "Large mobility contribution: score={:.1} cp, weight={:.2}, \
+                     contribution={:.1} cp",
                     mobility_score.interpolate(phase),
                     weights.mobility_weight,
                     contribution
@@ -685,7 +735,8 @@ impl IntegratedEvaluator {
             pf_total += mobility_weighted;
 
             // Center control (Task 20.0 - Task 1.0)
-            // Skip center control in position_features if positional_patterns takes precedence
+            // Skip center control in position_features if positional_patterns takes
+            // precedence
             let center_score = self.position_features.evaluate_center_control(
                 board,
                 player,
@@ -695,7 +746,8 @@ impl IntegratedEvaluator {
                 (center_score.interpolate(phase) as f32) * weights.center_control_weight;
             if contribution.abs() > self.config.weight_contribution_threshold {
                 debug_log!(&format!(
-                    "Large center_control contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp",
+                    "Large center_control contribution: score={:.1} cp, weight={:.2}, \
+                     contribution={:.1} cp",
                     center_score.interpolate(phase),
                     weights.center_control_weight,
                     contribution
@@ -706,7 +758,8 @@ impl IntegratedEvaluator {
             pf_total += center_weighted;
 
             // Development (Task 20.0 - Task 1.0)
-            // Skip development in position_features if opening_principles is enabled in opening phase
+            // Skip development in position_features if opening_principles is enabled in
+            // opening phase
             let dev_score = self.position_features.evaluate_development(
                 board,
                 player,
@@ -715,7 +768,8 @@ impl IntegratedEvaluator {
             let contribution = (dev_score.interpolate(phase) as f32) * weights.development_weight;
             if contribution.abs() > self.config.weight_contribution_threshold {
                 debug_log!(&format!(
-                    "Large development contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp",
+                    "Large development contribution: score={:.1} cp, weight={:.2}, \
+                     contribution={:.1} cp",
                     dev_score.interpolate(phase),
                     weights.development_weight,
                     contribution
@@ -738,12 +792,14 @@ impl IntegratedEvaluator {
         }
 
         // Opening principles (if in opening)
-        // Task 6.0 - Task 6.7, 6.10, 6.12: Use configurable phase boundaries and gradual transitions
-        // Task 19.0 - Task 1.0: Use actual move_count instead of hardcoded 0
+        // Task 6.0 - Task 6.7, 6.10, 6.12: Use configurable phase boundaries and
+        // gradual transitions Task 19.0 - Task 1.0: Use actual move_count
+        // instead of hardcoded 0
         if coordination.evaluate_opening_principles {
             // Estimate move_count from phase if not provided
             // Phase 256 = starting position (move 0), decreases as material is exchanged
-            // Rough estimate: phase 256 = 0, phase 240 = ~5, phase 224 = ~10, phase 192 = ~16
+            // Rough estimate: phase 256 = 0, phase 240 = ~5, phase 224 = ~10, phase 192 =
+            // ~16
             let estimated_move_count = move_count.unwrap_or_else(|| {
                 if phase >= self.config.phase_boundaries.opening_threshold {
                     // In opening phase, estimate based on phase
@@ -770,13 +826,14 @@ impl IntegratedEvaluator {
 
         // Endgame patterns (if in endgame)
         // Task 5.0 - Task 5.3: Warn if endgame_patterns enabled but not in endgame
-        // Task 6.0 - Task 6.7, 6.9, 6.12: Use configurable phase boundaries and gradual transitions
+        // Task 6.0 - Task 6.7, 6.9, 6.12: Use configurable phase boundaries and gradual
+        // transitions
         if self.config.components.endgame_patterns {
             let endgame_threshold = self.config.phase_boundaries.endgame_threshold;
             if !coordination.evaluate_endgame_patterns {
                 debug_log!(&format!(
                     "INFO: endgame_patterns is enabled but phase ({}) is not endgame (< {}). \
-                    Endgame patterns will not be evaluated.",
+                     Endgame patterns will not be evaluated.",
                     phase, endgame_threshold
                 ));
             } else {
@@ -791,8 +848,8 @@ impl IntegratedEvaluator {
                     && endgame_score == TaperedScore::default()
                 {
                     debug_log!(&format!(
-                        "WARNING: endgame_patterns is enabled but produced zero score. \
-                        This may indicate a configuration issue or bug."
+                        "WARNING: endgame_patterns is enabled but produced zero score. This may \
+                         indicate a configuration issue or bug."
                     ));
                 }
 
@@ -811,7 +868,8 @@ impl IntegratedEvaluator {
             // Log large contributions (Task 3.0 - Task 3.12)
             if contribution.abs() > self.config.weight_contribution_threshold {
                 debug_log!(&format!(
-                    "Large tactical contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp (threshold={:.1})",
+                    "Large tactical contribution: score={:.1} cp, weight={:.2}, \
+                     contribution={:.1} cp (threshold={:.1})",
                     tactical_score.interpolate(phase),
                     weights.tactical_weight,
                     contribution,
@@ -823,7 +881,7 @@ impl IntegratedEvaluator {
             {
                 debug_log!(&format!(
                     "WARNING: tactical_patterns component is enabled but produced zero score. \
-                    This may indicate a configuration issue or bug."
+                     This may indicate a configuration issue or bug."
                 ));
             }
 
@@ -839,7 +897,8 @@ impl IntegratedEvaluator {
 
         // Positional patterns (Phase 3 - Task 3.1 Integration)
         // Center control conflict resolution (Task 20.0 - Task 1.0)
-        // When PositionFeatures precedence is used, skip center control in positional_patterns
+        // When PositionFeatures precedence is used, skip center control in
+        // positional_patterns
         if self.config.components.positional_patterns {
             let positional_score = {
                 // Temporarily disable center control if PositionFeatures takes precedence
@@ -874,7 +933,8 @@ impl IntegratedEvaluator {
             // Log large contributions (Task 3.0 - Task 3.12)
             if contribution.abs() > self.config.weight_contribution_threshold {
                 debug_log!(&format!(
-                    "Large positional contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp (threshold={:.1})",
+                    "Large positional contribution: score={:.1} cp, weight={:.2}, \
+                     contribution={:.1} cp (threshold={:.1})",
                     positional_score.interpolate(phase),
                     weights.positional_weight,
                     contribution,
@@ -887,7 +947,7 @@ impl IntegratedEvaluator {
             {
                 debug_log!(&format!(
                     "WARNING: positional_patterns component is enabled but produced zero score. \
-                    This may indicate a configuration issue or bug."
+                     This may indicate a configuration issue or bug."
                 ));
             }
 
@@ -903,9 +963,10 @@ impl IntegratedEvaluator {
 
         // Castle patterns (Task 17.0 - Task 1.0 Integration)
         // Note: Castle patterns are now separate from king safety evaluation.
-        // KingSafetyEvaluator in position_features evaluates general king safety (shields, attacks, etc.),
-        // while CastleRecognizer evaluates specific castle formation patterns.
-        // These are complementary and should both be enabled for comprehensive king safety evaluation.
+        // KingSafetyEvaluator in position_features evaluates general king safety
+        // (shields, attacks, etc.), while CastleRecognizer evaluates specific
+        // castle formation patterns. These are complementary and should both be
+        // enabled for comprehensive king safety evaluation.
         if self.config.components.castle_patterns {
             let castle_score = {
                 // Find king position for castle evaluation
@@ -923,7 +984,8 @@ impl IntegratedEvaluator {
             // Log large contributions (Task 3.0 - Task 3.12)
             if contribution.abs() > self.config.weight_contribution_threshold {
                 debug_log!(&format!(
-                    "Large castle contribution: score={:.1} cp, weight={:.2}, contribution={:.1} cp (threshold={:.1})",
+                    "Large castle contribution: score={:.1} cp, weight={:.2}, contribution={:.1} \
+                     cp (threshold={:.1})",
                     castle_score.interpolate(phase),
                     weights.castle_weight,
                     contribution,
@@ -933,8 +995,8 @@ impl IntegratedEvaluator {
             // Task 5.0 - Task 5.5a, 5.5b: Validate zero scores from enabled components
             if self.config.enable_component_validation && castle_score == TaperedScore::default() {
                 debug_log!(&format!(
-                    "WARNING: castle_patterns component is enabled but produced zero score. \
-                    This may indicate a configuration issue or bug."
+                    "WARNING: castle_patterns component is enabled but produced zero score. This \
+                     may indicate a configuration issue or bug."
                 ));
             }
 
@@ -963,7 +1025,8 @@ impl IntegratedEvaluator {
             for (component, contrib_pct) in &contributions_pct {
                 if contrib_pct > &self.config.large_contribution_threshold {
                     debug_log!(&format!(
-                        "Large component contribution: {} contributes {:.1}% of total evaluation (threshold: {:.1}%)",
+                        "Large component contribution: {} contributes {:.1}% of total evaluation \
+                         (threshold: {:.1}%)",
                         component,
                         contrib_pct * 100.0,
                         self.config.large_contribution_threshold * 100.0
@@ -1026,14 +1089,18 @@ impl IntegratedEvaluator {
     /// # Performance
     ///
     /// When SIMD is enabled, uses batch operations for improved cache locality
-    /// and potential SIMD acceleration, achieving 2-4x speedup over scalar implementation.
+    /// and potential SIMD acceleration, achieving 2-4x speedup over scalar
+    /// implementation.
     ///
     /// # Memory Optimizations (Task 1.10)
     ///
     /// This method includes several memory optimizations:
-    /// - **Prefetching**: Prefetches upcoming PST table entries to reduce cache misses
-    /// - **Cache-aligned tables**: PST tables are 64-byte cache-line aligned for optimal access
-    /// - **Sequential access pattern**: Iterates row-by-row for better cache locality
+    /// - **Prefetching**: Prefetches upcoming PST table entries to reduce cache
+    ///   misses
+    /// - **Cache-aligned tables**: PST tables are 64-byte cache-line aligned
+    ///   for optimal access
+    /// - **Sequential access pattern**: Iterates row-by-row for better cache
+    ///   locality
     ///
     /// These optimizations provide an additional 5-10% performance improvement
     /// on top of SIMD optimizations.
@@ -1124,7 +1191,8 @@ impl IntegratedEvaluator {
             // Fall through to scalar implementation if SIMD disabled at runtime
         }
 
-        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
+        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag
+        // is false)
         {
             // Record scalar evaluation call
             #[cfg(feature = "simd")]
@@ -1412,7 +1480,8 @@ impl IntegratedEvaluator {
             Ok(pst) => pst,
             Err(err) => {
                 debug_log!(&format!(
-                    "[IntegratedEvaluator] Failed to load PST definition: {}. Continuing with previous tables.",
+                    "[IntegratedEvaluator] Failed to load PST definition: {}. Continuing with \
+                     previous tables.",
                     err
                 ));
                 self.pst.clone()
@@ -1464,10 +1533,13 @@ impl Default for IntegratedEvaluator {
     }
 }
 
-/// Center control precedence when both position_features and positional_patterns evaluate center control
+/// Center control precedence when both position_features and
+/// positional_patterns evaluate center control
 ///
-/// This enum determines which component takes precedence when both evaluate center control.
-/// - `PositionalPatterns`: Use positional_patterns evaluation (more sophisticated, includes drop pressure)
+/// This enum determines which component takes precedence when both evaluate
+/// center control.
+/// - `PositionalPatterns`: Use positional_patterns evaluation (more
+///   sophisticated, includes drop pressure)
 /// - `PositionFeatures`: Use position_features evaluation (control maps)
 /// - `Both`: Evaluate both (may cause double-counting, not recommended)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1508,23 +1580,30 @@ pub struct IntegratedEvaluationConfig {
     pub tactical: TacticalConfig,
     /// Evaluation weights for combining features
     pub weights: EvaluationWeights,
-    /// Enable phase-dependent weight scaling (default: false for backward compatibility)
+    /// Enable phase-dependent weight scaling (default: false for backward
+    /// compatibility)
     pub enable_phase_dependent_weights: bool,
-    /// Threshold for logging large weight contributions in centipawns (default: 1000.0)
+    /// Threshold for logging large weight contributions in centipawns (default:
+    /// 1000.0)
     pub weight_contribution_threshold: f32,
-    /// Threshold for logging large component contributions as percentage of total (default: 0.20 for 20%)
+    /// Threshold for logging large component contributions as percentage of
+    /// total (default: 0.20 for 20%)
     pub large_contribution_threshold: f32,
-    /// Enable component output validation (debug mode) - checks for zero scores from enabled components
+    /// Enable component output validation (debug mode) - checks for zero scores
+    /// from enabled components
     pub enable_component_validation: bool,
     /// Phase boundary configuration for game phase transitions
     pub phase_boundaries: crate::evaluation::config::PhaseBoundaryConfig,
-    /// Enable gradual phase transitions (default: false for backward compatibility)
+    /// Enable gradual phase transitions (default: false for backward
+    /// compatibility)
     ///
-    /// When enabled, pattern scores are gradually faded out instead of abruptly cut off:
+    /// When enabled, pattern scores are gradually faded out instead of abruptly
+    /// cut off:
     /// - Opening principles fade from phase 192 to 160
     /// - Endgame patterns fade from phase 80 to 64
     pub enable_gradual_phase_transitions: bool,
-    /// Center control precedence when both position_features and positional_patterns evaluate center control
+    /// Center control precedence when both position_features and
+    /// positional_patterns evaluate center control
     ///
     /// Default: `PositionalPatterns` (more sophisticated evaluation)
     pub center_control_precedence: CenterControlPrecedence,
@@ -1563,7 +1642,7 @@ impl Default for IntegratedEvaluationConfig {
             phase_boundaries: crate::evaluation::config::PhaseBoundaryConfig::default(),
             enable_gradual_phase_transitions: false,
             center_control_precedence: CenterControlPrecedence::PositionalPatterns,
-            dependency_graph: crate::evaluation::config::ComponentDependencyGraph::default(), // Task 20.0 - Task 5.4
+            dependency_graph: crate::evaluation::config::ComponentDependencyGraph::default(), /* Task 20.0 - Task 5.4 */
             auto_resolve_conflicts: false, // Task 20.0 - Task 5.10
             #[cfg(feature = "simd")]
             simd: crate::config::SimdConfig::default(),
@@ -1595,7 +1674,8 @@ impl IntegratedEvaluationConfig {
         temp_config.validate_cumulative_weights(&components)
     }
 
-    /// Convert ComponentFlags to ComponentId set for dependency checking (Task 20.0 - Task 5.5)
+    /// Convert ComponentFlags to ComponentId set for dependency checking (Task
+    /// 20.0 - Task 5.5)
     fn get_enabled_component_ids(&self) -> Vec<crate::evaluation::config::ComponentId> {
         use crate::evaluation::config::ComponentId;
         let mut ids = Vec::new();
@@ -1633,11 +1713,12 @@ impl IntegratedEvaluationConfig {
         ids
     }
 
-    /// Validate component dependencies and check for conflicts (Task 20.0 - Task 5.5)
+    /// Validate component dependencies and check for conflicts (Task 20.0 -
+    /// Task 5.5)
     ///
-    /// Returns a vector of warnings for potential issues. These are informational
-    /// and don't prevent the configuration from being used, but may indicate
-    /// suboptimal settings.
+    /// Returns a vector of warnings for potential issues. These are
+    /// informational and don't prevent the configuration from being used,
+    /// but may indicate suboptimal settings.
     ///
     /// Uses the DependencyValidator from the extracted dependency_graph module.
     pub fn validate_component_dependencies(
@@ -1657,19 +1738,21 @@ impl IntegratedEvaluationConfig {
         let mut warnings = validator.validate_component_dependencies();
 
         // Legacy warnings for backward compatibility (Task 20.0 - Task 1.8)
-        // Note: Automatically handled via center_control_precedence, but still warn for visibility
+        // Note: Automatically handled via center_control_precedence, but still warn for
+        // visibility
         if self.components.position_features && self.components.positional_patterns {
             warnings.push(ComponentDependencyWarning::CenterControlOverlap);
         }
 
-        // Note: Automatically handled during evaluation (opening_principles takes precedence in opening),
-        // but still warn for visibility
+        // Note: Automatically handled during evaluation (opening_principles takes
+        // precedence in opening), but still warn for visibility
         if self.components.position_features && self.components.opening_principles {
             warnings.push(ComponentDependencyWarning::DevelopmentOverlap);
         }
 
-        // Note: Endgame patterns phase check (Task 5.3) requires runtime phase calculation,
-        // so it's handled during evaluation, not in static validation
+        // Note: Endgame patterns phase check (Task 5.3) requires runtime phase
+        // calculation, so it's handled during evaluation, not in static
+        // validation
 
         warnings
     }
@@ -1689,15 +1772,24 @@ impl IntegratedEvaluationConfig {
                     let suggestion = if matches!(id1, ComponentId::PositionalPatterns)
                         && matches!(id2, ComponentId::PositionFeaturesCenterControl)
                     {
-                        format!("Disable position_features.center_control (positional_patterns takes precedence)")
+                        format!(
+                            "Disable position_features.center_control (positional_patterns takes \
+                             precedence)"
+                        )
                     } else if matches!(id1, ComponentId::OpeningPrinciples)
                         && matches!(id2, ComponentId::PositionFeaturesDevelopment)
                     {
-                        format!("Disable position_features.development in opening (opening_principles takes precedence)")
+                        format!(
+                            "Disable position_features.development in opening (opening_principles \
+                             takes precedence)"
+                        )
                     } else if matches!(id1, ComponentId::EndgamePatterns)
                         && matches!(id2, ComponentId::PositionFeaturesPassedPawns)
                     {
-                        format!("Disable position_features.passed_pawns in endgame (endgame_patterns takes precedence)")
+                        format!(
+                            "Disable position_features.passed_pawns in endgame (endgame_patterns \
+                             takes precedence)"
+                        )
                     } else {
                         format!("Disable either {:?} or {:?} to resolve conflict", id1, id2)
                     };
@@ -1709,7 +1801,8 @@ impl IntegratedEvaluationConfig {
         suggestions
     }
 
-    /// Automatically resolve conflicts by disabling components based on precedence (Task 20.0 - Task 5.9)
+    /// Automatically resolve conflicts by disabling components based on
+    /// precedence (Task 20.0 - Task 5.9)
     pub fn auto_resolve_conflicts(&mut self) -> Vec<String> {
         use crate::evaluation::config::ComponentId;
         let mut resolutions = Vec::new();
@@ -1724,7 +1817,8 @@ impl IntegratedEvaluationConfig {
                     if matches!(id1, ComponentId::PositionalPatterns)
                         && matches!(id2, ComponentId::PositionFeaturesCenterControl)
                     {
-                        // Positional patterns take precedence - handled by center_control_precedence
+                        // Positional patterns take precedence - handled by
+                        // center_control_precedence
                         resolutions.push(
                             "Center control conflict resolved via center_control_precedence"
                                 .to_string(),
@@ -1732,13 +1826,23 @@ impl IntegratedEvaluationConfig {
                     } else if matches!(id1, ComponentId::OpeningPrinciples)
                         && matches!(id2, ComponentId::PositionFeaturesDevelopment)
                     {
-                        // Opening principles take precedence in opening - already handled during evaluation
-                        resolutions.push("Development conflict resolved (opening_principles takes precedence in opening)".to_string());
+                        // Opening principles take precedence in opening - already handled during
+                        // evaluation
+                        resolutions.push(
+                            "Development conflict resolved (opening_principles takes precedence \
+                             in opening)"
+                                .to_string(),
+                        );
                     } else if matches!(id1, ComponentId::EndgamePatterns)
                         && matches!(id2, ComponentId::PositionFeaturesPassedPawns)
                     {
-                        // Endgame patterns take precedence in endgame - already handled during evaluation
-                        resolutions.push("Passed pawns conflict resolved (endgame_patterns takes precedence in endgame)".to_string());
+                        // Endgame patterns take precedence in endgame - already handled during
+                        // evaluation
+                        resolutions.push(
+                            "Passed pawns conflict resolved (endgame_patterns takes precedence in \
+                             endgame)"
+                                .to_string(),
+                        );
                     }
                 }
             }
@@ -1750,7 +1854,8 @@ impl IntegratedEvaluationConfig {
     /// Check phase compatibility for component usage (Task 20.0 - Task 5.14)
     ///
     /// Analyzes recent phase history to detect phase-component mismatches.
-    /// Returns warnings if components are enabled but phase is consistently outside their effective range.
+    /// Returns warnings if components are enabled but phase is consistently
+    /// outside their effective range.
     pub fn check_phase_compatibility(
         &self,
         phase_history: &[i32],
@@ -1768,13 +1873,15 @@ impl IntegratedEvaluationConfig {
         // Check if phases are consistently in a particular range
         let avg_phase: i32 = phase_history.iter().sum::<i32>() / phase_history.len() as i32;
 
-        // Warn when opening_principles is enabled but phase is consistently < opening_threshold (Task 20.0 - Task 5.12)
+        // Warn when opening_principles is enabled but phase is consistently <
+        // opening_threshold (Task 20.0 - Task 5.12)
         if self.components.opening_principles && avg_phase < opening_threshold {
             warnings.push(ComponentDependencyWarning::EndgamePatternsNotInEndgame);
             // Reuse for now
         }
 
-        // Warn when endgame_patterns is enabled but phase is consistently >= endgame_threshold (Task 20.0 - Task 5.13)
+        // Warn when endgame_patterns is enabled but phase is consistently >=
+        // endgame_threshold (Task 20.0 - Task 5.13)
         if self.components.endgame_patterns && avg_phase >= endgame_threshold {
             warnings.push(ComponentDependencyWarning::EndgamePatternsNotInEndgame);
         }
@@ -2117,16 +2224,18 @@ mod tests {
 // TUNING INFRASTRUCTURE INTEGRATION (Task 20.0 - Task 4.0)
 // ============================================================================
 
-/// Training position with board state and expected evaluation (Task 20.0 - Task 4.2)
+/// Training position with board state and expected evaluation (Task 20.0 - Task
+/// 4.2)
 ///
 /// Note: BitboardBoard and CapturedPieces are not serializable, so this struct
 
 // Tuning methods for IntegratedEvaluator (Task 20.0 - Task 4.0)
 impl IntegratedEvaluator {
-    /// Tune evaluation weights using training positions (Task 20.0 - Task 4.3, 4.6-4.9)
+    /// Tune evaluation weights using training positions (Task 20.0 - Task 4.3,
+    /// 4.6-4.9)
     ///
-    /// This method optimizes the evaluation weights to minimize the error between
-    /// predicted and expected scores on the training positions.
+    /// This method optimizes the evaluation weights to minimize the error
+    /// between predicted and expected scores on the training positions.
     ///
     /// # Arguments
     ///
@@ -2153,7 +2262,8 @@ impl IntegratedEvaluator {
         const EARLY_STOPPING_PATIENCE: usize = 50;
 
         // Simple gradient descent optimizer for component weights
-        // (Simplified version - full implementation would use the tuning infrastructure's optimizers)
+        // (Simplified version - full implementation would use the tuning
+        // infrastructure's optimizers)
         for iteration in 0..tuning_config.max_iterations {
             let (error, gradients) =
                 self.calculate_error_and_gradients(&weights, position_set, tuning_config.k_factor);
@@ -2342,8 +2452,8 @@ impl IntegratedEvaluator {
 
     /// Telemetry-to-tuning pipeline (Task 20.0 - Task 4.11)
     ///
-    /// Collects telemetry from multiple positions and converts them to a tuning position set.
-    /// Delegates to the weight_tuning module.
+    /// Collects telemetry from multiple positions and converts them to a tuning
+    /// position set. Delegates to the weight_tuning module.
     pub fn telemetry_to_tuning_pipeline(
         &self,
         telemetry_positions: &[(BitboardBoard, CapturedPieces, Player, EvaluationTelemetry, f64)],
@@ -2357,8 +2467,9 @@ impl IntegratedEvaluator {
 
         for (board, captured_pieces, player, _telemetry, expected_score) in telemetry_positions {
             // Calculate game phase (requires mutable reference, but we have &self)
-            // This method needs to be updated to use evaluate() result or a separate phase calculation
-            // For now, use a temporary evaluator or extract phase calculation
+            // This method needs to be updated to use evaluate() result or a separate phase
+            // calculation For now, use a temporary evaluator or extract phase
+            // calculation
             let mut temp_evaluator = IntegratedEvaluator::new();
             let result =
                 temp_evaluator.evaluate_with_move_count(board, *player, captured_pieces, None);
@@ -2386,5 +2497,6 @@ fn sigmoid(x: f64) -> f64 {
     1.0 / (1.0 + (-x).exp())
 }
 
-// Note: export_for_tuning() is now in the telemetry module (src/evaluation/telemetry.rs)
-// This impl block has been removed as part of Task 1.21: Refactor integration.rs to be a thin facade
+// Note: export_for_tuning() is now in the telemetry module
+// (src/evaluation/telemetry.rs) This impl block has been removed as part of
+// Task 1.21: Refactor integration.rs to be a thin facade

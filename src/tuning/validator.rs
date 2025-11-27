@@ -7,8 +7,8 @@
 //!
 //! When `stratified` is enabled in `ValidationConfig`, positions are grouped
 //! by game result (WhiteWin/BlackWin/Draw) and distributed proportionally
-//! across k-folds. This ensures each fold has a similar distribution of results,
-//! which is especially important for imbalanced datasets.
+//! across k-folds. This ensures each fold has a similar distribution of
+//! results, which is especially important for imbalanced datasets.
 //!
 //! ## Reproducibility
 //!
@@ -22,7 +22,7 @@
 //! ## Example
 //!
 //! ```rust,no_run
-//! use shogi_engine::tuning::types::{ValidationConfig, TrainingPosition};
+//! use shogi_engine::tuning::types::{TrainingPosition, ValidationConfig};
 //! use shogi_engine::tuning::validator::Validator;
 //!
 //! // Create validation config with stratified sampling and random seed
@@ -30,8 +30,8 @@
 //!     k_fold: 5,
 //!     test_split: 0.2,
 //!     validation_split: 0.2,
-//!     stratified: true,  // Enable stratified sampling
-//!     random_seed: Some(42),  // Enable reproducibility
+//!     stratified: true,      // Enable stratified sampling
+//!     random_seed: Some(42), // Enable reproducibility
 //! };
 //!
 //! let validator = Validator::new(config);
@@ -298,7 +298,8 @@ impl Validator {
     /// Prepare positions for stratified sampling
     ///
     /// Groups positions by game result (WhiteWin/BlackWin/Draw) and interleaves
-    /// them proportionally so that each fold gets a similar distribution of results.
+    /// them proportionally so that each fold gets a similar distribution of
+    /// results.
     fn prepare_stratified_positions(
         &self,
         positions: &[TrainingPosition],
@@ -388,7 +389,8 @@ pub trait GamePlayer: Send + Sync {
     /// * `max_moves` - Maximum number of moves before declaring a draw
     ///
     /// # Returns
-    /// * `Ok(TuningGameResult)` - The result of the game from player1's perspective
+    /// * `Ok(TuningGameResult)` - The result of the game from player1's
+    ///   perspective
     /// * `Err(String)` - Error message if the game could not be played
     fn play_game(
         &self,
@@ -453,7 +455,8 @@ impl ShogiEngineGamePlayer {
         Self { search_depth, verbose }
     }
 
-    /// Convert engine GameResult to tuning GameResult from a player's perspective
+    /// Convert engine GameResult to tuning GameResult from a player's
+    /// perspective
     fn convert_game_result(engine_result: GameResult, perspective: Player) -> TuningGameResult {
         match (engine_result, perspective) {
             (GameResult::Win, Player::Black) => TuningGameResult::BlackWin,
@@ -474,14 +477,16 @@ impl GamePlayer for ShogiEngineGamePlayer {
         max_moves: u32,
     ) -> Result<TuningGameResult, String> {
         // Create a single engine instance for self-play
-        // Note: In a full implementation, we would apply different weights to each player
-        // This requires integration with the evaluation system to apply feature weights
-        // For now, we use a single engine to establish the game playing infrastructure
+        // Note: In a full implementation, we would apply different weights to each
+        // player This requires integration with the evaluation system to apply
+        // feature weights For now, we use a single engine to establish the game
+        // playing infrastructure
         let mut engine = ShogiEngine::new();
 
         // TODO: Apply player1_weights and player2_weights to engine configurations
         // This requires:
-        // 1. Integration with evaluation system to map feature weights to evaluation parameters
+        // 1. Integration with evaluation system to map feature weights to evaluation
+        //    parameters
         // 2. Ability to configure engine with different evaluation weights per game
         // 3. Or use two separate engine instances with different configurations
 
@@ -571,7 +576,8 @@ impl GamePlayer for ShogiEngineGamePlayer {
 /// Strength testing framework for engine vs engine matches
 ///
 /// This struct provides realistic validation by playing actual games between
-/// two engine configurations (original vs tuned weights) rather than simulating results.
+/// two engine configurations (original vs tuned weights) rather than simulating
+/// results.
 pub struct StrengthTester {
     /// Number of games to play for testing
     pub games_per_test: u32,
@@ -625,7 +631,8 @@ impl StrengthTester {
     /// * `tuned_weights` - Weights for the tuned engine configuration
     ///
     /// # Returns
-    /// * `MatchResult` - Results from the match, including wins, losses, draws, and ELO difference
+    /// * `MatchResult` - Results from the match, including wins, losses, draws,
+    ///   and ELO difference
     pub fn test_engine_strength(
         &self,
         original_weights: &[f64],
@@ -696,7 +703,8 @@ impl StrengthTester {
 
     /// Calculate ELO difference from match results using standard ELO formula
     ///
-    /// Uses the standard ELO calculation: ELO_diff = 400 * log10(W/L) where W/L is win/loss ratio
+    /// Uses the standard ELO calculation: ELO_diff = 400 * log10(W/L) where W/L
+    /// is win/loss ratio
     fn calculate_elo_difference(wins: u32, losses: u32, _draws: u32) -> f64 {
         let total_games = wins + losses;
         if total_games == 0 {
@@ -716,7 +724,8 @@ impl StrengthTester {
 
     /// Calculate ELO confidence interval using standard error
     ///
-    /// Uses the standard error formula for ELO difference with 95% confidence interval
+    /// Uses the standard error formula for ELO difference with 95% confidence
+    /// interval
     fn calculate_elo_confidence_interval(wins: u32, losses: u32, draws: u32) -> (f64, f64) {
         let total_games = wins + losses + draws;
         if total_games == 0 {
@@ -816,7 +825,8 @@ impl OverfittingDetector {
             || (validation_error - training_error) > self.error_difference_threshold
     }
 
-    /// Calculate overfitting score (0.0 = no overfitting, 1.0 = severe overfitting)
+    /// Calculate overfitting score (0.0 = no overfitting, 1.0 = severe
+    /// overfitting)
     pub fn calculate_overfitting_score(&self, training_error: f64, validation_error: f64) -> f64 {
         let error_diff = validation_error - training_error;
         let threshold_ratio = validation_error / self.validation_error_threshold;

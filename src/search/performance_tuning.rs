@@ -1,7 +1,8 @@
 //! Performance tuning system for transposition tables
 //!
 //! This module provides comprehensive performance tuning capabilities including
-//! automatic parameter optimization, performance profiling, and tuning recommendations.
+//! automatic parameter optimization, performance profiling, and tuning
+//! recommendations.
 
 use crate::search::adaptive_configuration::*;
 use crate::search::runtime_configuration::{PerformanceMetrics as RuntimePerformanceMetrics, *};
@@ -169,7 +170,9 @@ impl PerformanceTuningManager {
         self.recommendations.push(TuningRecommendation {
             id: "enable_statistics".to_string(),
             title: "Enable Statistics Collection".to_string(),
-            description: "Enable statistics collection to monitor performance and identify optimization opportunities".to_string(),
+            description: "Enable statistics collection to monitor performance and identify \
+                          optimization opportunities"
+                .to_string(),
             action: TuningAction::ToggleFeature {
                 feature: "statistics".to_string(),
                 enabled: true,
@@ -184,7 +187,9 @@ impl PerformanceTuningManager {
         self.recommendations.push(TuningRecommendation {
             id: "power_of_two_size".to_string(),
             title: "Use Power-of-Two Table Size".to_string(),
-            description: "Table sizes that are powers of two provide better performance due to optimized hash indexing".to_string(),
+            description: "Table sizes that are powers of two provide better performance due to \
+                          optimized hash indexing"
+                .to_string(),
             action: TuningAction::AdjustTableSize {
                 new_size: 65536, // 64K entries
                 reason: "Power of two for optimal hash performance".to_string(),
@@ -198,7 +203,9 @@ impl PerformanceTuningManager {
         self.recommendations.push(TuningRecommendation {
             id: "cache_line_alignment".to_string(),
             title: "Enable Cache Line Alignment".to_string(),
-            description: "Cache line alignment can improve memory access performance by reducing cache misses".to_string(),
+            description: "Cache line alignment can improve memory access performance by reducing \
+                          cache misses"
+                .to_string(),
             action: TuningAction::ToggleFeature {
                 feature: "cache_line_alignment".to_string(),
                 enabled: true,
@@ -348,10 +355,20 @@ impl PerformanceTuningManager {
         // Low hit rate recommendation
         if metrics.hit_rate < self.performance_targets.target_hit_rate {
             new_recommendations.push(TuningRecommendation {
-                id: format!("increase_table_size_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()),
+                id: format!(
+                    "increase_table_size_{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                ),
                 title: "Increase Table Size for Better Hit Rate".to_string(),
-                description: format!("Current hit rate ({:.1}%) is below target ({:.1}%). Consider increasing table size.", 
-                                   metrics.hit_rate * 100.0, self.performance_targets.target_hit_rate * 100.0),
+                description: format!(
+                    "Current hit rate ({:.1}%) is below target ({:.1}%). Consider increasing \
+                     table size.",
+                    metrics.hit_rate * 100.0,
+                    self.performance_targets.target_hit_rate * 100.0
+                ),
                 action: TuningAction::AdjustTableSize {
                     new_size: (current_config.table_size as f64 * 1.5) as usize,
                     reason: "Low hit rate detected".to_string(),
@@ -365,10 +382,20 @@ impl PerformanceTuningManager {
         // High collision rate recommendation
         if metrics.collision_rate > self.performance_targets.target_collision_rate {
             new_recommendations.push(TuningRecommendation {
-                id: format!("change_policy_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()),
+                id: format!(
+                    "change_policy_{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                ),
                 title: "Change Replacement Policy for Lower Collisions".to_string(),
-                description: format!("Current collision rate ({:.1}%) is above target ({:.1}%). Consider changing replacement policy.", 
-                                   metrics.collision_rate * 100.0, self.performance_targets.target_collision_rate * 100.0),
+                description: format!(
+                    "Current collision rate ({:.1}%) is above target ({:.1}%). Consider changing \
+                     replacement policy.",
+                    metrics.collision_rate * 100.0,
+                    self.performance_targets.target_collision_rate * 100.0
+                ),
                 action: TuningAction::ChangeReplacementPolicy {
                     new_policy: ReplacementPolicy::AgeBased,
                     reason: "High collision rate detected".to_string(),
@@ -382,11 +409,20 @@ impl PerformanceTuningManager {
         // High memory usage recommendation
         if metrics.memory_usage_bytes > self.performance_targets.max_memory_usage_bytes {
             new_recommendations.push(TuningRecommendation {
-                id: format!("reduce_memory_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()),
+                id: format!(
+                    "reduce_memory_{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                ),
                 title: "Reduce Memory Usage".to_string(),
-                description: format!("Current memory usage ({:.1} MB) exceeds target ({:.1} MB). Consider reducing table size.", 
-                                   metrics.memory_usage_bytes as f64 / 1024.0 / 1024.0,
-                                   self.performance_targets.max_memory_usage_bytes as f64 / 1024.0 / 1024.0),
+                description: format!(
+                    "Current memory usage ({:.1} MB) exceeds target ({:.1} MB). Consider reducing \
+                     table size.",
+                    metrics.memory_usage_bytes as f64 / 1024.0 / 1024.0,
+                    self.performance_targets.max_memory_usage_bytes as f64 / 1024.0 / 1024.0
+                ),
                 action: TuningAction::UseTemplate {
                     template_name: "memory".to_string(),
                     reason: "High memory usage detected".to_string(),
@@ -400,10 +436,20 @@ impl PerformanceTuningManager {
         // Slow operation recommendation
         if metrics.avg_operation_time_us > self.performance_targets.target_operation_time_us {
             new_recommendations.push(TuningRecommendation {
-                id: format!("optimize_performance_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()),
+                id: format!(
+                    "optimize_performance_{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap()
+                        .as_secs()
+                ),
                 title: "Optimize for Better Performance".to_string(),
-                description: format!("Average operation time ({:.1}μs) exceeds target ({:.1}μs). Consider performance optimizations.", 
-                                   metrics.avg_operation_time_us, self.performance_targets.target_operation_time_us),
+                description: format!(
+                    "Average operation time ({:.1}μs) exceeds target ({:.1}μs). Consider \
+                     performance optimizations.",
+                    metrics.avg_operation_time_us,
+                    self.performance_targets.target_operation_time_us
+                ),
                 action: TuningAction::UseTemplate {
                     template_name: "high_performance".to_string(),
                     reason: "Slow operation times detected".to_string(),
@@ -1333,7 +1379,10 @@ impl BenchmarkAggregator {
 
         // Benchmarks table
         md.push_str("## Benchmarks\n\n");
-        md.push_str("| Benchmark | Mean Time (ns) | Std Dev (ns) | Throughput (ops/sec) | Samples | Regression |\n");
+        md.push_str(
+            "| Benchmark | Mean Time (ns) | Std Dev (ns) | Throughput (ops/sec) | Samples | \
+             Regression |\n",
+        );
         md.push_str("|-----------|----------------|--------------|----------------------|---------|------------|\n");
 
         for bench in &report.benchmarks {
@@ -1454,7 +1503,8 @@ fn find_estimates_files<P: AsRef<Path>>(criterion_dir: P) -> Result<Vec<PathBuf>
         return Ok(files);
     }
 
-    // Walk through directory structure: criterion/{benchmark}/{id}/base/estimates.json
+    // Walk through directory structure:
+    // criterion/{benchmark}/{id}/base/estimates.json
     for benchmark_entry in
         fs::read_dir(dir).map_err(|e| format!("Failed to read criterion directory: {}", e))?
     {

@@ -8,7 +8,7 @@
 //!
 //! ```rust
 //! use shogi_engine::tablebase::MicroTablebase;
-//! use shogi_engine::{BitboardBoard, Player, CapturedPieces};
+//! use shogi_engine::{BitboardBoard, CapturedPieces, Player};
 //!
 //! // Create tablebase with default configuration
 //! let mut tablebase = MicroTablebase::new();
@@ -94,14 +94,17 @@ pub use position_cache::PositionCache;
 pub use solver_traits::EndgameSolver;
 pub use tablebase_config::{TablebaseConfig, TablebaseStats};
 
-/// Result of a tablebase probe containing the optimal move and position analysis
+/// Result of a tablebase probe containing the optimal move and position
+/// analysis
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TablebaseResult {
     /// The optimal move for this position
     pub best_move: Option<Move>,
-    /// Distance to mate (positive for winning, negative for losing, None for draw)
+    /// Distance to mate (positive for winning, negative for losing, None for
+    /// draw)
     pub distance_to_mate: Option<i32>,
-    /// Number of moves to mate (positive for winning, negative for losing, None for draw)
+    /// Number of moves to mate (positive for winning, negative for losing, None
+    /// for draw)
     pub moves_to_mate: Option<u8>,
     /// The outcome of the position
     pub outcome: TablebaseOutcome,

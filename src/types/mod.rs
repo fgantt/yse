@@ -1,18 +1,23 @@
 //! Types Module
 //!
-//! This module is a re-export hub for all type definitions, organized into focused sub-modules.
-//! As part of Task 1.0: File Modularization and Structure Improvements, types have been
-//! split into logical groups for better organization and maintainability.
+//! This module is a re-export hub for all type definitions, organized into
+//! focused sub-modules. As part of Task 1.0: File Modularization and Structure
+//! Improvements, types have been split into logical groups for better
+//! organization and maintainability.
 //!
 //! # Module Structure
 //!
 //! - **`core`**: Core domain types (Player, PieceType, Position, Piece, Move)
 //! - **`board`**: Board representation types (CapturedPieces, GamePhase)
-//! - **`search`**: Search-related types (configs, stats, quiescence, null-move, LMR, IID, etc.)
-//! - **`evaluation`**: Evaluation-related types (TaperedScore, feature indices, constants)
-//! - **`patterns`**: Pattern recognition types (TacticalIndicators, AttackConfig, etc.)
+//! - **`search`**: Search-related types (configs, stats, quiescence, null-move,
+//!   LMR, IID, etc.)
+//! - **`evaluation`**: Evaluation-related types (TaperedScore, feature indices,
+//!   constants)
+//! - **`patterns`**: Pattern recognition types (TacticalIndicators,
+//!   AttackConfig, etc.)
 //! - **`transposition`**: Transposition table types (TranspositionEntry)
-//! - **`all`**: Legacy file containing all original type definitions for backward compatibility
+//! - **`all`**: Legacy file containing all original type definitions for
+//!   backward compatibility
 //!
 //! # Usage
 //!
@@ -24,13 +29,13 @@
 //!
 //! For backward compatibility, all types are also available at the module root:
 //! ```rust
-//! use crate::types::{Move, Player, NullMoveConfig}; // Still works
+//! use crate::types::{Move, NullMoveConfig, Player}; // Still works
 //! ```
 //!
 //! # Migration Status
 //!
-//! The following types have been extracted to sub-modules and are available via explicit
-//! re-exports (which take precedence over `all::*`):
+//! The following types have been extracted to sub-modules and are available via
+//! explicit re-exports (which take precedence over `all::*`):
 //! - Core types: Player, PieceType, Position, Piece, Move
 //! - Board types: CapturedPieces, GamePhase
 //! - Search types: All search-related configs, stats, and enums
@@ -38,8 +43,8 @@
 //! - Pattern types: TacticalIndicators, AttackConfig, PatternRecognitionStats
 //! - Transposition types: TranspositionEntry
 //!
-//! Once all imports are updated to use sub-modules (Task 1.9), duplicate definitions
-//! in `all.rs` can be removed.
+//! Once all imports are updated to use sub-modules (Task 1.9), duplicate
+//! definitions in `all.rs` can be removed.
 
 // Core domain types
 pub mod core;
@@ -156,9 +161,10 @@ pub mod transposition;
 pub use transposition::TranspositionEntry;
 // Note: QuiescenceEntry is in search.rs, not transposition.rs
 
-// Re-export everything from the original types.rs (now all.rs) for backward compatibility
-// This ensures all existing code continues to work during the migration.
-// Explicit re-exports above take precedence over `all::*` for extracted types.
+// Re-export everything from the original types.rs (now all.rs) for backward
+// compatibility This ensures all existing code continues to work during the
+// migration. Explicit re-exports above take precedence over `all::*` for
+// extracted types.
 pub mod all;
 pub use all::*;
 

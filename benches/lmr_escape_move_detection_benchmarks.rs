@@ -1,6 +1,7 @@
 //! Performance benchmarks for escape move detection
 //!
-//! This benchmark suite compares heuristic vs threat-based escape move detection:
+//! This benchmark suite compares heuristic vs threat-based escape move
+//! detection:
 //! - Heuristic detection: center-to-edge movement
 //! - Threat-based detection: actual threat detection using attack patterns
 //!

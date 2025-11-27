@@ -275,8 +275,9 @@ impl LookupEngine {
 
     /// Enable or disable SIMD optimizations
     pub fn set_simd_enabled(&self, enabled: bool) {
-        // Note: simd_enabled is not mutable, but we can create a new engine with different settings
-        // For now, this is a placeholder - SIMD is determined at construction time
+        // Note: simd_enabled is not mutable, but we can create a new engine with
+        // different settings For now, this is a placeholder - SIMD is
+        // determined at construction time
         let _ = enabled;
     }
 

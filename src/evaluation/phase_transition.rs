@@ -1,8 +1,9 @@
 //! Phase Transition Smoothing Module
 //!
-//! This module provides advanced interpolation algorithms for smooth phase transitions
-//! in tapered evaluation. Different interpolation methods can be used to control how
-//! evaluation weights transition from opening/middlegame to endgame.
+//! This module provides advanced interpolation algorithms for smooth phase
+//! transitions in tapered evaluation. Different interpolation methods can be
+//! used to control how evaluation weights transition from opening/middlegame to
+//! endgame.
 //!
 //! # Overview
 //!
@@ -102,7 +103,8 @@ impl PhaseTransition {
     /// # Arguments
     ///
     /// * `score` - The tapered score to interpolate
-    /// * `phase` - The current game phase (0 = endgame, GAME_PHASE_MAX = opening)
+    /// * `phase` - The current game phase (0 = endgame, GAME_PHASE_MAX =
+    ///   opening)
     /// * `method` - The interpolation method to use
     ///
     /// # Returns

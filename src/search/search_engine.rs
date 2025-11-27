@@ -53,7 +53,8 @@ thread_local! {
     static YBWC_ENGINE_TLS: std::cell::RefCell<Option<SearchEngine>> = std::cell::RefCell::new(None);
 }
 
-// Local macro for lazy trace logging to avoid expensive string formatting when debug is disabled
+// Local macro for lazy trace logging to avoid expensive string formatting when
+// debug is disabled
 macro_rules! trace_log {
     ($feature:expr, $msg:expr $(,)?) => {
         if crate::debug_utils::is_debug_enabled() {
@@ -292,8 +293,8 @@ pub struct SearchEngine {
     search_statistics: SearchStatistics,
     /// Core search metrics for performance tracking
     core_search_metrics: CoreSearchMetrics,
-    /// Legacy config fields kept for backward compatibility and configuration updates
-    /// These are synchronized with the helper modules
+    /// Legacy config fields kept for backward compatibility and configuration
+    /// updates These are synchronized with the helper modules
     quiescence_config: QuiescenceConfig,
     null_move_config: NullMoveConfig,
     lmr_config: LMRConfig,
@@ -306,7 +307,8 @@ pub struct SearchEngine {
     lmr_stats: LMRStats,
     aspiration_stats: AspirationWindowStats,
     iid_stats: IIDStats,
-    /// Task 8.6: Overhead history for performance monitoring (rolling window of last 100 samples)
+    /// Task 8.6: Overhead history for performance monitoring (rolling window of
+    /// last 100 samples)
     iid_overhead_history: Vec<f64>,
     previous_scores: Vec<i32>,
     parallel_options: ParallelOptions,
@@ -439,31 +441,45 @@ fn maybe_print_search_metrics(tag: &str) {
     }
     let m = snapshot_and_reset_metrics();
     println!(
-        "metrics tag={} tt_reads={} tt_read_ok={} tt_read_fail={} tt_writes={} tt_write_ok={} tt_write_fail={} ybwc_batches={} ybwc_siblings={}",
+        "metrics tag={} tt_reads={} tt_read_ok={} tt_read_fail={} tt_writes={} tt_write_ok={} \
+         tt_write_fail={} ybwc_batches={} ybwc_siblings={}",
         tag,
-        m.tt_try_reads, m.tt_try_read_successes, m.tt_try_read_fails,
-        m.tt_try_writes, m.tt_try_write_successes, m.tt_try_write_fails,
-        m.ybwc_sibling_batches, m.ybwc_siblings_evaluated
+        m.tt_try_reads,
+        m.tt_try_read_successes,
+        m.tt_try_read_fails,
+        m.tt_try_writes,
+        m.tt_try_write_successes,
+        m.tt_try_write_fails,
+        m.ybwc_sibling_batches,
+        m.ybwc_siblings_evaluated
     );
     let _ = std::io::Write::flush(&mut std::io::stdout());
 }
 
-/// Print and reset aggregated metrics once (used by benches when SHOGI_AGGREGATE_METRICS=1)
+/// Print and reset aggregated metrics once (used by benches when
+/// SHOGI_AGGREGATE_METRICS=1)
 pub fn print_and_reset_search_metrics(tag: &str) {
     let m = snapshot_and_reset_metrics();
     println!(
-        "metrics tag={} (aggregate) tt_reads={} tt_read_ok={} tt_read_fail={} tt_writes={} tt_write_ok={} tt_write_fail={} ybwc_batches={} ybwc_siblings={}",
+        "metrics tag={} (aggregate) tt_reads={} tt_read_ok={} tt_read_fail={} tt_writes={} \
+         tt_write_ok={} tt_write_fail={} ybwc_batches={} ybwc_siblings={}",
         tag,
-        m.tt_try_reads, m.tt_try_read_successes, m.tt_try_read_fails,
-        m.tt_try_writes, m.tt_try_write_successes, m.tt_try_write_fails,
-        m.ybwc_sibling_batches, m.ybwc_siblings_evaluated
+        m.tt_try_reads,
+        m.tt_try_read_successes,
+        m.tt_try_read_fails,
+        m.tt_try_writes,
+        m.tt_try_write_successes,
+        m.tt_try_write_fails,
+        m.ybwc_sibling_batches,
+        m.ybwc_siblings_evaluated
     );
     let _ = std::io::Write::flush(&mut std::io::stdout());
 }
 
 #[allow(dead_code)]
-// Conversion functions to convert between all:: config types and types::search:: config types
-// These are needed because EngineConfig uses all:: types but helper modules use types::search:: types
+// Conversion functions to convert between all:: config types and
+// types::search:: config types These are needed because EngineConfig uses all::
+// types but helper modules use types::search:: types
 fn convert_quiescence_config(
     config: &crate::types::all::QuiescenceConfig,
 ) -> crate::types::search::QuiescenceConfig {
@@ -911,8 +927,9 @@ fn convert_tactical_indicators_to_all(
     }
 }
 
-// Reverse conversion functions to convert from types::search:: config types back to all:: config types
-// These are needed for get_engine_config() which returns EngineConfig (uses all:: types)
+// Reverse conversion functions to convert from types::search:: config types
+// back to all:: config types These are needed for get_engine_config() which
+// returns EngineConfig (uses all:: types)
 fn convert_quiescence_config_back(
     config: &crate::types::search::QuiescenceConfig,
 ) -> crate::types::all::QuiescenceConfig {
@@ -949,14 +966,16 @@ fn convert_null_move_config_back(
     _config: &crate::types::search::NullMoveConfig,
 ) -> crate::types::all::NullMoveConfig {
     // This is a simplified conversion - full conversion would require all fields
-    crate::types::all::NullMoveConfig::default() // Use default for now, full conversion would be complex
+    crate::types::all::NullMoveConfig::default() // Use default for now, full
+                                                 // conversion would be complex
 }
 
 fn convert_lmr_config_back(
     _config: &crate::types::search::LMRConfig,
 ) -> crate::types::all::LMRConfig {
     // This is a simplified conversion - full conversion would require all fields
-    crate::types::all::LMRConfig::default() // Use default for now, full conversion would be complex
+    crate::types::all::LMRConfig::default() // Use default for now, full
+                                            // conversion would be complex
 }
 
 fn convert_aspiration_config_back(
@@ -981,7 +1000,8 @@ fn convert_iid_config_back(
     _config: &crate::types::search::IIDConfig,
 ) -> crate::types::all::IIDConfig {
     // This is a simplified conversion - full conversion would require all fields
-    crate::types::all::IIDConfig::default() // Use default for now, full conversion would be complex
+    crate::types::all::IIDConfig::default() // Use default for now, full
+                                            // conversion would be complex
 }
 
 fn convert_iid_stats_to_all(stats: &crate::types::search::IIDStats) -> crate::types::all::IIDStats {
@@ -1016,8 +1036,10 @@ fn convert_iid_stats_to_all(stats: &crate::types::search::IIDStats) -> crate::ty
         performance_measurement_samples: stats.performance_measurement_samples,
         time_pressure_detection_correct: stats.time_pressure_detection_correct,
         time_pressure_detection_total: stats.time_pressure_detection_total,
-        // Convert complexity_effectiveness from search::PositionComplexity to all::PositionComplexity
-        complexity_effectiveness: std::collections::HashMap::new(), // Simplified - would need full conversion
+        // Convert complexity_effectiveness from search::PositionComplexity to
+        // all::PositionComplexity
+        complexity_effectiveness: std::collections::HashMap::new(), /* Simplified - would need
+                                                                     * full conversion */
         material_adjustment_applied: stats.material_adjustment_applied,
         material_adjustment_effective: stats.material_adjustment_effective,
         time_adjustment_applied: stats.time_adjustment_applied,
@@ -1238,8 +1260,9 @@ impl SearchEngine {
         depth: u8,
         flag: TranspositionFlag,
     ) {
-        // Task 7.0.3.8-3.9: TT Entry Priority - Prevent auxiliary entries from overwriting deeper main entries
-        // Check if we should skip storing this entry to preserve higher-quality entries
+        // Task 7.0.3.8-3.9: TT Entry Priority - Prevent auxiliary entries from
+        // overwriting deeper main entries Check if we should skip storing this
+        // entry to preserve higher-quality entries
         if entry.source != crate::types::EntrySource::MainSearch {
             // This is an auxiliary search entry (NMP, IID, etc.)
             // Check if there's an existing entry that should be preserved
@@ -1252,10 +1275,14 @@ impl SearchEngine {
                 {
                     // Don't overwrite deeper main search entry with shallow auxiliary entry
                     self.core_search_metrics.tt_auxiliary_overwrites_prevented += 1;
-                    trace_log!("TT_PRIORITY", &format!(
-                        "Prevented auxiliary entry (source: {:?}, depth: {}) from overwriting main entry (depth: {})",
-                        entry.source, entry.depth, existing.depth
-                    ));
+                    trace_log!(
+                        "TT_PRIORITY",
+                        &format!(
+                            "Prevented auxiliary entry (source: {:?}, depth: {}) from overwriting \
+                             main entry (depth: {})",
+                            entry.source, entry.depth, existing.depth
+                        )
+                    );
                     return;
                 }
             }
@@ -1272,7 +1299,8 @@ impl SearchEngine {
 
         // Gate writes: at shallow depths, only store Exact entries
         // BUT: Always store entries with best_move to enable PV construction
-        // This is critical - PV building needs best_move entries for all positions in the line
+        // This is critical - PV building needs best_move entries for all positions in
+        // the line
         let has_best_move = entry.best_move.is_some();
 
         if depth <= self.tt_exact_only_max_depth() && !matches!(flag, TranspositionFlag::Exact) {
@@ -1280,7 +1308,8 @@ impl SearchEngine {
             if !has_best_move {
                 return;
             }
-            // For PV positions, allow storing even non-Exact entries at shallow depths
+            // For PV positions, allow storing even non-Exact entries at shallow
+            // depths
         }
         // Gate non-Exact writes: allow only deeper-than-threshold entries
         // BUT: Always allow if we have best_move (for PV construction)
@@ -1495,7 +1524,8 @@ impl SearchEngine {
         self.search_statistics.get_nodes_searched()
     }
 
-    /// Set a shared transposition table for reporting and ordering in parallel contexts.
+    /// Set a shared transposition table for reporting and ordering in parallel
+    /// contexts.
     pub fn set_shared_transposition_table(
         &mut self,
         shared: Arc<RwLock<crate::search::ThreadSafeTranspositionTable>>,
@@ -1540,8 +1570,9 @@ impl SearchEngine {
     }
 
     /// Order moves using advanced move ordering system
-    /// Task 3.0: Added iid_move parameter to integrate IID move into advanced ordering
-    /// Task 2.6: Added opponent_last_move parameter for counter-move heuristic
+    /// Task 3.0: Added iid_move parameter to integrate IID move into advanced
+    /// ordering Task 2.6: Added opponent_last_move parameter for
+    /// counter-move heuristic
     fn order_moves_advanced(
         &mut self,
         moves: &[Move],
@@ -1556,7 +1587,8 @@ impl SearchEngine {
         self.initialize_advanced_move_orderer(board, captured_pieces, player, depth);
 
         // Task 3.0: Use advanced move ordering with all heuristics and IID move
-        // Task 2.6: Pass opponent's last move to move ordering for counter-move heuristic
+        // Task 2.6: Pass opponent's last move to move ordering for counter-move
+        // heuristic
         Ok(self.advanced_move_orderer.order_moves_with_all_heuristics(
             moves,
             board,
@@ -1570,11 +1602,13 @@ impl SearchEngine {
 
     /// Order moves for negamax search with advanced move ordering
     ///
-    /// Task 6.4: Ensures move ordering accounts for search state (depth, alpha, beta, check status)
-    /// Task 6.5: Optimizes for repeated positions via caching
+    /// Task 6.4: Ensures move ordering accounts for search state (depth, alpha,
+    /// beta, check status) Task 6.5: Optimizes for repeated positions via
+    /// caching
     ///
     /// Task 6.8: Made public for testing integration
-    /// Task 3.0: Added iid_move parameter to integrate IID move into all ordering paths
+    /// Task 3.0: Added iid_move parameter to integrate IID move into all
+    /// ordering paths
     pub fn order_moves_for_negamax(
         &mut self,
         moves: &[Move],
@@ -1598,7 +1632,8 @@ impl SearchEngine {
 
         // Task 2.6: Added opponent_last_move parameter
         // Task 3.0: Try advanced move ordering first with IID move
-        // Task 2.6: Pass opponent's last move to move ordering for counter-move heuristic
+        // Task 2.6: Pass opponent's last move to move ordering for counter-move
+        // heuristic
         let result = match self.order_moves_advanced(
             moves,
             board,
@@ -1658,7 +1693,8 @@ impl SearchEngine {
     /// Enable automatic profiling for hot paths (Task 26.0 - Task 3.0)
     ///
     /// Enables profiling for evaluation, move ordering, and TT operations.
-    /// Profiling uses sampling to reduce overhead (configured via auto_profiling_sample_rate).
+    /// Profiling uses sampling to reduce overhead (configured via
+    /// auto_profiling_sample_rate).
     pub fn enable_auto_profiling(&mut self) {
         self.auto_profiling_enabled = true;
         self.performance_profiler.enable();
@@ -1708,13 +1744,15 @@ impl SearchEngine {
         }
     }
 
-    /// Get memory breakdown combining RSS with component estimates (Task 26.0 - Task 4.0)
+    /// Get memory breakdown combining RSS with component estimates (Task 26.0 -
+    /// Task 4.0)
     pub fn get_memory_breakdown(&self) -> crate::search::memory_tracking::MemoryBreakdownWithRSS {
         use crate::search::memory_tracking::MemoryBreakdown;
 
         // Get component estimates
         let ordering_stats = self.advanced_move_orderer.get_stats();
-        // Note: TT stats removed - use hit_rate() from TranspositionTableTrait if needed
+        // Note: TT stats removed - use hit_rate() from TranspositionTableTrait if
+        // needed
 
         // Estimate TT memory (approximate based on table size)
         let tt_memory_bytes = (self.transposition_table.size() * 100) as u64; // Approximate entry size
@@ -1909,7 +1947,8 @@ impl SearchEngine {
         // Validate the configuration
         config.validate()?;
 
-        // Update individual configurations (convert from all:: types to types::search:: types)
+        // Update individual configurations (convert from all:: types to types::search::
+        // types)
         self.quiescence_config = convert_quiescence_config(&config.quiescence);
         self.null_move_config = convert_null_move_config(&config.null_move);
         self.lmr_config = convert_lmr_config(&config.lmr);
@@ -1998,8 +2037,8 @@ impl SearchEngine {
         }
     }
 
-    /// Prefill the transposition table with entries derived from an opening book.
-    /// Returns the number of entries inserted.
+    /// Prefill the transposition table with entries derived from an opening
+    /// book. Returns the number of entries inserted.
     pub fn prefill_tt_from_opening_book(&mut self, book: &mut OpeningBook, depth: u8) -> usize {
         self.transposition_table.prefill_from_book(book, depth)
     }
@@ -2036,8 +2075,9 @@ impl SearchEngine {
     /// Determine if IID should be applied at this position
     /// Task 4.9: Added board and captured_pieces for adaptive minimum depth
     /// Task 5.0: Integrated time estimation into decision logic
-    /// Task 7.7, 7.8: Use complexity assessment for skip conditions and adaptive move count threshold
-    /// Task 9.6: Added player parameter for TT entry checking
+    /// Task 7.7, 7.8: Use complexity assessment for skip conditions and
+    /// adaptive move count threshold Task 9.6: Added player parameter for
+    /// TT entry checking
     pub fn should_apply_iid(
         &mut self,
         depth: u8,
@@ -2089,7 +2129,8 @@ impl SearchEngine {
         }
 
         // 3. No transposition table move available (or TT move is not reliable)
-        // Task 9.6: Enhanced TT move condition - check depth and age before skipping IID
+        // Task 9.6: Enhanced TT move condition - check depth and age before skipping
+        // IID
         if let Some(_tt_move) = tt_move {
             // Task 9.6: Check TT entry depth and age if position info available
             // Only skip IID if TT entry is recent enough (age) and deep enough (depth)
@@ -2108,11 +2149,13 @@ impl SearchEngine {
                     // Only skip if both depth and age conditions are met
                     tt_depth_ok && tt_age_ok
                 } else {
-                    // No TT entry found - shouldn't happen if tt_move is Some, but handle gracefully
+                    // No TT entry found - shouldn't happen if tt_move is Some, but handle
+                    // gracefully
                     true // Skip IID if we can't verify TT entry
                 }
             } else {
-                // No position info or player available - use old behavior (skip if TT move exists)
+                // No position info or player available - use old behavior (skip if TT move
+                // exists)
                 true
             };
 
@@ -2129,19 +2172,25 @@ impl SearchEngine {
                     if let Some(entry) =
                         self.transposition_table.probe_with_prefetch(position_hash, 0, None)
                     {
-                        trace_log!("IID_TT_MOVE", &format!(
-                            "IID skipped: TT move available (depth: {}, age: {}, min_depth: {}, max_age: {})",
-                            entry.depth, entry.age,
-                            self.iid_config.tt_move_min_depth_for_skip,
-                            self.iid_config.tt_move_max_age_for_skip
-                        ));
+                        trace_log!(
+                            "IID_TT_MOVE",
+                            &format!(
+                                "IID skipped: TT move available (depth: {}, age: {}, min_depth: \
+                                 {}, max_age: {})",
+                                entry.depth,
+                                entry.age,
+                                self.iid_config.tt_move_min_depth_for_skip,
+                                self.iid_config.tt_move_max_age_for_skip
+                            )
+                        );
                     }
                 } else {
                     trace_log!("IID_TT_MOVE", "IID skipped: TT move available (no position info)",);
                 }
                 return false;
             } else {
-                // Task 9.9: Track when TT move exists but IID is still applied (TT entry too old/shallow)
+                // Task 9.9: Track when TT move exists but IID is still applied (TT entry too
+                // old/shallow)
                 self.iid_stats.tt_move_condition_tt_move_used += 1;
                 trace_log!(
                     "IID_TT_MOVE",
@@ -2150,8 +2199,9 @@ impl SearchEngine {
             }
         }
 
-        // Task 7.7: Use complexity assessment in IID skip conditions (skip IID in very simple positions)
-        // Task 7.8: Adaptive move count threshold based on position type (tactical vs quiet)
+        // Task 7.7: Use complexity assessment in IID skip conditions (skip IID in very
+        // simple positions) Task 7.8: Adaptive move count threshold based on
+        // position type (tactical vs quiet)
 
         // Task 7.8: Calculate adaptive move count threshold
         let move_count_threshold = if self.iid_config.enable_adaptive_move_count_threshold {
@@ -2188,7 +2238,8 @@ impl SearchEngine {
             return false;
         }
 
-        // Task 7.7: Skip IID in very simple positions (complexity might be Low with very few pieces)
+        // Task 7.7: Skip IID in very simple positions (complexity might be Low with
+        // very few pieces)
         if let Some(complexity) = complexity_opt {
             // Very simple positions: skip IID to save time (no tactical complexity)
             if complexity == PositionComplexity::Low && legal_moves.len() < 5 {
@@ -2264,7 +2315,8 @@ impl SearchEngine {
         }
 
         // Task 9.0: Enhanced time pressure detection
-        // Task 5.6, 5.7, 9.1-9.5: Update time pressure detection to use dynamic calculation
+        // Task 5.6, 5.7, 9.1-9.5: Update time pressure detection to use dynamic
+        // calculation
         if self.iid_config.enable_time_pressure_detection {
             let in_time_pressure = self.is_time_pressure(
                 start_time,
@@ -2280,16 +2332,18 @@ impl SearchEngine {
                 self.iid_stats.positions_skipped_time_pressure += 1;
 
                 // Task 9.10: Debug logging for time pressure detection
-                trace_log!("IID_TIME_PRESSURE", &format!(
-                    "IID skipped: time pressure (remaining {}ms, depth: {}, complexity: {:?}, estimated_iid: {}ms)",
-                    remaining_time,
-                    depth,
-                    complexity_opt,
-                    estimated_iid_time_ms
-                ));
+                trace_log!(
+                    "IID_TIME_PRESSURE",
+                    &format!(
+                        "IID skipped: time pressure (remaining {}ms, depth: {}, complexity: {:?}, \
+                         estimated_iid: {}ms)",
+                        remaining_time, depth, complexity_opt, estimated_iid_time_ms
+                    )
+                );
                 return false;
             } else {
-                // Task 9.8: Track successful time pressure predictions (not in pressure when predicted not in pressure)
+                // Task 9.8: Track successful time pressure predictions (not in pressure when
+                // predicted not in pressure)
                 self.iid_stats.time_pressure_detection_total += 1;
                 self.iid_stats.time_pressure_detection_correct += 1;
             }
@@ -2301,7 +2355,8 @@ impl SearchEngine {
     /// Calculate the depth for IID search based on strategy
     /// Task 4.0: Integrated dynamic depth calculation and enhanced strategies
     /// Calculate IID depth based on strategy and position characteristics
-    /// Delegates core calculation to ReductionsHelper, then applies advanced strategies (Task 1.8)
+    /// Delegates core calculation to ReductionsHelper, then applies advanced
+    /// strategies (Task 1.8)
     pub fn calculate_iid_depth(
         &mut self,
         main_depth: u8,
@@ -2313,7 +2368,8 @@ impl SearchEngine {
         // Delegate core depth calculation to ReductionsHelper
         // Note: calculate_iid_depth expects a function pointer, not a closure
         // So we can't pass self.assess_position_complexity directly
-        // Instead, we'll calculate complexity first and pass None, then use it in the helper
+        // Instead, we'll calculate complexity first and pass None, then use it in the
+        // helper
         let depth = self.reductions_helper.calculate_iid_depth(
             main_depth,
             board,
@@ -2337,8 +2393,9 @@ impl SearchEngine {
         adjusted_depth
     }
 
-    /// Task 11.2-11.7: Apply advanced depth strategies (game phase, material, time-based)
-    /// This method applies all enabled advanced strategies to adjust the IID depth
+    /// Task 11.2-11.7: Apply advanced depth strategies (game phase, material,
+    /// time-based) This method applies all enabled advanced strategies to
+    /// adjust the IID depth
     fn apply_advanced_depth_strategies(
         &mut self,
         base_depth: u8,
@@ -2411,12 +2468,17 @@ impl SearchEngine {
                 self.iid_stats.time_adjustment_applied += 1;
                 depth *= self.iid_config.time_depth_multiplier;
 
-                trace_log!("IID_DEPTH_ADVANCED", &format!(
-                    "Time adjustment: remaining={:.1}%, threshold={:.1}%, multiplier={}, depth={:.1}",
-                    remaining_percentage * 100.0,
-                    self.iid_config.time_threshold_for_adjustment * 100.0,
-                    self.iid_config.time_depth_multiplier, depth
-                ));
+                trace_log!(
+                    "IID_DEPTH_ADVANCED",
+                    &format!(
+                        "Time adjustment: remaining={:.1}%, threshold={:.1}%, multiplier={}, \
+                         depth={:.1}",
+                        remaining_percentage * 100.0,
+                        self.iid_config.time_threshold_for_adjustment * 100.0,
+                        self.iid_config.time_depth_multiplier,
+                        depth
+                    )
+                );
             }
         }
 
@@ -2426,7 +2488,8 @@ impl SearchEngine {
     }
 
     /// Check if we're in time pressure
-    /// Task 9.1-9.4: Enhanced to use dynamic calculation based on position complexity and depth
+    /// Task 9.1-9.4: Enhanced to use dynamic calculation based on position
+    /// complexity and depth
     fn is_time_pressure(
         &self,
         start_time: &TimeSource,
@@ -2455,20 +2518,23 @@ impl SearchEngine {
                 crate::types::search::PositionComplexity::Medium => 1.0, // Default
                 crate::types::search::PositionComplexity::High => {
                     self.iid_config.time_pressure_complexity_multiplier
-                } // More pressure in complex positions
+                } /* More pressure in
+                                                                           * complex positions */
                 crate::types::search::PositionComplexity::Unknown => 1.0, // Default
             };
             threshold *= complexity_multiplier;
         }
 
-        // Task 9.3: Adjust threshold based on search depth (deeper searches need more time)
+        // Task 9.3: Adjust threshold based on search depth (deeper searches need more
+        // time)
         let depth_multiplier =
             1.0 + ((depth as f64 - 4.0) / 10.0) * self.iid_config.time_pressure_depth_multiplier;
         threshold *= depth_multiplier.max(0.5); // Clamp to prevent negative thresholds
 
         // Task 9.5: Integrate with estimate_iid_time() - use actual IID time estimates
         let dynamic_threshold = if let Some(est_time) = estimated_iid_time_ms {
-            // Use estimated IID time as basis: remaining time should be at least est_time * safety_factor
+            // Use estimated IID time as basis: remaining time should be at least est_time *
+            // safety_factor
             let safety_factor = 2.0; // Need at least 2x estimated time remaining
             let required_remaining = est_time as f64 * safety_factor;
             (required_remaining / time_limit_ms as f64).max(threshold)
@@ -2482,7 +2548,8 @@ impl SearchEngine {
     }
 
     /// Perform IID search and extract the best move
-    /// Task 2.0: Returns (score, best_move) tuple to enable better move extraction
+    /// Task 2.0: Returns (score, best_move) tuple to enable better move
+    /// extraction
     pub fn perform_iid_search(
         &mut self,
         board: &mut BitboardBoard,
@@ -2518,12 +2585,14 @@ impl SearchEngine {
             return (alpha, None);
         }
 
-        // Track best move during search - we'll search moves individually to track the best
+        // Track best move during search - we'll search moves individually to track the
+        // best
         let mut best_move_tracked: Option<Move> = None;
         let mut best_score_tracked = alpha;
 
         // Task 2.0: Search moves individually to track best move during search
-        // This replaces the single null window search approach to enable proper move tracking
+        // This replaces the single null window search approach to enable proper move
+        // tracking
         for move_ in moves_to_search {
             if start_time.elapsed_ms() >= time_limit_ms {
                 break;
@@ -2584,7 +2653,8 @@ impl SearchEngine {
             if let Some(ref tt_move) = entry.best_move {
                 // Task 2.8: Verify IID move is in legal moves list before using
                 if legal_moves.iter().any(|m| self.moves_equal(m, tt_move)) {
-                    // Only use TT move if it's different from our tracked move or we didn't find one
+                    // Only use TT move if it's different from our tracked move or we didn't find
+                    // one
                     if best_move_tracked.is_none()
                         || !best_move_tracked
                             .as_ref()
@@ -2616,8 +2686,9 @@ impl SearchEngine {
             None
         };
 
-        // Task 2.5: Remove dependency on iid_score > alpha - IID should provide ordering even if score doesn't beat alpha
-        // Return the best move found regardless of whether it beats alpha
+        // Task 2.5: Remove dependency on iid_score > alpha - IID should provide
+        // ordering even if score doesn't beat alpha Return the best move found
+        // regardless of whether it beats alpha
         (iid_score, final_best_move)
     }
 
@@ -2734,7 +2805,8 @@ impl SearchEngine {
         }
     }
 
-    /// Get adaptive IID configuration recommendations based on current performance
+    /// Get adaptive IID configuration recommendations based on current
+    /// performance
     pub fn get_iid_adaptation_recommendations(&self) -> Vec<String> {
         let mut recommendations = Vec::new();
 
@@ -2753,7 +2825,11 @@ impl SearchEngine {
 
         // Efficiency-based recommendations
         if metrics.iid_efficiency < 20.0 {
-            recommendations.push("Low IID efficiency (20%). Consider increasing min_depth or reducing max_legal_moves.".to_string());
+            recommendations.push(
+                "Low IID efficiency (20%). Consider increasing min_depth or reducing \
+                 max_legal_moves."
+                    .to_string(),
+            );
         } else if metrics.iid_efficiency > 60.0 {
             recommendations.push(
                 "High IID efficiency (60%). Consider decreasing min_depth for broader application."
@@ -2767,7 +2843,11 @@ impl SearchEngine {
                 "Low cutoff rate (10%). Consider reducing iid_depth_ply to save time.".to_string(),
             );
         } else if metrics.cutoff_rate > 40.0 {
-            recommendations.push("High cutoff rate (40%). Consider increasing iid_depth_ply for better move ordering.".to_string());
+            recommendations.push(
+                "High cutoff rate (40%). Consider increasing iid_depth_ply for better move \
+                 ordering."
+                    .to_string(),
+            );
         }
 
         // Overhead recommendations
@@ -2776,7 +2856,11 @@ impl SearchEngine {
                 "High time overhead (25%). Consider reducing time_overhead_threshold.".to_string(),
             );
         } else if metrics.overhead_percentage < 5.0 {
-            recommendations.push("Low time overhead (5%). Consider increasing time_overhead_threshold for more aggressive IID.".to_string());
+            recommendations.push(
+                "Low time overhead (5%). Consider increasing time_overhead_threshold for more \
+                 aggressive IID."
+                    .to_string(),
+            );
         }
 
         // Success rate recommendations
@@ -2795,7 +2879,8 @@ impl SearchEngine {
         self.adapt_iid_configuration();
     }
     /// Assess position complexity for dynamic IID depth adjustment
-    /// Task 7.0: Enhanced with material balance, piece activity, threat detection, and game phase
+    /// Task 7.0: Enhanced with material balance, piece activity, threat
+    /// detection, and game phase
     fn assess_position_complexity(
         &mut self,
         board: &BitboardBoard,
@@ -2813,7 +2898,8 @@ impl SearchEngine {
         if material_imbalance > 1000 {
             complexity_score += (material_imbalance / 100) as usize; // Significant imbalance
         } else if material_imbalance > 500 {
-            complexity_score += (material_imbalance / 150) as usize; // Moderate imbalance
+            complexity_score += (material_imbalance / 150) as usize; // Moderate
+                                                                     // imbalance
         } else {
             complexity_score += (material_imbalance / 200) as usize; // Small imbalance
         }
@@ -2893,10 +2979,20 @@ impl SearchEngine {
 
         // Task 7.12: Debug logging
         #[cfg(feature = "verbose-debug")]
-        trace_log!("IID_COMPLEXITY", &format!(
-            "Position complexity: {:?}, score={}, material_imbalance={}, activity_diff={}, threats={}, checks={}, game_phase={:?}",
-            complexity, complexity_score, material_imbalance, activity_difference, tactical_threats, check_count, game_phase
-        ));
+        trace_log!(
+            "IID_COMPLEXITY",
+            &format!(
+                "Position complexity: {:?}, score={}, material_imbalance={}, activity_diff={}, \
+                 threats={}, checks={}, game_phase={:?}",
+                complexity,
+                complexity_score,
+                material_imbalance,
+                activity_difference,
+                tactical_threats,
+                check_count,
+                game_phase
+            )
+        );
 
         complexity
     }
@@ -2980,9 +3076,11 @@ impl SearchEngine {
         total_searches += 1;
         if improved_alpha || caused_cutoff {
             successful_searches += 1;
-            // Use overall nodes saved and IID time for now (these would ideally come from actual IID search metrics)
+            // Use overall nodes saved and IID time for now (these would ideally come from
+            // actual IID search metrics)
             nodes_saved += self.iid_stats.nodes_saved; // Use overall nodes saved for now
-            time_saved += self.iid_stats.iid_time_ms; // Use overall IID time for now
+            time_saved += self.iid_stats.iid_time_ms; // Use overall IID time
+                                                      // for now
         }
 
         self.iid_stats
@@ -2991,7 +3089,8 @@ impl SearchEngine {
     }
 
     /// Task 11.9: Update advanced strategy effectiveness tracking
-    /// Called when IID moves improve alpha or cause cutoffs to track if advanced strategies were effective
+    /// Called when IID moves improve alpha or cause cutoffs to track if
+    /// advanced strategies were effective
     fn update_advanced_strategy_effectiveness(
         &mut self,
         board: &BitboardBoard,
@@ -3001,14 +3100,16 @@ impl SearchEngine {
     ) {
         if improved_alpha || caused_cutoff {
             // Track which advanced strategies were applied and are now effective
-            // Check if strategies were applied by checking if their counters were incremented
-            // This is a simplified approach - in a more sophisticated implementation, we'd track
-            // which strategies were applied for this specific search
+            // Check if strategies were applied by checking if their counters were
+            // incremented This is a simplified approach - in a more
+            // sophisticated implementation, we'd track which strategies were
+            // applied for this specific search
 
             // Check game phase adjustment
             if self.iid_config.enable_game_phase_based_adjustment {
                 // If we're tracking effectiveness, increment the counter
-                // This is a simplified approach - ideally we'd track per-search which strategies were used
+                // This is a simplified approach - ideally we'd track per-search which
+                // strategies were used
                 self.iid_stats.game_phase_adjustment_effective += 1;
             }
 
@@ -3020,7 +3121,8 @@ impl SearchEngine {
                 }
             }
 
-            // Check time adjustment (simplified - we'd need to track if it was applied for this search)
+            // Check time adjustment (simplified - we'd need to track if it was applied for
+            // this search)
             if self.iid_config.enable_time_based_adjustment {
                 self.iid_stats.time_adjustment_effective += 1;
             }
@@ -3161,8 +3263,9 @@ impl SearchEngine {
         threats
     }
     /// Calculate dynamic IID depth based on position complexity
-    /// Task 4.0: Enhanced to work independently for Dynamic strategy and use configuration options
-    /// Task 7.6: Integrate enhanced complexity assessment into depth calculation
+    /// Task 4.0: Enhanced to work independently for Dynamic strategy and use
+    /// configuration options Task 7.6: Integrate enhanced complexity
+    /// assessment into depth calculation
     pub fn calculate_dynamic_iid_depth(
         &mut self,
         board: &BitboardBoard,
@@ -3468,7 +3571,8 @@ impl SearchEngine {
     }
 
     /// Update overhead statistics for monitoring
-    /// Task 8.1, 8.6: Enhanced to track overhead data over time for historical analysis
+    /// Task 8.1, 8.6: Enhanced to track overhead data over time for historical
+    /// analysis
     fn update_overhead_statistics(&mut self, overhead_percentage: f64) {
         // Task 8.1: Track overhead statistics for monitoring
         // Track if this is a high overhead search
@@ -3476,8 +3580,8 @@ impl SearchEngine {
             self.iid_stats.positions_skipped_time_pressure += 1;
         }
 
-        // Task 8.6: Track overhead history (limited to recent samples for memory efficiency)
-        // Store overhead percentage for trend analysis
+        // Task 8.6: Track overhead history (limited to recent samples for memory
+        // efficiency) Store overhead percentage for trend analysis
         // In a full implementation, this could be stored to a file or database
         // For now, we'll maintain a simple rolling window in memory
         if self.iid_overhead_history.len() >= 100 {
@@ -3619,7 +3723,8 @@ impl SearchEngine {
         base_time * (depth as u32 + 1)
     }
 
-    /// Task 8.7: Get IID effectiveness metrics by position type (opening, middlegame, endgame)
+    /// Task 8.7: Get IID effectiveness metrics by position type (opening,
+    /// middlegame, endgame)
     pub fn get_iid_effectiveness_by_position_type(
         &self,
         board: &BitboardBoard,
@@ -3628,8 +3733,9 @@ impl SearchEngine {
         let game_phase = self.get_game_phase(board);
 
         // Task 8.7: Calculate effectiveness metrics for each game phase
-        // This would ideally track statistics per phase, but for now we'll use complexity-based tracking
-        // and map complexity to game phases based on typical position characteristics
+        // This would ideally track statistics per phase, but for now we'll use
+        // complexity-based tracking and map complexity to game phases based on
+        // typical position characteristics
 
         for (complexity, (successful_searches, total_searches, _nodes_saved, _time_saved)) in
             &self.iid_stats.complexity_effectiveness
@@ -3638,9 +3744,10 @@ impl SearchEngine {
             // In a full implementation, we'd track phase-specific statistics separately
             let phase = match complexity {
                 PositionComplexity::Low => GamePhase::Endgame, // Endgames often simpler
-                PositionComplexity::Medium => GamePhase::Middlegame, // Middlegames medium complexity
-                PositionComplexity::High => GamePhase::Opening,      // Openings can be complex
-                PositionComplexity::Unknown => game_phase, // Use current phase for unknown
+                PositionComplexity::Medium => GamePhase::Middlegame, /* Middlegames medium
+                                                                       * complexity */
+                PositionComplexity::High => GamePhase::Opening, // Openings can be complex
+                PositionComplexity::Unknown => game_phase,      // Use current phase for unknown
             };
 
             if *total_searches > 0 {
@@ -3669,7 +3776,8 @@ impl SearchEngine {
         result
     }
 
-    /// Task 8.9: Generate automated performance report (efficiency rate, cutoff rate, overhead, speedup, etc.)
+    /// Task 8.9: Generate automated performance report (efficiency rate, cutoff
+    /// rate, overhead, speedup, etc.)
     pub fn generate_iid_performance_report(&self) -> String {
         let metrics = self.get_iid_performance_metrics();
         let overhead_stats = self.get_iid_overhead_stats();
@@ -3827,9 +3935,17 @@ impl SearchEngine {
         }
 
         if stats.average_overhead > 25.0 {
-            recommendations.push("High IID overhead detected (25%). Consider reducing time_overhead_threshold or max_legal_moves.".to_string());
+            recommendations.push(
+                "High IID overhead detected (25%). Consider reducing time_overhead_threshold or \
+                 max_legal_moves."
+                    .to_string(),
+            );
         } else if stats.average_overhead < 8.0 {
-            recommendations.push("Low IID overhead (8%). Consider increasing thresholds for more aggressive IID usage.".to_string());
+            recommendations.push(
+                "Low IID overhead (8%). Consider increasing thresholds for more aggressive IID \
+                 usage."
+                    .to_string(),
+            );
         }
 
         let skip_rate = if stats.total_searches > 0 {
@@ -3839,7 +3955,11 @@ impl SearchEngine {
         };
 
         if skip_rate > 0.4 {
-            recommendations.push("High time pressure skip rate (40%). IID may be too aggressive for current time controls.".to_string());
+            recommendations.push(
+                "High time pressure skip rate (40%). IID may be too aggressive for current time \
+                 controls."
+                    .to_string(),
+            );
         } else if skip_rate < 0.1 {
             recommendations.push(
                 "Low time pressure skip rate (10%). IID could be used more aggressively."
@@ -3982,8 +4102,8 @@ impl SearchEngine {
         let mut pv = Vec::new();
         pv.push(convert_move_to_all(move_));
 
-        // In a real implementation, this would trace the PV from the transposition table
-        // For now, we'll create a placeholder PV
+        // In a real implementation, this would trace the PV from the transposition
+        // table For now, we'll create a placeholder PV
         for i in 1..depth {
             // Placeholder moves - in real implementation would be actual PV moves
             if let Some(next_move) = self.create_placeholder_move(i) {
@@ -3997,7 +4117,8 @@ impl SearchEngine {
     /// Create placeholder move for PV building
     fn create_placeholder_move(&self, index: u8) -> Option<Move> {
         // This is a placeholder implementation
-        // In a real implementation, this would extract moves from the transposition table
+        // In a real implementation, this would extract moves from the transposition
+        // table
         Some(Move {
             from: Some(Position { row: index % 9, col: (index + 1) % 9 }),
             to: Position { row: (index + 1) % 9, col: index % 9 },
@@ -4148,7 +4269,11 @@ impl SearchEngine {
 
         // Score spread recommendations
         if analysis.score_spread > 100.0 {
-            recommendations.push("Large score spread detected. Position has multiple tactical options with significant evaluation differences.".to_string());
+            recommendations.push(
+                "Large score spread detected. Position has multiple tactical options with \
+                 significant evaluation differences."
+                    .to_string(),
+            );
         } else if analysis.score_spread < 20.0 {
             recommendations.push(
                 "Small score spread. Position is roughly balanced with multiple similar options."
@@ -4183,7 +4308,11 @@ impl SearchEngine {
         // Complexity recommendations
         match analysis.complexity_assessment {
             crate::types::all::PositionComplexity::High => {
-                recommendations.push("High complexity position. Multiple tactical elements require careful calculation.".to_string());
+                recommendations.push(
+                    "High complexity position. Multiple tactical elements require careful \
+                     calculation."
+                        .to_string(),
+                );
             }
             crate::types::all::PositionComplexity::Medium => {
                 recommendations.push(
@@ -4208,14 +4337,19 @@ impl SearchEngine {
         recommendations
     }
 
-    /// Task 8.11: Alert mechanism for high overhead (>15%) indicating too-aggressive IID
+    /// Task 8.11: Alert mechanism for high overhead (>15%) indicating
+    /// too-aggressive IID
     fn trigger_high_overhead_alert(&mut self, overhead_percentage: f64) {
         // Log warning if overhead exceeds threshold
-        trace_log!("IID_ALERT", &format!(
-            "WARNING: High IID overhead detected: {:.1}% (threshold: {:.1}%). Consider adjusting IID configuration to reduce overhead.",
-            overhead_percentage,
-            self.iid_config.time_overhead_threshold * 100.0
-        ));
+        trace_log!(
+            "IID_ALERT",
+            &format!(
+                "WARNING: High IID overhead detected: {:.1}% (threshold: {:.1}%). Consider \
+                 adjusting IID configuration to reduce overhead.",
+                overhead_percentage,
+                self.iid_config.time_overhead_threshold * 100.0
+            )
+        );
 
         // In a production system, this could also:
         // - Send alert to monitoring system
@@ -4223,13 +4357,19 @@ impl SearchEngine {
         // - Log to persistent storage for analysis
     }
 
-    /// Task 8.12: Alert mechanism for low efficiency (<30%) indicating IID not being effective
+    /// Task 8.12: Alert mechanism for low efficiency (<30%) indicating IID not
+    /// being effective
     fn trigger_low_efficiency_alert(&mut self, efficiency: f64) {
         // Log warning if efficiency is below threshold
-        trace_log!("IID_ALERT", &format!(
-            "WARNING: Low IID efficiency detected: {:.1}% (threshold: 30.0%). IID may not be effective in current position. Consider adjusting IID configuration or disabling in certain position types.",
-            efficiency
-        ));
+        trace_log!(
+            "IID_ALERT",
+            &format!(
+                "WARNING: Low IID efficiency detected: {:.1}% (threshold: 30.0%). IID may not be \
+                 effective in current position. Consider adjusting IID configuration or disabling \
+                 in certain position types.",
+                efficiency
+            )
+        );
 
         // In a production system, this could also:
         // - Send alert to monitoring system
@@ -5079,11 +5219,13 @@ impl SearchEngine {
         IIDPerformanceMetrics::from_stats(&all_iid_stats, total_search_time_ms)
     }
 
-    /// Task 6.3: Estimate search performance without IID using historical data and efficiency rates
-    /// This estimates what the search would have been like if IID were disabled
+    /// Task 6.3: Estimate search performance without IID using historical data
+    /// and efficiency rates This estimates what the search would have been
+    /// like if IID were disabled
     fn estimate_performance_without_iid(&self) -> (u64, u64) {
         // Estimate based on efficiency/cutoff rates and overhead
-        // If IID is effective, searches would be slower without it (more nodes, more time)
+        // If IID is effective, searches would be slower without it (more nodes, more
+        // time)
 
         if self.iid_stats.iid_searches_performed == 0 {
             // No IID data yet, return current metrics as baseline
@@ -5093,14 +5235,16 @@ impl SearchEngine {
         // Calculate estimated nodes without IID
         // Based on efficiency rate: higher efficiency means IID saves more nodes
         // Expected node reduction: 20-40% based on literature
-        // We estimate using a model: nodes_without_iid = nodes_with_iid * (1 + efficiency_factor)
+        // We estimate using a model: nodes_without_iid = nodes_with_iid * (1 +
+        // efficiency_factor)
         let efficiency_factor = (self.iid_stats.efficiency_rate() / 100.0) * 0.3; // 30% node savings at 100% efficiency
         let estimated_nodes_without_iid =
             (self.core_search_metrics.total_nodes as f64 * (1.0 + efficiency_factor)) as u64;
 
         // Calculate estimated time without IID
-        // Time without IID = time with IID + IID overhead - speedup from better move ordering
-        // Speedup from move ordering roughly equals (overhead - net_benefit)
+        // Time without IID = time with IID + IID overhead - speedup from better move
+        // ordering Speedup from move ordering roughly equals (overhead -
+        // net_benefit)
         let overhead_ms = self.iid_stats.iid_time_ms;
         let estimated_time_without_iid = if self.iid_stats.total_search_time_ms > overhead_ms {
             // Account for speedup from better move ordering
@@ -5108,8 +5252,9 @@ impl SearchEngine {
             let speedup_factor = (self.iid_stats.efficiency_rate() / 100.0) * 0.2; // 20% speedup at 100% efficiency
             let estimated_speedup =
                 (self.iid_stats.total_search_time_ms as f64 * speedup_factor) as u64;
-            // Without IID: we'd have the current time, but without the speedup benefit, and without IID overhead
-            // Time without IID = current_time + overhead - speedup (if overhead > speedup)
+            // Without IID: we'd have the current time, but without the speedup benefit, and
+            // without IID overhead Time without IID = current_time + overhead -
+            // speedup (if overhead > speedup)
             if overhead_ms > estimated_speedup {
                 self.iid_stats.total_search_time_ms + (overhead_ms - estimated_speedup)
             } else {
@@ -5163,7 +5308,8 @@ impl SearchEngine {
             self.iid_stats.correlation_data_points += 1;
 
             // Task 6.8: Track performance measurement accuracy
-            // For now, we'll track consistency of measurements (can be enhanced with actual benchmarks later)
+            // For now, we'll track consistency of measurements (can be enhanced with actual
+            // benchmarks later)
             let consistency_score = if self.iid_stats.efficiency_speedup_correlation_sum > 0.0 {
                 100.0 - (speedup_percentage.abs() / 100.0).min(100.0)
             } else {
@@ -5173,14 +5319,18 @@ impl SearchEngine {
             self.iid_stats.performance_measurement_samples += 1;
 
             // Task 6.9: Debug logging
-            trace_log!("IID_PERF", &format!(
-                "Performance measurement: nodes_without_iid={}, nodes_with_iid={}, nodes_saved={}, speedup={:.1}%, efficiency={:.1}%",
-                estimated_nodes_without_iid,
-                nodes_with_iid,
-                self.iid_stats.nodes_saved,
-                speedup_percentage,
-                efficiency_rate
-            ));
+            trace_log!(
+                "IID_PERF",
+                &format!(
+                    "Performance measurement: nodes_without_iid={}, nodes_with_iid={}, \
+                     nodes_saved={}, speedup={:.1}%, efficiency={:.1}%",
+                    estimated_nodes_without_iid,
+                    nodes_with_iid,
+                    self.iid_stats.nodes_saved,
+                    speedup_percentage,
+                    efficiency_rate
+                )
+            );
         }
     }
 
@@ -5323,10 +5473,12 @@ impl SearchEngine {
             trace_log!("SEARCH_AT_DEPTH", &format!("Move {}: {}", i, mv.to_usi_string()),);
         }
 
-        // If depth is 0, return static evaluation with a fallback legal move to avoid underflow
+        // If depth is 0, return static evaluation with a fallback legal move to avoid
+        // underflow
         if depth == 0 {
             let eval_score = self.evaluator.evaluate(board, player, captured_pieces);
-            // Choose the first legal move as a placeholder; callers at depth 0 should not rely on the move
+            // Choose the first legal move as a placeholder; callers at depth 0 should not
+            // rely on the move
             let placeholder_move = legal_moves[0].clone();
             trace_log!(
                 "SEARCH_AT_DEPTH",
@@ -5348,7 +5500,8 @@ impl SearchEngine {
         // Initialize move orderer if not already done
         self.initialize_move_orderer();
 
-        // Task 3.0: Use advanced move ordering for better performance (no IID at this level)
+        // Task 3.0: Use advanced move ordering for better performance (no IID at this
+        // level)
         let sorted_moves = self.order_moves_for_negamax(
             &legal_moves,
             board,
@@ -5586,9 +5739,10 @@ impl SearchEngine {
             }
         }
 
-        // CRITICAL FIX: Fallback move selection to prevent returning None when moves exist
-        // This addresses the bug where best_move would be None even when legal moves
-        // were available. The fallback ensures we always return a move if one exists.
+        // CRITICAL FIX: Fallback move selection to prevent returning None when moves
+        // exist This addresses the bug where best_move would be None even when
+        // legal moves were available. The fallback ensures we always return a
+        // move if one exists.
         if best_move.is_none() && !sorted_moves.is_empty() {
             // If no move was better than alpha, use the first move as fallback
             // This is better than returning None, as it provides a legal move
@@ -5704,7 +5858,8 @@ impl SearchEngine {
         }
     }
 
-    /// Backward-compatible wrapper for search_at_depth without alpha/beta parameters
+    /// Backward-compatible wrapper for search_at_depth without alpha/beta
+    /// parameters
     pub fn search_at_depth_legacy(
         &mut self,
         board: &mut BitboardBoard,
@@ -5803,13 +5958,14 @@ impl SearchEngine {
         // Track total nodes for metrics (Task 5.7)
         self.core_search_metrics.total_nodes += 1;
         // Update seldepth (selective depth) - track maximum depth reached
-        // current_depth is the iteration depth (e.g., 5), depth is remaining depth (e.g., starts at 5, then 4, 3, 2...)
-        // Actual depth from root = current_depth - depth + 1 (when depth=5 at root, we're at ply 1)
-        // When depth=0, we've reached current_depth plies from root
+        // current_depth is the iteration depth (e.g., 5), depth is remaining depth
+        // (e.g., starts at 5, then 4, 3, 2...) Actual depth from root =
+        // current_depth - depth + 1 (when depth=5 at root, we're at ply 1) When
+        // depth=0, we've reached current_depth plies from root
         // So depth_from_root = current_depth - depth + 1
-        // But actually, if we start with depth=5, that means we search 5 plies: depth goes 5->4->3->2->1->0
-        // When depth=0, we've searched 5 plies (current_depth)
-        // When depth=1, we've searched 4 plies
+        // But actually, if we start with depth=5, that means we search 5 plies: depth
+        // goes 5->4->3->2->1->0 When depth=0, we've searched 5 plies
+        // (current_depth) When depth=1, we've searched 4 plies
         // So depth_from_root = current_depth - depth
         let depth_from_root = self.current_depth.saturating_sub(depth);
         self.search_statistics.update_seldepth(depth_from_root);
@@ -5822,8 +5978,9 @@ impl SearchEngine {
 
         // Hash-based repetition detection (Task 5.1-5.3)
         // Use hash_calculator's built-in repetition detection instead of FEN strings
-        // Note: hash_calculator maintains its own global history via add_position_to_history
-        // For search context, we track hashes locally in hash_history
+        // Note: hash_calculator maintains its own global history via
+        // add_position_to_history For search context, we track hashes locally
+        // in hash_history
         let repetition_state = self.hash_calculator.get_repetition_state_for_hash(position_hash);
         if repetition_state.is_draw() {
             crate::debug_utils::trace_log(
@@ -5834,7 +5991,8 @@ impl SearchEngine {
         }
 
         // Add current position hash to search history (Task 5.2)
-        // Also add to hash_calculator's global history for game-wide repetition tracking
+        // Also add to hash_calculator's global history for game-wide repetition
+        // tracking
         self.hash_calculator.add_position_to_history(position_hash);
         hash_history.push(position_hash);
 
@@ -5902,7 +6060,8 @@ impl SearchEngine {
         }
 
         // === NULL MOVE PRUNING ===
-        // Task 7.0.2.5, 7.0.2.9: Skip NMP at High time pressure, allow at Low/Medium/None
+        // Task 7.0.2.5, 7.0.2.9: Skip NMP at High time pressure, allow at
+        // Low/Medium/None
         let skip_nmp_time_pressure = time_pressure == crate::types::TimePressure::High;
         if skip_nmp_time_pressure {
             self.null_move_stats.skipped_time_pressure += 1;
@@ -5932,18 +6091,20 @@ impl SearchEngine {
             );
             crate::debug_utils::start_timing("null_move_search");
             // Create local hash_history for null move search (Task 8.4, Task 8.6)
-            // This separate hash history ensures that repetition detection within the null move
-            // search does not interfere with the main search's hash history. The null move is a
-            // hypothetical position (not a real move), so its repetition detection should be
-            // isolated from the main search to prevent false repetition detections.
+            // This separate hash history ensures that repetition detection within the null
+            // move search does not interfere with the main search's hash
+            // history. The null move is a hypothetical position (not a real
+            // move), so its repetition detection should be isolated from the
+            // main search to prevent false repetition detections.
             let initial_hash =
                 self.hash_calculator.get_position_hash(board, player, captured_pieces);
             let mut local_null_hash_history = vec![initial_hash];
 
-            // NOTE: Board state verification: The null move search does NOT modify the board state.
-            // No actual move is made on the board - the null move is simulated by passing
-            // player.opposite() to switch turns via recursive call. The board state remains
-            // unchanged because moves made within the recursive call are unmade before returning.
+            // NOTE: Board state verification: The null move search does NOT modify the
+            // board state. No actual move is made on the board - the null move
+            // is simulated by passing player.opposite() to switch turns via
+            // recursive call. The board state remains unchanged because moves
+            // made within the recursive call are unmade before returning.
             // Unit tests verify this behavior (see test_null_move_board_state_isolation).
 
             let null_move_score = self.perform_null_move_search(
@@ -5973,11 +6134,17 @@ impl SearchEngine {
                 self.null_move_stats.cutoffs += 1;
                 return beta;
             } else if self.is_mate_threat_score(null_move_score, beta) {
-                // Null move failed but score suggests mate threat - perform mate threat verification
-                trace_log!("MATE_THREAT", &format!(
-                    "Null move score {} >= {} (beta - margin), possible mate threat, performing verification",
-                    null_move_score, beta - self.null_move_config.mate_threat_margin
-                ));
+                // Null move failed but score suggests mate threat - perform mate threat
+                // verification
+                trace_log!(
+                    "MATE_THREAT",
+                    &format!(
+                        "Null move score {} >= {} (beta - margin), possible mate threat, \
+                         performing verification",
+                        null_move_score,
+                        beta - self.null_move_config.mate_threat_margin
+                    )
+                );
                 crate::debug_utils::start_timing("mate_threat_verification");
 
                 // Use same hash history for mate threat verification
@@ -6008,7 +6175,8 @@ impl SearchEngine {
                     self.null_move_stats.cutoffs += 1;
                     return beta;
                 } else {
-                    // Mate threat verification failed - continue with verification search or full search
+                    // Mate threat verification failed - continue with verification search or full
+                    // search
                     trace_log!(
                         "MATE_THREAT",
                         &format!(
@@ -6020,13 +6188,19 @@ impl SearchEngine {
                 }
             }
 
-            // Check for regular verification search (if mate threat check didn't succeed or wasn't enabled)
+            // Check for regular verification search (if mate threat check didn't succeed or
+            // wasn't enabled)
             if self.should_perform_verification(null_move_score, beta) {
-                // Null move failed but is within verification margin - perform verification search
-                trace_log!("VERIFICATION", &format!(
-                    "Null move score {} < beta {} but within margin {}, performing verification search",
-                    null_move_score, beta, self.null_move_config.verification_margin
-                ));
+                // Null move failed but is within verification margin - perform verification
+                // search
+                trace_log!(
+                    "VERIFICATION",
+                    &format!(
+                        "Null move score {} < beta {} but within margin {}, performing \
+                         verification search",
+                        null_move_score, beta, self.null_move_config.verification_margin
+                    )
+                );
                 crate::debug_utils::start_timing("verification_search");
 
                 // Use same hash history for verification search
@@ -6080,7 +6254,8 @@ impl SearchEngine {
         // === END NULL MOVE PRUNING ===
 
         if depth == 0 {
-            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Starting quiescence search (alpha: {}, beta: {})", alpha, beta));
+            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Starting quiescence
+            // search (alpha: {}, beta: {})", alpha, beta));
             crate::debug_utils::start_timing("quiescence_search");
             let result = self.quiescence_search(
                 board,
@@ -6093,7 +6268,8 @@ impl SearchEngine {
                 5,
             );
             crate::debug_utils::end_timing("quiescence_search", "QUIESCENCE");
-            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Quiescence search completed: score={}", result));
+            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Quiescence search
+            // completed: score={}", result));
             return result;
         }
 
@@ -6126,7 +6302,8 @@ impl SearchEngine {
             .probe(position_hash, 255)
             .and_then(|entry| entry.best_move.clone());
 
-        // Task 7.0.2.6, 7.0.2.9: Skip IID at Medium/High time pressure, allow at Low/None
+        // Task 7.0.2.6, 7.0.2.9: Skip IID at Medium/High time pressure, allow at
+        // Low/None
         let skip_iid_time_pressure = time_pressure == crate::types::TimePressure::Medium
             || time_pressure == crate::types::TimePressure::High;
         if skip_iid_time_pressure {
@@ -6162,7 +6339,8 @@ impl SearchEngine {
                 ),
             );
             crate::debug_utils::start_timing("iid_search");
-            // Task 4.0: Pass board and captured_pieces for Dynamic strategy depth calculation
+            // Task 4.0: Pass board and captured_pieces for Dynamic strategy depth
+            // calculation
             let iid_depth = self.calculate_iid_depth(
                 depth,
                 Some(board),
@@ -6261,8 +6439,9 @@ impl SearchEngine {
         // Initialize move orderer if not already done
         self.initialize_move_orderer();
 
-        // Task 3.0: Use advanced move ordering for better performance with IID move integration
-        // Task 2.6: Pass opponent's last move to move ordering for counter-move heuristic
+        // Task 3.0: Use advanced move ordering for better performance with IID move
+        // integration Task 2.6: Pass opponent's last move to move ordering for
+        // counter-move heuristic
         let sorted_moves = self.order_moves_for_negamax(
             &legal_moves,
             board,
@@ -6329,7 +6508,8 @@ impl SearchEngine {
         for move_ in &sorted_moves {
             if self.should_stop(&start_time, time_limit_ms) {
                 trace_log!("NEGAMAX", "Time limit reached, stopping move evaluation",);
-                // Update tracked best score before breaking (only if we've evaluated at least one move)
+                // Update tracked best score before breaking (only if we've evaluated at least
+                // one move)
                 if best_score > -200000 {
                     // -200000 is the sentinel value, any real score will be better
                     best_score_tracked = Some(best_score);
@@ -6359,36 +6539,44 @@ impl SearchEngine {
                 self.get_game_phase(board),
             );
 
-            // Check if move should be pruned using advanced pruning techniques with conditional logic
-            // Convert search_state to all::SearchState for PruningManager
-            let mut all_search_state = crate::types::all::SearchState {
-                depth: search_state.depth,
-                move_number: search_state.move_number,
-                alpha: search_state.alpha,
-                beta: search_state.beta,
-                is_in_check: search_state.is_in_check,
-                static_eval: search_state.static_eval,
-                best_move: search_state.best_move.as_ref().map(|m| convert_move_to_all(m.clone())),
-                position_hash: search_state.position_hash,
-                game_phase: match search_state.game_phase {
-                    GamePhase::Opening => crate::types::all::GamePhase::Opening,
-                    GamePhase::Middlegame => crate::types::all::GamePhase::Middlegame,
-                    GamePhase::Endgame => crate::types::all::GamePhase::Endgame,
-                },
-                position_classification: search_state.position_classification.map(|pc| match pc {
-                    crate::types::search::PositionClassification::Tactical => {
-                        crate::types::all::PositionClassification::Tactical
-                    }
-                    crate::types::search::PositionClassification::Quiet => {
-                        crate::types::all::PositionClassification::Quiet
-                    }
-                    crate::types::search::PositionClassification::Neutral => {
-                        crate::types::all::PositionClassification::Neutral
-                    }
-                }),
-                tt_move: search_state.tt_move.as_ref().map(|m| convert_move_to_all(m.clone())),
-                advanced_reduction_config: search_state.advanced_reduction_config.map(|arc| {
-                    crate::types::all::AdvancedReductionConfig {
+            // Check if move should be pruned using advanced pruning techniques with
+            // conditional logic Convert search_state to all::SearchState for
+            // PruningManager
+            let mut all_search_state =
+                crate::types::all::SearchState {
+                    depth: search_state.depth,
+                    move_number: search_state.move_number,
+                    alpha: search_state.alpha,
+                    beta: search_state.beta,
+                    is_in_check: search_state.is_in_check,
+                    static_eval: search_state.static_eval,
+                    best_move: search_state
+                        .best_move
+                        .as_ref()
+                        .map(|m| convert_move_to_all(m.clone())),
+                    position_hash: search_state.position_hash,
+                    game_phase: match search_state.game_phase {
+                        GamePhase::Opening => crate::types::all::GamePhase::Opening,
+                        GamePhase::Middlegame => crate::types::all::GamePhase::Middlegame,
+                        GamePhase::Endgame => crate::types::all::GamePhase::Endgame,
+                    },
+                    position_classification: search_state.position_classification.map(
+                        |pc| match pc {
+                            crate::types::search::PositionClassification::Tactical => {
+                                crate::types::all::PositionClassification::Tactical
+                            }
+                            crate::types::search::PositionClassification::Quiet => {
+                                crate::types::all::PositionClassification::Quiet
+                            }
+                            crate::types::search::PositionClassification::Neutral => {
+                                crate::types::all::PositionClassification::Neutral
+                            }
+                        },
+                    ),
+                    tt_move: search_state.tt_move.as_ref().map(|m| convert_move_to_all(m.clone())),
+                    advanced_reduction_config:
+                        search_state.advanced_reduction_config.map(|arc| {
+                            crate::types::all::AdvancedReductionConfig {
                         enabled: arc.enabled,
                         strategy: match arc.strategy {
                             crate::types::search::AdvancedReductionStrategy::Basic => {
@@ -6412,13 +6600,13 @@ impl SearchEngine {
                         material_imbalance_threshold: 300, // Default
                         history_score_threshold: 0, // Default
                     }
-                }),
-                best_score: search_state.best_score,
-                nodes_searched: search_state.nodes_searched,
-                aspiration_enabled: search_state.aspiration_enabled,
-                researches: search_state.researches,
-                health_score: search_state.health_score,
-            };
+                        }),
+                    best_score: search_state.best_score,
+                    nodes_searched: search_state.nodes_searched,
+                    aspiration_enabled: search_state.aspiration_enabled,
+                    researches: search_state.researches,
+                    health_score: search_state.health_score,
+                };
             let all_move = convert_move_to_all(move_.clone());
             let should_consider_pruning = self
                 .pruning_manager
@@ -6463,7 +6651,8 @@ impl SearchEngine {
                 is_root,
                 move_.is_capture,
                 has_check,
-                opponent_last_move.clone(), // Task 2.6: Pass opponent's last move for counter-move heuristic
+                opponent_last_move.clone(), /* Task 2.6: Pass opponent's last move for
+                                             * counter-move heuristic */
                 iid_move.as_ref(), // Task 7.0.1: Pass IID move for explicit exemption from LMR
                 entry_source,      // Task 7.0.3.4: Pass entry source for TT priority management
             );
@@ -6537,8 +6726,9 @@ impl SearchEngine {
                         self.update_killer_moves(move_.clone());
                     }
                     if let Some(from) = move_.from {
-                        // Use safe multiplication to prevent overflow (depth is u8, max value is 255)
-                        // depth * depth can overflow u8 if depth > 16, so cast to i32 first
+                        // Use safe multiplication to prevent overflow (depth is u8, max value is
+                        // 255) depth * depth can overflow u8 if depth > 16,
+                        // so cast to i32 first
                         let depth_squared = (depth as i32) * (depth as i32);
                         self.history_table[from.row as usize][from.col as usize] += depth_squared;
                     }
@@ -6616,7 +6806,8 @@ impl SearchEngine {
                         );
                     }
                     // Task 2.6: Add counter-move when move causes beta cutoff
-                    // The move that caused the cutoff is a good counter-move to the opponent's last move
+                    // The move that caused the cutoff is a good counter-move to the opponent's last
+                    // move
                     if let Some(opp_last_move) = &opponent_last_move {
                         if !move_.is_capture {
                             // Counter-moves are typically for quiet moves
@@ -6654,9 +6845,10 @@ impl SearchEngine {
             TranspositionFlag::Exact
         };
 
-        // CRITICAL FOR PV: If we don't have a best_move yet but we have moves, use the first move
-        // This ensures PV building doesn't break early. Even if no move improved the score,
-        // we need to store some move to enable PV construction.
+        // CRITICAL FOR PV: If we don't have a best_move yet but we have moves, use the
+        // first move This ensures PV building doesn't break early. Even if no
+        // move improved the score, we need to store some move to enable PV
+        // construction.
         if best_move_for_tt.is_none() && !sorted_moves.is_empty() {
             best_move_for_tt = Some(sorted_moves[0].clone());
             trace_log!(
@@ -6687,18 +6879,21 @@ impl SearchEngine {
             &format!("Negamax completed: depth={}, score={}, flag={:?}", depth, best_score, flag),
         );
 
-        // If we have a tracked best score (from timeout handling), prefer it over sentinel value
+        // If we have a tracked best score (from timeout handling), prefer it over
+        // sentinel value
         if let Some(tracked_score) = best_score_tracked {
             if best_score <= -200000 && tracked_score > -200000 {
                 return tracked_score;
             }
         }
 
-        // Refine fallback logic to use best-scoring move or static evaluation (Task 5.10-5.11)
-        // If best_score is still at initial alpha and we have no tracked score, use static evaluation
+        // Refine fallback logic to use best-scoring move or static evaluation (Task
+        // 5.10-5.11) If best_score is still at initial alpha and we have no
+        // tracked score, use static evaluation
         if best_score == alpha && best_score_tracked.is_none() && best_move_for_tt.is_none() {
-            // No moves were evaluated or all moves were pruned - use cached static evaluation
-            // Task 7.0.4.2, 7.0.4.8: Use cached evaluation and track savings
+            // No moves were evaluated or all moves were pruned - use cached static
+            // evaluation Task 7.0.4.2, 7.0.4.8: Use cached evaluation and track
+            // savings
             self.core_search_metrics.evaluation_cache_hits += 1;
             self.core_search_metrics.evaluation_calls_saved += 1;
             trace_log!(
@@ -6729,8 +6924,9 @@ impl SearchEngine {
             return cached_static_eval;
         }
 
-        // Task 12.5: Update correlation tracking between IID efficiency and ordering effectiveness
-        // This is done at the end of each search to track correlation over time
+        // Task 12.5: Update correlation tracking between IID efficiency and ordering
+        // effectiveness This is done at the end of each search to track
+        // correlation over time
         if has_iid_move && self.iid_stats.iid_searches_performed > 0 {
             let iid_efficiency = self.iid_stats.efficiency_rate();
             let ordering_effectiveness = if self.iid_stats.ordering_effectiveness_with_iid_total > 0
@@ -6747,10 +6943,16 @@ impl SearchEngine {
                 iid_efficiency * ordering_effectiveness;
             self.iid_stats.iid_efficiency_ordering_correlation_points += 1;
 
-            crate::debug_utils::trace_log("IID_CORRELATION", &format!(
-                "IID efficiency: {:.2}%, Ordering effectiveness: {:.2}%, Correlation points: {}",
-                iid_efficiency, ordering_effectiveness, self.iid_stats.iid_efficiency_ordering_correlation_points
-            ));
+            crate::debug_utils::trace_log(
+                "IID_CORRELATION",
+                &format!(
+                    "IID efficiency: {:.2}%, Ordering effectiveness: {:.2}%, Correlation points: \
+                     {}",
+                    iid_efficiency,
+                    ordering_effectiveness,
+                    self.iid_stats.iid_efficiency_ordering_correlation_points
+                ),
+            );
         }
 
         // Remove position hash from history before returning (Task 5.2)
@@ -6787,8 +6989,9 @@ impl SearchEngine {
 
     /// Quiescence search with optional move ordering hint from main search
     ///
-    /// Task 5.11: Uses main search move ordering hints to improve quiescence move ordering
-    /// The hint move (e.g., from transposition table or IID) is prioritized in move ordering
+    /// Task 5.11: Uses main search move ordering hints to improve quiescence
+    /// move ordering The hint move (e.g., from transposition table or IID)
+    /// is prioritized in move ordering
     fn quiescence_search_with_hint(
         &mut self,
         board: &mut BitboardBoard,
@@ -6852,7 +7055,8 @@ impl SearchEngine {
         if self.should_stop(&start_time, time_limit_ms) {
             // Try to return a meaningful score instead of 0
             if let Some(best_score) = best_score_tracked {
-                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Time limit reached, returning tracked best score: {}", best_score));
+                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Time limit reached,
+                // returning tracked best score: {}", best_score));
                 return best_score;
             }
             // Fallback to static evaluation if no best score tracked
@@ -6866,11 +7070,13 @@ impl SearchEngine {
                 false,
                 true,
             );
-            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Time limit reached, returning static evaluation: {}", static_eval));
+            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Time limit reached,
+            // returning static evaluation: {}", static_eval));
             return static_eval;
         }
 
-        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Starting quiescence search: depth={}, alpha={}, beta={}", depth, alpha, beta));
+        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Starting quiescence
+        // search: depth={}, alpha={}, beta={}", depth, alpha, beta));
 
         // Update statistics
         self.quiescence_stats.nodes_searched += 1;
@@ -6884,17 +7090,23 @@ impl SearchEngine {
         // Task 7.8: Depth limit check - updated documentation
         //
         // Depth limit termination:
-        // - depth == 0: Safety check to prevent infinite recursion (depth 0 terminates immediately)
-        // - depth > max_depth: Maximum depth limit reached (quiescence search has explored deep enough)
+        // - depth == 0: Safety check to prevent infinite recursion (depth 0 terminates
+        //   immediately)
+        // - depth > max_depth: Maximum depth limit reached (quiescence search has
+        //   explored deep enough)
         // - When depth limit is reached, we evaluate the position statically and return
-        // - This prevents quiescence search from going too deep and consuming excessive resources
+        // - This prevents quiescence search from going too deep and consuming excessive
+        //   resources
         // - The max_depth configuration controls how deep quiescence search can go
         //
         // Depth limit rationale:
-        // - Quiescence search is meant to evaluate "noisy" positions (captures, checks, promotions)
-        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Depth limit reached (depth={}), evaluating position", depth));
+        // - Quiescence search is meant to evaluate "noisy" positions (captures, checks,
+        //   promotions)
+        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Depth limit reached
+        // (depth={}), evaluating position", depth));
         if depth == 0 || depth > self.quiescence_config.max_depth {
-            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Depth limit reached (depth={}), evaluating position", depth));
+            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Depth limit reached
+            // (depth={}), evaluating position", depth));
             let score = self.evaluator.evaluate_with_context(
                 board,
                 player,
@@ -6905,7 +7117,8 @@ impl SearchEngine {
                 false,
                 true,
             );
-            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Position evaluation: {}", score));
+            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Position evaluation:
+            // {}", score));
             return score;
         }
 
@@ -6947,19 +7160,22 @@ impl SearchEngine {
                     let score_to_return = entry.score; // Store score before dropping mutable reference
                     let flag_to_return = entry.flag; // Store flag before dropping mutable reference
 
-                    // crate::debug_utils::trace_log("QUIESCENCE", &format!("Quiescence TT hit: depth={}, score={}, flag={:?}",
-                    //     entry.depth, entry.score, entry.flag));
+                    // crate::debug_utils::trace_log("QUIESCENCE", &format!("Quiescence TT hit:
+                    // depth={}, score={}, flag={:?}",     entry.depth,
+                    // entry.score, entry.flag));
                     match flag_to_return {
                         TranspositionFlag::Exact => return score_to_return,
                         TranspositionFlag::LowerBound => {
                             if score_to_return >= beta {
-                                // crate::debug_utils::trace_log("QUIESCENCE", "Quiescence TT lower bound cutoff");
+                                // crate::debug_utils::trace_log("QUIESCENCE", "Quiescence TT lower
+                                // bound cutoff");
                                 return score_to_return;
                             }
                         }
                         TranspositionFlag::UpperBound => {
                             if score_to_return <= alpha {
-                                // crate::debug_utils::trace_log("QUIESCENCE", "Quiescence TT upper bound cutoff");
+                                // crate::debug_utils::trace_log("QUIESCENCE", "Quiescence TT upper
+                                // bound cutoff");
                                 return score_to_return;
                             }
                         }
@@ -6968,7 +7184,8 @@ impl SearchEngine {
             } else {
                 self.quiescence_stats.tt_misses += 1;
                 self.quiescence_stats.stand_pat_tt_misses += 1;
-                // crate::debug_utils::trace_log("QUIESCENCE", "Quiescence TT miss");
+                // crate::debug_utils::trace_log("QUIESCENCE", "Quiescence TT
+                // miss");
             }
         }
 
@@ -7003,7 +7220,8 @@ impl SearchEngine {
                 true,
             )
         };
-        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Stand-pat evaluation: {} (cached: {})", stand_pat, cached_stand_pat.is_some()));
+        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Stand-pat evaluation:
+        // {} (cached: {})", stand_pat, cached_stand_pat.is_some()));
 
         // Track stand-pat as initial best score
         best_score_tracked = Some(stand_pat);
@@ -7041,14 +7259,17 @@ impl SearchEngine {
 
         // crate::debug_utils::trace_log("QUIESCENCE", "Generating noisy moves");
         let noisy_moves = self.generate_noisy_moves(board, player, captured_pieces);
-        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Found {} noisy moves", noisy_moves.len()));
+        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Found {} noisy moves",
+        // noisy_moves.len()));
 
         // Task 7.2, 7.3: Explicit check for empty move list before main search loop
-        // If no noisy moves are available, return stand-pat evaluation (quiescence search terminates)
-        // This is a common case in quiet positions where there are no captures, checks, or promotions
+        // If no noisy moves are available, return stand-pat evaluation (quiescence
+        // search terminates) This is a common case in quiet positions where
+        // there are no captures, checks, or promotions
         if noisy_moves.is_empty() {
             // No noisy moves available - quiescence search terminates at stand-pat
-            // crate::debug_utils::trace_log("QUIESCENCE", "No noisy moves available, returning stand-pat");
+            // crate::debug_utils::trace_log("QUIESCENCE", "No noisy moves available,
+            // returning stand-pat");
 
             // Store result in transposition table (Task 6.0)
             if self.quiescence_config.enable_tt {
@@ -7102,7 +7323,8 @@ impl SearchEngine {
         }
 
         // crate::debug_utils::trace_log("QUIESCENCE", "Sorting noisy moves");
-        // Task 5.11: Pass effective_hint (TT best move or provided hint) to quiescence move ordering
+        // Task 5.11: Pass effective_hint (TT best move or provided hint) to quiescence
+        // move ordering
         let sorted_noisy_moves = self.sort_quiescence_moves_advanced(
             &noisy_moves,
             board,
@@ -7114,37 +7336,43 @@ impl SearchEngine {
         self.quiescence_stats.move_ordering_total_moves += noisy_moves.len() as u64;
         let total_move_count = sorted_noisy_moves.len();
 
-        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Starting noisy move evaluation with {} moves", sorted_noisy_moves.len()));
+        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Starting noisy move
+        // evaluation with {} moves", sorted_noisy_moves.len()));
 
-        // Task 7.2: Main search loop - explicit check ensures we only enter if moves are available
+        // Task 7.2: Main search loop - explicit check ensures we only enter if moves
+        // are available
         for (move_index, move_) in sorted_noisy_moves.iter().enumerate() {
             if self.should_stop(&start_time, time_limit_ms) {
-                // crate::debug_utils::trace_log("QUIESCENCE", "Time limit reached, stopping move evaluation");
-                // Update tracked best score before breaking
+                // crate::debug_utils::trace_log("QUIESCENCE", "Time limit reached, stopping
+                // move evaluation"); Update tracked best score before breaking
                 if alpha > best_score_tracked.unwrap_or(i32::MIN) {
                     best_score_tracked = Some(alpha);
                 }
                 break;
             }
 
-            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Evaluating move {}: {} (alpha: {}, beta: {})",
-            //     move_index + 1, move_.to_usi_string(), alpha, beta));
+            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Evaluating move {}: {}
+            // (alpha: {}, beta: {})",     move_index + 1,
+            // move_.to_usi_string(), alpha, beta));
 
             // Task 7.6: Pruning conditions and logic
             //
             // Delta pruning:
             // - Prunes moves where the material gain from a capture is insufficient
             // - Formula: stand_pat + material_gain + safety_margin < alpha
-            // - If even the best-case scenario (material gain + safety margin) can't beat alpha,
-            //   the move is pruned without searching
-            // - Adaptive delta pruning adjusts the safety margin based on depth and move count
+            // - If even the best-case scenario (material gain + safety margin) can't beat
+            //   alpha, the move is pruned without searching
+            // - Adaptive delta pruning adjusts the safety margin based on depth and move
+            //   count
             // - Standard delta pruning uses a fixed safety margin
             //
             // Futility pruning:
             // - Prunes moves where the current evaluation + margin is worse than alpha
             // - Formula: stand_pat + futility_margin < alpha
-            // - Applied to quiet moves (non-captures) that are unlikely to improve the position
-            // - Excludes checking moves and high-value captures (they can significantly change evaluation)
+            // - Applied to quiet moves (non-captures) that are unlikely to improve the
+            //   position
+            // - Excludes checking moves and high-value captures (they can significantly
+            //   change evaluation)
             // - Adaptive futility pruning adjusts the margin based on depth and move count
             // - Standard futility pruning uses a fixed margin based on depth
             //
@@ -7152,7 +7380,8 @@ impl SearchEngine {
             // - Pruning reduces the number of moves searched, improving search efficiency
             // - Delta pruning targets captures with insufficient material gain
             // - Futility pruning targets quiet moves unlikely to improve the position
-            // - Both pruning techniques are safe (they don't prune moves that could improve alpha)
+            // - Both pruning techniques are safe (they don't prune moves that could improve
+            //   alpha)
             // - Adaptive pruning dynamically adjusts margins for better effectiveness
             //
             // Apply pruning checks
@@ -7164,7 +7393,8 @@ impl SearchEngine {
                 self.should_prune_delta(&move_, stand_pat, alpha)
             };
             if should_prune {
-                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Delta pruning move {}", move_.to_usi_string()));
+                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Delta pruning move {}",
+                // move_.to_usi_string()));
                 self.quiescence_stats.delta_prunes += 1;
                 continue;
             }
@@ -7181,7 +7411,8 @@ impl SearchEngine {
                 self.should_prune_futility(&move_, stand_pat, alpha, depth)
             };
             if should_prune_futility {
-                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Futility pruning move {}", move_.to_usi_string()));
+                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Futility pruning move
+                // {}", move_.to_usi_string()));
                 self.quiescence_stats.futility_prunes += 1;
                 continue;
             }
@@ -7197,19 +7428,25 @@ impl SearchEngine {
             // Task 7.6, 7.7: Extension logic and depth decrement behavior
             //
             // Selective extension logic:
-            // - Extensions are applied to important moves (checks, recaptures, promotions, high-value captures)
-            // - Extensions maintain the current depth instead of decrementing, allowing deeper tactical sequences
-            // - Extensions are only applied if depth > 1 (prevents infinite recursion at depth 1)
-            // - The should_extend() method determines if a move is important enough to extend
+            // - Extensions are applied to important moves (checks, recaptures, promotions,
+            //   high-value captures)
+            // - Extensions maintain the current depth instead of decrementing, allowing
+            //   deeper tactical sequences
+            // - Extensions are only applied if depth > 1 (prevents infinite recursion at
+            //   depth 1)
+            // - The should_extend() method determines if a move is important enough to
+            //   extend
             //
             // Depth decrement behavior:
             // - Normal moves: depth is decremented (depth - 1) to limit search depth
             // - Extended moves: depth is maintained (depth) to allow deeper search
             // - This ensures extended moves can explore deeper tactical sequences
-            // - The depth parameter controls how deep we search in quiescence (max_depth limit)
+            // - The depth parameter controls how deep we search in quiescence (max_depth
+            //   limit)
             //
             // Extension rationale:
-            // - Tactical sequences (checks, captures, recaptures) often require deeper search
+            // - Tactical sequences (checks, captures, recaptures) often require deeper
+            //   search
             // - Extending these moves improves tactical accuracy
             // - Depth maintenance allows extended moves to explore critical variations
             // - The max_depth limit prevents infinite recursion
@@ -7217,17 +7454,20 @@ impl SearchEngine {
             // CRITICAL: Always decrement depth to prevent infinite recursion
             // Even with extensions, we must eventually decrease depth to ensure termination
             let search_depth = if self.should_extend(&move_, depth) && depth > 2 {
-                // Extensions can maintain depth, but only if depth > 2 to ensure we eventually terminate
-                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Extending search for move {}", move_.to_usi_string()));
+                // Extensions can maintain depth, but only if depth > 2 to ensure we eventually
+                // terminate crate::debug_utils::trace_log("QUIESCENCE",
+                // &format!("Extending search for move {}", move_.to_usi_string()));
                 self.quiescence_stats.extensions += 1;
-                depth.saturating_sub(1) // Always decrement by at least 1 to prevent infinite recursion
+                depth.saturating_sub(1) // Always decrement by at least 1 to
+                                        // prevent infinite recursion
             } else {
                 depth.saturating_sub(1) // Normal moves decrement depth
             };
-            // Update seldepth for quiescence extensions - quiescence extends beyond normal depth
-            // When in quiescence, we've already reached current_depth plies from root
-            // Quiescence extends deeper: current_depth + (max_quiescence_depth - depth)
-            // For a more accurate seldepth, we track current_depth + extensions
+            // Update seldepth for quiescence extensions - quiescence extends beyond normal
+            // depth When in quiescence, we've already reached current_depth
+            // plies from root Quiescence extends deeper: current_depth +
+            // (max_quiescence_depth - depth) For a more accurate seldepth, we
+            // track current_depth + extensions
             let quiescence_depth_from_root = self.current_depth as i32
                 + (self.quiescence_config.max_depth as i32 - depth as i32);
             self.search_statistics.update_seldepth(quiescence_depth_from_root as u8);
@@ -7265,9 +7505,10 @@ impl SearchEngine {
 
                 // Task 7.6: Beta cutoff condition
                 //
-                // Beta cutoff occurs when a move's score is >= beta (the opponent's best move score).
-                // This means the opponent has a better move available, so we can stop searching
-                // this branch (the opponent will avoid this position).
+                // Beta cutoff occurs when a move's score is >= beta (the opponent's best move
+                // score). This means the opponent has a better move available,
+                // so we can stop searching this branch (the opponent will avoid
+                // this position).
                 //
                 // Beta cutoff optimization:
                 // - Once we find a move with score >= beta, we can prune remaining moves
@@ -7284,9 +7525,10 @@ impl SearchEngine {
                 if self.quiescence_config.enable_tt {
                     let fen_key = format!("q_{}", board.to_fen(player, captured_pieces));
                     let flag = TranspositionFlag::LowerBound;
-                    // Task 6.0: At beta cutoff, we don't have stand-pat for the position after the move
-                    // We could evaluate it, but that would be expensive. For now, store None.
-                    // The stand-pat will be cached when the position is fully evaluated later.
+                    // Task 6.0: At beta cutoff, we don't have stand-pat for the position after the
+                    // move We could evaluate it, but that would be expensive.
+                    // For now, store None. The stand-pat will be cached when
+                    // the position is fully evaluated later.
                     let stand_pat_for_beta = None; // Don't cache stand-pat at beta cutoff (position not fully evaluated)
 
                     let position_hash = self.get_position_hash(board);
@@ -7300,7 +7542,9 @@ impl SearchEngine {
                             hash_key: position_hash,
                             access_count: 1,
                             last_access_age: self.quiescence_tt_age,
-                            stand_pat_score: stand_pat_for_beta, // Task 6.0: Cache stand-pat evaluation (None at beta cutoff)
+                            stand_pat_score: stand_pat_for_beta, /* Task 6.0: Cache stand-pat
+                                                                  * evaluation (None at beta
+                                                                  * cutoff) */
                         },
                     );
                     self.quiescence_tt_age = self.quiescence_tt_age.wrapping_add(1);
@@ -7322,7 +7566,8 @@ impl SearchEngine {
             }
         }
 
-        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Quiescence search completed: depth={}, score={}", depth, alpha));
+        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Quiescence search
+        // completed: depth={}, score={}", depth, alpha));
 
         // Store result in transposition table
         if self.quiescence_config.enable_tt {
@@ -7349,7 +7594,8 @@ impl SearchEngine {
                 if existing_entry.stand_pat_score.is_none() {
                     existing_entry.stand_pat_score = Some(stand_pat);
                 }
-                // Update score, depth, and flag if this search was deeper or provides better bounds
+                // Update score, depth, and flag if this search was deeper or provides better
+                // bounds
                 if depth >= existing_entry.depth || flag == TranspositionFlag::Exact {
                     existing_entry.score = alpha;
                     existing_entry.depth = depth;
@@ -7375,9 +7621,10 @@ impl SearchEngine {
             }
         }
 
-        // Return best score: prefer tracked score (from timeout) if available, otherwise use alpha
-        // Note: alpha should already reflect the best score found, but tracked_score provides
-        // a safety fallback if timeout occurred during move evaluation
+        // Return best score: prefer tracked score (from timeout) if available,
+        // otherwise use alpha Note: alpha should already reflect the best score
+        // found, but tracked_score provides a safety fallback if timeout
+        // occurred during move evaluation
         if let Some(tracked_score) = best_score_tracked {
             // Use max of tracked score and alpha to ensure we return the best we've found
             return tracked_score.max(alpha);
@@ -7401,7 +7648,8 @@ impl SearchEngine {
     }
 
     /// Force time check (bypasses frequency optimization) (Task 8.4)
-    /// Used when we must check time regardless of frequency (e.g., at depth boundaries)
+    /// Used when we must check time regardless of frequency (e.g., at depth
+    /// boundaries)
     fn should_stop_force(&self, start_time: &TimeSource, time_limit_ms: u32) -> bool {
         if let Some(flag) = &self.stop_flag {
             if flag.load(Ordering::Relaxed) {
@@ -7485,7 +7733,8 @@ impl SearchEngine {
                 } else {
                     // Invalid ordering - fallback to enhanced traditional
                     log::warn!(
-                        "Advanced quiescence ordering produced invalid length ({} vs {}); falling back to enhanced ordering",
+                        "Advanced quiescence ordering produced invalid length ({} vs {}); falling \
+                         back to enhanced ordering",
                         advanced_ordered.len(),
                         moves.len()
                     );
@@ -7636,8 +7885,9 @@ impl SearchEngine {
             }
         }
 
-        // Priority 2: Transposition table move (simplified - we don't have access to player here)
-        // This would need to be passed as a parameter or handled differently
+        // Priority 2: Transposition table move (simplified - we don't have access to
+        // player here) This would need to be passed as a parameter or handled
+        // differently
 
         // Priority 3: Standard move scoring
         let mut score = 0;
@@ -7859,7 +8109,8 @@ impl SearchEngine {
 
     #[cfg(test)]
     pub fn transposition_table_capacity(&self) -> usize {
-        self.transposition_table.size() // ThreadSafeTranspositionTable doesn't expose capacity
+        self.transposition_table.size() // ThreadSafeTranspositionTable doesn't
+                                        // expose capacity
     }
 
     fn get_pv(
@@ -7984,11 +8235,12 @@ impl SearchEngine {
     /// Adjusts pruning margins dynamically based on:
     /// - Depth: More aggressive pruning at deeper depths
     /// - Move count: More selective pruning when there are many moves
-    /// - Move type: Less aggressive pruning for high-value captures and promotions
+    /// - Move type: Less aggressive pruning for high-value captures and
+    ///   promotions
     ///
-    /// This provides better pruning effectiveness while maintaining tactical accuracy.
-    /// Check if a move should be pruned using adaptive delta pruning
-    /// Delegates to QuiescenceHelper (Task 1.8)
+    /// This provides better pruning effectiveness while maintaining tactical
+    /// accuracy. Check if a move should be pruned using adaptive delta
+    /// pruning Delegates to QuiescenceHelper (Task 1.8)
     fn should_prune_delta_adaptive(
         &self,
         move_: &Move,
@@ -8003,9 +8255,10 @@ impl SearchEngine {
 
     /// Check if a move should be pruned using futility pruning
     ///
-    /// Note: This is capture-specific futility pruning. Standard futility pruning
-    /// typically excludes captures and checks, but this implementation applies
-    /// futility pruning to weak captures while excluding:
+    /// Note: This is capture-specific futility pruning. Standard futility
+    /// pruning typically excludes captures and checks, but this
+    /// implementation applies futility pruning to weak captures while
+    /// excluding:
     /// - Checking moves (critical for tactical sequences)
     /// - High-value captures (important tactical moves)
     ///
@@ -8047,11 +8300,13 @@ impl SearchEngine {
     /// Adaptive futility pruning based on position characteristics
     ///
     /// Adjusts pruning margins dynamically based on:
-    /// - Depth: More aggressive pruning at deeper depths (already depth-dependent)
+    /// - Depth: More aggressive pruning at deeper depths (already
+    ///   depth-dependent)
     /// - Move count: More selective pruning when there are many moves available
     ///
-    /// Excludes checking moves and high-value captures to maintain tactical accuracy.
-    /// This provides better pruning effectiveness while maintaining tactical accuracy.
+    /// Excludes checking moves and high-value captures to maintain tactical
+    /// accuracy. This provides better pruning effectiveness while
+    /// maintaining tactical accuracy.
     fn should_prune_futility_adaptive(
         &mut self,
         move_: &Move,
@@ -8090,7 +8345,8 @@ impl SearchEngine {
         }
 
         if depth > 4 {
-            futility_margin += (depth as i32 - 4) * 25; // More aggressive at deeper depths
+            futility_margin += (depth as i32 - 4) * 25; // More aggressive at
+                                                        // deeper depths
         }
 
         stand_pat + material_gain + futility_margin <= alpha
@@ -8300,7 +8556,8 @@ impl SearchEngine {
         _board: &BitboardBoard,
         player: Player,
     ) -> bool {
-        // Simplified check - in a real implementation, this would check actual attack patterns
+        // Simplified check - in a real implementation, this would check actual attack
+        // patterns
         piece.player == player.opposite()
     }
 
@@ -8311,7 +8568,8 @@ impl SearchEngine {
         _board: &BitboardBoard,
         _player: Player,
     ) -> bool {
-        // Simplified check - in a real implementation, this would check actual attack patterns
+        // Simplified check - in a real implementation, this would check actual attack
+        // patterns
         move_.is_capture || move_.gives_check
     }
 
@@ -8322,7 +8580,8 @@ impl SearchEngine {
         _board: &BitboardBoard,
         _player: Player,
     ) -> bool {
-        // Simplified check - in a real implementation, this would check actual attack patterns
+        // Simplified check - in a real implementation, this would check actual attack
+        // patterns
         move_.gives_check
     }
 
@@ -8377,7 +8636,8 @@ impl SearchEngine {
 
     /// Sort moves specifically for quiescence search
     ///
-    /// Uses basic comparison without position context (for backward compatibility)
+    /// Uses basic comparison without position context (for backward
+    /// compatibility)
     #[cfg(test)]
     pub fn sort_quiescence_moves(&self, moves: &[Move]) -> Vec<Move> {
         let mut sorted_moves = moves.to_vec();
@@ -8388,7 +8648,8 @@ impl SearchEngine {
     /// Enhanced sort moves for quiescence search with position context
     ///
     /// Enhanced with:
-    /// - Position-aware ordering (piece-square tables, king safety, piece activity)
+    /// - Position-aware ordering (piece-square tables, king safety, piece
+    ///   activity)
     /// - Better handling of edge cases (empty moves, single move)
     /// - Statistics tracking
     /// - Main search move ordering hints (Task 5.11)
@@ -8602,13 +8863,15 @@ impl SearchEngine {
     }
 
     /// Clean up old entries from the quiescence transposition table
-    /// Clean up quiescence transposition table using configured replacement policy
+    /// Clean up quiescence transposition table using configured replacement
+    /// policy
     ///
     /// Supports multiple replacement policies:
     /// - Simple: Remove half entries arbitrarily (original behavior)
     /// - LRU: Remove least recently used entries (keep recently accessed)
     /// - DepthPreferred: Remove shallow entries (keep deeper tactical results)
-    /// - Hybrid: Combine LRU and depth-preferred (prefer keeping deep, recently accessed entries)
+    /// - Hybrid: Combine LRU and depth-preferred (prefer keeping deep, recently
+    ///   accessed entries)
     pub fn cleanup_quiescence_tt(&mut self, max_entries: usize) {
         if self.quiescence_tt.len() <= max_entries {
             return;
@@ -8662,8 +8925,8 @@ impl SearchEngine {
             }
             TTReplacementPolicy::Hybrid => {
                 // Hybrid: Combine LRU and depth-preferred
-                // Score = (max_depth - depth) * depth_weight + (current_age - last_access_age) * age_weight
-                // Higher score = keep, lower score = remove
+                // Score = (max_depth - depth) * depth_weight + (current_age - last_access_age)
+                // * age_weight Higher score = keep, lower score = remove
                 let max_depth = self.quiescence_config.max_depth as u8;
                 let depth_weight = 1000u64; // Weight for depth (prefer deeper)
                 let age_weight = 1u64; // Weight for recency (prefer recent)
@@ -8780,7 +9043,8 @@ impl SearchEngine {
         let stats = self.get_quiescence_stats();
         QuiescencePerformanceMetrics {
             nodes_per_second: if stats.nodes_searched > 0 {
-                stats.nodes_searched as f64 / 1.0 // Placeholder - would need timing info
+                stats.nodes_searched as f64 / 1.0 // Placeholder - would need
+                                                  // timing info
             } else {
                 0.0
             },
@@ -8807,7 +9071,8 @@ impl SearchEngine {
     /// Task 7.0.4.3: Accept cached_static_eval to avoid re-evaluation
     /// Check if null move pruning should be attempted
     /// Delegates to NullMoveHelper (Task 1.8)
-    /// Note: cached_static_eval parameter is currently unused but kept for API compatibility
+    /// Note: cached_static_eval parameter is currently unused but kept for API
+    /// compatibility
     fn should_attempt_null_move(
         &mut self,
         board: &BitboardBoard,
@@ -8826,8 +9091,8 @@ impl SearchEngine {
         )
     }
 
-    /// Calculate reduction factor for null move search using the configured strategy
-    /// Delegates to NullMoveHelper (Task 1.8)
+    /// Calculate reduction factor for null move search using the configured
+    /// strategy Delegates to NullMoveHelper (Task 1.8)
     fn calculate_null_move_reduction(
         &self,
         board: &BitboardBoard,
@@ -8841,22 +9106,26 @@ impl SearchEngine {
 
     /// Perform a null move search with reduced depth
     ///
-    /// **Board State Isolation**: This function does NOT modify the board state.
-    /// The `board` parameter is mutable only because `negamax_with_context()` requires
-    /// it for making moves during the recursive search. However, no actual move is made
-    /// on the board at this level - the null move is simulated by simply passing the
+    /// **Board State Isolation**: This function does NOT modify the board
+    /// state. The `board` parameter is mutable only because
+    /// `negamax_with_context()` requires it for making moves during the
+    /// recursive search. However, no actual move is made on the board at
+    /// this level - the null move is simulated by simply passing the
     /// turn to the opponent via `player.opposite()` in the recursive call.
     ///
-    /// **Hash History Isolation**: A local hash history is created before calling
-    /// this function (in `negamax_with_context()`). This separate hash history ensures
-    /// that repetition detection within the null move search does not interfere with
-    /// the main search's hash history. This is necessary because:
+    /// **Hash History Isolation**: A local hash history is created before
+    /// calling this function (in `negamax_with_context()`). This separate
+    /// hash history ensures that repetition detection within the null move
+    /// search does not interfere with the main search's hash history. This
+    /// is necessary because:
     /// 1. The null move is a hypothetical position (not a real move)
-    /// 2. Repetition detection in the null move subtree should not affect the main search
-    /// 3. Hash history is maintained separately to prevent false repetition detections
+    /// 2. Repetition detection in the null move subtree should not affect the
+    ///    main search
+    /// 3. Hash history is maintained separately to prevent false repetition
+    ///    detections
     ///
-    /// The hash history passed to this function is isolated from the main search and
-    /// is discarded after the null move search completes.
+    /// The hash history passed to this function is isolated from the main
+    /// search and is discarded after the null move search completes.
     fn perform_null_move_search(
         &mut self,
         board: &mut BitboardBoard,
@@ -8878,9 +9147,10 @@ impl SearchEngine {
 
         // Perform null move search with zero-width window
         // NOTE: No actual move is made on the board. The null move is simulated by
-        // passing player.opposite() to switch turns, while the board state remains unchanged.
-        // During the recursive call, moves may be made/unmade within that subtree, but
-        // the board state will be restored to its original state before this function returns.
+        // passing player.opposite() to switch turns, while the board state remains
+        // unchanged. During the recursive call, moves may be made/unmade within
+        // that subtree, but the board state will be restored to its original
+        // state before this function returns.
         let null_move_score = -self.negamax_with_context(
             board,
             captured_pieces,
@@ -8902,22 +9172,24 @@ impl SearchEngine {
         null_move_score
     }
 
-    /// Check if verification search should be performed based on null move score
-    /// Verification is triggered when null move fails (score < beta) but is within the safety margin
+    /// Check if verification search should be performed based on null move
+    /// score Verification is triggered when null move fails (score < beta)
+    /// but is within the safety margin
     fn should_perform_verification(&self, null_move_score: i32, beta: i32) -> bool {
         if self.null_move_config.verification_margin == 0 {
             // Verification disabled
             return false;
         }
 
-        // Verification is needed if null move failed (score < beta) but is close to beta
-        // i.e., beta - null_move_score <= verification_margin
+        // Verification is needed if null move failed (score < beta) but is close to
+        // beta i.e., beta - null_move_score <= verification_margin
         null_move_score < beta
             && (beta - null_move_score) <= self.null_move_config.verification_margin
     }
 
-    /// Perform a full-depth verification search to confirm null move pruning safety
-    /// This searches at depth - 1 (without the reduction applied in null move search)
+    /// Perform a full-depth verification search to confirm null move pruning
+    /// safety This searches at depth - 1 (without the reduction applied in
+    /// null move search)
     fn perform_verification_search(
         &mut self,
         board: &mut BitboardBoard,
@@ -8964,9 +9236,9 @@ impl SearchEngine {
     }
 
     /// Check if a score indicates a potential mate threat
-    /// A mate threat is detected when the null move score is very high (close to beta)
-    /// suggesting the position might be winning (mate threat present)
-    /// Threshold: score >= beta - mate_threat_margin
+    /// A mate threat is detected when the null move score is very high (close
+    /// to beta) suggesting the position might be winning (mate threat
+    /// present) Threshold: score >= beta - mate_threat_margin
     fn is_mate_threat_score(&self, null_move_score: i32, beta: i32) -> bool {
         if !self.null_move_config.enable_mate_threat_detection {
             return false;
@@ -8975,8 +9247,9 @@ impl SearchEngine {
             return false;
         }
 
-        // Mate threat detected if score is very close to beta (within mate_threat_margin)
-        // This suggests the position is winning and might contain a mate threat
+        // Mate threat detected if score is very close to beta (within
+        // mate_threat_margin) This suggests the position is winning and might
+        // contain a mate threat
         null_move_score >= (beta - self.null_move_config.mate_threat_margin)
     }
 
@@ -8995,10 +9268,15 @@ impl SearchEngine {
     ) -> i32 {
         self.null_move_stats.mate_threat_attempts += 1;
 
-        crate::debug_utils::trace_log("MATE_THREAT", &format!(
-            "Performing mate threat verification search at depth {} (score suggests mate threat, beta={})",
-            depth - 1, beta
-        ));
+        crate::debug_utils::trace_log(
+            "MATE_THREAT",
+            &format!(
+                "Performing mate threat verification search at depth {} (score suggests mate \
+                 threat, beta={})",
+                depth - 1,
+                beta
+            ),
+        );
 
         // Perform verification search at depth - 1 (full depth, no reduction)
         // Use zero-width window like null move search
@@ -9125,7 +9403,8 @@ impl SearchEngine {
         self.lmr_stats = LMRStats::default();
     }
 
-    /// Check LMR performance thresholds and return alerts (Task 4.4, 4.10, 4.11)
+    /// Check LMR performance thresholds and return alerts (Task 4.4, 4.10,
+    /// 4.11)
     pub fn check_lmr_performance(&self) -> (bool, Vec<String>) {
         self.lmr_stats.check_performance_thresholds()
     }
@@ -9151,8 +9430,8 @@ impl SearchEngine {
 
     // ===== TIME MANAGEMENT AND BUDGET ALLOCATION (Task 4.5-4.7) =====
 
-    /// Calculate time budget for a specific depth based on allocation strategy (Task 4.5, 4.7)
-    /// Delegates to TimeManager (Task 1.8)
+    /// Calculate time budget for a specific depth based on allocation strategy
+    /// (Task 4.5, 4.7) Delegates to TimeManager (Task 1.8)
     pub fn calculate_time_budget(
         &mut self,
         depth: u8,
@@ -9393,7 +9672,8 @@ impl SearchEngine {
 
     /// Calculate window size with debugging and statistics tracking
     ///
-    /// Task 7.2, 7.3, 7.4: Conditional statistics tracking with optimized updates
+    /// Task 7.2, 7.3, 7.4: Conditional statistics tracking with optimized
+    /// updates
     pub fn calculate_window_size_with_stats(
         &mut self,
         depth: u8,
@@ -9415,7 +9695,8 @@ impl SearchEngine {
             // Update average window size (optimized: use incremental update)
             let total = self.aspiration_stats.total_searches;
             if total > 0 {
-                // Incremental average update: new_avg = old_avg + (new_value - old_avg) / (total + 1)
+                // Incremental average update: new_avg = old_avg + (new_value - old_avg) /
+                // (total + 1)
                 let diff = (window_size as f64 - self.aspiration_stats.average_window_size)
                     / (total + 1) as f64;
                 self.aspiration_stats.average_window_size += diff;
@@ -9626,9 +9907,18 @@ impl SearchEngine {
 
         // Debug logging
         debug_log!(&format!(
-            "Aspiration: comprehensive window size calculation - depth={}, base={}, final={}, factors=[d:{:.2}, s:{:.2}, f:{:.2}, c:{:.2}, t:{:.2}, su:{:.2}, b:{:.2}]",
-            depth, base_size, final_size, depth_factor, score_factor, failure_factor,
-            complexity_factor, time_factor, success_factor, branching_factor
+            "Aspiration: comprehensive window size calculation - depth={}, base={}, final={}, \
+             factors=[d:{:.2}, s:{:.2}, f:{:.2}, c:{:.2}, t:{:.2}, su:{:.2}, b:{:.2}]",
+            depth,
+            base_size,
+            final_size,
+            depth_factor,
+            score_factor,
+            failure_factor,
+            complexity_factor,
+            time_factor,
+            success_factor,
+            branching_factor
         ));
 
         final_size
@@ -9828,7 +10118,8 @@ impl SearchEngine {
 
     /// Update aspiration window statistics
     ///
-    /// Task 7.1, 7.2, 7.3, 7.4: Enhanced with position type tracking and conditional updates
+    /// Task 7.1, 7.2, 7.3, 7.4: Enhanced with position type tracking and
+    /// conditional updates
     fn update_aspiration_stats(&mut self, had_research: bool, research_count: u8) {
         // Task 7.2, 7.3: Conditional statistics tracking
         #[cfg(feature = "statistics")]
@@ -10249,7 +10540,8 @@ impl SearchEngine {
     pub fn get_performance_analysis(
         &mut self,
     ) -> crate::types::all::AspirationWindowPerformanceMetrics {
-        // Convert search::AspirationWindowStats to all::AspirationWindowStats for calculate_performance_metrics
+        // Convert search::AspirationWindowStats to all::AspirationWindowStats for
+        // calculate_performance_metrics
         let mut all_stats = crate::types::all::AspirationWindowStats {
             total_searches: self.aspiration_stats.total_searches,
             successful_searches: self.aspiration_stats.successful_searches,
@@ -10429,14 +10721,16 @@ impl SearchEngine {
     // ===== LATE MOVE REDUCTIONS CORE LOGIC =====
     //
     // NOTE: LMR implementation is now consolidated in PruningManager.
-    // This method (search_move_with_lmr) uses PruningManager::calculate_lmr_reduction()
-    // which handles all LMR logic including:
+    // This method (search_move_with_lmr) uses
+    // PruningManager::calculate_lmr_reduction() which handles all LMR logic
+    // including:
     // - Extended exemptions (killer moves, TT moves, escape moves)
     // - Adaptive reduction based on position classification
     // - Dynamic reduction based on depth and move index
     //
-    // Legacy methods (should_apply_lmr, calculate_reduction, apply_adaptive_reduction)
-    // have been removed and their functionality migrated to PruningManager.
+    // Legacy methods (should_apply_lmr, calculate_reduction,
+    // apply_adaptive_reduction) have been removed and their functionality
+    // migrated to PruningManager.
 
     /// Search a move with Late Move Reductions applied
     ///
@@ -10458,8 +10752,9 @@ impl SearchEngine {
         _is_root: bool,
         has_capture: bool,
         has_check: bool,
-        opponent_last_move: Option<Move>, // Task 2.6: Track opponent's last move for counter-move heuristic
-        iid_move: Option<&Move>,          // Task 7.0.1: IID move for explicit exemption
+        opponent_last_move: Option<Move>, /* Task 2.6: Track opponent's last move for
+                                           * counter-move heuristic */
+        iid_move: Option<&Move>, // Task 7.0.1: IID move for explicit exemption
         entry_source: crate::types::EntrySource,
     ) -> i32 {
         // Task 7.0.3.4: Entry source for TT priority
@@ -10543,34 +10838,41 @@ impl SearchEngine {
             0 // Escape moves and IID moves are exempted from LMR
         } else {
             // Convert search_state to all::SearchState for PruningManager
-            let all_search_state = crate::types::all::SearchState {
-                depth: search_state.depth,
-                move_number: search_state.move_number,
-                alpha: search_state.alpha,
-                beta: search_state.beta,
-                is_in_check: search_state.is_in_check,
-                static_eval: search_state.static_eval,
-                best_move: search_state.best_move.as_ref().map(|m| convert_move_to_all(m.clone())),
-                position_hash: search_state.position_hash,
-                game_phase: match search_state.game_phase {
-                    GamePhase::Opening => crate::types::all::GamePhase::Opening,
-                    GamePhase::Middlegame => crate::types::all::GamePhase::Middlegame,
-                    GamePhase::Endgame => crate::types::all::GamePhase::Endgame,
-                },
-                position_classification: search_state.position_classification.map(|pc| match pc {
-                    crate::types::search::PositionClassification::Tactical => {
-                        crate::types::all::PositionClassification::Tactical
-                    }
-                    crate::types::search::PositionClassification::Quiet => {
-                        crate::types::all::PositionClassification::Quiet
-                    }
-                    crate::types::search::PositionClassification::Neutral => {
-                        crate::types::all::PositionClassification::Neutral
-                    }
-                }),
-                tt_move: search_state.tt_move.as_ref().map(|m| convert_move_to_all(m.clone())),
-                advanced_reduction_config: search_state.advanced_reduction_config.map(|arc| {
-                    crate::types::all::AdvancedReductionConfig {
+            let all_search_state =
+                crate::types::all::SearchState {
+                    depth: search_state.depth,
+                    move_number: search_state.move_number,
+                    alpha: search_state.alpha,
+                    beta: search_state.beta,
+                    is_in_check: search_state.is_in_check,
+                    static_eval: search_state.static_eval,
+                    best_move: search_state
+                        .best_move
+                        .as_ref()
+                        .map(|m| convert_move_to_all(m.clone())),
+                    position_hash: search_state.position_hash,
+                    game_phase: match search_state.game_phase {
+                        GamePhase::Opening => crate::types::all::GamePhase::Opening,
+                        GamePhase::Middlegame => crate::types::all::GamePhase::Middlegame,
+                        GamePhase::Endgame => crate::types::all::GamePhase::Endgame,
+                    },
+                    position_classification: search_state.position_classification.map(
+                        |pc| match pc {
+                            crate::types::search::PositionClassification::Tactical => {
+                                crate::types::all::PositionClassification::Tactical
+                            }
+                            crate::types::search::PositionClassification::Quiet => {
+                                crate::types::all::PositionClassification::Quiet
+                            }
+                            crate::types::search::PositionClassification::Neutral => {
+                                crate::types::all::PositionClassification::Neutral
+                            }
+                        },
+                    ),
+                    tt_move: search_state.tt_move.as_ref().map(|m| convert_move_to_all(m.clone())),
+                    advanced_reduction_config:
+                        search_state.advanced_reduction_config.map(|arc| {
+                            crate::types::all::AdvancedReductionConfig {
                         enabled: arc.enabled,
                         strategy: match arc.strategy {
                             crate::types::search::AdvancedReductionStrategy::Basic => {
@@ -10594,13 +10896,13 @@ impl SearchEngine {
                         material_imbalance_threshold: 300, // Default
                         history_score_threshold: 0, // Default
                     }
-                }),
-                best_score: search_state.best_score,
-                nodes_searched: search_state.nodes_searched,
-                aspiration_enabled: search_state.aspiration_enabled,
-                researches: search_state.researches,
-                health_score: search_state.health_score,
-            };
+                        }),
+                    best_score: search_state.best_score,
+                    nodes_searched: search_state.nodes_searched,
+                    aspiration_enabled: search_state.aspiration_enabled,
+                    researches: search_state.researches,
+                    health_score: search_state.health_score,
+                };
             let all_move = convert_move_to_all(move_.clone());
             self.pruning_manager.calculate_lmr_reduction(
                 &all_search_state,
@@ -10610,7 +10912,8 @@ impl SearchEngine {
             )
         };
 
-        // Task 7.0.5.1-5.2: Monitor and alert if IID move somehow gets reduced (should never happen)
+        // Task 7.0.5.1-5.2: Monitor and alert if IID move somehow gets reduced (should
+        // never happen)
         if reduction > 0 && is_iid_move {
             self.lmr_stats.iid_move_reduced_count += 1;
             eprintln!("⚠️  WARNING: IID move was reduced by LMR! This should never happen.");
@@ -10620,10 +10923,16 @@ impl SearchEngine {
                 reduction,
                 depth
             );
-            trace_log!("LMR_ALERT", &format!(
-                "CRITICAL: IID move {} was reduced by {} at depth {}. This indicates a bug in exemption logic!",
-                move_.to_usi_string(), reduction, depth
-            ));
+            trace_log!(
+                "LMR_ALERT",
+                &format!(
+                    "CRITICAL: IID move {} was reduced by {} at depth {}. This indicates a bug in \
+                     exemption logic!",
+                    move_.to_usi_string(),
+                    reduction,
+                    depth
+                )
+            );
         }
 
         if reduction > 0 {
@@ -10691,10 +11000,18 @@ impl SearchEngine {
                 }
 
                 // Debug logging for re-search margin decisions
-                crate::debug_utils::trace_log("LMR", &format!(
-                    "Re-search triggered: score={} > threshold={} (alpha={} + margin={}, position: {:?})",
-                    score, re_search_threshold, alpha, margin, search_state.position_classification
-                ));
+                crate::debug_utils::trace_log(
+                    "LMR",
+                    &format!(
+                        "Re-search triggered: score={} > threshold={} (alpha={} + margin={}, \
+                         position: {:?})",
+                        score,
+                        re_search_threshold,
+                        alpha,
+                        margin,
+                        search_state.position_classification
+                    ),
+                );
 
                 // Re-search at full depth
                 // Task 2.6: Pass current move as opponent_last_move to recursive call
@@ -10740,17 +11057,22 @@ impl SearchEngine {
                     self.lmr_stats.re_search_margin_prevented += 1;
 
                     // Debug logging for re-search margin prevention
-                    crate::debug_utils::trace_log("LMR", &format!(
-                        "Re-search prevented by margin: score={} <= threshold={} (alpha={} + margin={})",
-                        score, re_search_threshold, alpha, self.lmr_config.re_search_margin
-                    ));
+                    crate::debug_utils::trace_log(
+                        "LMR",
+                        &format!(
+                            "Re-search prevented by margin: score={} <= threshold={} (alpha={} + \
+                             margin={})",
+                            score, re_search_threshold, alpha, self.lmr_config.re_search_margin
+                        ),
+                    );
                 }
                 let cutoff_after_reduction = score >= beta;
                 if cutoff_after_reduction {
                     self.lmr_stats.cutoffs_after_reduction += 1;
 
-                    // Track move ordering effectiveness for LMR moves (Task 10.1-10.3)
-                    // Note: move_index is not available here, so we track at the caller level
+                    // Track move ordering effectiveness for LMR moves (Task
+                    // 10.1-10.3) Note: move_index is not
+                    // available here, so we track at the caller level
                 }
 
                 // Track phase statistics (Task 4.6)
@@ -10806,11 +11128,14 @@ impl SearchEngine {
     // The following methods are no longer used:
     // - should_apply_lmr() - replaced by PruningManager::should_apply_lmr()
     // - is_move_exempt_from_lmr() - replaced by PruningManager extended exemptions
-    // - calculate_reduction() - replaced by PruningManager::calculate_lmr_reduction()
-    // - apply_adaptive_reduction() - replaced by PruningManager::apply_adaptive_reduction()
+    // - calculate_reduction() - replaced by
+    //   PruningManager::calculate_lmr_reduction()
+    // - apply_adaptive_reduction() - replaced by
+    //   PruningManager::apply_adaptive_reduction()
     //
     // Helper methods (is_killer_move, is_transposition_table_move, is_escape_move)
-    // are still used by search_move_with_lmr() and are kept for backward compatibility
+    // are still used by search_move_with_lmr() and are kept for backward
+    // compatibility
 
     /// Check if a move is a killer move
     fn is_killer_move(&self, move_: &Move) -> bool {
@@ -10850,7 +11175,8 @@ impl SearchEngine {
                 }
             }
 
-            // Fallback to heuristic if enabled or if threat detection unavailable (Task 6.6)
+            // Fallback to heuristic if enabled or if threat detection unavailable (Task
+            // 6.6)
             if config.fallback_to_heuristic || !config.use_threat_based_detection {
                 // Original center-to-edge heuristic (Task 6.1)
                 let from_center = self.is_center_square(from);
@@ -10867,7 +11193,8 @@ impl SearchEngine {
         false
     }
 
-    /// Check if a piece at a position is under attack by opponent (Task 6.3, 6.4)
+    /// Check if a piece at a position is under attack by opponent (Task 6.3,
+    /// 6.4)
     pub(crate) fn is_piece_under_attack(
         &self,
         board: &BitboardBoard,
@@ -10876,7 +11203,8 @@ impl SearchEngine {
         player: Player,
     ) -> bool {
         // Check if any opponent piece can attack this position
-        // This is a simplified check - in a full implementation, we would check all opponent pieces
+        // This is a simplified check - in a full implementation, we would check all
+        // opponent pieces
         let _opponent = player.opposite();
 
         // Check if the piece at this position is the king (most critical)
@@ -10889,12 +11217,14 @@ impl SearchEngine {
 
         // For other pieces, check if any opponent piece can attack this square
         // Simplified: check if any opponent piece is nearby or can reach this square
-        // In a full implementation, we would generate all opponent moves and check if they attack this square
-        // For now, we use a simplified heuristic based on piece proximity and tactical threats
+        // In a full implementation, we would generate all opponent moves and check if
+        // they attack this square For now, we use a simplified heuristic based
+        // on piece proximity and tactical threats
         let tactical_threats = self.count_tactical_threats(board);
 
         // If there are tactical threats, the piece might be under attack
-        // This is a simplified check - a full implementation would check actual attack patterns
+        // This is a simplified check - a full implementation would check actual attack
+        // patterns
         tactical_threats > 0
     }
 
@@ -10907,11 +11237,13 @@ impl SearchEngine {
         _player: Player,
     ) -> bool {
         // Check if the destination square is under attack
-        // This is a simplified check - in a full implementation, we would make the move and check
+        // This is a simplified check - in a full implementation, we would make the move
+        // and check
         let tactical_threats = self.count_tactical_threats(board);
 
         // If there are tactical threats, the destination might be under attack
-        // This is a simplified check - a full implementation would check actual attack patterns
+        // This is a simplified check - a full implementation would check actual attack
+        // patterns
         tactical_threats > 0 && self.is_center_move(move_)
     }
 
@@ -10943,7 +11275,8 @@ impl SearchEngine {
     }
 
     /// Compute position classification for adaptive reduction (Task 5.1-5.9)
-    /// Enhanced classification uses material balance, piece activity, game phase, and threat analysis
+    /// Enhanced classification uses material balance, piece activity, game
+    /// phase, and threat analysis
     pub(crate) fn compute_position_classification(
         &self,
         board: &BitboardBoard,
@@ -10972,7 +11305,8 @@ impl SearchEngine {
         // Count tactical threats (Task 5.5)
         let tactical_threats = self.count_tactical_threats(board);
 
-        // Calculate piece activity (Task 5.3) - approximate from piece count and position
+        // Calculate piece activity (Task 5.3) - approximate from piece count and
+        // position
         let piece_activity = self.calculate_piece_activity(board, player);
 
         // Game phase factor (Task 5.4)
@@ -11160,9 +11494,12 @@ impl SearchEngine {
     // ===== LMR PERFORMANCE OPTIMIZATION =====
     // Legacy optimized methods removed - functionality migrated to PruningManager
     // The following methods are no longer used:
-    // - is_move_exempt_from_lmr_optimized() - replaced by PruningManager extended exemptions
-    // - calculate_reduction_optimized() - replaced by PruningManager::calculate_lmr_reduction()
-    // - apply_adaptive_reduction_optimized() - replaced by PruningManager::apply_adaptive_reduction()
+    // - is_move_exempt_from_lmr_optimized() - replaced by PruningManager extended
+    //   exemptions
+    // - calculate_reduction_optimized() - replaced by
+    //   PruningManager::calculate_lmr_reduction()
+    // - apply_adaptive_reduction_optimized() - replaced by
+    //   PruningManager::apply_adaptive_reduction()
 
     /// Get LMR performance metrics for tuning
     pub fn get_lmr_performance_metrics(&self) -> LMRPerformanceMetrics {
@@ -11300,8 +11637,9 @@ impl SearchEngine {
         // Position type-based tuning (Task 7.4)
         if let Some(position_class) = position_type {
             let position_factor = match position_class {
-                crate::types::PositionClassification::Tactical => 0.9, // Tactical positions should be conservative
-                crate::types::PositionClassification::Quiet => 1.1, // Quiet positions can be more aggressive
+                crate::types::PositionClassification::Tactical => 0.9, /* Tactical positions should be conservative */
+                crate::types::PositionClassification::Quiet => 1.1,    /* Quiet positions can be
+                                                                         * more aggressive */
                 crate::types::PositionClassification::Neutral => 1.0,
             };
 
@@ -11344,7 +11682,8 @@ impl SearchEngine {
         }
     }
 
-    /// Get LMR configuration presets for different playing styles (Task 9.1-9.3)
+    /// Get LMR configuration presets for different playing styles (Task
+    /// 9.1-9.3)
     ///
     /// # Presets
     ///
@@ -11406,7 +11745,8 @@ impl SearchEngine {
         }
     }
 
-    /// Validate preset configuration to ensure settings are reasonable (Task 9.4)
+    /// Validate preset configuration to ensure settings are reasonable (Task
+    /// 9.4)
     pub fn validate_lmr_preset(&self, style: LMRPlayingStyle) -> Result<(), String> {
         let preset = self.get_lmr_preset(style);
         preset.validate()
@@ -11479,34 +11819,28 @@ impl SearchEngine {
         }
     }
 
-    /// Get performance report comparing ordering effectiveness vs LMR effectiveness (Task 10.8)
+    /// Get performance report comparing ordering effectiveness vs LMR
+    /// effectiveness (Task 10.8)
     pub fn get_ordering_vs_lmr_report(&self) -> String {
         self.lmr_stats.get_ordering_vs_lmr_report()
     }
 
-    /// Integrate with move ordering statistics to cross-reference effectiveness (Task 10.6)
+    /// Integrate with move ordering statistics to cross-reference effectiveness
+    /// (Task 10.6)
     pub fn get_ordering_effectiveness_with_integration(&self) -> String {
         let ordering_metrics = self.get_move_ordering_effectiveness_metrics();
         let lmr_metrics = self.get_lmr_performance_metrics();
         let ordering_stats = &self.advanced_move_orderer.get_stats();
 
         format!(
-            "Move Ordering Effectiveness with Integration:\n\
-            - Ordering Effectiveness: {:.1}%\n\
-            - Late-Ordered Cutoffs: {:.1}% ({} / {})\n\
-            - Average Cutoff Index: {:.2}\n\
-            - LMR Efficiency: {:.1}%\n\
-            - LMR Re-search Rate: {:.1}%\n\
-            - Move Ordering Stats:\n\
-              - Total Moves Ordered: {}\n\
-              - Cache Hit Rate: {:.1}%\n\
-              - PV Move Hit Rate: {:.1}%\n\
-              - Killer Move Hit Rate: {:.1}%\n\
-            \n\
-            Correlation Analysis:\n\
-            - Good move ordering (high PV/killer hit rates) should correlate with low late cutoff rate\n\
-            - Poor move ordering (low cache/PV hit rates) may indicate why late moves cause cutoffs\n\
-            - LMR effectiveness depends on good move ordering: early moves should be best",
+            "Move Ordering Effectiveness with Integration:\n- Ordering Effectiveness: {:.1}%\n- \
+             Late-Ordered Cutoffs: {:.1}% ({} / {})\n- Average Cutoff Index: {:.2}\n- LMR \
+             Efficiency: {:.1}%\n- LMR Re-search Rate: {:.1}%\n- Move Ordering Stats:\n- Total \
+             Moves Ordered: {}\n- Cache Hit Rate: {:.1}%\n- PV Move Hit Rate: {:.1}%\n- Killer \
+             Move Hit Rate: {:.1}%\n\nCorrelation Analysis:\n- Good move ordering (high PV/killer \
+             hit rates) should correlate with low late cutoff rate\n- Poor move ordering (low \
+             cache/PV hit rates) may indicate why late moves cause cutoffs\n- LMR effectiveness \
+             depends on good move ordering: early moves should be best",
             ordering_metrics.ordering_effectiveness,
             ordering_metrics.cutoffs_after_threshold_percentage,
             ordering_metrics.late_ordered_cutoffs,
@@ -11530,7 +11864,8 @@ impl SearchEngine {
         // Check if late moves are causing too many cutoffs
         if ordering_metrics.cutoffs_after_threshold_percentage > 25.0 {
             improvements.push(format!(
-                "High late cutoff rate ({:.1}%): Consider improving move ordering heuristics to prioritize better moves earlier",
+                "High late cutoff rate ({:.1}%): Consider improving move ordering heuristics to \
+                 prioritize better moves earlier",
                 ordering_metrics.cutoffs_after_threshold_percentage
             ));
         }
@@ -11538,7 +11873,8 @@ impl SearchEngine {
         // Check if average cutoff index is too high
         if ordering_metrics.average_cutoff_index > 5.0 {
             improvements.push(format!(
-                "High average cutoff index ({:.2}): Move ordering may need enhancement - best moves should come earlier",
+                "High average cutoff index ({:.2}): Move ordering may need enhancement - best \
+                 moves should come earlier",
                 ordering_metrics.average_cutoff_index
             ));
         }
@@ -11576,17 +11912,10 @@ impl SearchEngine {
         let recommendations = metrics.get_optimization_recommendations();
 
         let mut report = format!(
-            "LMR Performance Report:\n\
-            - Moves considered: {}\n\
-            - Reductions applied: {}\n\
-            - Researches triggered: {}\n\
-            - Efficiency: {:.1}%\n\
-            - Research rate: {:.1}%\n\
-            - Cutoff rate: {:.1}%\n\
-            - Average depth saved: {:.2}\n\
-            - Total depth saved: {}\n\
-            - Performance status: {}\n\n\
-            Optimization Recommendations:",
+            "LMR Performance Report:\n- Moves considered: {}\n- Reductions applied: {}\n- \
+             Researches triggered: {}\n- Efficiency: {:.1}%\n- Research rate: {:.1}%\n- Cutoff \
+             rate: {:.1}%\n- Average depth saved: {:.2}\n- Total depth saved: {}\n- Performance \
+             status: {}\n\nOptimization Recommendations:",
             metrics.moves_considered,
             metrics.reductions_applied,
             metrics.researches_triggered,
@@ -11675,7 +12004,8 @@ impl SearchEngine {
         ));
     }
 
-    /// Check if position is safe for null move pruning with additional safety checks
+    /// Check if position is safe for null move pruning with additional safety
+    /// checks
     fn is_safe_for_null_move(
         &self,
         board: &BitboardBoard,
@@ -11685,7 +12015,8 @@ impl SearchEngine {
         // Basic safety checks are already in should_attempt_null_move
         // Additional safety checks can be added here
 
-        // Check if we have major pieces (rooks, bishops, golds) - more conservative in endgame
+        // Check if we have major pieces (rooks, bishops, golds) - more conservative in
+        // endgame
         let major_piece_count = self.count_major_pieces(board, player);
         if major_piece_count < 2 {
             return false; // Too few major pieces - potential zugzwang risk
@@ -11740,7 +12071,8 @@ impl SearchEngine {
         let opponent = player.opposite();
         let opponent_major_pieces = self.count_major_pieces(board, opponent);
         if opponent_major_pieces >= 3 {
-            return false; // Opponent has strong pieces - potential tactical danger
+            return false; // Opponent has strong pieces - potential tactical
+                          // danger
         }
 
         true
@@ -12518,21 +12850,24 @@ impl SearchEngine {
 
     /// Comprehensive aspiration window retry strategy
     ///
-    /// This method implements a robust retry mechanism for aspiration window failures.
-    /// It addresses the critical issue where aspiration window searches would fail
-    /// completely, causing the engine to return no result.
+    /// This method implements a robust retry mechanism for aspiration window
+    /// failures. It addresses the critical issue where aspiration window
+    /// searches would fail completely, causing the engine to return no
+    /// result.
     ///
     /// # Arguments
     /// * `alpha` - Current alpha bound (modified in place)
     /// * `beta` - Current beta bound (modified in place)
     /// * `previous_score` - Score from previous iteration
     /// * `window_size` - Size of the aspiration window
-    /// * `failure_type` - Type of failure ("fail_low", "fail_high", "search_failed")
+    /// * `failure_type` - Type of failure ("fail_low", "fail_high",
+    ///   "search_failed")
     /// * `researches` - Number of retry attempts so far
     /// * `depth` - Current search depth
     ///
     /// # Returns
-    /// `true` if retry should continue, `false` if should fall back to full-width search
+    /// `true` if retry should continue, `false` if should fall back to
+    /// full-width search
     ///
     /// # Strategy
     /// 1. Validate parameters to ensure they're reasonable
@@ -12670,8 +13005,9 @@ impl SearchEngine {
     /// Get comprehensive search state for debugging and diagnostics
     ///
     /// This method provides a snapshot of the current search state, including
-    /// aspiration window parameters, move tracking status, and performance metrics.
-    /// Useful for debugging search issues and monitoring engine health.
+    /// aspiration window parameters, move tracking status, and performance
+    /// metrics. Useful for debugging search issues and monitoring engine
+    /// health.
     pub fn get_search_state(&self) -> crate::types::search::SearchState {
         let mut state = crate::types::search::SearchState::new(
             self.current_depth,
@@ -12696,7 +13032,8 @@ impl SearchEngine {
     /// Get detailed aspiration window diagnostics
     ///
     /// Provides comprehensive information about the current aspiration window
-    /// state, including window parameters, retry statistics, and health metrics.
+    /// state, including window parameters, retry statistics, and health
+    /// metrics.
     pub fn get_aspiration_diagnostics(&self) -> AspirationDiagnostics {
         AspirationDiagnostics {
             alpha: self.current_alpha,
@@ -12762,27 +13099,13 @@ impl SearchEngine {
         let suggestion = self.get_recovery_suggestion(&error_type);
 
         format!(
-            "=== SEARCH DIAGNOSTIC REPORT ===\n\
-            Search State:\n\
-            - Alpha: {}, Beta: {}, Window Size: {}\n\
-            - Best Move: {:?}, Best Score: {}\n\
-            - Nodes Searched: {}, Depth: {}\n\
-            \n\
-            Aspiration Window:\n\
-            - Enabled: {}, Researches: {}\n\
-            - Success Rate: {:.2}%, Failure Rate: {:.2}%\n\
-            - Health Score: {:.2}\n\
-            - Time Saved: {}ms, Nodes Saved: {}\n\
-            \n\
-            Error Analysis:\n\
-            - Error Type: {}\n\
-            - Suggestion: {}\n\
-            \n\
-            Recommendations:\n\
-            - Monitor health score for degradation\n\
-            - Check error logs for patterns\n\
-            - Consider adjusting window parameters if issues persist\n\
-            =================================",
+            "=== SEARCH DIAGNOSTIC REPORT ===\nSearch State:\n- Alpha: {}, Beta: {}, Window Size: \
+             {}\n- Best Move: {:?}, Best Score: {}\n- Nodes Searched: {}, Depth: {}\n\nAspiration \
+             Window:\n- Enabled: {}, Researches: {}\n- Success Rate: {:.2}%, Failure Rate: \
+             {:.2}%\n- Health Score: {:.2}\n- Time Saved: {}ms, Nodes Saved: {}\n\nError \
+             Analysis:\n- Error Type: {}\n- Suggestion: {}\n\nRecommendations:\n- Monitor health \
+             score for degradation\n- Check error logs for patterns\n- Consider adjusting window \
+             parameters if issues persist\n=================================",
             state.alpha,
             state.beta,
             diagnostics.window_size,
@@ -12873,8 +13196,8 @@ impl SearchEngine {
     /// Collect baseline metrics from all subsystems (Task 26.0 - Task 1.0)
     ///
     /// Gathers performance metrics from search engine, transposition table,
-    /// move ordering, evaluation, and other subsystems to create a comprehensive
-    /// performance baseline for regression detection.
+    /// move ordering, evaluation, and other subsystems to create a
+    /// comprehensive performance baseline for regression detection.
     pub fn collect_baseline_metrics(&self) -> crate::types::PerformanceBaseline {
         use crate::search::performance_tuning::detect_hardware_info;
         use crate::types::*;
@@ -12894,7 +13217,8 @@ impl SearchEngine {
         // Get transposition table metrics
         let tt_stats = self.transposition_table.get_stats();
         let tt_hit_rate = self.transposition_table.hit_rate() / 100.0; // Convert from percentage to ratio
-                                                                       // Exact entry rate: approximate using hit rate (exact hits not directly available)
+                                                                       // Exact entry rate: approximate using hit rate (exact hits not directly
+                                                                       // available)
         let exact_entry_rate = tt_hit_rate * 0.5; // Estimate: ~50% of hits are exact entries
                                                   // TT occupancy: approximate using stores vs table capacity
         let tt_occupancy = if tt_stats.stores > 0 {
@@ -12906,7 +13230,8 @@ impl SearchEngine {
 
         // Get move ordering metrics
         let ordering_stats = self.advanced_move_orderer.get_stats();
-        // Calculate average cutoff index from core_search_metrics (already calculated above)
+        // Calculate average cutoff index from core_search_metrics (already calculated
+        // above)
         let pv_hit_rate = ordering_stats.pv_move_hit_rate / 100.0; // Convert from percentage to ratio
         let killer_hit_rate = ordering_stats.killer_move_hit_rate / 100.0;
         let ordering_cache_hit_rate = ordering_stats.cache_hit_rate / 100.0;
@@ -13214,7 +13539,8 @@ impl SearchEngine {
         if let Some(telemetry) = self.evaluation_telemetry() {
             if let Some(tapered) = telemetry.tapered {
                 telemetry::debug_log(&format!(
-                    "[EvalTelemetry] phase_calcs={} cache_hits={} hit_rate={:.2}% interpolations={}",
+                    "[EvalTelemetry] phase_calcs={} cache_hits={} hit_rate={:.2}% \
+                     interpolations={}",
                     tapered.phase_calculations,
                     tapered.cache_hits,
                     tapered.cache_hit_rate * 100.0,
@@ -13229,7 +13555,8 @@ impl SearchEngine {
             }
             if let Some(performance) = telemetry.performance {
                 telemetry::debug_log(&format!(
-                    "[EvalTelemetry] profiler avg_eval_ns={:.2} avg_phase_ns={:.2} avg_interp_ns={:.2}",
+                    "[EvalTelemetry] profiler avg_eval_ns={:.2} avg_phase_ns={:.2} \
+                     avg_interp_ns={:.2}",
                     performance.avg_evaluation_ns,
                     performance.avg_phase_calc_ns,
                     performance.avg_interpolation_ns
@@ -13237,7 +13564,8 @@ impl SearchEngine {
             }
             if let Some(material) = telemetry.material {
                 telemetry::debug_log(&format!(
-                    "[EvalTelemetry] material_evals={} presets(r={},c={},x={}) hand_balance_mg={} phase_weighted_total={}",
+                    "[EvalTelemetry] material_evals={} presets(r={},c={},x={}) hand_balance_mg={} \
+                     phase_weighted_total={}",
                     material.evaluations,
                     material.preset_usage.research,
                     material.preset_usage.classic,
@@ -13602,8 +13930,9 @@ impl IterativeDeepening {
         let legal_move_count = legal_moves.len();
 
         // Adjust search parameters for check positions with few moves (Task 4.3, 4.4)
-        // Only apply check optimization if the user hasn't requested unlimited depth (depth 0 = 100)
-        // Check optimization should respect user's depth preference
+        // Only apply check optimization if the user hasn't requested unlimited depth
+        // (depth 0 = 100) Check optimization should respect user's depth
+        // preference
         let (effective_max_depth, effective_time_limit) = {
             let config = &search_engine.time_management_config;
 
@@ -13611,13 +13940,18 @@ impl IterativeDeepening {
             trace_log!(
                 "ITERATIVE_DEEPENING",
                 &format!(
-                    "Determining effective_max_depth: self.max_depth={}, is_in_check={}, legal_move_count={}, enable_check_optimization={}, check_max_depth={}",
-                    self.max_depth, is_in_check, legal_move_count, config.enable_check_optimization, config.check_max_depth
+                    "Determining effective_max_depth: self.max_depth={}, is_in_check={}, \
+                     legal_move_count={}, enable_check_optimization={}, check_max_depth={}",
+                    self.max_depth,
+                    is_in_check,
+                    legal_move_count,
+                    config.enable_check_optimization,
+                    config.check_max_depth
                 ),
             );
 
-            // Only apply check optimization if max_depth is not unlimited (100 represents unlimited from depth 0)
-            // and we're in check with few moves
+            // Only apply check optimization if max_depth is not unlimited (100 represents
+            // unlimited from depth 0) and we're in check with few moves
             // CRITICAL: Never apply check optimization when depth >= 100 (unlimited)
             if config.enable_check_optimization
                 && is_in_check
@@ -13642,14 +13976,16 @@ impl IterativeDeepening {
                 trace_log!(
                     "ITERATIVE_DEEPENING",
                     &format!(
-                        "Check position detected: {} legal moves, limiting to depth {} and {}ms (user requested {})",
+                        "Check position detected: {} legal moves, limiting to depth {} and {}ms \
+                         (user requested {})",
                         legal_move_count, max_depth, time_limit, self.max_depth
                     ),
                 );
                 (max_depth, time_limit)
             } else {
                 // Normal search parameters - use the full requested depth
-                // For unlimited depth, minimize safety margin to maximize available time for deeper searches
+                // For unlimited depth, minimize safety margin to maximize available time for
+                // deeper searches
                 let total_safety_margin_ms = if self.max_depth >= 100 {
                     // Unlimited depth: use only 50ms safety margin (minimal overhead)
                     // This maximizes available time for reaching depths 30+
@@ -13664,8 +14000,12 @@ impl IterativeDeepening {
                 trace_log!(
                     "ITERATIVE_DEEPENING",
                     &format!(
-                        "Using normal search parameters: max_depth={}, time_limit_ms={}, total_safety_margin_ms={} (unlimited={})",
-                        self.max_depth, self.time_limit_ms, total_safety_margin_ms, self.max_depth >= 100
+                        "Using normal search parameters: max_depth={}, time_limit_ms={}, \
+                         total_safety_margin_ms={} (unlimited={})",
+                        self.max_depth,
+                        self.time_limit_ms,
+                        total_safety_margin_ms,
+                        self.max_depth >= 100
                     ),
                 );
                 (self.max_depth, self.time_limit_ms.saturating_sub(total_safety_margin_ms))
@@ -13675,7 +14015,8 @@ impl IterativeDeepening {
         // For unlimited depth, use 60 seconds to allow much deeper searches
         // This gives enough time to reach depths 30+ and profile what's taking so long
         let search_time_limit = if effective_max_depth >= 100 {
-            // Unlimited depth: use 60 seconds (60000ms) to allow deep searches and profiling
+            // Unlimited depth: use 60 seconds (60000ms) to allow deep searches and
+            // profiling
             60000u32
         } else {
             effective_time_limit
@@ -13699,7 +14040,8 @@ impl IterativeDeepening {
             search_engine.time_check_node_counter = 0; // Reset counter for new depth
 
             // Check time at start of each depth iteration
-            // For unlimited depth, use a small buffer. For limited depth, use a larger buffer.
+            // For unlimited depth, use a small buffer. For limited depth, use a larger
+            // buffer.
             let elapsed_ms = start_time.elapsed_ms();
             let remaining_ms = search_time_limit.saturating_sub(elapsed_ms);
 
@@ -13709,7 +14051,8 @@ impl IterativeDeepening {
                 break;
             }
 
-            // For unlimited depth, use minimal buffer. For limited depth, use larger buffer.
+            // For unlimited depth, use minimal buffer. For limited depth, use larger
+            // buffer.
             let time_buffer_ms = if self.max_depth >= 100 {
                 // Unlimited depth: only stop if we have less than 500ms remaining
                 // This allows the search to use almost all available time
@@ -13720,17 +14063,31 @@ impl IterativeDeepening {
                 percentage_buffer.max(2000u32)
             };
 
-            eprintln!("DEBUG: Depth {} time check - elapsed: {}ms, limit: {}ms, remaining: {}ms, buffer: {}ms (unlimited={})", 
-                depth, elapsed_ms, search_time_limit, remaining_ms, time_buffer_ms, self.max_depth >= 100);
+            eprintln!(
+                "DEBUG: Depth {} time check - elapsed: {}ms, limit: {}ms, remaining: {}ms, \
+                 buffer: {}ms (unlimited={})",
+                depth,
+                elapsed_ms,
+                search_time_limit,
+                remaining_ms,
+                time_buffer_ms,
+                self.max_depth >= 100
+            );
 
             if remaining_ms <= time_buffer_ms {
                 trace_log!(
                     "ITERATIVE_DEEPENING",
-                    &format!("Time limit approaching (elapsed: {}ms, limit: {}ms, remaining: {}ms, buffer: {}ms), stopping search", 
-                        elapsed_ms, search_time_limit, remaining_ms, time_buffer_ms),
+                    &format!(
+                        "Time limit approaching (elapsed: {}ms, limit: {}ms, remaining: {}ms, \
+                         buffer: {}ms), stopping search",
+                        elapsed_ms, search_time_limit, remaining_ms, time_buffer_ms
+                    ),
                 );
-                eprintln!("DEBUG: Breaking at depth {} due to time limit (elapsed: {}ms, limit: {}ms, remaining: {}ms, buffer: {}ms)", 
-                    depth, elapsed_ms, search_time_limit, remaining_ms, time_buffer_ms);
+                eprintln!(
+                    "DEBUG: Breaking at depth {} due to time limit (elapsed: {}ms, limit: {}ms, \
+                     remaining: {}ms, buffer: {}ms)",
+                    depth, elapsed_ms, search_time_limit, remaining_ms, time_buffer_ms
+                );
                 break;
             }
             // CRITICAL: If we've been searching for too long without progress, force return
@@ -13740,7 +14097,8 @@ impl IterativeDeepening {
                 trace_log!(
                     "ITERATIVE_DEEPENING",
                     &format!(
-                        "Search exceeded 2x time limit ({}ms), forcing return with best move so far",
+                        "Search exceeded 2x time limit ({}ms), forcing return with best move so \
+                         far",
                         elapsed_so_far
                     ),
                 );
@@ -13763,8 +14121,9 @@ impl IterativeDeepening {
             let _player_clone = player;
 
             // Store best move/score/PV for periodic updates (shared state)
-            // Initialize with previous depth's best move if available, so info sender has something to show
-            // CRITICAL: Only initialize with valid data (non-zero score or PV) to prevent sending invalid info
+            // Initialize with previous depth's best move if available, so info sender has
+            // something to show CRITICAL: Only initialize with valid data
+            // (non-zero score or PV) to prevent sending invalid info
             let initial_best_move = best_move.clone();
             let initial_best_score = best_score;
             let initial_pv_string = if let Some(ref prev_move) = best_move {
@@ -13780,7 +14139,8 @@ impl IterativeDeepening {
                     if initial_best_score != 0 {
                         prev_move.to_usi_string()
                     } else {
-                        String::new() // Don't initialize with invalid data (score 0, no PV)
+                        String::new() // Don't initialize with invalid data
+                                      // (score 0, no PV)
                     }
                 } else {
                     pv_for_info.iter().map(|m| m.to_usi_string()).collect::<Vec<String>>().join(" ")
@@ -13788,8 +14148,9 @@ impl IterativeDeepening {
             } else {
                 String::new()
             };
-            // CRITICAL: Only initialize shared state if we have valid data (non-zero score or PV)
-            // This prevents the info sender from sending invalid messages at the start
+            // CRITICAL: Only initialize shared state if we have valid data (non-zero score
+            // or PV) This prevents the info sender from sending invalid
+            // messages at the start
             let best_move_shared = if initial_best_score != 0 || !initial_pv_string.is_empty() {
                 Arc::new(std::sync::Mutex::new((
                     initial_best_move,
@@ -13833,17 +14194,21 @@ impl IterativeDeepening {
                             .map(|guard| guard.clone())
                             .unwrap_or((None, 0i32, String::new()));
 
-                        // CRITICAL: Never send info with score 0 and no PV - that indicates no valid search result
-                        // This is the most important check - skip immediately if we don't have valid data
-                        // Check multiple conditions to be absolutely sure we don't send invalid info
+                        // CRITICAL: Never send info with score 0 and no PV - that indicates no
+                        // valid search result This is the most important
+                        // check - skip immediately if we don't have valid data
+                        // Check multiple conditions to be absolutely sure we don't send invalid
+                        // info
                         let has_pv = !current_pv.is_empty();
                         let has_meaningful_score = current_score != 0;
                         let has_valid_move = current_move.is_some();
 
-                        // ABSOLUTE REQUIREMENT: We must have EITHER a non-zero score OR a PV to send info
-                        // If score is 0 AND PV is empty, we have no valid search data - DO NOT SEND
+                        // ABSOLUTE REQUIREMENT: We must have EITHER a non-zero score OR a PV to
+                        // send info If score is 0 AND PV is empty, we have
+                        // no valid search data - DO NOT SEND
                         if !has_meaningful_score && !has_pv {
-                            continue; // Skip this iteration - no valid search data yet
+                            continue; // Skip this iteration - no valid search
+                                      // data yet
                         }
 
                         // Additional safety: If we have a move but no score and no PV, don't send
@@ -13851,11 +14216,13 @@ impl IterativeDeepening {
                             continue; // Skip - invalid data
                         }
 
-                        // Only send if we have (a non-zero score OR a PV) - this is the absolute minimum requirement
+                        // Only send if we have (a non-zero score OR a PV) - this is the absolute
+                        // minimum requirement
                         let should_send = has_meaningful_score || has_pv;
 
-                        // Send info message only if we have valid search data (skip during silent benches)
-                        // CRITICAL: Only send if we have a real PV (not just a single move) OR a non-zero score
+                        // Send info message only if we have valid search data (skip during silent
+                        // benches) CRITICAL: Only send if we have a real PV
+                        // (not just a single move) OR a non-zero score
                         if std::env::var("SHOGI_SILENT_BENCH").is_err() && should_send {
                             // Only send if we have a proper PV (multiple moves) OR a non-zero score
                             // Don't send if we only have a single move with score 0
@@ -13877,16 +14244,32 @@ impl IterativeDeepening {
                             };
 
                             let info_string = if !current_pv.is_empty() {
-                                format!("info depth {} seldepth {} score {} time {} nodes {} nps {} pv {}",
-                                    depth_clone, seldepth, score_string, elapsed, nodes, nps, current_pv)
+                                format!(
+                                    "info depth {} seldepth {} score {} time {} nodes {} nps {} \
+                                     pv {}",
+                                    depth_clone,
+                                    seldepth,
+                                    score_string,
+                                    elapsed,
+                                    nodes,
+                                    nps,
+                                    current_pv
+                                )
                             } else if let Some(ref mv) = current_move {
                                 // Only use single move as PV if score is non-zero
                                 if current_score == 0 {
                                     continue; // Skip - score is 0, don't send
                                 }
                                 format!(
-                                    "info depth {} seldepth {} score {} time {} nodes {} nps {} pv {}",
-                                    depth_clone, seldepth, score_string, elapsed, nodes, nps, mv.to_usi_string()
+                                    "info depth {} seldepth {} score {} time {} nodes {} nps {} \
+                                     pv {}",
+                                    depth_clone,
+                                    seldepth,
+                                    score_string,
+                                    elapsed,
+                                    nodes,
+                                    nps,
+                                    mv.to_usi_string()
                                 )
                             } else {
                                 // Skip if we don't have valid data
@@ -13955,8 +14338,14 @@ impl IterativeDeepening {
                     // Use saturating arithmetic to prevent overflow/underflow
                     let first_alpha = initial_static_eval.saturating_sub(window_size);
                     let first_beta = initial_static_eval.saturating_add(window_size);
-                    trace_log!("ITERATIVE_DEEPENING", &format!("Depth {}: Using aspiration window with static eval (static_eval: {}, window_size: {}, alpha: {}, beta: {})",
-                        depth, initial_static_eval, window_size, first_alpha, first_beta));
+                    trace_log!(
+                        "ITERATIVE_DEEPENING",
+                        &format!(
+                            "Depth {}: Using aspiration window with static eval (static_eval: {}, \
+                             window_size: {}, alpha: {}, beta: {})",
+                            depth, initial_static_eval, window_size, first_alpha, first_beta
+                        )
+                    );
                     (first_alpha, first_beta)
                 } else {
                     // Disabled or full-width: use full-width window
@@ -13983,12 +14372,19 @@ impl IterativeDeepening {
                 // Use saturating arithmetic to prevent overflow/underflow
                 let calculated_alpha = previous_score.saturating_sub(window_size);
                 let calculated_beta = previous_score.saturating_add(window_size);
-                trace_log!("ITERATIVE_DEEPENING", &format!("Depth {}: Using aspiration window (prev_score: {}, window_size: {}, alpha: {}, beta: {})",
-                    depth, previous_score, window_size, calculated_alpha, calculated_beta));
+                trace_log!(
+                    "ITERATIVE_DEEPENING",
+                    &format!(
+                        "Depth {}: Using aspiration window (prev_score: {}, window_size: {}, \
+                         alpha: {}, beta: {})",
+                        depth, previous_score, window_size, calculated_alpha, calculated_beta
+                    )
+                );
                 (calculated_alpha, calculated_beta)
             };
 
-            // Helper function to safely update shared state - only updates if we have valid data
+            // Helper function to safely update shared state - only updates if we have valid
+            // data
             let best_move_shared_for_update = best_move_shared.clone();
             let update_shared_state = move |move_: Option<Move>, score: i32, pv: String| {
                 // CRITICAL: Never update shared state with score 0 and no PV
@@ -14051,7 +14447,8 @@ impl IterativeDeepening {
                     trace_log!(
                         "ASPIRATION_WINDOW",
                         &format!(
-                            "Depth {} iteration taking too long ({}ms), forcing break with best move so far",
+                            "Depth {} iteration taking too long ({}ms), forcing break with best \
+                             move so far",
                             depth, depth_iteration_elapsed
                         ),
                     );
@@ -14290,7 +14687,8 @@ impl IterativeDeepening {
                         "ASPIRATION_WINDOW",
                     );
 
-                    // Check time limit - if we're out of time, use best move from previous depth if available
+                    // Check time limit - if we're out of time, use best move from previous depth if
+                    // available
                     if search_engine.should_stop_force(&start_time, search_time_limit) {
                         crate::debug_utils::trace_log(
                             "ASPIRATION_WINDOW",
@@ -14306,8 +14704,9 @@ impl IterativeDeepening {
                         break;
                     }
 
-                    // If we've tried multiple times and keep getting None, give up and use previous best move
-                    // This prevents infinite loops when search_at_depth keeps failing
+                    // If we've tried multiple times and keep getting None, give up and use previous
+                    // best move This prevents infinite loops when
+                    // search_at_depth keeps failing
                     if researches >= search_engine.aspiration_config.max_researches + 2 {
                         crate::debug_utils::trace_log(
                             "ASPIRATION_WINDOW",
@@ -14428,7 +14827,8 @@ impl IterativeDeepening {
 
             crate::debug_utils::end_timing(&format!("depth_{}", depth), "ITERATIVE_DEEPENING");
 
-            // If search_result is None but we have a best_move from a previous depth, use it
+            // If search_result is None but we have a best_move from a previous depth, use
+            // it
             if search_result.is_none() && best_move.is_some() {
                 search_result = Some((best_move.clone().unwrap(), best_score));
             }
@@ -14437,14 +14837,17 @@ impl IterativeDeepening {
                 // Ensure TT is flushed before building PV so all entries are visible
                 search_engine.flush_tt_buffer();
                 // Get seldepth (selective depth) - the maximum depth reached
-                // Use seldepth for PV length to show the full PV line that was actually searched
+                // Use seldepth for PV length to show the full PV line that was actually
+                // searched
                 let seldepth = GLOBAL_SELDEPTH.load(Ordering::Relaxed) as u8;
                 let seldepth = if seldepth == 0 { depth } else { seldepth.max(depth) };
-                // Use seldepth for PV building to get the full PV line, not just the iteration depth
-                // This ensures we show all moves in the PV that were actually searched
+                // Use seldepth for PV building to get the full PV line, not just the iteration
+                // depth This ensures we show all moves in the PV that were
+                // actually searched
                 let pv = search_engine.get_pv(board, captured_pieces, player, seldepth);
                 let pv_string = if pv.is_empty() {
-                    // Fallback to at least show the best root move when PV unavailable (e.g., parallel path)
+                    // Fallback to at least show the best root move when PV unavailable (e.g.,
+                    // parallel path)
                     mv_final.to_usi_string()
                 } else {
                     pv.iter().map(|m| m.to_usi_string()).collect::<Vec<String>>().join(" ")
@@ -14476,11 +14879,13 @@ impl IterativeDeepening {
                     );
                 } else {
                     let info_string = format!(
-                        "info depth {} seldepth {} multipv 1 score cp {} time {} nodes {} nps {} pv {}",
+                        "info depth {} seldepth {} multipv 1 score cp {} time {} nodes {} nps {} \
+                         pv {}",
                         depth, seldepth, score, time_searched, nodes_for_info, nps, pv_string
                     );
 
-                    // Print the info message to stdout for USI protocol (skip during silent benches)
+                    // Print the info message to stdout for USI protocol (skip during silent
+                    // benches)
                     if std::env::var("SHOGI_SILENT_BENCH").is_err() {
                         println!("{}", info_string);
                         // Explicitly flush stdout to ensure info messages are sent immediately
@@ -14543,7 +14948,8 @@ impl IterativeDeepening {
         // Print aggregated metrics (benches or manual on demand)
         maybe_print_search_metrics("iterative_deepening");
 
-        // Fallback: if we're in check and didn't find a move, just pick the first legal move
+        // Fallback: if we're in check and didn't find a move, just pick the first legal
+        // move
         if is_in_check && best_move.is_none() && !legal_moves.is_empty() {
             let fallback_move = legal_moves[0].clone();
             let board_state_fen = board.to_fen(player, captured_pieces);
@@ -14581,8 +14987,8 @@ impl IterativeDeepening {
             ),
         );
 
-        // CRITICAL: Always return a move if we have one, even if search didn't complete all depths
-        // This ensures we never return None when legal moves exist
+        // CRITICAL: Always return a move if we have one, even if search didn't complete
+        // all depths This ensures we never return None when legal moves exist
         if best_move.is_some() {
             if let Some(ref mv) = best_move {
                 let board_state_fen = board.to_fen(player, captured_pieces);

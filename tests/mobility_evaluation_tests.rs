@@ -70,7 +70,8 @@ fn mobility_attack_moves_award_bonus() {
 
     assert!(
         attack_captures > non_attack_captures,
-        "Expected capture count to increase when an enemy piece blocks the rook (non attack {}, attack {})",
+        "Expected capture count to increase when an enemy piece blocks the rook (non attack {}, \
+         attack {})",
         non_attack_captures,
         attack_captures
     );
@@ -152,7 +153,8 @@ fn mobility_handles_promoted_pieces() {
     );
     assert!(
         promoted_score.eg >= pawn_score.eg,
-        "Promoted pawn endgame mobility should be at least as high as pawn mobility (pawn {}, promoted {})",
+        "Promoted pawn endgame mobility should be at least as high as pawn mobility (pawn {}, \
+         promoted {})",
         pawn_score.eg,
         promoted_score.eg
     );

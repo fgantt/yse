@@ -113,7 +113,8 @@ fn enemy_tokin_adjacent_is_more_dangerous_than_pawn() {
 
     assert!(
         tokin_score < pawn_score,
-        "Promoted pawn adjacent to the king should penalise king safety more than an unpromoted pawn"
+        "Promoted pawn adjacent to the king should penalise king safety more than an unpromoted \
+         pawn"
     );
 }
 

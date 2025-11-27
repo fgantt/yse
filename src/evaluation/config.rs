@@ -60,16 +60,20 @@ pub struct TaperedEvalConfig {
     /// Evaluation weights for combining components
     pub weights: EvaluationWeights,
 
-    /// Enable phase-dependent weight scaling (default: false for backward compatibility)
+    /// Enable phase-dependent weight scaling (default: false for backward
+    /// compatibility)
     pub enable_phase_dependent_weights: bool,
 
-    /// Threshold for logging large weight contributions in centipawns (default: 1000.0)
+    /// Threshold for logging large weight contributions in centipawns (default:
+    /// 1000.0)
     pub weight_contribution_threshold: f32,
 
-    /// Automatically validate weights after updates (default: true) (Task 20.0 - Task 2.0)
+    /// Automatically validate weights after updates (default: true) (Task 20.0
+    /// - Task 2.0)
     pub auto_validate_weights: bool,
 
-    /// Automatically normalize weights to ensure cumulative sum is within range (default: false) (Task 20.0 - Task 2.0)
+    /// Automatically normalize weights to ensure cumulative sum is within range
+    /// (default: false) (Task 20.0 - Task 2.0)
     pub auto_normalize_weights: bool,
 
     /// Phase scaling configuration (Task 20.0 - Task 3.7)
@@ -83,8 +87,8 @@ pub struct TaperedEvalConfig {
 ///
 /// # Weight Calibration Methodology
 ///
-/// Evaluation weights control the relative importance of different evaluation components.
-/// The final evaluation score is calculated as:
+/// Evaluation weights control the relative importance of different evaluation
+/// components. The final evaluation score is calculated as:
 /// ```
 /// total_score = material_score * material_weight
 ///            + position_score * position_weight
@@ -94,92 +98,108 @@ pub struct TaperedEvalConfig {
 ///
 /// ## Recommended Weight Ranges
 ///
-/// - **Material weight**: 0.8-1.2 (typically 1.0). Material is fundamental and should be stable.
-/// - **Position weight (PST)**: 0.5-1.5 (typically 1.0). Piece-square tables provide positional bonuses.
-/// - **King safety weight**: 0.8-1.5 (typically 1.0). Critical for king safety evaluation.
-/// - **Pawn structure weight**: 0.6-1.2 (typically 0.8). Important but less critical than material.
-/// - **Mobility weight**: 0.4-0.8 (typically 0.6). Piece mobility is important but secondary.
-/// - **Center control weight**: 0.5-1.0 (typically 0.7). Center control is valuable but not decisive.
-/// - **Development weight**: 0.3-0.7 (typically 0.5). Development matters most in opening.
-/// - **Tactical weight**: 0.8-1.5 (typically 1.0). Tactical patterns are important in middlegame.
-/// - **Positional weight**: 0.8-1.5 (typically 1.0). Positional patterns matter throughout the game.
-/// - **Castle weight**: 0.7-1.3 (typically 1.0). Castle patterns are important for king safety.
+/// - **Material weight**: 0.8-1.2 (typically 1.0). Material is fundamental and
+///   should be stable.
+/// - **Position weight (PST)**: 0.5-1.5 (typically 1.0). Piece-square tables
+///   provide positional bonuses.
+/// - **King safety weight**: 0.8-1.5 (typically 1.0). Critical for king safety
+///   evaluation.
+/// - **Pawn structure weight**: 0.6-1.2 (typically 0.8). Important but less
+///   critical than material.
+/// - **Mobility weight**: 0.4-0.8 (typically 0.6). Piece mobility is important
+///   but secondary.
+/// - **Center control weight**: 0.5-1.0 (typically 0.7). Center control is
+///   valuable but not decisive.
+/// - **Development weight**: 0.3-0.7 (typically 0.5). Development matters most
+///   in opening.
+/// - **Tactical weight**: 0.8-1.5 (typically 1.0). Tactical patterns are
+///   important in middlegame.
+/// - **Positional weight**: 0.8-1.5 (typically 1.0). Positional patterns matter
+///   throughout the game.
+/// - **Castle weight**: 0.7-1.3 (typically 1.0). Castle patterns are important
+///   for king safety.
 ///
 /// ## Weight Calibration Examples
 ///
 /// ### Aggressive Play Style
 /// ```rust
 /// let mut weights = EvaluationWeights::default();
-/// weights.tactical_weight = 1.5;  // Emphasize tactical patterns
-/// weights.mobility_weight = 0.8;   // Value piece activity
+/// weights.tactical_weight = 1.5; // Emphasize tactical patterns
+/// weights.mobility_weight = 0.8; // Value piece activity
 /// weights.development_weight = 0.7; // Emphasize quick development
 /// ```
 ///
 /// ### Positional Play Style
 /// ```rust
 /// let mut weights = EvaluationWeights::default();
-/// weights.positional_weight = 1.5;      // Emphasize positional patterns
-/// weights.pawn_structure_weight = 1.2;   // Value pawn structure
-/// weights.center_control_weight = 1.0;    // Emphasize center control
+/// weights.positional_weight = 1.5; // Emphasize positional patterns
+/// weights.pawn_structure_weight = 1.2; // Value pawn structure
+/// weights.center_control_weight = 1.0; // Emphasize center control
 /// ```
 ///
 /// ### Defensive Play Style
 /// ```rust
 /// let mut weights = EvaluationWeights::default();
-/// weights.king_safety_weight = 1.5;      // Emphasize king safety
-/// weights.castle_weight = 1.3;            // Value castle formations
-/// weights.tactical_weight = 0.8;          // Reduce tactical emphasis
+/// weights.king_safety_weight = 1.5; // Emphasize king safety
+/// weights.castle_weight = 1.3; // Value castle formations
+/// weights.tactical_weight = 0.8; // Reduce tactical emphasis
 /// ```
 ///
 /// ## Weight Interaction Effects
 ///
 /// Changing one weight affects the overall evaluation balance:
 ///
-/// - **Increasing material_weight**: Makes material advantages more decisive. May reduce
-///   the impact of positional factors. Typical range: 0.8-1.2.
+/// - **Increasing material_weight**: Makes material advantages more decisive.
+///   May reduce the impact of positional factors. Typical range: 0.8-1.2.
 ///
-/// - **Increasing tactical_weight**: Makes tactical patterns (forks, pins, skewers) more
-///   influential. Good for aggressive play. Typical range: 0.8-1.5.
+/// - **Increasing tactical_weight**: Makes tactical patterns (forks, pins,
+///   skewers) more influential. Good for aggressive play. Typical range:
+///   0.8-1.5.
 ///
-/// - **Increasing positional_weight**: Makes positional patterns (outposts, weak squares,
-///   piece activity) more influential. Good for positional play. Typical range: 0.8-1.5.
+/// - **Increasing positional_weight**: Makes positional patterns (outposts,
+///   weak squares, piece activity) more influential. Good for positional play.
+///   Typical range: 0.8-1.5.
 ///
-/// - **Increasing king_safety_weight**: Makes king safety more important. May reduce
-///   emphasis on material or positional factors. Typical range: 0.8-1.5.
+/// - **Increasing king_safety_weight**: Makes king safety more important. May
+///   reduce emphasis on material or positional factors. Typical range: 0.8-1.5.
 ///
-/// - **Increasing pawn_structure_weight**: Makes pawn structure more important. Good for
-///   endgame play. Typical range: 0.6-1.2.
+/// - **Increasing pawn_structure_weight**: Makes pawn structure more important.
+///   Good for endgame play. Typical range: 0.6-1.2.
 ///
-/// - **Increasing mobility_weight**: Makes piece mobility more important. Good for open
-///   positions. Typical range: 0.4-0.8.
+/// - **Increasing mobility_weight**: Makes piece mobility more important. Good
+///   for open positions. Typical range: 0.4-0.8.
 ///
-/// - **Increasing center_control_weight**: Makes center control more important. Good for
-///   opening and middlegame. Typical range: 0.5-1.0.
+/// - **Increasing center_control_weight**: Makes center control more important.
+///   Good for opening and middlegame. Typical range: 0.5-1.0.
 ///
-/// - **Increasing development_weight**: Makes piece development more important. Primarily
-///   affects opening evaluation. Typical range: 0.3-0.7.
+/// - **Increasing development_weight**: Makes piece development more important.
+///   Primarily affects opening evaluation. Typical range: 0.3-0.7.
 ///
-/// - **Increasing castle_weight**: Makes castle patterns more important. Good for king
-///   safety evaluation. Typical range: 0.7-1.3.
+/// - **Increasing castle_weight**: Makes castle patterns more important. Good
+///   for king safety evaluation. Typical range: 0.7-1.3.
 ///
 /// ## Calibration Tips
 ///
-/// 1. **Start with defaults**: The default weights are balanced and work well for most positions.
-/// 2. **Adjust incrementally**: Change weights by 0.1-0.2 at a time and test the impact.
-/// 3. **Consider game phase**: Use phase-dependent weight scaling (see `enable_phase_dependent_weights`)
-///    to adjust weights based on game phase.
-/// 4. **Monitor cumulative weights**: Use `validate_cumulative_weights()` to ensure total weight
-///    sum is reasonable (typically 5.0-15.0).
-/// 5. **Test with positions**: Evaluate test positions to verify weight changes produce expected
-///    behavior.
-/// 6. **Use telemetry**: Monitor `weight_contributions` in `EvaluationTelemetry` to see which
-///    components contribute most to evaluation.
+/// 1. **Start with defaults**: The default weights are balanced and work well
+///    for most positions.
+/// 2. **Adjust incrementally**: Change weights by 0.1-0.2 at a time and test
+///    the impact.
+/// 3. **Consider game phase**: Use phase-dependent weight scaling (see
+///    `enable_phase_dependent_weights`) to adjust weights based on game phase.
+/// 4. **Monitor cumulative weights**: Use `validate_cumulative_weights()` to
+///    ensure total weight sum is reasonable (typically 5.0-15.0).
+/// 5. **Test with positions**: Evaluate test positions to verify weight changes
+///    produce expected behavior.
+/// 6. **Use telemetry**: Monitor `weight_contributions` in
+///    `EvaluationTelemetry` to see which components contribute most to
+///    evaluation.
 ///
 /// ## Validation
 ///
 /// Weights are validated to ensure they are:
 /// - Non-negative (weights < 0.0 are invalid)
-/// - Within reasonable range (typically 0.0-10.0, though 0.5-2.0 is more common)
+/// - Within reasonable range (typically 0.0-10.0, though 0.5-2.0 is more
+///   common)
 /// - Finite (NaN and infinity are invalid)
 ///
 /// Use `TaperedEvalConfig::validate()` to check weight validity.
@@ -187,8 +207,9 @@ pub struct TaperedEvalConfig {
 pub struct EvaluationWeights {
     /// Weight for material evaluation (typically 1.0, range: 0.8-1.2)
     ///
-    /// Material is fundamental and should be stable. Increasing this weight makes
-    /// material advantages more decisive but may reduce the impact of positional factors.
+    /// Material is fundamental and should be stable. Increasing this weight
+    /// makes material advantages more decisive but may reduce the impact of
+    /// positional factors.
     pub material_weight: f32,
 
     /// Weight for piece-square tables (typically 1.0, range: 0.5-1.5)
@@ -199,50 +220,57 @@ pub struct EvaluationWeights {
 
     /// Weight for king safety (typically 1.0, range: 0.8-1.5)
     ///
-    /// King safety is critical for evaluation. Increasing this weight makes king
-    /// safety more important but may reduce emphasis on material or positional factors.
+    /// King safety is critical for evaluation. Increasing this weight makes
+    /// king safety more important but may reduce emphasis on material or
+    /// positional factors.
     pub king_safety_weight: f32,
 
     /// Weight for pawn structure (typically 0.8, range: 0.6-1.2)
     ///
-    /// Pawn structure is important for evaluation, especially in endgame. Increasing
-    /// this weight makes pawn structure more important.
+    /// Pawn structure is important for evaluation, especially in endgame.
+    /// Increasing this weight makes pawn structure more important.
     pub pawn_structure_weight: f32,
 
     /// Weight for mobility (typically 0.6, range: 0.4-0.8)
     ///
-    /// Piece mobility is important but secondary to material and position. Increasing
-    /// this weight makes piece activity more important, good for open positions.
+    /// Piece mobility is important but secondary to material and position.
+    /// Increasing this weight makes piece activity more important, good for
+    /// open positions.
     pub mobility_weight: f32,
 
     /// Weight for center control (typically 0.7, range: 0.5-1.0)
     ///
-    /// Center control is valuable but not decisive. Increasing this weight emphasizes
-    /// center control, good for opening and middlegame.
+    /// Center control is valuable but not decisive. Increasing this weight
+    /// emphasizes center control, good for opening and middlegame.
     pub center_control_weight: f32,
 
     /// Weight for development (typically 0.5, range: 0.3-0.7)
     ///
-    /// Piece development matters most in opening. Increasing this weight emphasizes
-    /// quick development, primarily affecting opening evaluation.
+    /// Piece development matters most in opening. Increasing this weight
+    /// emphasizes quick development, primarily affecting opening
+    /// evaluation.
     pub development_weight: f32,
 
-    /// Weight for tactical pattern contributions (typically 1.0, range: 0.8-1.5)
+    /// Weight for tactical pattern contributions (typically 1.0, range:
+    /// 0.8-1.5)
     ///
     /// Tactical patterns (forks, pins, skewers) are important in middlegame.
-    /// Increasing this weight makes tactical patterns more influential, good for aggressive play.
+    /// Increasing this weight makes tactical patterns more influential, good
+    /// for aggressive play.
     pub tactical_weight: f32,
 
-    /// Weight for positional pattern contributions (typically 1.0, range: 0.8-1.5)
+    /// Weight for positional pattern contributions (typically 1.0, range:
+    /// 0.8-1.5)
     ///
-    /// Positional patterns (outposts, weak squares, piece activity) matter throughout the game.
-    /// Increasing this weight makes positional patterns more influential, good for positional play.
+    /// Positional patterns (outposts, weak squares, piece activity) matter
+    /// throughout the game. Increasing this weight makes positional
+    /// patterns more influential, good for positional play.
     pub positional_weight: f32,
 
     /// Weight for castle pattern contributions (typically 1.0, range: 0.7-1.3)
     ///
-    /// Castle patterns are important for king safety evaluation. Increasing this weight
-    /// makes castle formations more important.
+    /// Castle patterns are important for king safety evaluation. Increasing
+    /// this weight makes castle formations more important.
     pub castle_weight: f32,
 }
 
@@ -264,10 +292,12 @@ impl Default for EvaluationWeights {
 }
 
 impl EvaluationWeights {
-    /// Normalize weights to ensure cumulative sum is within range while maintaining ratios (Task 20.0 - Task 2.6)
+    /// Normalize weights to ensure cumulative sum is within range while
+    /// maintaining ratios (Task 20.0 - Task 2.6)
     ///
-    /// Scales all weights proportionally to ensure cumulative sum is within 5.0-15.0 range.
-    /// This maintains the relative ratios between weights while fixing the total sum.
+    /// Scales all weights proportionally to ensure cumulative sum is within
+    /// 5.0-15.0 range. This maintains the relative ratios between weights
+    /// while fixing the total sum.
     ///
     /// # Parameters
     /// - `components`: Component flags indicating which weights are enabled
@@ -398,7 +428,8 @@ impl EvaluationWeights {
         }
     }
 
-    /// Convert EvaluationWeights to a vector of f64 (for optimizer compatibility)
+    /// Convert EvaluationWeights to a vector of f64 (for optimizer
+    /// compatibility)
     pub fn to_vector(&self) -> Vec<f64> {
         vec![
             self.material_weight as f64,
@@ -442,7 +473,8 @@ pub enum WeightPreset {
     Balanced,
     /// Aggressive play style - emphasizes tactical patterns and mobility
     Aggressive,
-    /// Positional play style - emphasizes positional patterns and pawn structure
+    /// Positional play style - emphasizes positional patterns and pawn
+    /// structure
     Positional,
     /// Defensive play style - emphasizes king safety and castle patterns
     Defensive,
@@ -477,11 +509,14 @@ pub struct PhaseScalingConfig {
     pub positional: (f32, f32, f32),
 
     // New scalings (Task 20.0 - Task 3.2-3.4)
-    /// Development weight scaling: higher in opening (1.2), lower in endgame (0.6), default in middlegame (1.0)
+    /// Development weight scaling: higher in opening (1.2), lower in endgame
+    /// (0.6), default in middlegame (1.0)
     pub development: (f32, f32, f32),
-    /// Mobility weight scaling: higher in middlegame (1.1), lower in endgame (0.7), default in opening (1.0)
+    /// Mobility weight scaling: higher in middlegame (1.1), lower in endgame
+    /// (0.7), default in opening (1.0)
     pub mobility: (f32, f32, f32),
-    /// Pawn structure weight scaling: higher in endgame (1.2), lower in opening (0.8), default in middlegame (1.0)
+    /// Pawn structure weight scaling: higher in endgame (1.2), lower in opening
+    /// (0.8), default in middlegame (1.0)
     pub pawn_structure: (f32, f32, f32),
 }
 
@@ -673,9 +708,10 @@ impl TaperedEvalConfig {
 
     /// Validate cumulative weights for enabled components
     ///
-    /// Checks that the sum of all enabled component weights is within a reasonable range (5.0-15.0).
-    /// This helps ensure that the evaluation doesn't become too sensitive or too insensitive to
-    /// individual components.
+    /// Checks that the sum of all enabled component weights is within a
+    /// reasonable range (5.0-15.0). This helps ensure that the evaluation
+    /// doesn't become too sensitive or too insensitive to individual
+    /// components.
     pub fn validate_cumulative_weights(
         &self,
         components: &ComponentFlagsForValidation,
@@ -734,7 +770,8 @@ impl TaperedEvalConfig {
     /// - Middlegame: 64 <= phase < 192
     /// - Endgame: phase < 64
     ///
-    /// Supports different scaling curves (Linear, Sigmoid, Step) for smooth or abrupt transitions.
+    /// Supports different scaling curves (Linear, Sigmoid, Step) for smooth or
+    /// abrupt transitions.
     pub fn apply_phase_scaling(&self, weights: &mut EvaluationWeights, phase: i32) {
         if !self.enable_phase_dependent_weights {
             return;
@@ -844,9 +881,9 @@ impl TaperedEvalConfig {
 
     /// Suggest weight adjustments to maintain balance
     ///
-    /// Analyzes weight ratios and suggests adjustments to maintain a balanced evaluation.
-    /// For example, if tactical_weight is 2.0, it might suggest adjusting positional_weight
-    /// to maintain balance.
+    /// Analyzes weight ratios and suggests adjustments to maintain a balanced
+    /// evaluation. For example, if tactical_weight is 2.0, it might suggest
+    /// adjusting positional_weight to maintain balance.
     pub fn suggest_weight_adjustments(&self) -> Vec<String> {
         let mut suggestions = Vec::new();
 
@@ -858,7 +895,7 @@ impl TaperedEvalConfig {
         if ratio > 1.5 {
             suggestions.push(format!(
                 "Tactical weight ({:.2}) is significantly higher than positional weight ({:.2}). \
-                Consider increasing positional_weight to {:.2} for better balance.",
+                 Consider increasing positional_weight to {:.2} for better balance.",
                 tactical,
                 positional,
                 tactical * 0.8
@@ -866,7 +903,7 @@ impl TaperedEvalConfig {
         } else if ratio < 0.67 {
             suggestions.push(format!(
                 "Positional weight ({:.2}) is significantly higher than tactical weight ({:.2}). \
-                Consider increasing tactical_weight to {:.2} for better balance.",
+                 Consider increasing tactical_weight to {:.2} for better balance.",
                 positional,
                 tactical,
                 positional * 0.8
@@ -876,13 +913,15 @@ impl TaperedEvalConfig {
         // Check if any weight is unusually high
         if tactical > 2.0 {
             suggestions.push(format!(
-                "Tactical weight ({:.2}) is very high. Consider reducing to maintain evaluation stability.",
+                "Tactical weight ({:.2}) is very high. Consider reducing to maintain evaluation \
+                 stability.",
                 tactical
             ));
         }
         if positional > 2.0 {
             suggestions.push(format!(
-                "Positional weight ({:.2}) is very high. Consider reducing to maintain evaluation stability.",
+                "Positional weight ({:.2}) is very high. Consider reducing to maintain evaluation \
+                 stability.",
                 positional
             ));
         }
@@ -938,9 +977,10 @@ impl TaperedEvalConfig {
             ));
         }
 
-        // Note: Cumulative weight validation requires ComponentFlags, which is not available here.
-        // It should be called separately with the appropriate component flags, or from
-        // IntegratedEvaluationConfig which has both components and weights.
+        // Note: Cumulative weight validation requires ComponentFlags, which is not
+        // available here. It should be called separately with the appropriate
+        // component flags, or from IntegratedEvaluationConfig which has both
+        // components and weights.
 
         Ok(())
     }
@@ -954,8 +994,9 @@ impl TaperedEvalConfig {
     /// # Parameters
     /// - `weight_name`: Name of the weight to update
     /// - `value`: New weight value (must be 0.0-10.0)
-    /// - `components`: Optional component flags for cumulative weight validation
-    ///   (if None, validation is skipped even if auto_validate_weights is true)
+    /// - `components`: Optional component flags for cumulative weight
+    ///   validation (if None, validation is skipped even if
+    ///   auto_validate_weights is true)
     pub fn update_weight(
         &mut self,
         weight_name: &str,
@@ -1031,10 +1072,12 @@ impl TaperedEvalConfig {
         sum
     }
 
-    /// Check weight ranges and return warnings for out-of-range weights (Task 20.0 - Task 2.5)
+    /// Check weight ranges and return warnings for out-of-range weights (Task
+    /// 20.0 - Task 2.5)
     ///
-    /// Returns a vector of weight names that are outside their recommended ranges.
-    /// These are warnings, not errors - weights outside ranges may still be valid.
+    /// Returns a vector of weight names that are outside their recommended
+    /// ranges. These are warnings, not errors - weights outside ranges may
+    /// still be valid.
     pub fn check_weight_ranges(&self) -> Vec<(&'static str, f32, f32, f32)> {
         let mut warnings = Vec::new();
 
@@ -1061,10 +1104,11 @@ impl TaperedEvalConfig {
         warnings
     }
 
-    /// Backward-compatible wrapper for update_weight without components (Task 20.0 - Task 2.1)
+    /// Backward-compatible wrapper for update_weight without components (Task
+    /// 20.0 - Task 2.1)
     ///
-    /// This allows existing code to continue working. New code should use the version
-    /// with components parameter for automatic validation.
+    /// This allows existing code to continue working. New code should use the
+    /// version with components parameter for automatic validation.
     pub fn update_weight_simple(
         &mut self,
         weight_name: &str,
@@ -1097,15 +1141,18 @@ impl TaperedEvalConfig {
 
     /// Analyze telemetry for weight recommendations (Task 20.0 - Task 2.12)
     ///
-    /// Takes `EvaluationTelemetry` and suggests weight adjustments based on component
-    /// contribution imbalances. Returns a vector of recommendations (component name, suggested adjustment).
+    /// Takes `EvaluationTelemetry` and suggests weight adjustments based on
+    /// component contribution imbalances. Returns a vector of
+    /// recommendations (component name, suggested adjustment).
     ///
     /// # Parameters
     /// - `telemetry`: Evaluation telemetry with weight contributions
-    /// - `target_contributions`: Optional target contribution percentages (defaults to balanced distribution)
+    /// - `target_contributions`: Optional target contribution percentages
+    ///   (defaults to balanced distribution)
     ///
     /// # Returns
-    /// Vector of recommendations: (component_name, current_contribution, target_contribution, suggested_weight_change)
+    /// Vector of recommendations: (component_name, current_contribution,
+    /// target_contribution, suggested_weight_change)
     pub fn analyze_telemetry_for_recommendations(
         &self,
         telemetry: &crate::evaluation::statistics::EvaluationTelemetry,
@@ -1161,8 +1208,9 @@ impl TaperedEvalConfig {
 
     /// Automatically balance weights using telemetry (Task 20.0 - Task 2.13)
     ///
-    /// Uses telemetry to automatically adjust weights to achieve target contribution percentages.
-    /// This method iteratively adjusts weights based on telemetry analysis.
+    /// Uses telemetry to automatically adjust weights to achieve target
+    /// contribution percentages. This method iteratively adjusts weights
+    /// based on telemetry analysis.
     ///
     /// # Parameters
     /// - `telemetry`: Evaluation telemetry with weight contributions
@@ -1189,7 +1237,8 @@ impl TaperedEvalConfig {
             let weight_name = match component_name.as_str() {
                 "material" => Some("material"),
                 "piece_square_tables" => Some("position"),
-                "position_features" => None, // Position features has multiple weights, skip aggregate
+                "position_features" => None, /* Position features has multiple weights, skip
+                                               * aggregate */
                 "tactical_patterns" => Some("tactical"),
                 "positional_patterns" => Some("positional"),
                 "castle_patterns" => Some("castle"),
@@ -1298,8 +1347,9 @@ pub enum ConfigError {
 
 /// Phase boundary configuration for game phase transitions
 ///
-/// Controls when the evaluation transitions between opening, middlegame, and endgame phases.
-/// Phase is calculated based on material remaining on the board (0-256 scale).
+/// Controls when the evaluation transitions between opening, middlegame, and
+/// endgame phases. Phase is calculated based on material remaining on the board
+/// (0-256 scale).
 ///
 /// # Default Values
 ///
@@ -1312,11 +1362,13 @@ pub enum ConfigError {
 ///
 /// # Gradual Phase Transitions
 ///
-/// When `enable_gradual_phase_transitions` is enabled, pattern scores are gradually
-/// faded out instead of abruptly cut off:
+/// When `enable_gradual_phase_transitions` is enabled, pattern scores are
+/// gradually faded out instead of abruptly cut off:
 ///
-/// - Opening principles: Fade from `opening_fade_start` (192) to `opening_fade_end` (160)
-/// - Endgame patterns: Fade from `endgame_fade_start` (80) to `endgame_fade_end` (64)
+/// - Opening principles: Fade from `opening_fade_start` (192) to
+///   `opening_fade_end` (160)
+/// - Endgame patterns: Fade from `endgame_fade_start` (80) to
+///   `endgame_fade_end` (64)
 ///
 /// The fade factor is calculated as:
 /// ```
@@ -1399,11 +1451,14 @@ impl PhaseBoundaryConfig {
 /// Component dependency relationship types (Task 20.0 - Task 5.1)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ComponentDependency {
-    /// Components conflict - both should not be enabled simultaneously (causes double-counting)
+    /// Components conflict - both should not be enabled simultaneously (causes
+    /// double-counting)
     Conflicts,
-    /// Components complement each other - should be enabled together for best results
+    /// Components complement each other - should be enabled together for best
+    /// results
     Complements,
-    /// Component requires another - dependent component should not be enabled without required component
+    /// Component requires another - dependent component should not be enabled
+    /// without required component
     Requires,
     /// Component is optional dependency - can be enabled independently
     Optional,
@@ -1416,7 +1471,8 @@ pub enum ComponentId {
     Material,
     /// Piece-square tables
     PieceSquareTables,
-    /// Position features (king safety, pawn structure, mobility, center control, development)
+    /// Position features (king safety, pawn structure, mobility, center
+    /// control, development)
     PositionFeatures,
     /// Position features: center control specifically
     PositionFeaturesCenterControl,
@@ -1438,7 +1494,8 @@ pub enum ComponentId {
     CastlePatterns,
 }
 
-/// Component dependency graph that maps component pairs to their dependency relationship (Task 20.0 - Task 5.2)
+/// Component dependency graph that maps component pairs to their dependency
+/// relationship (Task 20.0 - Task 5.2)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 /// Component dependency graph for validation
 pub struct ComponentDependencyGraph {
@@ -1452,26 +1509,30 @@ impl ComponentDependencyGraph {
         Self { dependencies: HashMap::new() }
     }
 
-    /// Create dependency graph with default relationships (Task 20.0 - Task 5.3)
+    /// Create dependency graph with default relationships (Task 20.0 - Task
+    /// 5.3)
     pub fn with_defaults() -> Self {
         let mut graph = Self::new();
 
         // Conflicts: components that overlap in functionality
-        // position_features.center_control CONFLICTS with positional_patterns (center control)
+        // position_features.center_control CONFLICTS with positional_patterns (center
+        // control)
         graph.add_dependency(
             ComponentId::PositionFeaturesCenterControl,
             ComponentId::PositionalPatterns,
             ComponentDependency::Conflicts,
         );
 
-        // position_features.development CONFLICTS with opening_principles (development, in opening)
+        // position_features.development CONFLICTS with opening_principles (development,
+        // in opening)
         graph.add_dependency(
             ComponentId::PositionFeaturesDevelopment,
             ComponentId::OpeningPrinciples,
             ComponentDependency::Conflicts,
         );
 
-        // position_features.passed_pawns CONFLICTS with endgame_patterns (passed pawns, in endgame)
+        // position_features.passed_pawns CONFLICTS with endgame_patterns (passed pawns,
+        // in endgame)
         graph.add_dependency(
             ComponentId::PositionFeaturesPassedPawns,
             ComponentId::EndgamePatterns,
@@ -1487,8 +1548,9 @@ impl ComponentDependencyGraph {
         );
 
         // Requires: dependent component requires another
-        // endgame_patterns REQUIRES pawn_structure (endgame patterns handle pawn structure)
-        // Note: This is handled through position_features which includes pawn_structure
+        // endgame_patterns REQUIRES pawn_structure (endgame patterns handle pawn
+        // structure) Note: This is handled through position_features which
+        // includes pawn_structure
         graph.add_dependency(
             ComponentId::EndgamePatterns,
             ComponentId::PositionFeatures, // Requires position_features for pawn structure
@@ -1547,16 +1609,19 @@ impl Default for ComponentDependencyGraph {
 /// Component dependency warnings for configuration validation
 #[derive(Debug, Clone, PartialEq)]
 pub enum ComponentDependencyWarning {
-    /// Center control overlap: both position_features and positional_patterns evaluate center control
+    /// Center control overlap: both position_features and positional_patterns
+    /// evaluate center control
     CenterControlOverlap,
-    /// Development overlap: both position_features and opening_principles evaluate development
-    /// Note: Automatically handled during evaluation (opening_principles takes precedence in opening)
+    /// Development overlap: both position_features and opening_principles
+    /// evaluate development Note: Automatically handled during evaluation
+    /// (opening_principles takes precedence in opening)
     DevelopmentOverlap,
     /// Endgame patterns enabled but phase is not endgame (informational)
     EndgamePatternsNotInEndgame,
     /// Enabled component produced zero score (may indicate configuration issue)
     ComponentProducedZeroScore(String),
-    /// Components conflict: both components are enabled but conflict with each other (Task 20.0 - Task 5.6)
+    /// Components conflict: both components are enabled but conflict with each
+    /// other (Task 20.0 - Task 5.6)
     ComponentConflict { component1: String, component2: String },
     /// Components complement but only one is enabled (Task 20.0 - Task 5.7)
     MissingComplement { component1: String, component2: String },
@@ -1624,7 +1689,8 @@ mod tests {
         let config = TaperedEvalConfig::performance_optimized();
         assert!(config.enabled);
         assert_eq!(config.phase_transition.default_method, InterpolationMethod::Linear);
-        assert!(!config.position_features.enable_mobility); // Disabled for speed
+        assert!(!config.position_features.enable_mobility); // Disabled for
+                                                            // speed
     }
 
     #[test]
@@ -1632,7 +1698,8 @@ mod tests {
         let config = TaperedEvalConfig::strength_optimized();
         assert!(config.enabled);
         assert_eq!(config.phase_transition.default_method, InterpolationMethod::Smoothstep);
-        assert!(config.position_features.enable_mobility); // Enabled for accuracy
+        assert!(config.position_features.enable_mobility); // Enabled for
+                                                           // accuracy
     }
 
     #[test]

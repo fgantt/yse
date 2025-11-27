@@ -1,7 +1,8 @@
 //! Magic number generation and validation for magic bitboards
 //!
 //! This module provides functionality to generate and validate magic numbers
-//! used in magic bitboard implementations for efficient sliding piece move generation.
+//! used in magic bitboard implementations for efficient sliding piece move
+//! generation.
 
 use crate::types::core::PieceType;
 use crate::types::{Bitboard, MagicError, MagicGenerationResult};
@@ -618,8 +619,9 @@ mod tests {
         let magic = 0x0001010101010101u128;
         let is_valid = finder.validate_magic_fast(magic, 40, PieceType::Rook, &mask, shift);
 
-        // This might be false for this specific magic number, but the function should work
-        // The important thing is that it doesn't panic and returns a boolean
+        // This might be false for this specific magic number, but the function should
+        // work The important thing is that it doesn't panic and returns a
+        // boolean
         assert!(is_valid || !is_valid);
     }
 

@@ -77,8 +77,9 @@ impl Default for CacheConfig {
 
 /// Move ordering cache manager
 ///
-/// Manages the move ordering result cache with support for multiple eviction policies.
-/// Task 3.0: Enhanced with LRU, depth-preferred, and hybrid eviction policies.
+/// Manages the move ordering result cache with support for multiple eviction
+/// policies. Task 3.0: Enhanced with LRU, depth-preferred, and hybrid eviction
+/// policies.
 #[derive(Debug, Clone)]
 pub struct MoveOrderingCacheManager {
     /// Move ordering result cache
@@ -96,7 +97,8 @@ impl MoveOrderingCacheManager {
 
     /// Get a cached entry for a key
     ///
-    /// Returns a mutable reference to the cache entry if found, updating LRU tracking.
+    /// Returns a mutable reference to the cache entry if found, updating LRU
+    /// tracking.
     pub fn get_mut(&mut self, key: &(u64, u8)) -> Option<&mut MoveOrderingCacheEntry> {
         if let Some(entry) = self.cache.get_mut(key) {
             self.lru_access_counter += 1;
@@ -343,7 +345,8 @@ impl MoveScoreCache {
     /// Insert a score into the cache
     ///
     /// If the cache is full, the oldest entry in fast_cache is evicted.
-    /// The new entry is added to both fast_cache (if there's room) and main cache.
+    /// The new entry is added to both fast_cache (if there's room) and main
+    /// cache.
     pub fn insert(&mut self, move_hash: u64, score: i32) {
         // Add to fast cache if there's room
         if self.fast_cache.len() < self.fast_cache_max_size {

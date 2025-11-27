@@ -60,7 +60,8 @@ mod null_move_tests {
 
         let (_best_move, score) = result.unwrap();
         assert!(score > -200000); // Should be a reasonable score
-                                  // Note: best_move is now unused but the test verifies the move is valid
+                                  // Note: best_move is now unused but the test
+                                  // verifies the move is valid
     }
 
     #[test]
@@ -71,8 +72,8 @@ mod null_move_tests {
         let _player = Player::Black;
 
         // Create a position where the king is in check
-        // This is a simplified test - in a real implementation, we'd set up a check position
-        // For now, we test the configuration logic
+        // This is a simplified test - in a real implementation, we'd set up a check
+        // position For now, we test the configuration logic
 
         // Reset statistics to ensure clean test
         engine.reset_null_move_stats();
@@ -109,7 +110,8 @@ mod null_move_tests {
 
         // Test that piece counting works (using public interface)
         // Note: count_pieces_on_board is private, so we test through search behavior
-        // In a real implementation, we'd make this method public or test through search results
+        // In a real implementation, we'd make this method public or test through search
+        // results
 
         // Test that endgame detection respects the threshold
         let stats = engine.get_null_move_stats();
@@ -168,12 +170,13 @@ mod null_move_tests {
 
         assert!(result.is_some());
 
-        // Verify search completes in reasonable time (optimization should make this fast)
-        // Initial position should complete quickly
+        // Verify search completes in reasonable time (optimization should make this
+        // fast) Initial position should complete quickly
         assert!(elapsed.as_millis() < 5000); // Should complete in less than 5 seconds
 
         let stats = engine.get_null_move_stats();
-        // Verify endgame detection is working (initial position has 40 pieces, so shouldn't disable)
+        // Verify endgame detection is working (initial position has 40 pieces, so
+        // shouldn't disable)
         assert!(stats.disabled_endgame >= 0);
     }
 
@@ -664,7 +667,8 @@ mod null_move_tests {
 
         engine.reset_null_move_stats();
 
-        // Perform search - verification should only trigger when null move fails but is close to beta
+        // Perform search - verification should only trigger when null move fails but is
+        // close to beta
         let result = engine.search_at_depth(&board, &captured_pieces, player, 4, 1000);
         assert!(result.is_some());
 
@@ -681,7 +685,8 @@ mod null_move_tests {
         }
 
         // Total cutoffs should include both direct NMP cutoffs and verification cutoffs
-        // Note: This is a structural test - actual counts depend on position characteristics
+        // Note: This is a structural test - actual counts depend on position
+        // characteristics
         assert!(stats.cutoffs >= stats.verification_cutoffs);
 
         println!(
@@ -815,7 +820,8 @@ mod null_move_tests {
         let smooth = DynamicReductionFormula::Smooth;
         let base = 2;
 
-        // At depth 3-5, Linear keeps reduction at 2, while Smooth increases to 3 earlier
+        // At depth 3-5, Linear keeps reduction at 2, while Smooth increases to 3
+        // earlier
         assert_eq!(linear.calculate_reduction(3, base), 2);
         assert_eq!(smooth.calculate_reduction(3, base), 3); // Smooth increases earlier
 
@@ -1337,7 +1343,8 @@ mod null_move_tests {
     fn test_null_move_config_from_preset_conservative() {
         let config = NullMoveConfig::from_preset(NullMovePreset::Conservative);
 
-        // Conservative preset: Higher verification_margin, lower reduction_factor, stricter endgame detection
+        // Conservative preset: Higher verification_margin, lower reduction_factor,
+        // stricter endgame detection
         assert_eq!(config.verification_margin, 400);
         assert_eq!(config.reduction_factor, 2);
         assert_eq!(config.max_pieces_threshold, 14);
@@ -1359,7 +1366,8 @@ mod null_move_tests {
     fn test_null_move_config_from_preset_aggressive() {
         let config = NullMoveConfig::from_preset(NullMovePreset::Aggressive);
 
-        // Aggressive preset: Lower verification_margin, higher reduction_factor, relaxed endgame detection
+        // Aggressive preset: Lower verification_margin, higher reduction_factor,
+        // relaxed endgame detection
         assert_eq!(config.verification_margin, 100);
         assert_eq!(config.reduction_factor, 3);
         assert_eq!(config.max_pieces_threshold, 10);
@@ -1942,7 +1950,8 @@ mod null_move_tests {
             engine.search_at_depth_legacy(&mut board.clone(), &captured_pieces, player, 4, 1000);
         assert!(result.is_some());
 
-        // PositionTypeBased strategy should use different reductions for opening/middlegame/endgame
+        // PositionTypeBased strategy should use different reductions for
+        // opening/middlegame/endgame
         let stats = engine.get_null_move_stats();
         assert!(stats.attempts >= 0);
     }

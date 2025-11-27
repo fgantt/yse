@@ -1,11 +1,12 @@
 //! SIMD-optimized bitboard implementation for Shogi engine
 //!
-//! This module provides `SimdBitboard`, a 128-bit bitboard representation optimized
-//! for native platforms using explicit SIMD intrinsics.
+//! This module provides `SimdBitboard`, a 128-bit bitboard representation
+//! optimized for native platforms using explicit SIMD intrinsics.
 //!
 //! # Platform Support
 //!
-//! - **x86_64**: SSE (baseline), AVX2 (when available), AVX-512 (when available)
+//! - **x86_64**: SSE (baseline), AVX2 (when available), AVX-512 (when
+//!   available)
 //! - **ARM64**: NEON (always available on aarch64)
 //! - **WebAssembly**: Not supported (native platforms only)
 //!
@@ -14,7 +15,8 @@
 //! - **Compile-time**: Enable the Cargo feature `simd` to compile the explicit
 //!   SSE/AVX/NEON implementations. Without it, this module automatically falls
 //!   back to scalar `u128` operations, mirroring the behavior described in
-//!   `docs/design/implementation/simd-optimization/SIMD_IMPLEMENTATION_EVALUATION.md`.
+//!   `docs/design/implementation/simd-optimization/
+//!   SIMD_IMPLEMENTATION_EVALUATION.md`.
 //! - **Runtime**: The engine routes calls through `config::SimdConfig`
 //!   (`enable_simd_evaluation`, `enable_simd_pattern_matching`,
 //!   `enable_simd_move_generation`) as documented in
@@ -25,14 +27,14 @@
 //!
 //! # Performance Characteristics
 //!
-//! Measured in `SIMD_IMPLEMENTATION_EVALUATION.md` and the follow-up integration
-//! reports, explicit intrinsics close the ~40% regression that the scalar wrapper
-//! exhibited. With both compile-time and runtime flags enabled:
+//! Measured in `SIMD_IMPLEMENTATION_EVALUATION.md` and the follow-up
+//! integration reports, explicit intrinsics close the ~40% regression that the
+//! scalar wrapper exhibited. With both compile-time and runtime flags enabled:
 //!
 //! - Bitwise operations use explicit SIMD intrinsics (2-4x target speedup)
 //! - Batch operations process multiple bitboards at once (4-8x target speedup)
-//! - End-to-end search gains 20%+ NPS when paired with vectorized evaluation and
-//!   move generation.
+//! - End-to-end search gains 20%+ NPS when paired with vectorized evaluation
+//!   and move generation.
 //!
 //! # Usage
 //!
@@ -64,18 +66,22 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// # Platform Requirements
 ///
 /// - **Native platforms only**: x86_64 or ARM64
-/// - **SIMD feature**: Enable with `--features simd` for explicit SIMD intrinsics
-/// - **Runtime configuration**: Guarded by `config::SimdConfig`; callers can disable
-///   SIMD paths per subsystem without recompiling (see `SIMD_INTEGRATION_STATUS.md`)
-/// - **Fallback**: When `simd` feature is disabled or runtime flags are false, uses
-///   scalar `u128` operations (behavior documented in `SIMD_IMPLEMENTATION_EVALUATION.md`)
+/// - **SIMD feature**: Enable with `--features simd` for explicit SIMD
+///   intrinsics
+/// - **Runtime configuration**: Guarded by `config::SimdConfig`; callers can
+///   disable SIMD paths per subsystem without recompiling (see
+///   `SIMD_INTEGRATION_STATUS.md`)
+/// - **Fallback**: When `simd` feature is disabled or runtime flags are false,
+///   uses scalar `u128` operations (behavior documented in
+///   `SIMD_IMPLEMENTATION_EVALUATION.md`)
 ///
 /// # Performance
 ///
 /// - **Bitwise operations**: 2-4x speedup target with SIMD
 /// - **Batch operations**: 4-8x speedup when combined with `batch_ops`
 /// - **Hardware popcount**: Uses CPU POPCNT instruction when available
-/// - **Telemetry**: Usage counters recorded via `SimdTelemetry` to validate gains
+/// - **Telemetry**: Usage counters recorded via `SimdTelemetry` to validate
+///   gains
 ///
 /// # Example
 ///
@@ -148,7 +154,8 @@ impl SimdBitboard {
     }
 
     /// Get the detected SIMD level for this platform
-    /// This uses runtime platform detection to determine what SIMD features are available
+    /// This uses runtime platform detection to determine what SIMD features are
+    /// available
     #[cfg(feature = "simd")]
     pub fn get_detected_simd_level() -> platform_detection::SimdLevel {
         platform_detection::get_simd_level()
@@ -255,19 +262,21 @@ mod x86_64_simd {
 
     #[inline(always)]
     pub(super) fn shl(a: SimdBitboard, shift: u32) -> SimdBitboard {
-        // For u128 shifts, scalar operations are already highly optimized by the compiler.
-        // SIMD intrinsics don't provide significant benefit for single-value shifts.
-        // The main benefit would come from batch operations, which are handled separately.
-        // This implementation ensures correctness while maintaining good performance.
+        // For u128 shifts, scalar operations are already highly optimized by the
+        // compiler. SIMD intrinsics don't provide significant benefit for
+        // single-value shifts. The main benefit would come from batch
+        // operations, which are handled separately. This implementation ensures
+        // correctness while maintaining good performance.
         SimdBitboard::from_u128(a.to_u128() << shift.min(127))
     }
 
     #[inline(always)]
     pub(super) fn shr(a: SimdBitboard, shift: u32) -> SimdBitboard {
-        // For u128 shifts, scalar operations are already highly optimized by the compiler.
-        // SIMD intrinsics don't provide significant benefit for single-value shifts.
-        // The main benefit would come from batch operations, which are handled separately.
-        // This implementation ensures correctness while maintaining good performance.
+        // For u128 shifts, scalar operations are already highly optimized by the
+        // compiler. SIMD intrinsics don't provide significant benefit for
+        // single-value shifts. The main benefit would come from batch
+        // operations, which are handled separately. This implementation ensures
+        // correctness while maintaining good performance.
         SimdBitboard::from_u128(a.to_u128() >> shift.min(127))
     }
 }
@@ -346,24 +355,27 @@ mod aarch64_simd {
 
     #[inline(always)]
     pub(super) fn shl(a: SimdBitboard, shift: u32) -> SimdBitboard {
-        // For u128 shifts, scalar operations are already highly optimized by the compiler.
-        // SIMD intrinsics don't provide significant benefit for single-value shifts.
-        // The main benefit would come from batch operations, which are handled separately.
-        // This implementation ensures correctness while maintaining good performance.
+        // For u128 shifts, scalar operations are already highly optimized by the
+        // compiler. SIMD intrinsics don't provide significant benefit for
+        // single-value shifts. The main benefit would come from batch
+        // operations, which are handled separately. This implementation ensures
+        // correctness while maintaining good performance.
         SimdBitboard::from_u128(a.to_u128() << shift.min(127))
     }
 
     #[inline(always)]
     pub(super) fn shr(a: SimdBitboard, shift: u32) -> SimdBitboard {
-        // For u128 shifts, scalar operations are already highly optimized by the compiler.
-        // SIMD intrinsics don't provide significant benefit for single-value shifts.
-        // The main benefit would come from batch operations, which are handled separately.
-        // This implementation ensures correctness while maintaining good performance.
+        // For u128 shifts, scalar operations are already highly optimized by the
+        // compiler. SIMD intrinsics don't provide significant benefit for
+        // single-value shifts. The main benefit would come from batch
+        // operations, which are handled separately. This implementation ensures
+        // correctness while maintaining good performance.
         SimdBitboard::from_u128(a.to_u128() >> shift.min(127))
     }
 }
 
-// Scalar fallback implementations (when simd feature is disabled or on unsupported platforms)
+// Scalar fallback implementations (when simd feature is disabled or on
+// unsupported platforms)
 #[cfg(not(all(feature = "simd", any(target_arch = "x86_64", target_arch = "aarch64"))))]
 mod scalar_fallback {
     use super::SimdBitboard;

@@ -1,8 +1,8 @@
 //! Material Evaluation Module
 //!
 //! This module provides phase-aware material evaluation for the Shogi engine.
-//! Material values differ between opening/middlegame and endgame phases, providing
-//! more accurate position assessment throughout the game.
+//! Material values differ between opening/middlegame and endgame phases,
+//! providing more accurate position assessment throughout the game.
 //!
 //! # Overview
 //!
@@ -413,15 +413,12 @@ impl MaterialEvaluator {
     fn select_value_set(config: &MaterialEvaluationConfig) -> MaterialValueSet {
         MaterialValueLoader::load(config).unwrap_or_else(|err| {
             debug_log(&format!(
-                "[MaterialEvaluator] Failed to load external value set: {}. Falling back to {} preset.",
+                "[MaterialEvaluator] Failed to load external value set: {}. Falling back to {} \
+                 preset.",
                 err,
-                if config.use_research_values {
-                    "research"
-                } else {
-                    "classic"
-                }
+                if config.use_research_values { "research" } else { "classic" }
             ));
-        if config.use_research_values {
+            if config.use_research_values {
                 MaterialValueSet::research()
             } else {
                 MaterialValueSet::classic()
@@ -445,7 +442,8 @@ impl MaterialEvaluator {
         &self.config
     }
 
-    /// Apply a new configuration, rebuilding value tables and resetting statistics.
+    /// Apply a new configuration, rebuilding value tables and resetting
+    /// statistics.
     pub fn apply_config(&mut self, config: MaterialEvaluationConfig) {
         self.config = config;
         self.value_set = Self::select_value_set(&self.config);
@@ -525,12 +523,14 @@ impl MaterialEvaluator {
     /// Evaluate material for pieces on the board
     ///
     /// Uses SIMD-optimized batch evaluation when the `simd` feature is enabled
-    /// and `enable_simd` config flag is true, falling back to scalar implementation otherwise.
+    /// and `enable_simd` config flag is true, falling back to scalar
+    /// implementation otherwise.
     ///
     /// # Performance
     ///
-    /// When SIMD is enabled, uses batch operations to process multiple piece types
-    /// simultaneously, achieving 2-3x speedup over scalar implementation.
+    /// When SIMD is enabled, uses batch operations to process multiple piece
+    /// types simultaneously, achieving 2-3x speedup over scalar
+    /// implementation.
     fn evaluate_board_material(
         &self,
         board: &BitboardBoard,
@@ -583,7 +583,8 @@ impl MaterialEvaluator {
             return self.evaluate_board_material_fast(board, player, contribution);
         }
 
-        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
+        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag
+        // is false)
         {
             // Record scalar evaluation call
             #[cfg(feature = "simd")]
@@ -657,12 +658,14 @@ impl MaterialEvaluator {
     /// Evaluate hand material (captured pieces)
     ///
     /// Uses SIMD-optimized batch evaluation when the `simd` feature is enabled
-    /// and `enable_simd` config flag is true, falling back to scalar implementation otherwise.
+    /// and `enable_simd` config flag is true, falling back to scalar
+    /// implementation otherwise.
     ///
     /// # Performance
     ///
-    /// When SIMD is enabled, uses batch operations to process multiple piece types
-    /// simultaneously, achieving 2-3x speedup over scalar implementation.
+    /// When SIMD is enabled, uses batch operations to process multiple piece
+    /// types simultaneously, achieving 2-3x speedup over scalar
+    /// implementation.
     fn evaluate_hand_material(
         &self,
         captured_pieces: &CapturedPieces,
@@ -723,7 +726,8 @@ impl MaterialEvaluator {
             return self.evaluate_hand_material_fast(captured_pieces, player, contribution);
         }
 
-        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
+        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag
+        // is false)
         {
             // Record scalar evaluation call
             #[cfg(feature = "simd")]

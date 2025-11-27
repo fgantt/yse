@@ -1,7 +1,7 @@
 //! Population count (popcount) implementations for bit-scanning optimizations
 //!
-//! This module provides multiple implementations of population count (counting set bits)
-//! optimized for different platforms and capabilities.
+//! This module provides multiple implementations of population count (counting
+//! set bits) optimized for different platforms and capabilities.
 
 use crate::bitboards::platform_detection::{get_best_popcount_impl, PopcountImpl};
 use crate::types::Bitboard;
@@ -19,8 +19,8 @@ use crate::types::Bitboard;
 ///
 /// # Examples
 /// ```
-/// use shogi_engine::types::Bitboard;
 /// use shogi_engine::bitboards::popcount::popcount;
+/// use shogi_engine::types::Bitboard;
 ///
 /// let bb: Bitboard = 0b1011; // 3 bits set
 /// assert_eq!(popcount(bb), 3);

@@ -473,10 +473,12 @@ impl DataProcessor {
     /// **Current Implementation Status:**
     /// - ✅ USI-style drops (e.g., "P*7e") - fully supported
     /// - ✅ Coordinate extraction from parentheses (e.g., "(77)")
-    /// - ⚠️ Japanese character parsing (e.g., "７六") - simplified, works for USI-style embedded coordinates
+    /// - ⚠️ Japanese character parsing (e.g., "７六") - simplified, works for
+    ///   USI-style embedded coordinates
     /// - ❌ Full Japanese character recognition - requires additional library
     ///
-    /// Returns a Move if parsing succeeds, or None if the line doesn't contain a valid move.
+    /// Returns a Move if parsing succeeds, or None if the line doesn't contain
+    /// a valid move.
     fn parse_kif_move(&self, line: &str) -> Result<Option<Move>, String> {
         let trimmed = line.trim();
 
@@ -521,7 +523,8 @@ impl DataProcessor {
                         {
                             let file = file as u8;
                             let rank = rank as u8;
-                            // Convert to internal coordinates: file 1-9 -> col 8-0, rank 1-9 -> row 0-8
+                            // Convert to internal coordinates: file 1-9 -> col 8-0, rank 1-9 -> row
+                            // 0-8
                             let col = 9 - file;
                             let row = rank - 1;
                             if row < 9 && col < 9 {
@@ -548,7 +551,8 @@ impl DataProcessor {
         // Extract destination from Japanese notation (e.g., "７六" -> row 5, col 2)
         // This is complex - for now, try to extract from the move text
         // Simplified: assume format like "７六歩" where ７六 is destination
-        // This is a simplified parser - full KIF parsing would need Japanese character recognition
+        // This is a simplified parser - full KIF parsing would need Japanese character
+        // recognition
         let to_pos = self.parse_kif_position(move_text)?;
 
         // Extract piece type from Japanese characters
@@ -580,7 +584,8 @@ impl DataProcessor {
     /// Files and ranks: 1-9
     /// Piece: FU, KY, KE, GI, KI, KA, HI, OU, TO, NY, NK, NG, UM, RY
     ///
-    /// **Implementation Status:** ✅ Fully implemented - supports all CSA move formats including drops
+    /// **Implementation Status:** ✅ Fully implemented - supports all CSA move
+    /// formats including drops
     fn parse_csa_move(&self, line: &str) -> Result<Option<Move>, String> {
         let trimmed = line.trim();
 
@@ -648,12 +653,14 @@ impl DataProcessor {
     /// - "P*7e" - Drop notation
     /// - "2b8h+" - Promotion
     ///
-    /// Note: PGN is primarily for chess, but some shogi tools use PGN-like notation.
+    /// Note: PGN is primarily for chess, but some shogi tools use PGN-like
+    /// notation.
     ///
     /// **Implementation Status:**
     /// - ✅ Drop moves (e.g., "P*7e") - fully supported
-    /// - ⚠️ Normal moves (e.g., "7g7f") - requires board context for piece type determination
-    ///   For full support, maintain board state during parsing and use Move::from_usi_string()
+    /// - ⚠️ Normal moves (e.g., "7g7f") - requires board context for piece type
+    ///   determination For full support, maintain board state during parsing
+    ///   and use Move::from_usi_string()
     fn parse_pgn_move(&self, move_str: &str) -> Result<Option<Move>, String> {
         let trimmed = move_str.trim();
 
@@ -686,9 +693,10 @@ impl DataProcessor {
 
     /// Parse a USI-style move string (used by multiple formats)
     ///
-    /// Note: Full USI parsing requires a board to determine piece types and captures.
-    /// This simplified version handles drops and basic moves, but may not correctly
-    /// identify piece types for normal moves without board context.
+    /// Note: Full USI parsing requires a board to determine piece types and
+    /// captures. This simplified version handles drops and basic moves, but
+    /// may not correctly identify piece types for normal moves without
+    /// board context.
     ///
     /// For proper parsing, the caller should maintain a board state and use
     /// Move::from_usi_string() with the board.
@@ -727,8 +735,9 @@ impl DataProcessor {
 
     /// Parse a USI-style move string with board context
     ///
-    /// This method uses the board to properly determine piece types and captures
-    /// for normal moves. Use this when parsing moves in sequence during a game.
+    /// This method uses the board to properly determine piece types and
+    /// captures for normal moves. Use this when parsing moves in sequence
+    /// during a game.
     fn parse_usi_move_with_board(
         &self,
         usi_str: &str,
@@ -751,8 +760,8 @@ impl DataProcessor {
 
     /// Parse KIF position from Japanese notation (simplified)
     ///
-    /// This is a simplified parser. Full implementation would parse Japanese characters.
-    /// For now, handles:
+    /// This is a simplified parser. Full implementation would parse Japanese
+    /// characters. For now, handles:
     /// - USI-style coordinates if present (e.g., "7g7f" embedded in text)
     /// - Coordinate pairs in parentheses (e.g., "(77)" -> 7g)
     ///
@@ -781,8 +790,8 @@ impl DataProcessor {
         }
 
         // If no USI-style found, try to extract from parentheses format
-        // This is a fallback - in real KIF files, the destination is in Japanese characters
-        // For now, return an error indicating we need better parsing
+        // This is a fallback - in real KIF files, the destination is in Japanese
+        // characters For now, return an error indicating we need better parsing
         Err("KIF position parsing requires Japanese character recognition or USI-style coordinates"
             .to_string())
     }

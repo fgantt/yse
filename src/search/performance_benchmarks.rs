@@ -1,7 +1,7 @@
 //! Performance benchmarks for transposition table optimizations
 //!
-//! This module provides comprehensive benchmarking tools to measure and validate
-//! the performance improvements from the optimization systems.
+//! This module provides comprehensive benchmarking tools to measure and
+//! validate the performance improvements from the optimization systems.
 
 use crate::search::performance_optimization::*;
 use crate::search::thread_safe_table::ThreadSafeTranspositionTable;
@@ -336,7 +336,10 @@ impl BenchmarkComparison {
     /// Print benchmark results in a formatted table
     pub fn print_results(&self) {
         println!("┌─────────────────────────┬──────────────┬──────────────┬──────────────┬──────────────┐");
-        println!("│ Operation               │ Avg Time (ns)│ Ops/Second   │ Memory (MB)  │ Hit Rate (%) │");
+        println!(
+            "│ Operation               │ Avg Time (ns)│ Ops/Second   │ Memory (MB)  │ Hit Rate \
+             (%) │"
+        );
         println!("├─────────────────────────┼──────────────┼──────────────┼──────────────┼──────────────┤");
 
         for i in 0..self.operations.len() {

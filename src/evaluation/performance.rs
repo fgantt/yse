@@ -68,7 +68,8 @@ impl OptimizedEvaluator {
         Self::with_components(material_config, PieceSquareTables::new())
     }
 
-    /// Create a new optimized evaluator with material configuration and PST tables.
+    /// Create a new optimized evaluator with material configuration and PST
+    /// tables.
     pub fn with_components(
         material_config: &MaterialEvaluationConfig,
         pst: PieceSquareTables,
@@ -639,7 +640,8 @@ impl PerformanceProfiler {
         self.evaluation_times.len()
     }
 
-    /// Enable the profiler for the duration of the returned guard, restoring the previous state on drop.
+    /// Enable the profiler for the duration of the returned guard, restoring
+    /// the previous state on drop.
     pub fn scoped_enable(&mut self) -> PerformanceProfilerGuard<'_> {
         let previous_state = self.enabled;
         self.enabled = true;

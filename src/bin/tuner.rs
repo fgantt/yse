@@ -1,7 +1,7 @@
 //! Shogi Engine Tuning Binary
 //!
-//! This binary provides a command-line interface for automated evaluation tuning
-//! using various optimization algorithms and validation methods.
+//! This binary provides a command-line interface for automated evaluation
+//! tuning using various optimization algorithms and validation methods.
 
 use clap::{Parser, Subcommand};
 use shogi_engine::tuning::{

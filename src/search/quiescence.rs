@@ -1,10 +1,12 @@
 //! Quiescence Search Module
 //!
-//! This module handles quiescence search pruning logic (delta pruning, futility pruning)
-//! and extension decisions. The main quiescence search function remains in `search_engine.rs`
-//! due to tight coupling and will be extracted as part of Task 1.8 (coordinator refactoring).
+//! This module handles quiescence search pruning logic (delta pruning, futility
+//! pruning) and extension decisions. The main quiescence search function
+//! remains in `search_engine.rs` due to tight coupling and will be extracted as
+//! part of Task 1.8 (coordinator refactoring).
 //!
-//! Extracted from `search_engine.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `search_engine.rs` as part of Task 1.0: File Modularization
+//! and Structure Improvements.
 
 use crate::types::core::Move;
 use crate::types::search::{QuiescenceConfig, QuiescenceStats};
@@ -40,9 +42,11 @@ impl QuiescenceHelper {
     /// Adjusts pruning margins dynamically based on:
     /// - Depth: More aggressive pruning at deeper depths
     /// - Move count: More selective pruning when there are many moves
-    /// - Move type: Less aggressive pruning for high-value captures and promotions
+    /// - Move type: Less aggressive pruning for high-value captures and
+    ///   promotions
     ///
-    /// This provides better pruning effectiveness while maintaining tactical accuracy.
+    /// This provides better pruning effectiveness while maintaining tactical
+    /// accuracy.
     pub fn should_prune_delta_adaptive(
         &self,
         move_: &Move,
@@ -73,7 +77,8 @@ impl QuiescenceHelper {
         }
 
         // Decrease margin for high-value captures (less aggressive pruning)
-        // This treats captures and promotions differently - high-value moves are less likely to be pruned
+        // This treats captures and promotions differently - high-value moves are less
+        // likely to be pruned
         if total_gain > 200 {
             adaptive_margin = adaptive_margin / 2;
         }
@@ -84,9 +89,10 @@ impl QuiescenceHelper {
 
     /// Check if a move should be pruned using futility pruning
     ///
-    /// Note: This is capture-specific futility pruning. Standard futility pruning
-    /// typically excludes captures and checks, but this implementation applies
-    /// futility pruning to weak captures while excluding:
+    /// Note: This is capture-specific futility pruning. Standard futility
+    /// pruning typically excludes captures and checks, but this
+    /// implementation applies futility pruning to weak captures while
+    /// excluding:
     /// - Checking moves (critical for tactical sequences)
     /// - High-value captures (important tactical moves)
     ///
@@ -128,11 +134,13 @@ impl QuiescenceHelper {
     /// Adaptive futility pruning based on position characteristics
     ///
     /// Adjusts pruning margins dynamically based on:
-    /// - Depth: More aggressive pruning at deeper depths (already depth-dependent)
+    /// - Depth: More aggressive pruning at deeper depths (already
+    ///   depth-dependent)
     /// - Move count: More selective pruning when there are many moves available
     ///
-    /// Excludes checking moves and high-value captures to maintain tactical accuracy.
-    /// This provides better pruning effectiveness while maintaining tactical accuracy.
+    /// Excludes checking moves and high-value captures to maintain tactical
+    /// accuracy. This provides better pruning effectiveness while
+    /// maintaining tactical accuracy.
     pub fn should_prune_futility_adaptive(
         &mut self,
         move_: &Move,
@@ -171,7 +179,8 @@ impl QuiescenceHelper {
         }
 
         if depth > 4 {
-            futility_margin += (depth as i32 - 4) * 25; // More aggressive at deeper depths
+            futility_margin += (depth as i32 - 4) * 25; // More aggressive at
+                                                        // deeper depths
         }
 
         stand_pat + material_gain + futility_margin <= alpha
@@ -295,7 +304,7 @@ mod tests {
             QuiescenceConfig { enable_selective_extensions: true, ..QuiescenceConfig::default() };
         let helper = QuiescenceHelper::new(config);
         let mut move_ = create_test_move(false, false);
-        // Note: Would need to set is_promotion if Move had that field accessible
-        // For now, this test demonstrates the pattern
+        // Note: Would need to set is_promotion if Move had that field
+        // accessible For now, this test demonstrates the pattern
     }
 }

@@ -1,7 +1,8 @@
 //! Board Representation Types
 //!
-//! This module contains types related to board representation: CapturedPieces and GamePhase.
-//! Extracted from `types.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! This module contains types related to board representation: CapturedPieces
+//! and GamePhase. Extracted from `types.rs` as part of Task 1.0: File
+//! Modularization and Structure Improvements.
 
 use super::core::{PieceType, Player};
 use serde::{Deserialize, Serialize};

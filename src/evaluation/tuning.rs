@@ -1,8 +1,8 @@
 //! Tuning System for Tapered Evaluation
 //!
-//! This module provides automated weight tuning for the tapered evaluation system.
-//! It integrates with the existing tuning infrastructure and adds tapered-evaluation-
-//! specific optimizations.
+//! This module provides automated weight tuning for the tapered evaluation
+//! system. It integrates with the existing tuning infrastructure and adds
+//! tapered-evaluation- specific optimizations.
 //!
 //! # Overview
 //!

@@ -1,7 +1,7 @@
 //! Tests for opening principles move_count parameter fix (Task 19.0 - Task 1.0)
 //!
-//! These tests verify that move_count is correctly passed to opening principles evaluation
-//! and that tempo bonuses apply when move_count <= 10.
+//! These tests verify that move_count is correctly passed to opening principles
+//! evaluation and that tempo bonuses apply when move_count <= 10.
 
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::integration::{IntegratedEvaluationConfig, IntegratedEvaluator};
@@ -64,8 +64,9 @@ fn test_integrated_evaluator_move_count() {
     assert!(score_move_15.score.abs() < 100000);
     assert!(score_estimated.score.abs() < 100000);
 
-    // Estimated score should be reasonable (starting position has phase 256, so estimated move_count should be 0)
-    // This verifies the estimation logic works
+    // Estimated score should be reasonable (starting position has phase 256, so
+    // estimated move_count should be 0) This verifies the estimation logic
+    // works
 }
 
 /// Test positions at different move counts to verify tempo/development tracking
@@ -127,7 +128,8 @@ fn test_move_count_not_hardcoded() {
     let score_explicit_0 =
         evaluator.evaluate_with_move_count(&board, Player::Black, &captured_pieces, Some(0));
 
-    // Both should be valid (they may be the same in starting position, but the parameter is being used)
+    // Both should be valid (they may be the same in starting position, but the
+    // parameter is being used)
     assert!(score_explicit_5.score.abs() < 100000);
     assert!(score_explicit_0.score.abs() < 100000);
 
@@ -137,6 +139,7 @@ fn test_move_count_not_hardcoded() {
     assert!(score_estimated.score.abs() < 100000);
 
     // Estimated should use phase-based estimation, not hardcoded 0
-    // Starting position has phase 256, so estimated should be 0 (which is correct)
-    // But the important thing is it's using the estimation logic, not hardcoding
+    // Starting position has phase 256, so estimated should be 0 (which is
+    // correct) But the important thing is it's using the estimation logic,
+    // not hardcoding
 }

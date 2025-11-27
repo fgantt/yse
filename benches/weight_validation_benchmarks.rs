@@ -1,6 +1,8 @@
-//! Benchmarks for weight validation and phase-dependent scaling in IntegratedEvaluator
+//! Benchmarks for weight validation and phase-dependent scaling in
+//! IntegratedEvaluator
 //!
-//! Measures the performance impact of phase-dependent weight scaling and weight validation.
+//! Measures the performance impact of phase-dependent weight scaling and weight
+//! validation.
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use shogi_engine::bitboards::BitboardBoard;

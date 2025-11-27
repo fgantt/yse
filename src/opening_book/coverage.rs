@@ -85,7 +85,8 @@ impl CoverageAnalyzer {
         if total_positions > 0 {
             let avg_moves = total_moves_count as f64 / total_positions as f64;
 
-            // Estimate max depth (simplified - in practice would need to trace opening sequences)
+            // Estimate max depth (simplified - in practice would need to trace opening
+            // sequences)
             let estimated_max_depth = (avg_moves * 2.0) as usize;
 
             // Create depth distribution (simplified)

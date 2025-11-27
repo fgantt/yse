@@ -7,11 +7,15 @@
 // - SHOGI_YBWC_BRANCH: ybwc_min_branch (e.g., "20")
 // - SHOGI_YBWC_MAX_SIBLINGS: max siblings to parallelize (e.g., "6")
 // - SHOGI_YBWC_MIN_DEPTH: activation depth (e.g., "6")
-// - SHOGI_TT_GATING: exact_only_max_depth,min_store_depth,buffer_flush_threshold (e.g., "8,9,512")
+// - SHOGI_TT_GATING:
+//   exact_only_max_depth,min_store_depth,buffer_flush_threshold (e.g.,
+//   "8,9,512")
 // - SHOGI_SILENT_BENCH: set to "1" to silence USI info output
 // - SHOGI_AGGREGATE_METRICS: set to "1" to enable aggregated TT/YBWC metrics
-// - SHOGI_BENCH_FEN: custom FEN (board player captured) to override default start position
-// - SHOGI_BENCH_TIME_MS: per-iteration time limit override (applies to all depths)
+// - SHOGI_BENCH_FEN: custom FEN (board player captured) to override default
+//   start position
+// - SHOGI_BENCH_TIME_MS: per-iteration time limit override (applies to all
+//   depths)
 // - SHOGI_BENCH_TIME_MS_7 / SHOGI_BENCH_TIME_MS_8: per-depth overrides when set
 //
 // Example quick run:
@@ -188,12 +192,24 @@ fn bench_root_search(c: &mut Criterion) {
     // Snapshot aggregated profiling metrics for this run and write JSON summary
     let m = snapshot_and_reset_metrics();
     let summary = format!(
-        "{{\n  \"tag\": \"{}\",\n  \"tt_reads\": {},\n  \"tt_read_ok\": {},\n  \"tt_read_fail\": {},\n  \"tt_writes\": {},\n  \"tt_write_ok\": {},\n  \"tt_write_fail\": {},\n  \"ybwc_batches\": {},\n  \"ybwc_siblings\": {},\n  \"ybwc_trigger_opportunities\": {},\n  \"ybwc_trigger_eligible_depth\": {},\n  \"ybwc_trigger_eligible_branch\": {},\n  \"ybwc_triggered\": {}\n}}\n",
+        "{{\n  \"tag\": \"{}\",\n  \"tt_reads\": {},\n  \"tt_read_ok\": {},\n  \"tt_read_fail\": \
+         {},\n  \"tt_writes\": {},\n  \"tt_write_ok\": {},\n  \"tt_write_fail\": {},\n  \
+         \"ybwc_batches\": {},\n  \"ybwc_siblings\": {},\n  \"ybwc_trigger_opportunities\": {},\n  \
+         \"ybwc_trigger_eligible_depth\": {},\n  \"ybwc_trigger_eligible_branch\": {},\n  \
+         \"ybwc_triggered\": {}\n}}\n",
         "criterion_group:parallel_root_search",
-        m.tt_try_reads, m.tt_try_read_successes, m.tt_try_read_fails,
-        m.tt_try_writes, m.tt_try_write_successes, m.tt_try_write_fails,
-        m.ybwc_sibling_batches, m.ybwc_siblings_evaluated,
-        m.ybwc_trigger_opportunities, m.ybwc_trigger_eligible_depth, m.ybwc_trigger_eligible_branch, m.ybwc_triggered
+        m.tt_try_reads,
+        m.tt_try_read_successes,
+        m.tt_try_read_fails,
+        m.tt_try_writes,
+        m.tt_try_write_successes,
+        m.tt_try_write_fails,
+        m.ybwc_sibling_batches,
+        m.ybwc_siblings_evaluated,
+        m.ybwc_trigger_opportunities,
+        m.ybwc_trigger_eligible_depth,
+        m.ybwc_trigger_eligible_branch,
+        m.ybwc_triggered
     );
     let out_dir = std::path::Path::new("target/criterion");
     let _ = std::fs::create_dir_all(out_dir);
@@ -201,9 +217,17 @@ fn bench_root_search(c: &mut Criterion) {
     let _ = std::fs::write(&out_path, summary.as_bytes());
     // Also echo a concise summary line
     println!(
-        "metrics summary written: {:?} (tt_reads={}, tt_writes={}, ybwc_batches={}, ybwc_siblings={}, ybwc_triggers={}/{}/{}/{})",
-        out_path, m.tt_try_reads, m.tt_try_writes, m.ybwc_sibling_batches, m.ybwc_siblings_evaluated,
-        m.ybwc_trigger_opportunities, m.ybwc_trigger_eligible_depth, m.ybwc_trigger_eligible_branch, m.ybwc_triggered
+        "metrics summary written: {:?} (tt_reads={}, tt_writes={}, ybwc_batches={}, \
+         ybwc_siblings={}, ybwc_triggers={}/{}/{}/{})",
+        out_path,
+        m.tt_try_reads,
+        m.tt_try_writes,
+        m.ybwc_sibling_batches,
+        m.ybwc_siblings_evaluated,
+        m.ybwc_trigger_opportunities,
+        m.ybwc_trigger_eligible_depth,
+        m.ybwc_trigger_eligible_branch,
+        m.ybwc_triggered
     );
 }
 

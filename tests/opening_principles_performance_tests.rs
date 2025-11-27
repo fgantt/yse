@@ -1,4 +1,5 @@
-//! Tests for opening principles performance optimizations and statistics (Task 19.0 - Task 4.0)
+//! Tests for opening principles performance optimizations and statistics (Task
+//! 19.0 - Task 4.0)
 //!
 //! These tests verify:
 //! - Bitboard-optimized piece finding
@@ -9,13 +10,15 @@ use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::opening_principles::OpeningPrincipleEvaluator;
 use shogi_engine::types::*;
 
-/// Test that bitboard-optimized piece finding works (tested indirectly via evaluation)
+/// Test that bitboard-optimized piece finding works (tested indirectly via
+/// evaluation)
 #[test]
 fn test_bitboard_optimized_piece_finding() {
     let mut evaluator = OpeningPrincipleEvaluator::new();
     let board = BitboardBoard::new();
 
-    // Test that evaluation works correctly (uses bitboard-optimized find_pieces internally)
+    // Test that evaluation works correctly (uses bitboard-optimized find_pieces
+    // internally)
     let score = evaluator.evaluate_opening(&board, Player::Black, 5, None, None);
 
     // Should return valid score (bitboard optimization is transparent to caller)

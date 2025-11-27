@@ -1,8 +1,9 @@
 #![cfg(feature = "simd")]
 /// Integration tests for SIMD pattern matching in TacticalPatternRecognizer
 ///
-/// These tests verify that SIMD-optimized fork detection produces the same results
-/// as scalar implementation and is actually used when the feature is enabled.
+/// These tests verify that SIMD-optimized fork detection produces the same
+/// results as scalar implementation and is actually used when the feature is
+/// enabled.
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::tactical_patterns::TacticalPatternRecognizer;
 use shogi_engine::evaluation::tactical_patterns_simd::SimdPatternMatcher;
@@ -56,8 +57,8 @@ fn test_simd_fork_detection_with_pieces() {
 
     let result = recognizer.evaluate_tactics(&board, Player::Black, &captured);
 
-    // Should have some tactical score (may be positive or negative depending on position)
-    // Just verify it's a reasonable value
+    // Should have some tactical score (may be positive or negative depending on
+    // position) Just verify it's a reasonable value
     assert!(
         result.mg.abs() < 100000 && result.eg.abs() < 100000,
         "Position with pieces should have reasonable tactical score"
@@ -92,9 +93,13 @@ fn test_simd_fork_detection_player_switching() {
     let diff_eg = (black_result.eg + white_result.eg).abs();
 
     // Allow some tolerance for starting position asymmetry
-    assert!(diff_mg < 1000 && diff_eg < 1000,
-           "Black and White tactical scores should be approximately opposite (mg diff: {}, eg diff: {})",
-           diff_mg, diff_eg);
+    assert!(
+        diff_mg < 1000 && diff_eg < 1000,
+        "Black and White tactical scores should be approximately opposite (mg diff: {}, eg diff: \
+         {})",
+        diff_mg,
+        diff_eg
+    );
 }
 
 #[test]

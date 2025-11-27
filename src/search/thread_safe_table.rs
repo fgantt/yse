@@ -6,17 +6,21 @@
 //! # Features
 //!
 //! - **Thread Safety**: Safe for concurrent access across multiple threads
-//! - **Flexible Execution**: Operates in both multi-threaded and single-threaded modes
+//! - **Flexible Execution**: Operates in both multi-threaded and
+//!   single-threaded modes
 //! - **Performance Optimized**: Uses atomic operations and cache-line alignment
 //! - **Memory Efficient**: Compact entry storage with configurable size
-//! - **Statistics Tracking**: Comprehensive performance and usage statistics (opt-in)
-//! - **Robust Under Failure**: Recovers from poisoned synchronization primitives without
-//!   crashing the engine
+//! - **Statistics Tracking**: Comprehensive performance and usage statistics
+//!   (opt-in)
+//! - **Robust Under Failure**: Recovers from poisoned synchronization
+//!   primitives without crashing the engine
 //!
 //! # Usage
 //!
 //! ```rust
-//! use shogi_engine::search::{ThreadSafeTranspositionTable, TranspositionConfig, TranspositionEntry, TranspositionFlag};
+//! use shogi_engine::search::{
+//!     ThreadSafeTranspositionTable, TranspositionConfig, TranspositionEntry, TranspositionFlag,
+//! };
 //!
 //! // Create a new transposition table (enable statistics only if needed)
 //! let mut config = TranspositionConfig::default();
@@ -53,7 +57,8 @@
 //!
 //! # Robustness
 //!
-//! - A warning is logged whenever the table recovers from a poisoned mutex or RW lock.
+//! - A warning is logged whenever the table recovers from a poisoned mutex or
+//!   RW lock.
 //! - When statistics are enabled, poison recovery events are counted via the
 //!   `poison_recoveries` metric in `ThreadSafeStatsSnapshot`.
 
@@ -319,13 +324,15 @@ impl AtomicPackedEntry {
 ///
 /// This struct provides a thread-safe transposition table that works
 /// efficiently in both multi-threaded and single-threaded environments.
-/// In single-threaded configurations, it operates without synchronization overhead.
+/// In single-threaded configurations, it operates without synchronization
+/// overhead.
 ///
 /// # Parallel Performance
 ///
-/// Uses bucketed locks to reduce write contention in multi-threaded environments.
-/// Each bucket has its own RwLock, allowing parallel writes to different buckets.
-/// Lock granularity is configurable via `TranspositionConfig::bucket_count`.
+/// Uses bucketed locks to reduce write contention in multi-threaded
+/// environments. Each bucket has its own RwLock, allowing parallel writes to
+/// different buckets. Lock granularity is configurable via
+/// `TranspositionConfig::bucket_count`.
 pub struct ThreadSafeTranspositionTable {
     /// The actual hash table storing thread-safe entries
     entries: Vec<ThreadSafeEntry>,
@@ -335,7 +342,8 @@ pub struct ThreadSafeTranspositionTable {
     mask: usize,
     /// Thread safety mode
     thread_mode: ThreadSafetyMode,
-    /// Synchronization primitives for multi-threaded access (bucketed for reduced contention)
+    /// Synchronization primitives for multi-threaded access (bucketed for
+    /// reduced contention)
     bucket_locks: Vec<Arc<RwLock<()>>>,
     /// Bit shift for fast bucket calculation
     bucket_shift: u32,
@@ -424,7 +432,8 @@ impl ThreadSafeTranspositionTable {
         table
     }
 
-    /// Create a thread-safe transposition table with statistics tracking explicitly enabled
+    /// Create a thread-safe transposition table with statistics tracking
+    /// explicitly enabled
     pub fn with_statistics_tracking(mut config: TranspositionConfig) -> Self {
         config.enable_statistics = true;
         Self::new(config)
@@ -652,7 +661,8 @@ impl ThreadSafeTranspositionTable {
         self.store_entry_core(index, entry);
     }
 
-    /// Store a batch of entries, grouping by bucket to minimise lock acquisitions.
+    /// Store a batch of entries, grouping by bucket to minimise lock
+    /// acquisitions.
     pub fn store_batch<I>(&self, entries: I)
     where
         I: IntoIterator<Item = TranspositionEntry>,
@@ -776,8 +786,9 @@ impl ThreadSafeTranspositionTable {
 
     /// Get the number of lock buckets
     ///
-    /// Returns the number of independent lock buckets used for parallel write operations.
-    /// Higher bucket counts reduce contention but increase memory overhead.
+    /// Returns the number of independent lock buckets used for parallel write
+    /// operations. Higher bucket counts reduce contention but increase
+    /// memory overhead.
     pub fn bucket_count(&self) -> usize {
         self.bucket_locks.len()
     }
@@ -1001,7 +1012,8 @@ unsafe fn prefetch_entry_ptr(entry: &ThreadSafeEntry) {
 #[inline(always)]
 unsafe fn prefetch_entry_ptr(_entry: &ThreadSafeEntry) {}
 
-/// Snapshot of thread-safe statistics, including poison-recovery counts when tracking is enabled
+/// Snapshot of thread-safe statistics, including poison-recovery counts when
+/// tracking is enabled
 #[derive(Debug, Clone)]
 pub struct ThreadSafeStatsSnapshot {
     pub total_probes: u64,

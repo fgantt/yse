@@ -1,10 +1,11 @@
 //! Build-time tool to generate precomputed magic bitboard tables
 //!
-//! This tool generates magic tables and saves them to disk for fast loading at runtime.
-//! Usage:
+//! This tool generates magic tables and saves them to disk for fast loading at
+//! runtime. Usage:
 //!   cargo run --bin generate_magic_tables [--output <path>]
 //!
-//! If no output path is specified, defaults to `resources/magic_tables/magic_table.bin`
+//! If no output path is specified, defaults to
+//! `resources/magic_tables/magic_table.bin`
 
 use std::env;
 use std::path::PathBuf;

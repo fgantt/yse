@@ -4,7 +4,8 @@
 //! The history heuristic tracks how successful moves have been in the past
 //! and uses this information to prioritize moves in future searches.
 //!
-//! Task 4.0: Enhanced with phase-aware, relative, time-based aging, and quiet-move-only history.
+//! Task 4.0: Enhanced with phase-aware, relative, time-based aging, and
+//! quiet-move-only history.
 
 use crate::bitboards::BitboardBoard;
 use crate::types::board::GamePhase;
@@ -37,11 +38,14 @@ pub struct HistoryConfig {
     pub enable_score_clamping: bool,
     /// Enable phase-aware history tables (Task 4.0)
     pub enable_phase_aware: bool,
-    /// Enable relative history (key from (piece_type, from, to) to (from, to)) (Task 4.0)
+    /// Enable relative history (key from (piece_type, from, to) to (from, to))
+    /// (Task 4.0)
     pub enable_relative: bool,
-    /// Enable time-based aging (exponential decay based on entry age) (Task 4.0)
+    /// Enable time-based aging (exponential decay based on entry age) (Task
+    /// 4.0)
     pub enable_time_based_aging: bool,
-    /// Enable quiet-move-only history (separate table for quiet moves) (Task 4.0)
+    /// Enable quiet-move-only history (separate table for quiet moves) (Task
+    /// 4.0)
     pub enable_quiet_only: bool,
     /// Time-based aging decay factor (0.0 to 1.0) (Task 4.0)
     pub time_aging_decay_factor: f32,
@@ -76,20 +80,23 @@ impl Default for HistoryConfig {
 
 /// History heuristic manager
 ///
-/// Manages all history tables (absolute, relative, quiet, phase-aware) and provides
-/// methods for scoring, updating, and aging history entries.
+/// Manages all history tables (absolute, relative, quiet, phase-aware) and
+/// provides methods for scoring, updating, and aging history entries.
 ///
-/// Task 4.0: Enhanced to support phase-aware, relative, time-based aging, and quiet-move-only history.
+/// Task 4.0: Enhanced to support phase-aware, relative, time-based aging, and
+/// quiet-move-only history.
 #[derive(Debug, Clone)]
 pub struct HistoryHeuristicManager {
     /// History table for move scoring (absolute history)
     /// Maps (piece_type, from_square, to_square) -> history score
     history_table: HashMap<(PieceType, Position, Position), u32>,
     /// Relative history table (Task 4.0)
-    /// Maps (from_square, to_square) -> HistoryEntry (when enable_relative is true)
+    /// Maps (from_square, to_square) -> HistoryEntry (when enable_relative is
+    /// true)
     relative_history_table: HashMap<(Position, Position), HistoryEntry>,
     /// Quiet-move-only history table (Task 4.0)
-    /// Maps (piece_type, from_square, to_square) -> HistoryEntry (when enable_quiet_only is true)
+    /// Maps (piece_type, from_square, to_square) -> HistoryEntry (when
+    /// enable_quiet_only is true)
     quiet_history_table: HashMap<(PieceType, Position, Position), HistoryEntry>,
     /// Phase-aware history tables (Task 4.0)
     /// Maps GamePhase -> history table
@@ -237,7 +244,8 @@ impl HistoryHeuristicManager {
     ///
     /// This method should be called when a move causes a cutoff or
     /// improves the alpha bound during search.
-    /// Task 4.0: Enhanced to support relative history, phase-aware history, quiet-move-only history, and time-based aging.
+    /// Task 4.0: Enhanced to support relative history, phase-aware history,
+    /// quiet-move-only history, and time-based aging.
     pub fn update_history_score(
         &mut self,
         move_: &Move,
@@ -323,7 +331,8 @@ impl HistoryHeuristicManager {
     ///
     /// This method reduces all history scores by the aging factor,
     /// helping to prevent overflow and giving more weight to recent moves.
-    /// Task 4.0: Enhanced to age all history table types (absolute, relative, quiet, phase-aware).
+    /// Task 4.0: Enhanced to age all history table types (absolute, relative,
+    /// quiet, phase-aware).
     pub fn age_history_table(&mut self, config: &HistoryConfig) {
         // Determine aging factor based on current game phase if phase-aware
         let aging_factor = if config.enable_phase_aware {
@@ -504,14 +513,16 @@ impl HistoryHeuristicManager {
 
     /// Get relative history entry for a move (for testing)
     ///
-    /// This method is primarily for testing purposes to verify relative history scores.
+    /// This method is primarily for testing purposes to verify relative history
+    /// scores.
     pub fn get_relative_history_entry(&self, key: (Position, Position)) -> Option<&HistoryEntry> {
         self.relative_history_table.get(&key)
     }
 
     /// Get quiet history entry for a move (for testing)
     ///
-    /// This method is primarily for testing purposes to verify quiet history scores.
+    /// This method is primarily for testing purposes to verify quiet history
+    /// scores.
     pub fn get_quiet_history_entry(
         &self,
         key: (PieceType, Position, Position),

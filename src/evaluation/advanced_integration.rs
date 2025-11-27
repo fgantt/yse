@@ -1,7 +1,7 @@
 //! Advanced Integration Module
 //!
-//! This module provides advanced integrations between the tapered evaluation system
-//! and other engine components including:
+//! This module provides advanced integrations between the tapered evaluation
+//! system and other engine components including:
 //! - Opening book integration
 //! - Endgame tablebase integration
 //! - Analysis mode evaluation

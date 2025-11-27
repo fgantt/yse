@@ -1,13 +1,15 @@
 //! Search-Related Types
 //!
-//! This module contains all types related to search algorithms: configurations, statistics,
-//! enums, and helper types for quiescence search, null-move pruning, late move reductions,
-//! internal iterative deepening, aspiration windows, time management, and search state.
+//! This module contains all types related to search algorithms: configurations,
+//! statistics, enums, and helper types for quiescence search, null-move
+//! pruning, late move reductions, internal iterative deepening, aspiration
+//! windows, time management, and search state.
 //!
-//! Extracted from `types.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `types.rs` as part of Task 1.0: File Modularization and
+//! Structure Improvements.
 //!
-//! This is a large module (~3000+ lines) that consolidates all search-related types from
-//! the original 10,482-line types.rs file for better organization.
+//! This is a large module (~3000+ lines) that consolidates all search-related
+//! types from the original 10,482-line types.rs file for better organization.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -40,7 +42,8 @@ impl TranspositionFlag {
 }
 
 /// Source of transposition table entry for priority management
-/// Used to prevent shallow auxiliary search entries from overwriting deeper main search entries
+/// Used to prevent shallow auxiliary search entries from overwriting deeper
+/// main search entries
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EntrySource {
@@ -87,7 +90,8 @@ pub enum TTReplacementPolicy {
 
 impl Default for TTReplacementPolicy {
     fn default() -> Self {
-        TTReplacementPolicy::DepthPreferred // Default to depth-preferred for better tactical accuracy
+        TTReplacementPolicy::DepthPreferred // Default to depth-preferred for
+                                            // better tactical accuracy
     }
 }
 
@@ -153,12 +157,14 @@ pub struct QuiescenceConfig {
     pub enable_futility_pruning: bool,              // Enable futility pruning
     pub enable_selective_extensions: bool,          // Enable selective extensions
     pub enable_tt: bool,                            // Enable transposition table
-    pub enable_adaptive_pruning: bool, // Enable adaptive pruning (adjusts margins based on depth/move count)
-    pub futility_margin: i32,          // Futility pruning margin
-    pub delta_margin: i32,             // Delta pruning margin
-    pub high_value_capture_threshold: i32, // Threshold for high-value captures (excluded from futility pruning)
-    pub tt_size_mb: usize,                 // Quiescence TT size in MB
-    pub tt_cleanup_threshold: usize,       // Threshold for TT cleanup
+    pub enable_adaptive_pruning: bool,              /* Enable adaptive pruning (adjusts margins
+                                                     * based on depth/move count) */
+    pub futility_margin: i32,              // Futility pruning margin
+    pub delta_margin: i32,                 // Delta pruning margin
+    pub high_value_capture_threshold: i32, /* Threshold for high-value captures (excluded from
+                                            * futility pruning) */
+    pub tt_size_mb: usize,                          // Quiescence TT size in MB
+    pub tt_cleanup_threshold: usize,                // Threshold for TT cleanup
     pub tt_replacement_policy: TTReplacementPolicy, // Replacement policy for TT cleanup
 }
 
@@ -173,10 +179,12 @@ impl Default for QuiescenceConfig {
             enable_adaptive_pruning: true, // Adaptive pruning enabled by default
             futility_margin: 200,
             delta_margin: 100,
-            high_value_capture_threshold: 200, // High-value captures (200+ centipawns) excluded from futility pruning
-            tt_size_mb: 4,                     // 4MB for quiescence TT
-            tt_cleanup_threshold: 10000,       // Clean up when TT has 10k entries
-            tt_replacement_policy: TTReplacementPolicy::DepthPreferred, // Default to depth-preferred
+            high_value_capture_threshold: 200, /* High-value captures (200+ centipawns) excluded
+                                                * from futility pruning */
+            tt_size_mb: 4,               // 4MB for quiescence TT
+            tt_cleanup_threshold: 10000, // Clean up when TT has 10k entries
+            tt_replacement_policy: TTReplacementPolicy::DepthPreferred, /* Default to
+                                                                         * depth-preferred */
         }
     }
 }
@@ -257,7 +265,8 @@ impl QuiescenceConfig {
     /// Get a summary of the configuration
     pub fn summary(&self) -> String {
         format!(
-            "QuiescenceConfig: depth={}, delta_pruning={}, futility_pruning={}, extensions={}, tt={}, tt_size={}MB, cleanup_threshold={}",
+            "QuiescenceConfig: depth={}, delta_pruning={}, futility_pruning={}, extensions={}, \
+             tt={}, tt_size={}MB, cleanup_threshold={}",
             self.max_depth,
             self.enable_delta_pruning,
             self.enable_futility_pruning,
@@ -283,7 +292,8 @@ pub struct QuiescenceStats {
     pub capture_moves_found: u64,
     pub promotion_moves_found: u64,
     pub checks_excluded_from_futility: u64, // Checks excluded from futility pruning
-    pub high_value_captures_excluded_from_futility: u64, // High-value captures excluded from futility pruning
+    pub high_value_captures_excluded_from_futility: u64, /* High-value captures excluded from
+                                                          * futility pruning */
     pub move_ordering_cutoffs: u64, // Number of beta cutoffs from move ordering
     pub move_ordering_total_moves: u64, // Total moves ordered
     pub move_ordering_first_move_cutoffs: u64, // Cutoffs from first move in ordering
@@ -343,7 +353,8 @@ impl QuiescenceStats {
     /// Generate a performance report
     pub fn performance_report(&self) -> String {
         format!(
-            "Quiescence Performance: {} nodes, {:.1}% pruning, {:.1}% extensions, {:.1}% TT hit rate",
+            "Quiescence Performance: {} nodes, {:.1}% pruning, {:.1}% extensions, {:.1}% TT hit \
+             rate",
             self.nodes_searched,
             self.pruning_efficiency(),
             self.extension_rate(),
@@ -363,7 +374,8 @@ pub enum DynamicReductionFormula {
     Static,
     /// Linear reduction: R = 2 + depth / 6 (integer division, creates steps)
     Linear,
-    /// Smooth reduction: R = 2 + (depth / 6.0).round() (floating-point with rounding for smoother scaling)
+    /// Smooth reduction: R = 2 + (depth / 6.0).round() (floating-point with
+    /// rounding for smoother scaling)
     Smooth,
 }
 
@@ -394,15 +406,20 @@ impl DynamicReductionFormula {
 /// Advanced reduction strategies for Null Move Pruning
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NullMoveReductionStrategy {
-    /// Static reduction: Always use base `reduction_factor` (R = reduction_factor)
+    /// Static reduction: Always use base `reduction_factor` (R =
+    /// reduction_factor)
     Static,
-    /// Dynamic reduction: Use `dynamic_reduction_formula` (Linear/Smooth scaling)
+    /// Dynamic reduction: Use `dynamic_reduction_formula` (Linear/Smooth
+    /// scaling)
     Dynamic,
-    /// Depth-based reduction: Reduction varies by depth (smaller at shallow depths, larger at deep depths)
+    /// Depth-based reduction: Reduction varies by depth (smaller at shallow
+    /// depths, larger at deep depths)
     DepthBased,
-    /// Material-based reduction: Reduction adjusted by material count (fewer pieces = smaller reduction)
+    /// Material-based reduction: Reduction adjusted by material count (fewer
+    /// pieces = smaller reduction)
     MaterialBased,
-    /// Position-type-based reduction: Different reduction for opening/middlegame/endgame
+    /// Position-type-based reduction: Different reduction for
+    /// opening/middlegame/endgame
     PositionTypeBased,
 }
 
@@ -428,9 +445,11 @@ impl NullMoveReductionStrategy {
 /// Preset configurations for Null Move Pruning
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NullMovePreset {
-    /// Conservative preset: Higher safety margins, lower reduction, stricter endgame detection
+    /// Conservative preset: Higher safety margins, lower reduction, stricter
+    /// endgame detection
     Conservative,
-    /// Aggressive preset: Lower safety margins, higher reduction, relaxed endgame detection
+    /// Aggressive preset: Lower safety margins, higher reduction, relaxed
+    /// endgame detection
     Aggressive,
     /// Balanced preset: Default values optimized for general play
     Balanced,
@@ -457,8 +476,8 @@ impl NullMovePreset {
     }
 }
 
-// Note: NullMoveConfig and NullMoveStats are very large structs (200+ lines each)
-// They will be included in a follow-up commit due to size constraints.
+// Note: NullMoveConfig and NullMoveStats are very large structs (200+ lines
+// each) They will be included in a follow-up commit due to size constraints.
 // For now, we'll add placeholders and complete the extraction incrementally.
 
 /// Configuration for null move pruning parameters
@@ -677,7 +696,8 @@ pub struct NullMoveStats {
     pub disabled_endgame: u64,
     /// Number of times null move was skipped due to time pressure
     pub skipped_time_pressure: u64,
-    /// Total number of cutoffs (alias for cutoffs_after_null_move + cutoffs_after_verification)
+    /// Total number of cutoffs (alias for cutoffs_after_null_move +
+    /// cutoffs_after_verification)
     pub cutoffs: u64,
     /// Number of verification searches that resulted in cutoffs
     pub verification_cutoffs: u64,
@@ -713,13 +733,17 @@ impl NullMoveStats {
 /// Configuration for position classification
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PositionClassificationConfig {
-    /// Tactical threshold: cutoff ratio above which position is classified as tactical (default: 0.3)
+    /// Tactical threshold: cutoff ratio above which position is classified as
+    /// tactical (default: 0.3)
     pub tactical_threshold: f64,
-    /// Quiet threshold: cutoff ratio below which position is classified as quiet (default: 0.1)
+    /// Quiet threshold: cutoff ratio below which position is classified as
+    /// quiet (default: 0.1)
     pub quiet_threshold: f64,
-    /// Material imbalance threshold: material difference above which position is more tactical (default: 300 centipawns)
+    /// Material imbalance threshold: material difference above which position
+    /// is more tactical (default: 300 centipawns)
     pub material_imbalance_threshold: i32,
-    /// Minimum moves threshold: minimum moves considered before classification (default: 5)
+    /// Minimum moves threshold: minimum moves considered before classification
+    /// (default: 5)
     pub min_moves_threshold: u64,
 }
 
@@ -776,7 +800,8 @@ pub enum AdvancedReductionStrategy {
     Basic,
     /// Depth-based reduction scaling (non-linear formulas)
     DepthBased,
-    /// Material-based reduction adjustment (reduce more in material-imbalanced positions)
+    /// Material-based reduction adjustment (reduce more in material-imbalanced
+    /// positions)
     MaterialBased,
     /// History-based reduction (reduce more for moves with poor history scores)
     HistoryBased,
@@ -793,13 +818,16 @@ impl Default for AdvancedReductionStrategy {
 /// Configuration for conditional capture/promotion exemptions
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ConditionalExemptionConfig {
-    /// Enable conditional capture exemption (default: false - all captures exempted)
+    /// Enable conditional capture exemption (default: false - all captures
+    /// exempted)
     pub enable_conditional_capture_exemption: bool,
-    /// Minimum captured piece value to exempt from LMR (default: 100 centipawns)
+    /// Minimum captured piece value to exempt from LMR (default: 100
+    /// centipawns)
     pub min_capture_value_threshold: i32,
     /// Minimum depth for conditional capture exemption (default: 5)
     pub min_depth_for_conditional_capture: u8,
-    /// Enable conditional promotion exemption (default: false - all promotions exempted)
+    /// Enable conditional promotion exemption (default: false - all promotions
+    /// exempted)
     pub enable_conditional_promotion_exemption: bool,
     /// Only exempt tactical promotions (default: true)
     pub exempt_tactical_promotions_only: bool,
@@ -1045,7 +1073,8 @@ impl LMRStats {
     /// Export metrics for analysis
     pub fn export_metrics(&self) -> String {
         format!(
-            "LMR Metrics: {} moves considered, {} reductions, {:.1}% efficiency, {:.1}% research rate",
+            "LMR Metrics: {} moves considered, {} reductions, {:.1}% efficiency, {:.1}% research \
+             rate",
             self.moves_considered,
             self.reductions_applied,
             self.efficiency(),
@@ -1220,9 +1249,11 @@ impl Default for IIDDepthStrategy {
 /// IID configuration presets
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum IIDPreset {
-    /// Conservative preset: Lower time overhead threshold, higher min_depth, shallower IID depth
+    /// Conservative preset: Lower time overhead threshold, higher min_depth,
+    /// shallower IID depth
     Conservative,
-    /// Aggressive preset: Higher time overhead threshold, lower min_depth, deeper IID depth
+    /// Aggressive preset: Higher time overhead threshold, lower min_depth,
+    /// deeper IID depth
     Aggressive,
     /// Balanced preset: Default values optimized for general play
     Balanced,
@@ -1516,7 +1547,8 @@ impl IIDConfig {
         };
 
         format!(
-            "IIDConfig: enabled={}, min_depth={}, iid_depth_ply={}, max_moves={}, overhead_threshold={:.2}, strategy={:?}{}",
+            "IIDConfig: enabled={}, min_depth={}, iid_depth_ply={}, max_moves={}, \
+             overhead_threshold={:.2}, strategy={:?}{}",
             self.enabled,
             self.min_depth,
             self.iid_depth_ply,
@@ -2080,7 +2112,8 @@ pub struct SearchState {
     pub best_move: Option<Move>,
     pub position_hash: u64,
     pub game_phase: GamePhase,
-    /// Position classification for adaptive reduction (optional, computed by SearchEngine)
+    /// Position classification for adaptive reduction (optional, computed by
+    /// SearchEngine)
     pub position_classification: Option<PositionClassification>,
     /// Transposition table best move (optional, retrieved from TT probe)
     pub tt_move: Option<Move>,
@@ -2341,7 +2374,8 @@ pub struct CoreSearchMetrics {
     pub tt_lower_bound_hits: u64,
     /// Number of upper bound entries in TT
     pub tt_upper_bound_hits: u64,
-    /// Number of times auxiliary entry was prevented from overwriting deeper main entry
+    /// Number of times auxiliary entry was prevented from overwriting deeper
+    /// main entry
     pub tt_auxiliary_overwrites_prevented: u64,
     /// Number of times main entry preserved another main entry
     pub tt_main_entries_preserved: u64,
@@ -2372,14 +2406,16 @@ impl CoreSearchMetrics {
     }
 }
 
-// Re-export search-related types from all.rs (temporary until moved to search.rs)
-// These types are still in all.rs but should be accessible via types::search::
+// Re-export search-related types from all.rs (temporary until moved to
+// search.rs) These types are still in all.rs but should be accessible via
+// types::search::
 pub use super::all::{
     EngineConfig, EnginePreset, ParallelOptions, TimePressure, TimePressureThresholds,
 };
 
-// Note: Additional search-related types (SearchMetrics, ParallelSearchMetrics, etc.)
-// will be added in follow-up commits as needed. This module provides the core search types.
+// Note: Additional search-related types (SearchMetrics, ParallelSearchMetrics,
+// etc.) will be added in follow-up commits as needed. This module provides the
+// core search types.
 
 #[cfg(test)]
 mod tests {

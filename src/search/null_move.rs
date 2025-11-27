@@ -1,10 +1,12 @@
 //! Null-Move Pruning Module
 //!
-//! This module handles null-move pruning decision logic, reduction calculations, and safety checks.
-//! The main null-move search and verification functions remain in `search_engine.rs` due to tight
-//! coupling and will be extracted as part of Task 1.8 (coordinator refactoring).
+//! This module handles null-move pruning decision logic, reduction
+//! calculations, and safety checks. The main null-move search and verification
+//! functions remain in `search_engine.rs` due to tight coupling and will be
+//! extracted as part of Task 1.8 (coordinator refactoring).
 //!
-//! Extracted from `search_engine.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `search_engine.rs` as part of Task 1.0: File Modularization
+//! and Structure Improvements.
 
 use crate::bitboards::BitboardBoard;
 use crate::types::board::CapturedPieces;
@@ -128,7 +130,8 @@ impl NullMoveHelper {
                 }
             }
             NullMoveReductionStrategy::PositionTypeBased => {
-                // Position-type-based reduction: Different reduction for opening/middlegame/endgame
+                // Position-type-based reduction: Different reduction for
+                // opening/middlegame/endgame
                 let piece_count = self.count_pieces_on_board(board);
 
                 // Classify position type (simplified: use piece count as proxy)
@@ -146,24 +149,27 @@ impl NullMoveHelper {
         }
     }
 
-    /// Check if verification search should be performed based on null move score
+    /// Check if verification search should be performed based on null move
+    /// score
     ///
-    /// Verification is triggered when null move failed (score < beta) but is within the safety margin
+    /// Verification is triggered when null move failed (score < beta) but is
+    /// within the safety margin
     pub fn should_perform_verification(&self, null_move_score: i32, beta: i32) -> bool {
         if self.config.verification_margin == 0 {
             // Verification disabled
             return false;
         }
 
-        // Verification is needed if null move failed (score < beta) but is close to beta
-        // i.e., beta - null_move_score <= verification_margin
+        // Verification is needed if null move failed (score < beta) but is close to
+        // beta i.e., beta - null_move_score <= verification_margin
         null_move_score < beta && (beta - null_move_score) <= self.config.verification_margin
     }
 
     /// Check if a score indicates a potential mate threat
     ///
-    /// A mate threat is detected when the null move score is very high (close to beta)
-    /// suggesting the position might be winning (mate threat present)
+    /// A mate threat is detected when the null move score is very high (close
+    /// to beta) suggesting the position might be winning (mate threat
+    /// present)
     pub fn is_mate_threat_score(&self, null_move_score: i32, beta: i32) -> bool {
         if !self.config.enable_mate_threat_detection {
             return false;
@@ -172,19 +178,22 @@ impl NullMoveHelper {
             return false;
         }
 
-        // Mate threat detected if score is very close to beta (within mate_threat_margin)
-        // This suggests the position is winning and might contain a mate threat
+        // Mate threat detected if score is very close to beta (within
+        // mate_threat_margin) This suggests the position is winning and might
+        // contain a mate threat
         null_move_score >= (beta - self.config.mate_threat_margin)
     }
 
-    /// Check if position is safe for null move pruning with additional safety checks
+    /// Check if position is safe for null move pruning with additional safety
+    /// checks
     fn is_safe_for_null_move(
         &self,
         board: &BitboardBoard,
         _captured_pieces: &CapturedPieces,
         player: Player,
     ) -> bool {
-        // Check if we have major pieces (rooks, bishops, golds) - more conservative in endgame
+        // Check if we have major pieces (rooks, bishops, golds) - more conservative in
+        // endgame
         let major_piece_count = self.count_major_pieces(board, player);
         if major_piece_count < 2 {
             return false; // Too few major pieces - potential zugzwang risk
@@ -215,7 +224,8 @@ impl NullMoveHelper {
         let opponent = player.opposite();
         let opponent_major_pieces = self.count_major_pieces(board, opponent);
         if opponent_major_pieces >= 3 {
-            return false; // Opponent has strong pieces - potential tactical danger
+            return false; // Opponent has strong pieces - potential tactical
+                          // danger
         }
 
         true

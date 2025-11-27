@@ -1,6 +1,7 @@
 //! Tapered Evaluation Search Integration
 //!
-//! This module provides search enhancements that leverage the tapered evaluation system:
+//! This module provides search enhancements that leverage the tapered
+//! evaluation system:
 //! - Phase tracking during search
 //! - Phase-aware pruning decisions
 //! - Phase-aware move ordering

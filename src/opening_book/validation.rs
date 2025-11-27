@@ -91,7 +91,8 @@ impl BookValidator {
 
     /// Validate weight/evaluation consistency
     ///
-    /// Checks that weights correlate with evaluations (high weight → high eval).
+    /// Checks that weights correlate with evaluations (high weight → high
+    /// eval).
     pub fn validate_weight_evaluation_consistency(
         book: &OpeningBook,
     ) -> (usize, Vec<(String, String)>) {
@@ -117,7 +118,8 @@ impl BookValidator {
                     let weight_diff = move1.weight as i32 - move2.weight as i32;
                     let eval_diff = move1.evaluation - move2.evaluation;
 
-                    // If weight difference is significant (>200) but eval difference is opposite or small
+                    // If weight difference is significant (>200) but eval difference is opposite or
+                    // small
                     if weight_diff.abs() > 200 {
                         if (weight_diff > 0 && eval_diff < -50)
                             || (weight_diff < 0 && eval_diff > 50)
@@ -183,7 +185,8 @@ impl BookValidator {
 
     /// Validate position bounds
     ///
-    /// Verifies that all positions (from/to) are within board bounds (0-8 for row/col).
+    /// Verifies that all positions (from/to) are within board bounds (0-8 for
+    /// row/col).
     pub fn validate_position_bounds(book: &OpeningBook) -> (usize, Vec<(String, String)>) {
         let mut out_of_bounds = 0;
         let mut details = Vec::new();

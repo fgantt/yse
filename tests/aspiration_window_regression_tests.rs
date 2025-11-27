@@ -11,8 +11,9 @@ mod aspiration_window_regression_tests {
 
     // ===== REGRESSION TESTS FOR ORIGINAL ISSUES =====
 
-    /// Test that aspiration window search never completely fails (regression test)
-    /// This specifically tests the fix for the immediate break on search failure
+    /// Test that aspiration window search never completely fails (regression
+    /// test) This specifically tests the fix for the immediate break on
+    /// search failure
     #[test]
     fn regression_test_aspiration_window_complete_failure() {
         let mut engine = SearchEngine::new();

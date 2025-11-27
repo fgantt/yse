@@ -1,11 +1,13 @@
 //! Reductions Module (LMR and IID)
 //!
-//! This module handles Late Move Reductions (LMR) and Internal Iterative Deepening (IID)
-//! helper functions for depth calculations, effectiveness checks, and adaptive parameter
-//! recommendations. The main search functions remain in `search_engine.rs` due to tight
-//! coupling and will be extracted as part of Task 1.8 (coordinator refactoring).
+//! This module handles Late Move Reductions (LMR) and Internal Iterative
+//! Deepening (IID) helper functions for depth calculations, effectiveness
+//! checks, and adaptive parameter recommendations. The main search functions
+//! remain in `search_engine.rs` due to tight coupling and will be extracted as
+//! part of Task 1.8 (coordinator refactoring).
 //!
-//! Extracted from `search_engine.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `search_engine.rs` as part of Task 1.0: File Modularization
+//! and Structure Improvements.
 
 use crate::bitboards::BitboardBoard;
 use crate::types::board::CapturedPieces;

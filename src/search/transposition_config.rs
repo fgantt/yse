@@ -1,7 +1,8 @@
 //! Configuration system for transposition table
 //!
-//! This module provides a flexible configuration system for the transposition table,
-//! allowing customization of table size, replacement policies, and other parameters.
+//! This module provides a flexible configuration system for the transposition
+//! table, allowing customization of table size, replacement policies, and other
+//! parameters.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -74,8 +75,8 @@ pub struct TranspositionConfig {
     pub collision_strategy: CollisionStrategy,
     /// Whether to validate hash keys on probe
     pub validate_hash_keys: bool,
-    /// Number of lock buckets for parallel write performance (must be power of 2)
-    /// Higher values reduce contention but increase memory overhead
+    /// Number of lock buckets for parallel write performance (must be power of
+    /// 2) Higher values reduce contention but increase memory overhead
     /// Recommended: 256 for 4-8 threads, 512 for 16+ threads
     pub bucket_count: usize,
     /// Weight for depth in depth-and-age replacement policy
@@ -419,10 +420,7 @@ impl ConfigSummary {
     /// Get a formatted string representation
     pub fn to_string(&self) -> String {
         format!(
-            "Table Size: {} entries ({} MB)\n\
-             Replacement Policy: {:?}\n\
-             Max Age: {}\n\
-             Features: {}",
+            "Table Size: {} entries ({} MB)\nReplacement Policy: {:?}\nMax Age: {}\nFeatures: {}",
             self.table_size,
             self.estimated_memory_mb,
             self.replacement_policy,

@@ -1,7 +1,7 @@
 //! Pattern Recognition Configuration Module
 //!
-//! This module provides comprehensive configuration for all pattern recognition features.
-//! It supports:
+//! This module provides comprehensive configuration for all pattern recognition
+//! features. It supports:
 //! - Individual pattern type enable/disable
 //! - Weight configuration for all patterns
 //! - Runtime configuration updates
@@ -556,7 +556,8 @@ mod tests {
         // Reset and test with all patterns disabled
         config = PatternConfig::default();
         config.disable_all();
-        assert!(config.validate().is_err()); // Should fail - no patterns enabled
+        assert!(config.validate().is_err()); // Should fail - no patterns
+                                             // enabled
     }
 
     #[test]

@@ -1,16 +1,17 @@
 //! De Bruijn sequence implementation for bit scanning optimization
 //!
-//! This module provides efficient bit position determination using De Bruijn sequences.
-//! De Bruijn sequences allow O(1) bit position lookup using multiplication and table lookup,
-//! making them ideal for bit scanning operations.
+//! This module provides efficient bit position determination using De Bruijn
+//! sequences. De Bruijn sequences allow O(1) bit position lookup using
+//! multiplication and table lookup, making them ideal for bit scanning
+//! operations.
 
 use crate::types::Bitboard;
 
 /// De Bruijn sequence for 64-bit bitboards
 ///
-/// This is a carefully chosen De Bruijn sequence that has the property that when
-/// multiplied by any power of 2 (isolated bit), the high-order bits contain a
-/// unique identifier for the bit position.
+/// This is a carefully chosen De Bruijn sequence that has the property that
+/// when multiplied by any power of 2 (isolated bit), the high-order bits
+/// contain a unique identifier for the bit position.
 const DEBRUIJN64: u64 = 0x03f79d71b4cb0a89;
 
 /// Lookup table for bit positions using De Bruijn sequence
@@ -43,7 +44,8 @@ const DEBRUIJN_REVERSE_SHIFT: u32 = 58;
 /// * `bb` - The bitboard to scan
 ///
 /// # Returns
-/// The position of the least significant bit (0-based), or None if the bitboard is empty
+/// The position of the least significant bit (0-based), or None if the bitboard
+/// is empty
 ///
 /// # Performance
 /// This implementation provides O(1) bit position determination using:
@@ -83,7 +85,8 @@ pub fn bit_scan_forward_debruijn(bb: Bitboard) -> Option<u8> {
 /// * `bb` - The bitboard to scan
 ///
 /// # Returns
-/// The position of the most significant bit (0-based), or None if the bitboard is empty
+/// The position of the most significant bit (0-based), or None if the bitboard
+/// is empty
 ///
 /// # Performance
 /// This implementation provides O(1) bit position determination using:
@@ -125,9 +128,9 @@ pub fn bit_scan_reverse_debruijn(bb: Bitboard) -> Option<u8> {
 /// 4. Look up position in table: `DEBRUIJN_TABLE[index]`
 ///
 /// # Why This Works
-/// The De Bruijn sequence has the property that when multiplied by any power of 2,
-/// the high-order bits of the result contain a unique pattern that can be used
-/// to determine the original bit position.
+/// The De Bruijn sequence has the property that when multiplied by any power of
+/// 2, the high-order bits of the result contain a unique pattern that can be
+/// used to determine the original bit position.
 fn bit_scan_forward_debruijn_64(bb: u64) -> u8 {
     let isolated_bit = bb & (!bb).wrapping_add(1); // Isolate least significant bit
     let index = (isolated_bit.wrapping_mul(DEBRUIJN64) >> DEBRUIJN_REVERSE_SHIFT) as usize;
@@ -153,8 +156,8 @@ fn bit_scan_reverse_debruijn_64(bb: u64) -> u8 {
 
 /// Get all bit positions using De Bruijn sequences
 ///
-/// This function returns all bit positions in a bitboard using De Bruijn sequences
-/// for efficient position determination.
+/// This function returns all bit positions in a bitboard using De Bruijn
+/// sequences for efficient position determination.
 ///
 /// # Arguments
 /// * `bb` - The bitboard to process
@@ -267,18 +270,15 @@ pub fn validate_debruijn_sequence() -> bool {
 
 /// Get De Bruijn sequence information
 ///
-/// This function returns information about the De Bruijn sequence configuration,
-/// useful for debugging and validation.
+/// This function returns information about the De Bruijn sequence
+/// configuration, useful for debugging and validation.
 ///
 /// # Returns
 /// A string containing information about the De Bruijn sequence
 pub fn get_debruijn_info() -> String {
     format!(
-        "De Bruijn Sequence Info:\n\
-         Sequence: 0x{:016X}\n\
-         Table Size: {} bytes\n\
-         Lookup Entries: {}\n\
-         Shift Amount: {}",
+        "De Bruijn Sequence Info:\nSequence: 0x{:016X}\nTable Size: {} bytes\nLookup Entries: \
+         {}\nShift Amount: {}",
         DEBRUIJN64,
         std::mem::size_of_val(&DEBRUIJN_TABLE),
         DEBRUIJN_TABLE.len(),

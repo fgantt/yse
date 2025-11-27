@@ -1,8 +1,8 @@
 //! Memory-mapped file support for large magic tables
 //!
-//! This module provides memory-mapped file support for loading large magic tables
-//! from disk without loading the entire file into memory. This is useful for
-//! tables larger than 100MB where memory usage is a concern.
+//! This module provides memory-mapped file support for loading large magic
+//! tables from disk without loading the entire file into memory. This is useful
+//! for tables larger than 100MB where memory usage is a concern.
 
 use crate::types::core::PieceType;
 use crate::types::{Bitboard, MagicError, MagicTable};
@@ -26,8 +26,9 @@ pub struct MemoryMappedMagicTable {
 impl MemoryMappedMagicTable {
     /// Create a memory-mapped magic table from a file
     ///
-    /// The file must be a valid magic table file (created by `MagicTable::save_to_file()`).
-    /// For tables larger than 100MB, this is more memory-efficient than loading into RAM.
+    /// The file must be a valid magic table file (created by
+    /// `MagicTable::save_to_file()`). For tables larger than 100MB, this is
+    /// more memory-efficient than loading into RAM.
     pub fn from_file<P: AsRef<Path>>(path: P) -> Result<Self, MagicError> {
         let path = path.as_ref();
         let file = File::open(path)

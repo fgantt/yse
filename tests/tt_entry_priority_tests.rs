@@ -23,7 +23,8 @@ mod tt_priority_tests {
         CapturedPieces::new()
     }
 
-    /// Test 7.0.3.12: Verify NMP shallow entry doesn't overwrite deeper main search entry
+    /// Test 7.0.3.12: Verify NMP shallow entry doesn't overwrite deeper main
+    /// search entry
     #[test]
     fn test_nmp_doesnt_overwrite_deeper_main_entry() {
         let mut engine = create_test_engine();
@@ -60,7 +61,8 @@ mod tt_priority_tests {
         assert!(metrics.tt_auxiliary_overwrites_prevented >= 0);
     }
 
-    /// Test 7.0.3.13: Verify IID shallow entry doesn't overwrite deeper main search entry
+    /// Test 7.0.3.13: Verify IID shallow entry doesn't overwrite deeper main
+    /// search entry
     #[test]
     fn test_iid_doesnt_overwrite_deeper_main_entry() {
         let mut engine = create_test_engine();
@@ -94,7 +96,8 @@ mod tt_priority_tests {
         assert!(metrics.tt_auxiliary_overwrites_prevented >= 0);
     }
 
-    /// Test 7.0.3.14: Integration test measuring TT hit rate improvement with priority system
+    /// Test 7.0.3.14: Integration test measuring TT hit rate improvement with
+    /// priority system
     #[test]
     fn test_tt_hit_rate_with_priority_system() {
         let mut engine = create_test_engine();
@@ -171,7 +174,8 @@ mod tt_priority_tests {
         println!("Search completed, metrics recorded");
         println!("Auxiliary overwrites prevented: {}", metrics.tt_auxiliary_overwrites_prevented);
 
-        // Test passes if no panics occur - main entries should be able to overwrite auxiliary
+        // Test passes if no panics occur - main entries should be able to overwrite
+        // auxiliary
         assert!(true);
     }
 

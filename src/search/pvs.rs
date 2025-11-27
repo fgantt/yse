@@ -1,11 +1,12 @@
 //! Principal Variation Search (PVS) Module
 //!
-//! This module handles PVS helper functions for bounds validation, score conversion, and
-//! search result validation. The main `negamax_with_context()` function remains in
-//! `search_engine.rs` due to tight coupling and will be extracted as part of Task 1.8
-//! (coordinator refactoring).
+//! This module handles PVS helper functions for bounds validation, score
+//! conversion, and search result validation. The main `negamax_with_context()`
+//! function remains in `search_engine.rs` due to tight coupling and will be
+//! extracted as part of Task 1.8 (coordinator refactoring).
 //!
-//! Extracted from `search_engine.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `search_engine.rs` as part of Task 1.0: File Modularization
+//! and Structure Improvements.
 
 use crate::types::core::Move;
 

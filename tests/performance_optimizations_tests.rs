@@ -19,8 +19,9 @@ fn test_evaluation_caching() {
     evaluator.evaluate_endgame(&board, Player::Black, &captured_pieces);
 
     // Cache should be populated
-    // Note: We can't directly check cache size, but we can verify it works by checking performance
-    // or by checking that subsequent evaluations are faster (would need benchmarks)
+    // Note: We can't directly check cache size, but we can verify it works by
+    // checking performance or by checking that subsequent evaluations are
+    // faster (would need benchmarks)
 
     // Clear cache
     evaluator.clear_cache();

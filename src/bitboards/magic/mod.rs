@@ -1,9 +1,10 @@
 //! Magic Bitboards Module
 //!
-//! This module provides a complete implementation of magic bitboards for efficient
-//! sliding piece move generation in Shogi. Magic bitboards use precomputed lookup
-//! tables with carefully chosen magic numbers to hash occupied squares, providing
-//! 3-5x faster sliding piece move generation compared to traditional ray-casting.
+//! This module provides a complete implementation of magic bitboards for
+//! efficient sliding piece move generation in Shogi. Magic bitboards use
+//! precomputed lookup tables with carefully chosen magic numbers to hash
+//! occupied squares, providing 3-5x faster sliding piece move generation
+//! compared to traditional ray-casting.
 //!
 //! # Overview
 //!
@@ -25,7 +26,7 @@
 //!
 //! ```rust
 //! use crate::bitboards::magic::MagicTable;
-//! use crate::types::{PieceType, Bitboard};
+//! use crate::types::{Bitboard, PieceType};
 //!
 //! // Create magic table
 //! let magic_table = MagicTable::new()?;

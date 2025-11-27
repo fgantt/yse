@@ -184,7 +184,8 @@ fn test_basic_parallel_search_2_threads() {
     let moves = move_generator.generate_legal_moves(&board, player, &captured_pieces);
 
     if !moves.is_empty() {
-        // Perform parallel search with very shallow depth and short time limit for testing
+        // Perform parallel search with very shallow depth and short time limit for
+        // testing
         let _result = engine.search_root_moves(
             &board,
             &captured_pieces,
@@ -196,8 +197,8 @@ fn test_basic_parallel_search_2_threads() {
             i32::MAX - 1,
         );
 
-        // Should return a result (may be None if search is interrupted, but shouldn't panic)
-        // Just verify the method completes without error
+        // Should return a result (may be None if search is interrupted, but shouldn't
+        // panic) Just verify the method completes without error
         assert!(true, "Parallel search completed");
     }
 }

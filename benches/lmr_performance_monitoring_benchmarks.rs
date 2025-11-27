@@ -13,7 +13,8 @@
 //! - Performance by game phase
 //! - Performance alerts and thresholds
 //!
-//! This suite is designed for CI/CD integration and performance tracking over time.
+//! This suite is designed for CI/CD integration and performance tracking over
+//! time.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use shogi_engine::{

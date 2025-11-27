@@ -1,11 +1,13 @@
 //! Iterative Deepening Module
 //!
-//! This module handles iterative deepening and aspiration window helper functions for window
-//! size calculation, validation, and fail-high/fail-low handling. The main iterative deepening
-//! search loop remains in `search_engine.rs` due to tight coupling and will be extracted as
+//! This module handles iterative deepening and aspiration window helper
+//! functions for window size calculation, validation, and fail-high/fail-low
+//! handling. The main iterative deepening search loop remains in
+//! `search_engine.rs` due to tight coupling and will be extracted as
 //! part of Task 1.8 (coordinator refactoring).
 //!
-//! Extracted from `search_engine.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `search_engine.rs` as part of Task 1.0: File Modularization
+//! and Structure Improvements.
 
 use crate::types::search::{AspirationWindowConfig, AspirationWindowStats};
 

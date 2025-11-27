@@ -1,9 +1,11 @@
 //! Component Dependency Graph Validation
 //!
-//! This module provides validation logic for component dependencies in the evaluation system.
-//! It checks for conflicts, missing complements, missing requirements, and phase compatibility.
+//! This module provides validation logic for component dependencies in the
+//! evaluation system. It checks for conflicts, missing complements, missing
+//! requirements, and phase compatibility.
 //!
-//! Extracted from `integration.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `integration.rs` as part of Task 1.0: File Modularization and
+//! Structure Improvements.
 
 use crate::evaluation::config::{
     ComponentDependencyGraph, ComponentDependencyWarning, ComponentId,
@@ -37,9 +39,9 @@ impl<'a> DependencyValidator<'a> {
 
     /// Validate component dependencies
     ///
-    /// Returns a vector of warnings for potential issues. These are informational
-    /// and don't prevent the configuration from being used, but may indicate
-    /// suboptimal settings.
+    /// Returns a vector of warnings for potential issues. These are
+    /// informational and don't prevent the configuration from being used,
+    /// but may indicate suboptimal settings.
     pub fn validate_component_dependencies(&self) -> Vec<ComponentDependencyWarning> {
         let mut warnings = Vec::new();
 
@@ -112,13 +114,14 @@ impl<'a> DependencyValidator<'a> {
         }
 
         // Legacy warnings for backward compatibility
-        // Note: Automatically handled via center_control_precedence, but still warn for visibility
+        // Note: Automatically handled via center_control_precedence, but still warn for
+        // visibility
         if self.components.position_features && self.components.positional_patterns {
             warnings.push(ComponentDependencyWarning::CenterControlOverlap);
         }
 
-        // Note: Automatically handled during evaluation (opening_principles takes precedence in opening),
-        // but still warn for visibility
+        // Note: Automatically handled during evaluation (opening_principles takes
+        // precedence in opening), but still warn for visibility
         if self.components.position_features && self.components.opening_principles {
             warnings.push(ComponentDependencyWarning::DevelopmentOverlap);
         }
@@ -138,15 +141,24 @@ impl<'a> DependencyValidator<'a> {
                     let suggestion = if matches!(id1, ComponentId::PositionalPatterns)
                         && matches!(id2, ComponentId::PositionFeaturesCenterControl)
                     {
-                        format!("Disable position_features.center_control (positional_patterns takes precedence)")
+                        format!(
+                            "Disable position_features.center_control (positional_patterns takes \
+                             precedence)"
+                        )
                     } else if matches!(id1, ComponentId::OpeningPrinciples)
                         && matches!(id2, ComponentId::PositionFeaturesDevelopment)
                     {
-                        format!("Disable position_features.development in opening (opening_principles takes precedence)")
+                        format!(
+                            "Disable position_features.development in opening (opening_principles \
+                             takes precedence)"
+                        )
                     } else if matches!(id1, ComponentId::EndgamePatterns)
                         && matches!(id2, ComponentId::PositionFeaturesPassedPawns)
                     {
-                        format!("Disable position_features.passed_pawns in endgame (endgame_patterns takes precedence)")
+                        format!(
+                            "Disable position_features.passed_pawns in endgame (endgame_patterns \
+                             takes precedence)"
+                        )
                     } else {
                         format!("Disable either {:?} or {:?} to resolve conflict", id1, id2)
                     };
@@ -158,7 +170,8 @@ impl<'a> DependencyValidator<'a> {
         suggestions
     }
 
-    /// Automatically resolve conflicts by disabling components based on precedence
+    /// Automatically resolve conflicts by disabling components based on
+    /// precedence
     pub fn auto_resolve_conflicts(&self) -> Vec<String> {
         let mut resolutions = Vec::new();
 
@@ -170,7 +183,8 @@ impl<'a> DependencyValidator<'a> {
                     if matches!(id1, ComponentId::PositionalPatterns)
                         && matches!(id2, ComponentId::PositionFeaturesCenterControl)
                     {
-                        // Positional patterns take precedence - handled by center_control_precedence
+                        // Positional patterns take precedence - handled by
+                        // center_control_precedence
                         resolutions.push(
                             "Center control conflict resolved via center_control_precedence"
                                 .to_string(),
@@ -178,13 +192,23 @@ impl<'a> DependencyValidator<'a> {
                     } else if matches!(id1, ComponentId::OpeningPrinciples)
                         && matches!(id2, ComponentId::PositionFeaturesDevelopment)
                     {
-                        // Opening principles take precedence in opening - already handled during evaluation
-                        resolutions.push("Development conflict resolved (opening_principles takes precedence in opening)".to_string());
+                        // Opening principles take precedence in opening - already handled during
+                        // evaluation
+                        resolutions.push(
+                            "Development conflict resolved (opening_principles takes precedence \
+                             in opening)"
+                                .to_string(),
+                        );
                     } else if matches!(id1, ComponentId::EndgamePatterns)
                         && matches!(id2, ComponentId::PositionFeaturesPassedPawns)
                     {
-                        // Endgame patterns take precedence in endgame - already handled during evaluation
-                        resolutions.push("Passed pawns conflict resolved (endgame_patterns takes precedence in endgame)".to_string());
+                        // Endgame patterns take precedence in endgame - already handled during
+                        // evaluation
+                        resolutions.push(
+                            "Passed pawns conflict resolved (endgame_patterns takes precedence in \
+                             endgame)"
+                                .to_string(),
+                        );
                     }
                 }
             }
@@ -196,7 +220,8 @@ impl<'a> DependencyValidator<'a> {
     /// Check phase compatibility for component usage
     ///
     /// Analyzes recent phase history to detect phase-component mismatches.
-    /// Returns warnings if components are enabled but phase is consistently outside their effective range.
+    /// Returns warnings if components are enabled but phase is consistently
+    /// outside their effective range.
     pub fn check_phase_compatibility(
         &self,
         phase_history: &[i32],
@@ -212,13 +237,15 @@ impl<'a> DependencyValidator<'a> {
         // Check if phases are consistently in a particular range
         let avg_phase: i32 = phase_history.iter().sum::<i32>() / phase_history.len() as i32;
 
-        // Warn when opening_principles is enabled but phase is consistently < opening_threshold
+        // Warn when opening_principles is enabled but phase is consistently <
+        // opening_threshold
         if self.components.opening_principles && avg_phase < opening_threshold {
             warnings.push(ComponentDependencyWarning::EndgamePatternsNotInEndgame);
             // Reuse for now
         }
 
-        // Warn when endgame_patterns is enabled but phase is consistently >= endgame_threshold
+        // Warn when endgame_patterns is enabled but phase is consistently >=
+        // endgame_threshold
         if self.components.endgame_patterns && avg_phase >= endgame_threshold {
             warnings.push(ComponentDependencyWarning::EndgamePatternsNotInEndgame);
         }

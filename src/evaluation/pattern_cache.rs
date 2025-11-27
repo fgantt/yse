@@ -1,7 +1,7 @@
 //! Pattern Result Caching Module
 //!
-//! This module provides caching for pattern recognition results to improve performance.
-//! Features:
+//! This module provides caching for pattern recognition results to improve
+//! performance. Features:
 //! - Pattern result caching with position hashing
 //! - Incremental pattern updates
 //! - Cache invalidation strategies

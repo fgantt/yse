@@ -8,10 +8,11 @@
 //!
 //! # Benchmarks
 //!
-//! - `pst_evaluation_with_memory_optimizations`: Measures PST evaluation performance
-//!   with memory optimizations enabled
+//! - `pst_evaluation_with_memory_optimizations`: Measures PST evaluation
+//!   performance with memory optimizations enabled
 //! - `pst_evaluation_without_memory_optimizations`: Baseline comparison
-//! - `pst_table_access_patterns`: Measures cache performance of different access patterns
+//! - `pst_table_access_patterns`: Measures cache performance of different
+//!   access patterns
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use shogi_engine::bitboards::BitboardBoard;

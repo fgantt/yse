@@ -7,14 +7,15 @@ use crate::types::transposition::TranspositionEntry;
 /// Basic transposition table for caching search results
 ///
 /// This struct provides a hash table-based cache for storing and retrieving
-/// transposition table entries. It supports configurable size, replacement policies,
-/// and comprehensive statistics tracking.
+/// transposition table entries. It supports configurable size, replacement
+/// policies, and comprehensive statistics tracking.
 ///
 /// # Hash Key Generation
 ///
 /// **Important:** This basic table does NOT generate hash keys internally.
-/// Callers must provide valid hash keys when storing entries, typically generated
-/// using a Zobrist hasher for the board position. Hash keys are used for:
+/// Callers must provide valid hash keys when storing entries, typically
+/// generated using a Zobrist hasher for the board position. Hash keys are used
+/// for:
 /// - Converting positions to table indices
 /// - Detecting hash collisions
 /// - Validating entry integrity
@@ -23,8 +24,8 @@ use crate::types::transposition::TranspositionEntry;
 ///
 /// # Statistics Tracking
 ///
-/// By default, statistics and memory tracking are disabled to avoid incidental overhead.
-/// Use `TranspositionTable::with_statistics_tracking()` or configure
+/// By default, statistics and memory tracking are disabled to avoid incidental
+/// overhead. Use `TranspositionTable::with_statistics_tracking()` or configure
 /// `TranspositionTableConfig` to explicitly enable these features when needed.
 pub struct TranspositionTable {
     /// The actual hash table storing entries
@@ -57,7 +58,8 @@ pub struct TranspositionTableConfig {
 }
 
 impl TranspositionTableConfig {
-    /// Enable or disable statistics tracking (also toggles memory tracking when enabled)
+    /// Enable or disable statistics tracking (also toggles memory tracking when
+    /// enabled)
     pub fn with_statistics_tracking(mut self, enable: bool) -> Self {
         self.track_statistics = enable;
         if !enable {
@@ -122,7 +124,8 @@ impl TranspositionTable {
         Self { entries: vec![None; size], size, age: 0, hits: 0, misses: 0, memory_usage, config }
     }
 
-    /// Create a new transposition table with statistics and memory tracking enabled
+    /// Create a new transposition table with statistics and memory tracking
+    /// enabled
     pub fn with_statistics_tracking() -> Self {
         let mut config = TranspositionTableConfig::default();
         config.track_statistics = true;

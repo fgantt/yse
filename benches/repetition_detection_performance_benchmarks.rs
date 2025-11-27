@@ -1,4 +1,5 @@
-//! Performance benchmarks for hash-based vs FEN-based repetition detection (Task 5.14)
+//! Performance benchmarks for hash-based vs FEN-based repetition detection
+//! (Task 5.14)
 //!
 //! This benchmark compares:
 //! - Hash-based repetition detection (current implementation)

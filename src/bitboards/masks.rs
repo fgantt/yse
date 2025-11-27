@@ -1,8 +1,9 @@
 //! Precomputed masks for Shogi board geometry
 //!
-//! This module provides precomputed bitboard masks for common Shogi board patterns
-//! including ranks, files, and diagonals. These masks are optimized for the 9x9
-//! Shogi board layout and provide O(1) lookup performance for geometric operations.
+//! This module provides precomputed bitboard masks for common Shogi board
+//! patterns including ranks, files, and diagonals. These masks are optimized
+//! for the 9x9 Shogi board layout and provide O(1) lookup performance for
+//! geometric operations.
 
 use crate::types::Bitboard;
 
@@ -463,13 +464,9 @@ pub fn same_diagonal(square1: u8, square2: u8) -> bool {
 /// A string containing information about all masks
 pub fn get_masks_info() -> String {
     format!(
-        "Shogi Board Masks Info:\n\
-         Board Size: 9x9 (81 squares)\n\
-         Rank Masks: {} entries, {} bytes\n\
-         File Masks: {} entries, {} bytes\n\
-         Diagonal Masks: {} entries, {} bytes\n\
-         Total Memory: {} bytes\n\
-         Board Layout: 0-80 (rank 0 bottom, rank 8 top)",
+        "Shogi Board Masks Info:\nBoard Size: 9x9 (81 squares)\nRank Masks: {} entries, {} \
+         bytes\nFile Masks: {} entries, {} bytes\nDiagonal Masks: {} entries, {} bytes\nTotal \
+         Memory: {} bytes\nBoard Layout: 0-80 (rank 0 bottom, rank 8 top)",
         RANK_MASKS.len(),
         std::mem::size_of_val(&RANK_MASKS),
         FILE_MASKS.len(),

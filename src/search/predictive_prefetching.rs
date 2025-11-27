@@ -6,11 +6,13 @@
 //!
 //! # Features
 //!
-//! - **Multiple Prediction Strategies**: Move-based, depth-based, and pattern-based
+//! - **Multiple Prediction Strategies**: Move-based, depth-based, and
+//!   pattern-based
 //! - **Adaptive Learning**: Learns from access patterns to improve predictions
 //! - **Configurable Prefetching**: Adjustable prefetch depth and aggressiveness
 //! - **Performance Monitoring**: Tracks prefetch hit rates and effectiveness
-//! - **Memory Efficient**: Minimal overhead while providing significant benefits
+//! - **Memory Efficient**: Minimal overhead while providing significant
+//!   benefits
 //!
 //! # Usage
 //!

@@ -1,6 +1,8 @@
-//! Integration tests for evaluation system coordination and double-counting prevention
+//! Integration tests for evaluation system coordination and double-counting
+//! prevention
 //!
-//! Tests for Task 20.0 - Task 1.0: Double-Counting Prevention and Conflict Resolution
+//! Tests for Task 20.0 - Task 1.0: Double-Counting Prevention and Conflict
+//! Resolution
 
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::config::ComponentDependencyWarning;
@@ -15,7 +17,8 @@ fn test_center_control_conflict_resolution() {
     let board = BitboardBoard::new();
     let captured_pieces = CapturedPieces::new();
 
-    // Test 1: PositionalPatterns precedence (default) - skip position_features center control
+    // Test 1: PositionalPatterns precedence (default) - skip position_features
+    // center control
     let mut config1 = IntegratedEvaluationConfig::default();
     config1.components.position_features = true;
     config1.components.positional_patterns = true;
@@ -59,14 +62,16 @@ fn test_center_control_conflict_resolution() {
 
 #[test]
 fn test_development_overlap_coordination() {
-    // Test that development is skipped in position_features when opening_principles is enabled
-    // and we're in opening phase (phase >= opening_threshold, default: 192)
+    // Test that development is skipped in position_features when opening_principles
+    // is enabled and we're in opening phase (phase >= opening_threshold,
+    // default: 192)
 
     let board = BitboardBoard::new();
     let captured_pieces = CapturedPieces::new();
 
     // Create a position in opening phase (phase >= 192)
-    // Starting position has phase ~256, which is >= 192, so opening_principles will evaluate
+    // Starting position has phase ~256, which is >= 192, so opening_principles will
+    // evaluate
 
     // Test 1: Both position_features and opening_principles enabled
     // Development should be skipped in position_features when in opening
@@ -204,7 +209,8 @@ fn test_validate_component_dependencies() {
     assert!(warnings3.contains(&ComponentDependencyWarning::DevelopmentOverlap));
 }
 
-// Task 3.0 - Task 3.29: Additional tests to verify no double-counting occurs in evaluation coordination
+// Task 3.0 - Task 3.29: Additional tests to verify no double-counting occurs in
+// evaluation coordination
 
 #[test]
 fn test_no_double_counting_king_safety() {
@@ -251,12 +257,13 @@ fn test_no_double_counting_passed_pawns() {
     let board = BitboardBoard::new();
     let captured_pieces = CapturedPieces::new();
 
-    // Create an endgame position (simplified - actual endgame would have fewer pieces)
-    // For this test, we'll verify coordination logic works correctly
+    // Create an endgame position (simplified - actual endgame would have fewer
+    // pieces) For this test, we'll verify coordination logic works correctly
 
     // Test 1: Both position_features and endgame_patterns enabled
-    // In endgame (phase < 64), passed pawns should be evaluated by endgame_patterns,
-    // and skipped in position_features to avoid double-counting.
+    // In endgame (phase < 64), passed pawns should be evaluated by
+    // endgame_patterns, and skipped in position_features to avoid
+    // double-counting.
     let mut config1 = IntegratedEvaluationConfig::default();
     config1.components.position_features = true;
     config1.components.endgame_patterns = true;
@@ -265,7 +272,8 @@ fn test_no_double_counting_passed_pawns() {
     let result1 =
         evaluator1.evaluate_with_move_count(&board, Player::Black, &captured_pieces, None);
 
-    // Test 2: Only position_features enabled (passed pawns evaluated here in all phases)
+    // Test 2: Only position_features enabled (passed pawns evaluated here in all
+    // phases)
     let mut config2 = IntegratedEvaluationConfig::default();
     config2.components.position_features = true;
     config2.components.endgame_patterns = false;
@@ -312,8 +320,8 @@ fn test_no_double_counting_all_components() {
 
 #[test]
 fn test_evaluation_coordination_consistency() {
-    // Test that evaluation results are consistent across different component configurations
-    // that should avoid double-counting
+    // Test that evaluation results are consistent across different component
+    // configurations that should avoid double-counting
     let board = BitboardBoard::new();
     let captured_pieces = CapturedPieces::new();
 
@@ -368,15 +376,18 @@ fn test_evaluation_coordination_consistency() {
         assert!(score.abs() < 10000, "Config {} produced extreme score: {}", i, score);
     }
 
-    // The key test: evaluation should complete without errors for all configurations
-    // Even if scores differ, they should all be valid evaluations
+    // The key test: evaluation should complete without errors for all
+    // configurations Even if scores differ, they should all be valid
+    // evaluations
 }
 
-// Task 3.0 - Task 3.29: Additional comprehensive tests to verify no double-counting
+// Task 3.0 - Task 3.29: Additional comprehensive tests to verify no
+// double-counting
 
 #[test]
 fn test_no_double_counting_component_contributions() {
-    // Test that component contributions don't double-count the same evaluation aspects
+    // Test that component contributions don't double-count the same evaluation
+    // aspects
     let board = BitboardBoard::new();
     let captured_pieces = CapturedPieces::new();
 
@@ -405,7 +416,8 @@ fn test_no_double_counting_component_contributions() {
 #[test]
 fn test_phase_aware_gating_prevents_double_counting() {
     // Test that phase-aware gating prevents double-counting between components
-    // that are only active in specific phases (opening_principles, endgame_patterns)
+    // that are only active in specific phases (opening_principles,
+    // endgame_patterns)
     let board = BitboardBoard::new();
     let captured_pieces = CapturedPieces::new();
 
@@ -423,14 +435,15 @@ fn test_phase_aware_gating_prevents_double_counting() {
     assert!(result.score != i32::MIN && result.score != i32::MAX);
     assert!(result.score.abs() < 10000, "Score should be reasonable: {}", result.score);
 
-    // The key is that phase-aware gating prevents endgame_patterns from evaluating
-    // in opening phase, and prevents opening_principles from evaluating in endgame phase
+    // The key is that phase-aware gating prevents endgame_patterns from
+    // evaluating in opening phase, and prevents opening_principles from
+    // evaluating in endgame phase
 }
 
 #[test]
 fn test_coordination_with_complementary_components() {
-    // Test that complementary components (king safety + castle patterns) work together
-    // without causing issues (they should complement, not conflict)
+    // Test that complementary components (king safety + castle patterns) work
+    // together without causing issues (they should complement, not conflict)
     let board = BitboardBoard::new();
     let captured_pieces = CapturedPieces::new();
 
@@ -461,7 +474,8 @@ fn test_coordination_with_complementary_components() {
 
 #[test]
 fn test_validation_warns_on_double_counting_risks() {
-    // Test that validation warns when components that could double-count are both enabled
+    // Test that validation warns when components that could double-count are both
+    // enabled
     let mut config = IntegratedEvaluationConfig::default();
 
     // Center control overlap

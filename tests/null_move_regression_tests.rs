@@ -1,8 +1,9 @@
 #![cfg(feature = "legacy-tests")]
 //! Performance regression tests for Null Move Pruning
 //!
-//! These tests verify that NMP performance doesn't degrade below acceptable thresholds.
-//! Failures indicate performance regressions that need investigation.
+//! These tests verify that NMP performance doesn't degrade below acceptable
+//! thresholds. Failures indicate performance regressions that need
+//! investigation.
 
 use shogi_engine::{
     bitboards::BitboardBoard,
@@ -77,7 +78,8 @@ fn test_nmp_performance_regression_disabled() {
 
     assert!(result.is_some(), "Search should complete successfully");
 
-    // Search should complete within reasonable time even without NMP (600 seconds = 10 minutes max)
+    // Search should complete within reasonable time even without NMP (600 seconds =
+    // 10 minutes max)
     assert!(
         elapsed.as_secs_f64() * 1000.0 <= 600000.0,
         "Performance regression: search time {}ms > threshold 600000ms",
@@ -203,7 +205,8 @@ fn test_nmp_performance_regression_different_depths() {
 
         let stats = engine.get_null_move_stats();
 
-        // Regression check: search should complete within reasonable time (600 seconds = 10 minutes max)
+        // Regression check: search should complete within reasonable time (600 seconds
+        // = 10 minutes max)
         let max_time_ms = match depth {
             3 => 600000.0,
             4 => 600000.0,
@@ -294,8 +297,11 @@ fn test_nmp_nodes_reduction_target() {
     if nodes_disabled > 100 && nodes_enabled > 100 {
         assert!(
             reduction >= 20.0 && reduction <= 40.0 || reduction >= 0.0,
-            "Nodes reduction {}% not in target range 20-40% (nodes_enabled: {}, nodes_disabled: {})",
-            reduction, nodes_enabled, nodes_disabled
+            "Nodes reduction {}% not in target range 20-40% (nodes_enabled: {}, nodes_disabled: \
+             {})",
+            reduction,
+            nodes_enabled,
+            nodes_disabled
         );
     }
 }

@@ -8,11 +8,13 @@
 //!
 //! # Benchmarks
 //!
-//! - `move_generation_with_memory_optimizations`: Measures move generation performance
-//!   with memory optimizations enabled (prefetching)
+//! - `move_generation_with_memory_optimizations`: Measures move generation
+//!   performance with memory optimizations enabled (prefetching)
 //! - `move_generation_without_memory_optimizations`: Baseline comparison
-//! - `sliding_move_generation_batch`: Measures batch sliding move generation performance
-//! - `magic_table_lookup_performance`: Measures magic table lookup performance with prefetching
+//! - `sliding_move_generation_batch`: Measures batch sliding move generation
+//!   performance
+//! - `magic_table_lookup_performance`: Measures magic table lookup performance
+//!   with prefetching
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use shogi_engine::bitboards::{sliding_moves::SlidingMoveGenerator, BitboardBoard};
@@ -20,7 +22,8 @@ use shogi_engine::moves::MoveGenerator;
 use shogi_engine::types::*;
 use std::sync::Arc;
 
-/// Create a board with many sliding pieces for realistic move generation workload
+/// Create a board with many sliding pieces for realistic move generation
+/// workload
 fn create_heavy_sliding_board() -> BitboardBoard {
     let mut board = BitboardBoard::new();
 

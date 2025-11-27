@@ -313,27 +313,29 @@ impl StatisticsExporter {
 
     fn export_csv(&self, stats: &DetailedCacheStats) -> String {
         format!(
-            "total_probes,total_hits,total_stores,total_replacements,total_collisions,occupancy_rate,avg_probe_time_us,avg_store_time_us,memory_usage_bytes,hash_distribution_quality\n{},{},{},{},{},{:.6},{:.6},{:.6},{},{:.6}",
-            stats.total_probes, stats.total_hits, stats.total_stores, stats.total_replacements,
-            stats.total_collisions, stats.occupancy_rate, stats.avg_probe_time_us,
-            stats.avg_store_time_us, stats.memory_usage_bytes, stats.hash_distribution_quality
+            "total_probes,total_hits,total_stores,total_replacements,total_collisions,\
+             occupancy_rate,avg_probe_time_us,avg_store_time_us,memory_usage_bytes,\
+             hash_distribution_quality\n{},{},{},{},{},{:.6},{:.6},{:.6},{},{:.6}",
+            stats.total_probes,
+            stats.total_hits,
+            stats.total_stores,
+            stats.total_replacements,
+            stats.total_collisions,
+            stats.occupancy_rate,
+            stats.avg_probe_time_us,
+            stats.avg_store_time_us,
+            stats.memory_usage_bytes,
+            stats.hash_distribution_quality
         )
     }
 
     fn export_text(&self, stats: &DetailedCacheStats) -> String {
         if self.include_details {
             format!(
-                "=== Detailed Cache Statistics ===\n\
-                Total Probes: {}\n\
-                Total Hits: {}\n\
-                Total Stores: {}\n\
-                Total Replacements: {}\n\
-                Total Collisions: {}\n\
-                Occupancy Rate: {:.2}%\n\
-                Average Probe Time: {:.2} μs\n\
-                Average Store Time: {:.2} μs\n\
-                Memory Usage: {} bytes\n\
-                Hash Distribution Quality: {:.4}",
+                "=== Detailed Cache Statistics ===\nTotal Probes: {}\nTotal Hits: {}\nTotal \
+                 Stores: {}\nTotal Replacements: {}\nTotal Collisions: {}\nOccupancy Rate: \
+                 {:.2}%\nAverage Probe Time: {:.2} μs\nAverage Store Time: {:.2} μs\nMemory \
+                 Usage: {} bytes\nHash Distribution Quality: {:.4}",
                 stats.total_probes,
                 stats.total_hits,
                 stats.total_stores,
@@ -347,11 +349,8 @@ impl StatisticsExporter {
             )
         } else {
             format!(
-                "=== Cache Statistics ===\n\
-                Total Probes: {}\n\
-                Total Hits: {}\n\
-                Hit Rate: {:.2}%\n\
-                Memory Usage: {} bytes",
+                "=== Cache Statistics ===\nTotal Probes: {}\nTotal Hits: {}\nHit Rate: \
+                 {:.2}%\nMemory Usage: {} bytes",
                 stats.total_probes,
                 stats.total_hits,
                 if stats.total_probes > 0 {
@@ -446,20 +445,21 @@ impl StatisticsExporter {
 
     fn export_collision_csv(&self, stats: &CollisionStats) -> String {
         format!(
-            "total_collisions,unique_collision_hashes,max_collisions_per_hash,hash_distribution_quality\n{},{},{},{:.6}",
-            stats.total_collisions, stats.unique_collision_hashes, stats.max_collisions_per_hash, stats.hash_distribution_quality
+            "total_collisions,unique_collision_hashes,max_collisions_per_hash,\
+             hash_distribution_quality\n{},{},{},{:.6}",
+            stats.total_collisions,
+            stats.unique_collision_hashes,
+            stats.max_collisions_per_hash,
+            stats.hash_distribution_quality
         )
     }
 
     fn export_collision_text(&self, stats: &CollisionStats) -> String {
         if self.include_details {
             format!(
-                "=== Collision Statistics ===\n\
-                Total Collisions: {}\n\
-                Unique Collision Hashes: {}\n\
-                Max Collisions per Hash: {}\n\
-                Hash Distribution Quality: {:.4}\n\n\
-                Most Collided Hashes:\n{}",
+                "=== Collision Statistics ===\nTotal Collisions: {}\nUnique Collision Hashes: \
+                 {}\nMax Collisions per Hash: {}\nHash Distribution Quality: {:.4}\n\nMost \
+                 Collided Hashes:\n{}",
                 stats.total_collisions,
                 stats.unique_collision_hashes,
                 stats.max_collisions_per_hash,
@@ -474,10 +474,8 @@ impl StatisticsExporter {
             )
         } else {
             format!(
-                "=== Collision Statistics ===\n\
-                Total Collisions: {}\n\
-                Unique Collision Hashes: {}\n\
-                Hash Distribution Quality: {:.4}",
+                "=== Collision Statistics ===\nTotal Collisions: {}\nUnique Collision Hashes: \
+                 {}\nHash Distribution Quality: {:.4}",
                 stats.total_collisions,
                 stats.unique_collision_hashes,
                 stats.hash_distribution_quality
@@ -872,7 +870,8 @@ mod tests {
 
         assert_eq!(tracker.get_hit_rate(0), 0.5); // 1 hit out of 2 probes
         assert_eq!(tracker.get_hit_rate(1), 1.0); // 2 hits out of 2 probes
-        assert_eq!(tracker.get_total_hit_rate(), 0.75); // 3 hits out of 4 total probes
+        assert_eq!(tracker.get_total_hit_rate(), 0.75); // 3 hits out of 4 total
+                                                        // probes
     }
 
     #[test]
@@ -920,7 +919,8 @@ mod tests {
         let trends = analyzer.analyze_trends();
         assert_eq!(trends.data_points_count, 5);
         assert!(trends.hit_rate_trend > 0.0); // Should be positive trend
-        assert!(trends.probe_time_trend < 0.0); // Should be negative trend (getting faster)
+        assert!(trends.probe_time_trend < 0.0); // Should be negative trend
+                                                // (getting faster)
     }
 
     #[test]

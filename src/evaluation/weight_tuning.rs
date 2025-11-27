@@ -1,10 +1,11 @@
 //! Weight Tuning Integration
 //!
 //! This module provides weight tuning functionality for the evaluation system.
-//! It includes types and methods for optimizing evaluation weights using training
-//! positions and telemetry data.
+//! It includes types and methods for optimizing evaluation weights using
+//! training positions and telemetry data.
 //!
-//! Extracted from `integration.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `integration.rs` as part of Task 1.0: File Modularization and
+//! Structure Improvements.
 
 use crate::bitboards::BitboardBoard;
 use crate::evaluation::config::EvaluationWeights;
@@ -24,7 +25,8 @@ use std::time::Duration;
 /// Training position for weight tuning
 ///
 /// Note: BitboardBoard and CapturedPieces are not serializable, so this struct
-/// cannot be directly serialized. Use position hashes or FEN strings for serialization.
+/// cannot be directly serialized. Use position hashes or FEN strings for
+/// serialization.
 #[derive(Clone)]
 pub struct TuningPosition {
     /// Board position
@@ -33,7 +35,8 @@ pub struct TuningPosition {
     pub captured_pieces: CapturedPieces,
     /// Player to move
     pub player: Player,
-    /// Expected evaluation score from the position's perspective (normalized to -1.0 to 1.0)
+    /// Expected evaluation score from the position's perspective (normalized to
+    /// -1.0 to 1.0)
     pub expected_score: f64,
     /// Game phase (0 = endgame, 256 = opening)
     pub game_phase: i32,
@@ -150,7 +153,8 @@ pub enum ConvergenceReason {
 ///
 /// # Arguments
 ///
-/// * `evaluator` - The evaluator to use for evaluation (will be cloned for temporary evaluations)
+/// * `evaluator` - The evaluator to use for evaluation (will be cloned for
+///   temporary evaluations)
 /// * `initial_weights` - Starting weights for optimization
 /// * `position_set` - Collection of training positions with expected scores
 /// * `tuning_config` - Configuration for the tuning process
@@ -176,7 +180,8 @@ pub fn tune_weights(
     const EARLY_STOPPING_PATIENCE: usize = 50;
 
     // Simple gradient descent optimizer for component weights
-    // (Simplified version - full implementation would use the tuning infrastructure's optimizers)
+    // (Simplified version - full implementation would use the tuning
+    // infrastructure's optimizers)
     for iteration in 0..tuning_config.max_iterations {
         let (error, gradients) = calculate_error_and_gradients(
             evaluator,
@@ -250,12 +255,13 @@ fn calculate_error_and_gradients(
     // Create a temporary evaluator with the specified weights
     if let Ok(_temp_weights) = EvaluationWeights::from_vector(weights) {
         // Create a new evaluator with modified weights
-        // Note: This requires creating a new evaluator with the same config but different weights
-        // In the full implementation, this would use a more efficient method or a setter
+        // Note: This requires creating a new evaluator with the same config but
+        // different weights In the full implementation, this would use a more
+        // efficient method or a setter
         let mut temp_evaluator = IntegratedEvaluator::with_config(evaluator.config().clone());
-        // TODO: Add set_weights method to IntegratedEvaluator or make weights field public
-        // For now, this is a placeholder that needs to be completed during integration
-        // temp_evaluator.set_weights(temp_weights);
+        // TODO: Add set_weights method to IntegratedEvaluator or make weights field
+        // public For now, this is a placeholder that needs to be completed
+        // during integration temp_evaluator.set_weights(temp_weights);
 
         for position in &position_set.positions {
             // Evaluate position with current weights
@@ -369,7 +375,8 @@ pub fn tune_from_telemetry(
 
 /// Telemetry-to-tuning pipeline
 ///
-/// Collects telemetry from multiple positions and converts them to a tuning position set.
+/// Collects telemetry from multiple positions and converts them to a tuning
+/// position set.
 pub fn telemetry_to_tuning_pipeline(
     _evaluator: &IntegratedEvaluator,
     telemetry_positions: &[(BitboardBoard, CapturedPieces, Player, EvaluationTelemetry, f64)],
@@ -380,7 +387,8 @@ pub fn telemetry_to_tuning_pipeline(
         // Calculate game phase
         // Note: This requires a public method on IntegratedEvaluator
         // TODO: Add public calculate_phase_cached method or pass phase as parameter
-        // For now, using a placeholder - this needs to be implemented during integration
+        // For now, using a placeholder - this needs to be implemented during
+        // integration
         let game_phase = 128; // Placeholder
 
         // Create tuning position

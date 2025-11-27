@@ -9,7 +9,8 @@ use shogi_engine::evaluation::statistics::EvaluationTelemetry;
 
 #[test]
 fn test_automatic_weight_validation() {
-    // Test that validation is called during weight updates when auto_validate_weights is enabled
+    // Test that validation is called during weight updates when
+    // auto_validate_weights is enabled
     let mut config = TaperedEvalConfig::default();
     config.auto_validate_weights = true;
 

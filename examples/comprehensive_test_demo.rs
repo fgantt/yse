@@ -1,4 +1,5 @@
-//! Demonstration of the comprehensive test suite for transposition table enhancements
+//! Demonstration of the comprehensive test suite for transposition table
+//! enhancements
 //!
 //! This example shows how to use the comprehensive test suite to validate
 //! all transposition table components and generate detailed reports.

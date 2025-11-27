@@ -1,8 +1,9 @@
 //! King + Gold vs King endgame solver
 //!
-//! This module implements a specialized solver for King + Gold vs King endgames.
-//! This is one of the most common and important endgames in Shogi, as it represents
-//! the minimum material needed to force a win against a lone king.
+//! This module implements a specialized solver for King + Gold vs King
+//! endgames. This is one of the most common and important endgames in Shogi, as
+//! it represents the minimum material needed to force a win against a lone
+//! king.
 
 use super::super::solver_traits::EndgameSolverHelper;
 use super::super::tablebase_config::KingGoldConfig;
@@ -358,11 +359,15 @@ impl KingGoldVsKingSolver {
         captured_pieces: &CapturedPieces,
     ) -> Option<TablebaseResult> {
         // In King + Gold vs King, the side with King + Gold should always be winning
-        // If we can't make progress, it might be a draw or we need to find a different approach
+        // If we can't make progress, it might be a draw or we need to find a different
+        // approach
         let king_moves = self.generate_king_moves(board, player, king, captured_pieces);
 
         if let Some(move_) = king_moves.first() {
-            return Some(TablebaseResult::win(Some(move_.clone()), 50)); // Large distance indicates uncertainty
+            return Some(TablebaseResult::win(Some(move_.clone()), 50)); // Large
+                                                                        // distance
+                                                                        // indicates
+                                                                        // uncertainty
         }
 
         None
@@ -544,7 +549,8 @@ impl KingGoldVsKingSolver {
         let king_distance_to_gold = self.manhattan_distance(move_.to, gold);
         let king_distance_to_defending_king = self.manhattan_distance(move_.to, defending_king);
 
-        // King should be close to both Gold and defending King for effective coordination
+        // King should be close to both Gold and defending King for effective
+        // coordination
         king_distance_to_gold <= 2 && king_distance_to_defending_king <= 3
     }
 
@@ -641,7 +647,8 @@ impl EndgameSolver for KingGoldVsKingSolver {
     }
 }
 
-// EndgameSolverHelper is already implemented for all types via blanket implementation
+// EndgameSolverHelper is already implemented for all types via blanket
+// implementation
 
 impl Default for KingGoldVsKingSolver {
     fn default() -> Self {

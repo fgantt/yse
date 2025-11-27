@@ -28,7 +28,8 @@ pub mod simd;
 
 pub use simd::SimdBitboard;
 
-// Re-export batch operations for convenience (only when simd feature is enabled)
+// Re-export batch operations for convenience (only when simd feature is
+// enabled)
 #[cfg(feature = "simd")]
 pub use batch_ops::AlignedBitboardArray;
 
@@ -206,17 +207,18 @@ fn get_shared_magic_table() -> Option<Arc<MagicTable>> {
         SHARED_MAGIC_TABLE
             .get_or_init(|| {
                 let default_path = magic::magic_table::get_default_magic_table_path();
-                
+
                 // Try to load or generate magic table
-                let table = MagicTable::try_load_or_generate(&default_path, true)
-                    .unwrap_or_else(|e| {
+                let table =
+                    MagicTable::try_load_or_generate(&default_path, true).unwrap_or_else(|e| {
                         crate::utils::telemetry::debug_log(&format!(
-                            "[MAGIC_TABLE] Failed to load or generate magic table: {}, using default",
+                            "[MAGIC_TABLE] Failed to load or generate magic table: {}, using \
+                             default",
                             e
                         ));
                         MagicTable::default()
                     });
-                
+
                 Arc::new(table)
             })
             .clone(),
@@ -398,11 +400,9 @@ impl BitboardBoard {
         // Validate piece index before array access
         if piece_idx >= 14 {
             crate::utils::telemetry::debug_log(&format!(
-                "[PLACE_PIECE ERROR] Invalid piece index: {} (piece_type: {:?}, position: row={} col={})",
-                piece_idx,
-                piece.piece_type,
-                position.row,
-                position.col
+                "[PLACE_PIECE ERROR] Invalid piece index: {} (piece_type: {:?}, position: row={} \
+                 col={})",
+                piece_idx, piece.piece_type, position.row, position.col
             ));
             return;
         }
@@ -434,11 +434,9 @@ impl BitboardBoard {
             // Validate piece index
             if piece_idx >= 14 {
                 crate::utils::telemetry::debug_log(&format!(
-                    "[REMOVE_PIECE ERROR] Invalid piece index: {} (piece_type: {:?}, position: row={} col={})",
-                    piece_idx,
-                    piece.piece_type,
-                    position.row,
-                    position.col
+                    "[REMOVE_PIECE ERROR] Invalid piece index: {} (piece_type: {:?}, position: \
+                     row={} col={})",
+                    piece_idx, piece.piece_type, position.row, position.col
                 ));
                 return Some(piece);
             }
@@ -518,7 +516,8 @@ impl BitboardBoard {
     }
 
     /// Make a move and return MoveInfo for unmaking
-    /// This is an extended version of make_move that returns the information needed to unmake
+    /// This is an extended version of make_move that returns the information
+    /// needed to unmake
     pub fn make_move_with_info(&mut self, move_: &Move) -> MoveInfo {
         let mut captured_piece = None;
         let mut original_piece_type = move_.piece_type;
@@ -594,7 +593,8 @@ impl BitboardBoard {
             // Place the original piece type (before promotion) back at the from position
             self.place_piece(Piece::new(move_info.original_piece_type, move_info.player), from);
         }
-        // If from is None, it was a drop, so we just remove the piece (already done above)
+        // If from is None, it was a drop, so we just remove the piece (already
+        // done above)
     }
 
     pub fn is_king_in_check(&self, player: Player, _captured_pieces: &CapturedPieces) -> bool {
@@ -627,7 +627,8 @@ impl BitboardBoard {
     }
 
     /// Check if a square is attacked by a player
-    /// Task 3.0.3.1: Rewritten to iterate attackers by bitboard instead of nested 9×9 loops
+    /// Task 3.0.3.1: Rewritten to iterate attackers by bitboard instead of
+    /// nested 9×9 loops
     pub fn is_square_attacked_by(&self, target_pos: Position, attacking_player: Player) -> bool {
         use crate::bitboards::integration::GlobalOptimizer;
 
@@ -691,7 +692,8 @@ impl BitboardBoard {
     }
 
     /// Check if a piece type attacks a square (bitboard-optimized version)
-    /// Task 3.0.3.2: Uses precomputed attack tables for non-sliding pieces and bit scans for sliding pieces
+    /// Task 3.0.3.2: Uses precomputed attack tables for non-sliding pieces and
+    /// bit scans for sliding pieces
     fn piece_attacks_square_bitboard(
         &self,
         piece_type: PieceType,
@@ -727,8 +729,8 @@ impl BitboardBoard {
         }
     }
 
-    /// Task 3.0.3.4: Helper to iterate over target squares from an attack bitboard
-    /// Returns an iterator over positions that are attacked
+    /// Task 3.0.3.4: Helper to iterate over target squares from an attack
+    /// bitboard Returns an iterator over positions that are attacked
     pub fn iter_attack_targets(&self, attacks: Bitboard) -> impl Iterator<Item = Position> + '_ {
         BitIterator::new(attacks).map(|idx| Position::from_index(idx))
     }
@@ -886,14 +888,15 @@ impl BitboardBoard {
         !move_generator.generate_legal_moves(self, player, captured_pieces).is_empty()
     }
 
-    /// Check if both kings are in their opponent's promotion zone (impasse condition)
-    /// In Shogi, this is called Jishōgi (持将棋)
+    /// Check if both kings are in their opponent's promotion zone (impasse
+    /// condition) In Shogi, this is called Jishōgi (持将棋)
     pub fn is_impasse_condition(&self) -> bool {
         let black_king_pos = self.find_king_position(Player::Black);
         let white_king_pos = self.find_king_position(Player::White);
 
         if let (Some(black_pos), Some(white_pos)) = (black_king_pos, white_king_pos) {
-            // Black king in white's camp (ranks 0-2) AND white king in black's camp (ranks 6-8)
+            // Black king in white's camp (ranks 0-2) AND white king in black's camp (ranks
+            // 6-8)
             return black_pos.row <= 2 && white_pos.row >= 6;
         }
         false
@@ -935,7 +938,8 @@ impl BitboardBoard {
 
     /// Check impasse result and return the outcome
     /// Returns None if not an impasse condition
-    /// Both players need 24+ points for a draw, otherwise the player with fewer points loses
+    /// Both players need 24+ points for a draw, otherwise the player with fewer
+    /// points loses
     pub fn check_impasse_result(&self, captured_pieces: &CapturedPieces) -> Option<ImpasseResult> {
         if !self.is_impasse_condition() {
             return None;
@@ -1185,7 +1189,8 @@ impl BitboardBoard {
         })
     }
 
-    /// Get attack pattern for a piece at a given square using precomputed tables
+    /// Get attack pattern for a piece at a given square using precomputed
+    /// tables
     pub fn get_attack_pattern_precomputed(
         &self,
         square: Position,
@@ -1247,7 +1252,8 @@ impl BitboardBoard {
     }
 
     /// Generate attack pattern using ray-casting (fallback method)
-    /// Task 2.0.2.2: Implemented using AttackGenerator for correct fallback behavior
+    /// Task 2.0.2.2: Implemented using AttackGenerator for correct fallback
+    /// behavior
     fn generate_attack_pattern_raycast(&self, square: Position, piece_type: PieceType) -> Bitboard {
         // Only support sliding pieces for ray-casting
         if !matches!(
@@ -1280,7 +1286,8 @@ impl BitboardBoard {
     }
 
     /// Initialize sliding move generator with magic table
-    /// Uses shared magic table reference (Task 2.0.2.1 - no longer consumes table)
+    /// Uses shared magic table reference (Task 2.0.2.1 - no longer consumes
+    /// table)
     pub fn init_sliding_generator(&mut self) -> Result<(), crate::types::MagicError> {
         if let Some(ref magic_table) = self.magic_table {
             // Clone the Arc to share the table instead of taking ownership
@@ -1295,7 +1302,8 @@ impl BitboardBoard {
     }
 
     /// Initialize sliding move generator with custom settings
-    /// Uses shared magic table reference (Task 2.0.2.1 - no longer consumes table)
+    /// Uses shared magic table reference (Task 2.0.2.1 - no longer consumes
+    /// table)
     pub fn init_sliding_generator_with_settings(
         &mut self,
         magic_enabled: bool,
@@ -1405,26 +1413,30 @@ impl BoardTrait for BitboardBoard {
     }
 
     fn get_captured_pieces(&self, _player: Player) -> Vec<PieceType> {
-        // This method requires access to CapturedPieces, which is not stored in BitboardBoard
-        // We'll return an empty vector for now - this should be managed by the game state
+        // This method requires access to CapturedPieces, which is not stored in
+        // BitboardBoard We'll return an empty vector for now - this should be
+        // managed by the game state
         Vec::new()
     }
 
     fn get_captured_pieces_count(&self, _player: Player) -> usize {
-        // This method requires access to CapturedPieces, which is not stored in BitboardBoard
-        // We'll return 0 for now - this should be managed by the game state
+        // This method requires access to CapturedPieces, which is not stored in
+        // BitboardBoard We'll return 0 for now - this should be managed by the
+        // game state
         0
     }
 
     fn get_captured_piece_count(&self, _piece_type: PieceType, _player: Player) -> usize {
-        // This method requires access to CapturedPieces, which is not stored in BitboardBoard
-        // We'll return 0 for now - this should be managed by the game state
+        // This method requires access to CapturedPieces, which is not stored in
+        // BitboardBoard We'll return 0 for now - this should be managed by the
+        // game state
         0
     }
 
     fn has_captured_piece(&self, _piece_type: PieceType, _player: Player) -> bool {
-        // This method requires access to CapturedPieces, which is not stored in BitboardBoard
-        // We'll return false for now - this should be managed by the game state
+        // This method requires access to CapturedPieces, which is not stored in
+        // BitboardBoard We'll return false for now - this should be managed by
+        // the game state
         false
     }
 
@@ -1497,8 +1509,9 @@ impl BoardTrait for BitboardBoard {
     }
 
     fn get_drop_moves(&self, _piece_type: PieceType, _player: Player) -> Vec<Move> {
-        // This method requires access to CapturedPieces, which is not stored in BitboardBoard
-        // We'll return an empty vector for now - this should be managed by the game state
+        // This method requires access to CapturedPieces, which is not stored in
+        // BitboardBoard We'll return an empty vector for now - this should be
+        // managed by the game state
         Vec::new()
     }
 

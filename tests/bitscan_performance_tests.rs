@@ -481,7 +481,8 @@ fn test_memory_usage_validation() {
     println!("Bitscan implementation: {:?}", bitscan_impl);
 
     // Test that we don't have excessive memory usage
-    // This is more of a compile-time check, but we can verify the structures are reasonable
+    // This is more of a compile-time check, but we can verify the structures are
+    // reasonable
     let capabilities_size = mem::size_of_val(&detect_platform_capabilities());
     println!("PlatformCapabilities size: {} bytes", capabilities_size);
 

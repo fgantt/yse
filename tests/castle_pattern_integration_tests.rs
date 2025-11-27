@@ -1,7 +1,7 @@
 //! Integration tests for castle pattern recognition in IntegratedEvaluator
 //!
-//! Tests verify that castle patterns are properly integrated as a first-class component
-//! with ComponentFlags, weights, and telemetry support.
+//! Tests verify that castle patterns are properly integrated as a first-class
+//! component with ComponentFlags, weights, and telemetry support.
 
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::config::EvaluationWeights;
@@ -22,7 +22,8 @@ fn test_castle_pattern_integration() {
     // Castle patterns should be evaluated when flag is enabled
     let score = evaluator.evaluate(&board, Player::Black, &captured_pieces);
 
-    // Score should be computed (not necessarily non-zero, but evaluation should complete)
+    // Score should be computed (not necessarily non-zero, but evaluation should
+    // complete)
     assert!(score.score >= -10000 && score.score <= 10000);
 }
 
@@ -47,8 +48,9 @@ fn test_castle_weight_application() {
     let score2 = evaluator2.evaluate(&board, Player::Black, &captured_pieces);
 
     // Scores should differ when weights differ (if castle patterns contribute)
-    // Note: On initial board, castle patterns may not contribute, so scores might be equal
-    // This test verifies the weight is applied, not that it changes the score
+    // Note: On initial board, castle patterns may not contribute, so scores might
+    // be equal This test verifies the weight is applied, not that it changes
+    // the score
     assert!(score1.score >= -10000 && score1.score <= 10000);
     assert!(score2.score >= -10000 && score2.score <= 10000);
 }

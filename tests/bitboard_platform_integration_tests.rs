@@ -1,7 +1,7 @@
 //! Task 5.0.5.4: Integration tests for platform-specific bitboard code paths
 //!
-//! These tests ensure that SIMD/BMI fallback paths remain functional across platforms,
-//! including wasm/ARM builds if applicable.
+//! These tests ensure that SIMD/BMI fallback paths remain functional across
+//! platforms, including wasm/ARM builds if applicable.
 
 use shogi_engine::bitboards::SimdBitboard;
 use shogi_engine::bitboards::{
@@ -142,7 +142,8 @@ fn test_strategy_selection_telemetry() {
     #[cfg(all(target_arch = "x86_64", target_feature = "popcnt"))]
     {
         assert_eq!(counters_after.popcount_hardware, 0); // Should use hardware popcount
-        assert_eq!(counters_after.bitscan_hardware, 0); // Should use hardware bitscan
+        assert_eq!(counters_after.bitscan_hardware, 0); // Should use hardware
+                                                        // bitscan
     }
 }
 

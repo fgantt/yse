@@ -4,7 +4,8 @@ use shogi_engine::evaluation::config::{
     EvaluationWeights, PhaseScalingConfig, PhaseScalingCurve, TaperedEvalConfig,
 };
 
-/// Test that phase-dependent weights are enabled by default (Task 20.0 - Task 3.13)
+/// Test that phase-dependent weights are enabled by default (Task 20.0 - Task
+/// 3.13)
 #[test]
 fn test_phase_scaling_enabled_by_default() {
     let config = TaperedEvalConfig::default();
@@ -14,7 +15,8 @@ fn test_phase_scaling_enabled_by_default() {
     );
 }
 
-/// Test expanded phase scaling for development, mobility, and pawn_structure weights (Task 20.0 - Task 3.14)
+/// Test expanded phase scaling for development, mobility, and pawn_structure
+/// weights (Task 20.0 - Task 3.14)
 #[test]
 fn test_expanded_phase_scaling() {
     let mut config = TaperedEvalConfig::default();
@@ -147,8 +149,8 @@ fn test_scaling_curves() {
     let mut weights = EvaluationWeights::default();
     config.apply_phase_scaling(&mut weights, 224);
     // Should interpolate between 2.0 (opening) and 1.0 (middlegame)
-    // Phase 224 is normalized to 0.875, which is in the opening->middlegame transition
-    // t = (0.875 - 0.75) / 0.25 = 0.5
+    // Phase 224 is normalized to 0.875, which is in the opening->middlegame
+    // transition t = (0.875 - 0.75) / 0.25 = 0.5
     // So scale = 2.0 * (1 - 0.5) + 1.0 * 0.5 = 1.5
     let expected_scale = 1.5;
     assert!(
@@ -268,7 +270,8 @@ fn test_tactical_positional_scaling() {
     let original_tactical = weights.tactical_weight;
     let original_positional = weights.positional_weight;
 
-    // Opening phase: tactical 1.0x, positional 1.0x - use phase 256 for exact values
+    // Opening phase: tactical 1.0x, positional 1.0x - use phase 256 for exact
+    // values
     config.apply_phase_scaling(&mut weights, 256);
     assert!(
         (weights.tactical_weight - original_tactical * 1.0).abs() < 0.01,

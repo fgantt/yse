@@ -9,7 +9,8 @@ use std::sync::{
 };
 
 fn case_thread_creation_handling_smoke() {
-    // Do not rely on env flags due to parallel test scheduling; just ensure creation succeeds normally
+    // Do not rely on env flags due to parallel test scheduling; just ensure
+    // creation succeeds normally
     std::env::remove_var("SHOGI_FORCE_POOL_FAIL");
     std::env::remove_var("SHOGI_FORCE_WORKER_PANIC");
     let config = ParallelSearchConfig::new(2);
@@ -20,7 +21,8 @@ fn case_thread_creation_handling_smoke() {
 fn case_fallback_to_single_threaded() {
     std::env::remove_var("SHOGI_FORCE_POOL_FAIL");
     std::env::remove_var("SHOGI_FORCE_WORKER_PANIC");
-    // Force pool failure and confirm we can still search single-threaded via IterativeDeepening path
+    // Force pool failure and confirm we can still search single-threaded via
+    // IterativeDeepening path
     std::env::set_var("SHOGI_FORCE_POOL_FAIL", "1");
     let mut engine_core = shogi_engine::search::search_engine::SearchEngine::new(None, 16);
     let mut id = shogi_engine::search::search_engine::IterativeDeepening::new_with_threads(

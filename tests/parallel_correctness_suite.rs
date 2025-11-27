@@ -50,7 +50,8 @@ fn test_parallel_vs_single_threaded_on_positions() {
     for fen in positions {
         let m1 = best_move_threads(fen, 3, 1);
         let m4 = best_move_threads(fen, 3, 4);
-        // Parallel search can select different but comparable best moves; only require both respond
+        // Parallel search can select different but comparable best moves; only require
+        // both respond
         assert!(m1.is_some() && m4.is_some(), "Engine did not return a move at fen={}", fen);
     }
 }
@@ -64,7 +65,8 @@ fn test_thread_safety_concurrent_searches() {
         handles.push(std::thread::spawn(move || best_move_threads(&fen_s, 3, 4)));
     }
     let res: Vec<_> = handles.into_iter().map(|h| h.join().unwrap()).collect();
-    // Only assert all threads produced a move; allow benign divergence in PV under parallelism
+    // Only assert all threads produced a move; allow benign divergence in PV under
+    // parallelism
     assert!(
         res.iter().all(|m| m.is_some()),
         "Concurrent searches failed to return moves: {:?}",
@@ -97,6 +99,7 @@ fn test_endgame_tablebase_parallel_sanity() {
     // Placeholder: depends on tablebase coverage; run as a smoke test
     let fen = "4k4/9/9/9/9/9/9/9/4K4 b -"; // kings only (shogi-specific semantics may vary)
     let m8 = best_move_threads(fen, 1, 8);
-    // We only assert that the engine responds; specific TB hits are environment-dependent
+    // We only assert that the engine responds; specific TB hits are
+    // environment-dependent
     assert!(m8.is_some());
 }

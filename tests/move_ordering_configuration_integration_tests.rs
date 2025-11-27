@@ -9,7 +9,8 @@ use shogi_engine::search::move_ordering::{
 /// Integration tests for move ordering configuration system
 ///
 /// These tests verify that the configuration system integrates correctly
-/// with the overall move ordering system and provides the expected functionality.
+/// with the overall move ordering system and provides the expected
+/// functionality.
 
 #[cfg(test)]
 mod move_ordering_configuration_integration_tests {

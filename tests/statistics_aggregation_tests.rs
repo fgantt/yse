@@ -1,6 +1,7 @@
 //! Integration tests for statistics aggregation
 //!
-//! Tests verify that all statistics accumulate correctly across multiple evaluations
+//! Tests verify that all statistics accumulate correctly across multiple
+//! evaluations
 
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::endgame_patterns::EndgamePatternEvaluator;

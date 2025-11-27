@@ -79,7 +79,8 @@ impl PositionAnalysis {
     /// Get a summary of the analysis
     pub fn summary(&self) -> String {
         format!(
-            "Complexity: {:?}, Pieces: {}, Attacking: {}, Defending: {}, King Safety: {}, Material: {}, Mobility: {}, Endgame: {}, Tactical: {}",
+            "Complexity: {:?}, Pieces: {}, Attacking: {}, Defending: {}, King Safety: {}, \
+             Material: {}, Mobility: {}, Endgame: {}, Tactical: {}",
             self.complexity,
             self.piece_count,
             self.attacking_pieces,
@@ -220,7 +221,8 @@ impl PositionAnalyzer {
     /// Analyze king safety
     fn analyze_king_safety(&self, board: &BitboardBoard, player: Player) -> i32 {
         // Simplified king safety analysis
-        // In a real implementation, this would analyze king position, pawn structure, etc.
+        // In a real implementation, this would analyze king position, pawn structure,
+        // etc.
         let pieces = board.get_pieces();
         let player_idx = if player == Player::Black { 0 } else { 1 };
         let king_bitboard = pieces[player_idx][PieceType::King.to_u8() as usize];

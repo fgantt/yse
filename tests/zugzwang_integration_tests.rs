@@ -1,7 +1,7 @@
 //! Integration tests for zugzwang detection in EndgamePatternEvaluator
 //!
-//! Tests verify that zugzwang detection works correctly in the full evaluation context
-//! and integrates properly with the endgame patterns module.
+//! Tests verify that zugzwang detection works correctly in the full evaluation
+//! context and integrates properly with the endgame patterns module.
 
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::endgame_patterns::{EndgamePatternConfig, EndgamePatternEvaluator};
@@ -19,7 +19,8 @@ fn test_zugzwang_integration() {
     // Zugzwang should work in full evaluation context
     let score = evaluator.evaluate_endgame(&board, Player::Black, &captured_pieces);
 
-    // Score should be computed (not necessarily non-zero, but evaluation should complete)
+    // Score should be computed (not necessarily non-zero, but evaluation should
+    // complete)
     assert!(score.mg >= -10000 && score.mg <= 10000);
     assert!(score.eg >= -10000 && score.eg <= 10000);
 }

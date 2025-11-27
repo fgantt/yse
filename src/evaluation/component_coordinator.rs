@@ -1,10 +1,12 @@
 //! Component Orchestration and Coordination
 //!
-//! This module provides component orchestration logic for the evaluation system.
-//! It handles component coordination decisions, conflict resolution, and phase-aware
-//! gating to avoid double-counting and ensure optimal evaluation order.
+//! This module provides component orchestration logic for the evaluation
+//! system. It handles component coordination decisions, conflict resolution,
+//! and phase-aware gating to avoid double-counting and ensure optimal
+//! evaluation order.
 //!
-//! Extracted from `integration.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `integration.rs` as part of Task 1.0: File Modularization and
+//! Structure Improvements.
 
 use crate::evaluation::config::PhaseBoundaryConfig;
 use crate::evaluation::integration::{CenterControlPrecedence, ComponentFlags};
@@ -17,13 +19,17 @@ use std::collections::HashMap;
 /// Component coordination decisions for a single evaluation
 #[derive(Debug, Clone)]
 pub struct ComponentCoordination {
-    /// Skip passed pawn evaluation in position_features (endgame patterns handles it)
+    /// Skip passed pawn evaluation in position_features (endgame patterns
+    /// handles it)
     pub skip_passed_pawn_evaluation: bool,
-    /// Skip development evaluation in position_features (opening principles handles it)
+    /// Skip development evaluation in position_features (opening principles
+    /// handles it)
     pub skip_development_in_features: bool,
-    /// Skip center control in position_features (positional patterns handles it)
+    /// Skip center control in position_features (positional patterns handles
+    /// it)
     pub skip_center_control_in_features: bool,
-    /// Skip center control in positional_patterns (position features handles it)
+    /// Skip center control in positional_patterns (position features handles
+    /// it)
     pub skip_center_control_in_positional: bool,
     /// Whether to evaluate opening principles (phase-aware)
     pub evaluate_opening_principles: bool,
@@ -47,14 +53,17 @@ impl ComponentCoordination {
         let endgame_threshold = phase_boundaries.endgame_threshold;
         let opening_threshold = phase_boundaries.opening_threshold;
 
-        // Passed pawn coordination: Skip in position_features when endgame_patterns handles it
+        // Passed pawn coordination: Skip in position_features when endgame_patterns
+        // handles it
         let skip_passed_pawn_evaluation = components.endgame_patterns && phase < endgame_threshold;
 
-        // Development coordination: Skip in position_features when opening_principles handles it
+        // Development coordination: Skip in position_features when opening_principles
+        // handles it
         let skip_development_in_features =
             components.opening_principles && phase >= opening_threshold;
 
-        // Center control coordination: Use precedence to determine which component evaluates it
+        // Center control coordination: Use precedence to determine which component
+        // evaluates it
         let (skip_center_control_in_features, skip_center_control_in_positional) =
             if components.position_features && components.positional_patterns {
                 match center_control_precedence {
@@ -179,7 +188,8 @@ impl ComponentOrder {
         }
     }
 
-    /// Get evaluation order filtered by enabled components and coordination decisions
+    /// Get evaluation order filtered by enabled components and coordination
+    /// decisions
     pub fn filtered(
         components: &ComponentFlags,
         coordination: &ComponentCoordination,
@@ -286,7 +296,8 @@ pub struct ConflictResolver;
 impl ConflictResolver {
     /// Resolve center control conflict
     ///
-    /// Returns which component should evaluate center control based on precedence.
+    /// Returns which component should evaluate center control based on
+    /// precedence.
     pub fn resolve_center_control_conflict(
         components: &ComponentFlags,
         precedence: CenterControlPrecedence,

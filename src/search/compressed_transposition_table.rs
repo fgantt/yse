@@ -45,7 +45,8 @@ impl CompressedTranspositionTableConfig {
         self
     }
 
-    /// Set the number of segments (will be rounded to next power-of-two at runtime).
+    /// Set the number of segments (will be rounded to next power-of-two at
+    /// runtime).
     pub fn with_segment_count(mut self, segment_count: usize) -> Self {
         self.segment_count = segment_count.max(1);
         self
@@ -278,7 +279,8 @@ impl CompressedTranspositionTable {
         (hash_key as usize) & self.segment_mask
     }
 
-    /// Perform a maintenance sweep, evicting entries until backlog constraints are met.
+    /// Perform a maintenance sweep, evicting entries until backlog constraints
+    /// are met.
     pub fn maintenance_sweep(
         &mut self,
         max_backlog: usize,

@@ -1,7 +1,8 @@
 //! Unified Error Handling for Shogi Engine
 //!
-//! This module provides a comprehensive error type hierarchy for all engine operations.
-//! All errors use the `thiserror` crate for ergonomic error handling.
+//! This module provides a comprehensive error type hierarchy for all engine
+//! operations. All errors use the `thiserror` crate for ergonomic error
+//! handling.
 //!
 //! # Task 4.0 (Tasks 4.1-4.7)
 //!
@@ -10,7 +11,7 @@
 //! ## Creating and handling errors
 //!
 //! ```rust,no_run
-//! use shogi_engine::error::{SearchError, ShogiEngineError, Result};
+//! use shogi_engine::error::{Result, SearchError, ShogiEngineError};
 //!
 //! fn search_with_timeout() -> Result<()> {
 //!     Err(SearchError::timeout("Search exceeded time limit").into())
@@ -28,7 +29,7 @@
 //! ## Error propagation
 //!
 //! ```rust,no_run
-//! use shogi_engine::error::{ConfigurationError, ShogiEngineError, Result};
+//! use shogi_engine::error::{ConfigurationError, Result, ShogiEngineError};
 //!
 //! fn load_config(path: &str) -> Result<()> {
 //!     // Errors automatically convert to ShogiEngineError via From trait
@@ -41,8 +42,10 @@
 //! The error hierarchy consists of:
 //! - [`ShogiEngineError`]: Root error type for all engine operations
 //! - [`SearchError`]: Search-related errors (timeout, invalid depth, etc.)
-//! - [`EvaluationError`]: Evaluation-related errors (invalid position, component failure, etc.)
-//! - [`TranspositionTableError`]: Transposition table errors (invalid size, probe failure, etc.)
+//! - [`EvaluationError`]: Evaluation-related errors (invalid position,
+//!   component failure, etc.)
+//! - [`TranspositionTableError`]: Transposition table errors (invalid size,
+//!   probe failure, etc.)
 //! - [`MoveGenerationError`]: Move generation errors
 //! - [`ConfigurationError`]: Configuration validation and loading errors
 
@@ -51,7 +54,8 @@ use thiserror::Error;
 /// Root error type for all engine operations
 ///
 /// This enum serves as the single error type for the entire engine.
-/// All module-specific errors are converted to this type using `From` trait implementations.
+/// All module-specific errors are converted to this type using `From` trait
+/// implementations.
 ///
 /// # Task 4.0 (Task 4.1)
 #[derive(Error, Debug)]
@@ -233,7 +237,8 @@ pub enum ConfigurationError {
     DeserializationFailed { message: String },
 }
 
-// Task 4.0 (Task 4.7): From trait conversions are automatically provided by #[from] attributes
+// Task 4.0 (Task 4.7): From trait conversions are automatically provided by
+// #[from] attributes
 
 impl TranspositionTableError {
     /// Create an invalid size error

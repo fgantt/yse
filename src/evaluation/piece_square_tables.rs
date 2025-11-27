@@ -1,8 +1,9 @@
 //! Piece-Square Tables Module
 //!
-//! This module provides phase-aware piece-square tables for positional evaluation.
-//! Piece-square tables assign bonuses/penalties to pieces based on their position,
-//! with different values for opening/middlegame and endgame phases.
+//! This module provides phase-aware piece-square tables for positional
+//! evaluation. Piece-square tables assign bonuses/penalties to pieces based on
+//! their position, with different values for opening/middlegame and endgame
+//! phases.
 //!
 //! # Overview
 //!
@@ -16,12 +17,15 @@
 //! # Memory Optimizations (Task 1.10)
 //!
 //! This module includes memory optimizations for better cache performance:
-//! - **Cache-aligned storage**: `PieceSquareTableStorage` is aligned to 64-byte cache lines
-//!   for optimal memory access patterns
-//! - **Sequential access**: Tables are organized as 2D arrays for cache-friendly row-major access
-//! - **Prefetching support**: Evaluation paths prefetch upcoming table entries to reduce cache misses
+//! - **Cache-aligned storage**: `PieceSquareTableStorage` is aligned to 64-byte
+//!   cache lines for optimal memory access patterns
+//! - **Sequential access**: Tables are organized as 2D arrays for
+//!   cache-friendly row-major access
+//! - **Prefetching support**: Evaluation paths prefetch upcoming table entries
+//!   to reduce cache misses
 //!
-//! These optimizations provide 5-10% additional performance improvement in evaluation.
+//! These optimizations provide 5-10% additional performance improvement in
+//! evaluation.
 //!
 //! # Example
 //!
@@ -394,8 +398,9 @@ impl PieceSquareTables {
 
     /// Get both mg and eg tables for a piece type
     ///
-    /// Returns references to the middlegame and endgame tables for the specified piece.
-    /// Returns zero tables for King (no positional bonus for King).
+    /// Returns references to the middlegame and endgame tables for the
+    /// specified piece. Returns zero tables for King (no positional bonus
+    /// for King).
     pub fn get_tables(&self, piece_type: PieceType) -> (&[[i32; 9]; 9], &[[i32; 9]; 9]) {
         match piece_type {
             // Basic pieces
@@ -840,7 +845,8 @@ mod tests {
         let promoted_rook = tables.get_value(PieceType::PromotedRook, pos, Player::Black);
         assert!(promoted_rook.mg > 0);
         assert!(promoted_rook.eg > 0);
-        assert!(promoted_rook.eg > promoted_pawn.eg); // Promoted rook better than promoted pawn
+        assert!(promoted_rook.eg > promoted_pawn.eg); // Promoted rook better
+                                                      // than promoted pawn
     }
 
     #[test]
@@ -945,8 +951,9 @@ mod tests {
         let pawn = tables.get_value(PieceType::Pawn, pos, Player::Black);
         let promoted_pawn = tables.get_value(PieceType::PromotedPawn, pos, Player::Black);
 
-        // Promoted pieces should have different positional characteristics from their base forms.
-        // Note: This is just positional bonus, not including material value.
+        // Promoted pieces should have different positional characteristics from their
+        // base forms. Note: This is just positional bonus, not including
+        // material value.
         assert_ne!(
             (pawn.mg, pawn.eg),
             (promoted_pawn.mg, promoted_pawn.eg),

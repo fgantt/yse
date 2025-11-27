@@ -33,7 +33,8 @@ fn test_tune_weights_api() {
     assert!(result.is_ok(), "tune_weights should not error on valid input");
 
     let tuning_result = result.unwrap();
-    // Iterations might be less than max_iterations if we converge early or hit early stopping
+    // Iterations might be less than max_iterations if we converge early or hit
+    // early stopping
     assert!(
         tuning_result.iterations <= tuning_config.max_iterations,
         "Iterations should not exceed max_iterations"

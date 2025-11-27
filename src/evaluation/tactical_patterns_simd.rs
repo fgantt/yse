@@ -1,21 +1,22 @@
 //! SIMD-optimized tactical pattern matching
 //!
-//! This module provides SIMD-accelerated pattern matching for tactical patterns,
-//! using batch operations to process multiple positions simultaneously.
+//! This module provides SIMD-accelerated pattern matching for tactical
+//! patterns, using batch operations to process multiple positions
+//! simultaneously.
 //!
 //! # Feature Flags & Configuration
 //!
-//! - **Compile-time**: Only available when the crate is built with
-//!   `--features simd`.
+//! - **Compile-time**: Only available when the crate is built with `--features
+//!   simd`.
 //! - **Runtime**: `TacticalPatternRecognizer` checks
 //!   `SimdConfig::enable_simd_pattern_matching` (see
 //!   `docs/design/implementation/simd-optimization/SIMD_INTEGRATION_STATUS.md`)
-//!   before delegating to `SimdPatternMatcher`. This enables per-profile control
-//!   without recompilation, which is essential for experiments documented in
-//!   `SIMD_IMPLEMENTATION_EVALUATION.md`.
+//!   before delegating to `SimdPatternMatcher`. This enables per-profile
+//!   control without recompilation, which is essential for experiments
+//!   documented in `SIMD_IMPLEMENTATION_EVALUATION.md`.
 //! - **Telemetry**: SIMD vs scalar invocation counts are tracked through
-//!   `SimdTelemetry`, allowing regression detection to align with the integration
-//!   status tasks.
+//!   `SimdTelemetry`, allowing regression detection to align with the
+//!   integration status tasks.
 //!
 //! # Performance
 //!
@@ -158,7 +159,8 @@ impl SimdPatternMatcher {
 
     /// Detect pins using SIMD batch operations
     ///
-    /// Processes multiple pieces simultaneously to find pins using vectorized attack pattern generation.
+    /// Processes multiple pieces simultaneously to find pins using vectorized
+    /// attack pattern generation.
     ///
     /// # Performance
     ///
@@ -246,7 +248,8 @@ impl SimdPatternMatcher {
                     _ => continue,
                 };
 
-                // Check each direction for pins (using scalar for line scanning, but with SIMD-optimized attack patterns)
+                // Check each direction for pins (using scalar for line scanning, but with
+                // SIMD-optimized attack patterns)
                 for &(dr, dc) in directions {
                     if let Some(pinned_pos) =
                         self.check_pin_direction(board, pos, piece_type, player, dr, dc)
@@ -319,7 +322,8 @@ impl SimdPatternMatcher {
 
     /// Batch count attack targets for multiple pieces
     ///
-    /// Uses batch operations to count targets for multiple pieces simultaneously
+    /// Uses batch operations to count targets for multiple pieces
+    /// simultaneously
     pub fn count_attack_targets_batch(
         &self,
         attack_patterns: &AlignedBitboardArray<4>,
@@ -408,7 +412,8 @@ impl SimdPatternMatcher {
 
     /// Detect skewers using SIMD batch operations
     ///
-    /// Processes multiple pieces simultaneously to find skewers (attacks through less valuable piece to more valuable).
+    /// Processes multiple pieces simultaneously to find skewers (attacks
+    /// through less valuable piece to more valuable).
     ///
     /// # Performance
     ///
@@ -546,7 +551,8 @@ impl SimdPatternMatcher {
 
     /// Detect discovered attacks using SIMD batch operations
     ///
-    /// Processes multiple pieces simultaneously to find discovered attack potential.
+    /// Processes multiple pieces simultaneously to find discovered attack
+    /// potential.
     ///
     /// # Performance
     ///
@@ -608,7 +614,8 @@ impl SimdPatternMatcher {
         discovered
     }
 
-    /// Check if moving a piece can create a discovered attack (SIMD-optimized version)
+    /// Check if moving a piece can create a discovered attack (SIMD-optimized
+    /// version)
     fn can_create_discovered_attack_simd(
         &self,
         board: &BitboardBoard,
@@ -617,7 +624,8 @@ impl SimdPatternMatcher {
         _piece_attacks: SimdBitboard,
         player: Player,
     ) -> bool {
-        // Check if there's a friendly sliding piece behind this piece that would attack target
+        // Check if there's a friendly sliding piece behind this piece that would attack
+        // target
         let direction = match Self::direction_towards(piece_pos, target_pos) {
             Some(dir) => dir,
             None => return false,
@@ -695,7 +703,8 @@ impl SimdPatternMatcher {
         None
     }
 
-    /// Helper: Check if piece type can create pins/skewers along given direction
+    /// Helper: Check if piece type can create pins/skewers along given
+    /// direction
     fn can_pin_along_line(piece_type: PieceType, dr: i8, dc: i8) -> bool {
         match piece_type {
             PieceType::Rook | PieceType::PromotedRook | PieceType::Lance => {

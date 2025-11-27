@@ -20,7 +20,8 @@ fn test_attacked_castle_penalties() {
     let attacked_score = evaluator.evaluate(&attacked_board, attacked.player);
     let canonical_score = evaluator.evaluate(&canonical_board, canonical.player);
 
-    // Attacked castle should have lower (more negative) score due to attack penalties
+    // Attacked castle should have lower (more negative) score due to attack
+    // penalties
     assert!(
         attacked_score.mg < canonical_score.mg || attacked_score.eg < canonical_score.eg,
         "Attacked castle should have lower score than canonical castle"

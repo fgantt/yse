@@ -1,6 +1,7 @@
 //! Move ordering integration tests
 //!
-//! This module contains tests for the transposition table integrated move ordering system.
+//! This module contains tests for the transposition table integrated move
+//! ordering system.
 
 use crate::bitboards::*;
 use crate::search::*;
@@ -310,7 +311,8 @@ impl MoveOrderingTestSuite {
         let stats = orderer.get_stats();
 
         // Memory usage should be reasonable
-        // (This is a basic check - in a real implementation, we'd measure actual memory usage)
+        // (This is a basic check - in a real implementation, we'd measure actual memory
+        // usage)
         let success = stats.total_moves_ordered == 0; // Fresh orderer should have no moves ordered yet
 
         if success {

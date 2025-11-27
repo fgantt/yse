@@ -1,8 +1,8 @@
 //! Attack Pattern Precomputation Module
 //!
-//! This module provides precomputed attack patterns for non-sliding pieces in Shogi.
-//! It eliminates runtime calculations by precomputing all possible attack patterns
-//! at initialization time, providing O(1) lookup performance.
+//! This module provides precomputed attack patterns for non-sliding pieces in
+//! Shogi. It eliminates runtime calculations by precomputing all possible
+//! attack patterns at initialization time, providing O(1) lookup performance.
 
 use crate::types::core::{PieceType, Player};
 use crate::types::Bitboard;
@@ -12,7 +12,8 @@ use std::time::Instant;
 #[derive(Clone)]
 #[repr(C, align(64))]
 pub struct AttackTables {
-    /// King attacks: 81 positions × 8 directions = 648 patterns (same for both players)
+    /// King attacks: 81 positions × 8 directions = 648 patterns (same for both
+    /// players)
     pub king_attacks: [Bitboard; 81],
 
     /// Black piece attacks
@@ -33,7 +34,8 @@ pub struct AttackTables {
     pub white_promoted_knight_attacks: [Bitboard; 81],
     pub white_promoted_silver_attacks: [Bitboard; 81],
 
-    /// Promoted sliding pieces (King-like moves + original sliding) - same for both players
+    /// Promoted sliding pieces (King-like moves + original sliding) - same for
+    /// both players
     pub promoted_bishop_attacks: [Bitboard; 81],
     pub promoted_rook_attacks: [Bitboard; 81],
 
@@ -73,7 +75,8 @@ impl Direction {
         Self { row_delta, col_delta }
     }
 
-    /// Apply this direction to a square, returning the resulting square if valid
+    /// Apply this direction to a square, returning the resulting square if
+    /// valid
     pub fn apply(&self, square: u8) -> Option<u8> {
         let row = (square / 9) as i8;
         let col = (square % 9) as i8;
@@ -155,7 +158,8 @@ impl AttackTables {
         tables.metadata.memory_usage_bytes = std::mem::size_of::<AttackTables>();
         tables.metadata.validation_passed = true;
 
-        // Task 5.0.5.2: Telemetry is tracked in bitboards.rs when AttackTables::new() is called
+        // Task 5.0.5.2: Telemetry is tracked in bitboards.rs when AttackTables::new()
+        // is called
 
         tables
     }
@@ -583,7 +587,8 @@ mod tests {
         let edge_attacks = tables.black_knight_attacks[4];
         assert!(edge_attacks.count_ones() <= 2);
 
-        // Test White knight from center - should have 2 attacks (forward from White's perspective)
+        // Test White knight from center - should have 2 attacks (forward from White's
+        // perspective)
         let white_center_attacks = tables.white_knight_attacks[40];
         assert_eq!(white_center_attacks.count_ones(), 2);
     }

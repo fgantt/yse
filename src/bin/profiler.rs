@@ -110,7 +110,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut engine = ShogiEngine::new();
 
     // Note: SFEN parsing is not implemented yet in engine utilities.
-    // We keep API parity with other tools: accept --position but use startpos for now.
+    // We keep API parity with other tools: accept --position but use startpos for
+    // now.
     let position = cli.position.clone().unwrap_or_else(|| "startpos".to_string());
 
     // Reset global counters before profiling

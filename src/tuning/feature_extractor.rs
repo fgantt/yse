@@ -1,42 +1,49 @@
 //! Feature extraction system for automated tuning
 //!
-//! This module provides functionality to extract feature vectors from game positions
-//! for use in the automated tuning process. The feature extraction system breaks down
-//! the evaluation function into individual components that can be tuned independently.
+//! This module provides functionality to extract feature vectors from game
+//! positions for use in the automated tuning process. The feature extraction
+//! system breaks down the evaluation function into individual components that
+//! can be tuned independently.
 //!
 //! Key features extracted:
 //! - Material balance (piece counts and values)
 //! - Positional features (piece-square tables)
 //! - King safety (castles, attacks, threats)
 //! - Pawn structure (chains, advancement, isolation)
-//! - Mobility (move counts and piece activity) - **Uses actual move generation**
-//! - Piece coordination (connected pieces, attacks) - **Uses actual move generation**
+//! - Mobility (move counts and piece activity) - **Uses actual move
+//!   generation**
+//! - Piece coordination (connected pieces, attacks) - **Uses actual move
+//!   generation**
 //! - Center control (occupation patterns)
 //! - Development (piece positioning and activity)
 //!
 //! ## Implementation Details
 //!
 //! ### Mobility Features
-//! Mobility features are calculated using actual legal move generation rather than
-//! heuristic estimates. The `extract_mobility_features()` method:
-//! - Generates all legal moves for the player using `MoveGenerator::generate_legal_moves()`
-//! - Counts moves per piece type (Pawn, Lance, Knight, Silver, Gold, Bishop, Rook)
+//! Mobility features are calculated using actual legal move generation rather
+//! than heuristic estimates. The `extract_mobility_features()` method:
+//! - Generates all legal moves for the player using
+//!   `MoveGenerator::generate_legal_moves()`
+//! - Counts moves per piece type (Pawn, Lance, Knight, Silver, Gold, Bishop,
+//!   Rook)
 //! - Calculates total mobility as the total number of legal moves
 //! - Measures center mobility by counting moves targeting center squares
 //!
-//! This provides accurate mobility measurements that reflect the actual tactical
-//! capabilities of the position, rather than simplified estimates.
+//! This provides accurate mobility measurements that reflect the actual
+//! tactical capabilities of the position, rather than simplified estimates.
 //!
 //! ### Coordination Features
-//! Coordination features analyze actual piece interactions using move generation:
+//! Coordination features analyze actual piece interactions using move
+//! generation:
 //! - **Connected Rooks**: Detects rooks on same rank/file with clear paths
-//! - **Piece Coordination**: Counts moves that support friendly pieces or coordinate attacks
+//! - **Piece Coordination**: Counts moves that support friendly pieces or
+//!   coordinate attacks
 //! - **Attack Coordination**: Identifies squares attacked by multiple pieces
 //! - **Defense Coordination**: Measures how well pieces defend each other
 //!
-//! These features use actual move generation to identify real tactical relationships
-//! between pieces, providing more accurate coordination measurements than distance-based
-//! heuristics.
+//! These features use actual move generation to identify real tactical
+//! relationships between pieces, providing more accurate coordination
+//! measurements than distance-based heuristics.
 
 use super::types::TrainingPosition;
 use crate::evaluation::king_safety::KingSafetyEvaluator;
@@ -620,7 +627,8 @@ impl FeatureExtractor {
         center_moves
     }
 
-    /// Calculate center mobility (deprecated - use calculate_center_mobility_from_moves)
+    /// Calculate center mobility (deprecated - use
+    /// calculate_center_mobility_from_moves)
     ///
     /// This method is kept for backward compatibility but should be replaced
     /// with calculate_center_mobility_from_moves which uses actual moves.
@@ -752,7 +760,8 @@ impl FeatureExtractor {
         }
     }
 
-    /// Count connected rooks (deprecated - use count_connected_rooks_with_moves)
+    /// Count connected rooks (deprecated - use
+    /// count_connected_rooks_with_moves)
     ///
     /// This method is kept for backward compatibility but should be replaced
     /// with count_connected_rooks_with_moves which uses actual move generation.
@@ -829,7 +838,8 @@ impl FeatureExtractor {
                     }
                 }
                 if attackers > 0 {
-                    coordination += attackers as f64 * 0.5; // Coordination bonus
+                    coordination += attackers as f64 * 0.5; // Coordination
+                                                            // bonus
                 }
             }
         }

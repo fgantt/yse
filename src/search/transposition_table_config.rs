@@ -1,8 +1,8 @@
 //! Unified Transposition Table Configuration
 //!
-//! This module provides a unified configuration enum for all transposition table types,
-//! enabling polymorphic table creation. This is part of Task 3.0 - Integration
-//! Synchronization and Coordination Fixes.
+//! This module provides a unified configuration enum for all transposition
+//! table types, enabling polymorphic table creation. This is part of Task 3.0 -
+//! Integration Synchronization and Coordination Fixes.
 
 use crate::search::compressed_transposition_table::CompressedTranspositionTableConfig;
 use crate::search::hierarchical_transposition_table::HierarchicalTranspositionConfig;
@@ -31,7 +31,8 @@ pub enum TranspositionTableConfig {
         /// Configuration for the basic table
         config: BasicTranspositionTableConfig,
     },
-    /// Thread-safe transposition table (default for multi-threaded environments)
+    /// Thread-safe transposition table (default for multi-threaded
+    /// environments)
     ThreadSafe {
         /// Configuration for the thread-safe table
         config: TranspositionConfig,
@@ -176,7 +177,8 @@ impl TranspositionTableConfig {
                 }
                 if !(0.1..=1.0).contains(&config.target_compression_ratio) {
                     return Err(format!(
-                        "Compressed table target_compression_ratio must be between 0.1 and 1.0, got {}",
+                        "Compressed table target_compression_ratio must be between 0.1 and 1.0, \
+                         got {}",
                         config.target_compression_ratio
                     ));
                 }
@@ -188,8 +190,9 @@ impl TranspositionTableConfig {
 
 /// Factory function for creating transposition tables
 ///
-/// This function creates a boxed trait object implementing `TranspositionTableTrait`,
-/// allowing polymorphic usage throughout the search engine.
+/// This function creates a boxed trait object implementing
+/// `TranspositionTableTrait`, allowing polymorphic usage throughout the search
+/// engine.
 ///
 /// Note: Due to trait object limitations and different mutability requirements,
 /// this function wraps all tables in RefCell for consistency, even though

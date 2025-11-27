@@ -1,15 +1,17 @@
 //! Types Module
 //!
-//! This module is being refactored from a single large file into focused sub-modules.
-//! As part of Task 1.0: File Modularization and Structure Improvements, types are being
-//! split into logical groups while maintaining backward compatibility.
+//! This module is being refactored from a single large file into focused
+//! sub-modules. As part of Task 1.0: File Modularization and Structure
+//! Improvements, types are being split into logical groups while maintaining
+//! backward compatibility.
 //!
-//! Currently, this file contains all types. As types are extracted to submodules,
-//! they will be re-exported here for backward compatibility.
+//! Currently, this file contains all types. As types are extracted to
+//! submodules, they will be re-exported here for backward compatibility.
 
 // Note: Types are now in sibling modules (core.rs, board.rs, search.rs, etc.)
-// This file (all.rs) is kept for backward compatibility and contains the original
-// type definitions. Do not declare sibling modules here - they are declared in mod.rs
+// This file (all.rs) is kept for backward compatibility and contains the
+// original type definitions. Do not declare sibling modules here - they are
+// declared in mod.rs
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -697,7 +699,8 @@ impl TranspositionEntry {
         };
 
         format!(
-            "TranspositionEntry {{ score: {}, depth: {}, flag: {:?}, best_move: {}, hash_key: 0x{:016x}, age: {} }}",
+            "TranspositionEntry {{ score: {}, depth: {}, flag: {:?}, best_move: {}, hash_key: \
+             0x{:016x}, age: {} }}",
             self.score, self.depth, self.flag, move_str, self.hash_key, self.age
         )
     }
@@ -755,7 +758,8 @@ pub struct QuiescenceEntry {
     pub best_move: Option<Move>,
     pub access_count: u64, // For LRU tracking - number of times this entry was accessed
     pub last_access_age: u64, // For LRU tracking - age when last accessed
-    pub stand_pat_score: Option<i32>, // Task 6.0: Cached stand-pat evaluation (optional, not all entries have it)
+    pub stand_pat_score: Option<i32>, /* Task 6.0: Cached stand-pat evaluation (optional, not
+                                       * all entries have it) */
 }
 
 /// Represents a dual-phase evaluation score for tapered evaluation
@@ -1260,7 +1264,8 @@ pub enum TTReplacementPolicy {
 
 impl Default for TTReplacementPolicy {
     fn default() -> Self {
-        TTReplacementPolicy::DepthPreferred // Default to depth-preferred for better tactical accuracy
+        TTReplacementPolicy::DepthPreferred // Default to depth-preferred for
+                                            // better tactical accuracy
     }
 }
 
@@ -1272,12 +1277,14 @@ pub struct QuiescenceConfig {
     pub enable_futility_pruning: bool,              // Enable futility pruning
     pub enable_selective_extensions: bool,          // Enable selective extensions
     pub enable_tt: bool,                            // Enable transposition table
-    pub enable_adaptive_pruning: bool, // Enable adaptive pruning (adjusts margins based on depth/move count)
-    pub futility_margin: i32,          // Futility pruning margin
-    pub delta_margin: i32,             // Delta pruning margin
-    pub high_value_capture_threshold: i32, // Threshold for high-value captures (excluded from futility pruning)
-    pub tt_size_mb: usize,                 // Quiescence TT size in MB
-    pub tt_cleanup_threshold: usize,       // Threshold for TT cleanup
+    pub enable_adaptive_pruning: bool,              /* Enable adaptive pruning (adjusts margins
+                                                     * based on depth/move count) */
+    pub futility_margin: i32,              // Futility pruning margin
+    pub delta_margin: i32,                 // Delta pruning margin
+    pub high_value_capture_threshold: i32, /* Threshold for high-value captures (excluded from
+                                            * futility pruning) */
+    pub tt_size_mb: usize,                          // Quiescence TT size in MB
+    pub tt_cleanup_threshold: usize,                // Threshold for TT cleanup
     pub tt_replacement_policy: TTReplacementPolicy, // Replacement policy for TT cleanup
 }
 
@@ -1292,10 +1299,12 @@ impl Default for QuiescenceConfig {
             enable_adaptive_pruning: true, // Adaptive pruning enabled by default
             futility_margin: 200,
             delta_margin: 100,
-            high_value_capture_threshold: 200, // High-value captures (200+ centipawns) excluded from futility pruning
-            tt_size_mb: 4,                     // 4MB for quiescence TT
-            tt_cleanup_threshold: 10000,       // Clean up when TT has 10k entries
-            tt_replacement_policy: TTReplacementPolicy::DepthPreferred, // Default to depth-preferred
+            high_value_capture_threshold: 200, /* High-value captures (200+ centipawns) excluded
+                                                * from futility pruning */
+            tt_size_mb: 4,               // 4MB for quiescence TT
+            tt_cleanup_threshold: 10000, // Clean up when TT has 10k entries
+            tt_replacement_policy: TTReplacementPolicy::DepthPreferred, /* Default to
+                                                                         * depth-preferred */
         }
     }
 }
@@ -1356,7 +1365,8 @@ impl QuiescenceConfig {
     /// Get a summary of the configuration
     pub fn summary(&self) -> String {
         format!(
-            "QuiescenceConfig: depth={}, delta_pruning={}, futility_pruning={}, extensions={}, tt={}, tt_size={}MB, cleanup_threshold={}",
+            "QuiescenceConfig: depth={}, delta_pruning={}, futility_pruning={}, extensions={}, \
+             tt={}, tt_size={}MB, cleanup_threshold={}",
             self.max_depth,
             self.enable_delta_pruning,
             self.enable_futility_pruning,
@@ -1382,7 +1392,8 @@ pub struct QuiescenceStats {
     pub capture_moves_found: u64,
     pub promotion_moves_found: u64,
     pub checks_excluded_from_futility: u64, // Checks excluded from futility pruning
-    pub high_value_captures_excluded_from_futility: u64, // High-value captures excluded from futility pruning
+    pub high_value_captures_excluded_from_futility: u64, /* High-value captures excluded from
+                                                          * futility pruning */
     pub move_ordering_cutoffs: u64, // Number of beta cutoffs from move ordering
     pub move_ordering_total_moves: u64, // Total moves ordered
     pub move_ordering_first_move_cutoffs: u64, // Cutoffs from first move in ordering
@@ -1444,13 +1455,10 @@ impl QuiescenceStats {
     pub fn performance_report(&self) -> String {
         let (check_pct, capture_pct, promotion_pct) = self.move_type_distribution();
         format!(
-            "Quiescence Performance Report:\n\
-            - Nodes searched: {}\n\
-            - Pruning efficiency: {:.2}% ({} prunes)\n\
-            - TT hit rate: {:.2}% ({} hits, {} misses)\n\
-            - Extension rate: {:.2}% ({} extensions)\n\
-            - Move distribution: {:.1}% checks, {:.1}% captures, {:.1}% promotions\n\
-            - Moves ordered: {}",
+            "Quiescence Performance Report:\n- Nodes searched: {}\n- Pruning efficiency: {:.2}% \
+             ({} prunes)\n- TT hit rate: {:.2}% ({} hits, {} misses)\n- Extension rate: {:.2}% \
+             ({} extensions)\n- Move distribution: {:.1}% checks, {:.1}% captures, {:.1}% \
+             promotions\n- Moves ordered: {}",
             self.nodes_searched,
             self.pruning_efficiency(),
             self.total_prunes(),
@@ -1554,13 +1562,9 @@ impl QuiescenceProfile {
 
     pub fn get_performance_report(&self) -> String {
         format!(
-            "Quiescence Performance Profile:\n\
-            - Samples: {}\n\
-            - Average Duration: {:.2}ms\n\
-            - Average Nodes: {:.0}\n\
-            - Average Pruning Efficiency: {:.2}%\n\
-            - Average TT Hit Rate: {:.2}%\n\
-            - Average Extension Rate: {:.2}%",
+            "Quiescence Performance Profile:\n- Samples: {}\n- Average Duration: {:.2}ms\n- \
+             Average Nodes: {:.0}\n- Average Pruning Efficiency: {:.2}%\n- Average TT Hit Rate: \
+             {:.2}%\n- Average Extension Rate: {:.2}%",
             self.samples.len(),
             self.average_duration_ms,
             self.average_nodes_searched,
@@ -1585,7 +1589,8 @@ pub struct QuiescencePerformanceMetrics {
 impl QuiescencePerformanceMetrics {
     pub fn summary(&self) -> String {
         format!(
-            "Performance Metrics: {:.0} nodes/s, {:.1}% pruned, {:.1}% TT hits, {:.1}% extended, {:.1}% tactical",
+            "Performance Metrics: {:.0} nodes/s, {:.1}% pruned, {:.1}% TT hits, {:.1}% extended, \
+             {:.1}% tactical",
             self.nodes_per_second,
             self.pruning_efficiency,
             self.tt_hit_rate,
@@ -1627,7 +1632,8 @@ pub enum DynamicReductionFormula {
     Static,
     /// Linear reduction: R = 2 + depth / 6 (integer division, creates steps)
     Linear,
-    /// Smooth reduction: R = 2 + (depth / 6.0).round() (floating-point with rounding for smoother scaling)
+    /// Smooth reduction: R = 2 + (depth / 6.0).round() (floating-point with
+    /// rounding for smoother scaling)
     Smooth,
 }
 
@@ -1642,17 +1648,20 @@ impl DynamicReductionFormula {
     /// # Formula Selection Guidelines
     ///
     /// **Static**: Always returns base_reduction. Most conservative approach.
-    /// - Use when: You want consistent, predictable reduction regardless of depth
+    /// - Use when: You want consistent, predictable reduction regardless of
+    ///   depth
     /// - Best for: Positions requiring maximum safety
     ///
     /// **Linear**: R = base_reduction + depth / 6 (integer division)
     /// - Use when: You want step-wise scaling that increases at multiples of 6
-    /// - Behavior: Creates steps - depth 3-5 -> R=base, 6-11 -> R=base+1, 12-17 -> R=base+2
+    /// - Behavior: Creates steps - depth 3-5 -> R=base, 6-11 -> R=base+1, 12-17
+    ///   -> R=base+2
     /// - Best for: General play with predictable reduction scaling
     ///
     /// **Smooth**: R = base_reduction + (depth / 6.0).round()
     /// - Use when: You want smoother, more gradual scaling without large steps
-    /// - Behavior: Increases reduction earlier than Linear (e.g., depth 3-5 -> R=base+1)
+    /// - Behavior: Increases reduction earlier than Linear (e.g., depth 3-5 ->
+    ///   R=base+1)
     /// - Best for: Positions where smoother scaling improves NMP effectiveness
     ///
     /// # Examples (with base_reduction = 2)
@@ -1693,29 +1702,39 @@ impl DynamicReductionFormula {
 ///
 /// These strategies determine how the reduction factor is calculated:
 /// - **Static**: Always use base `reduction_factor` (simple, conservative)
-/// - **Dynamic**: Use `dynamic_reduction_formula` (Linear/Smooth scaling based on depth)
-/// - **DepthBased**: Reduction varies by depth (smaller at shallow depths, larger at deep depths)
-/// - **MaterialBased**: Reduction adjusted by material on board (fewer pieces = smaller reduction)
-/// - **PositionTypeBased**: Different reduction for opening/middlegame/endgame positions
+/// - **Dynamic**: Use `dynamic_reduction_formula` (Linear/Smooth scaling based
+///   on depth)
+/// - **DepthBased**: Reduction varies by depth (smaller at shallow depths,
+///   larger at deep depths)
+/// - **MaterialBased**: Reduction adjusted by material on board (fewer pieces =
+///   smaller reduction)
+/// - **PositionTypeBased**: Different reduction for opening/middlegame/endgame
+///   positions
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NullMoveReductionStrategy {
-    /// Static reduction: Always use base `reduction_factor` (R = reduction_factor)
-    /// Best for: Simple configurations, when consistent reduction is desired
+    /// Static reduction: Always use base `reduction_factor` (R =
+    /// reduction_factor) Best for: Simple configurations, when consistent
+    /// reduction is desired
     Static,
-    /// Dynamic reduction: Use `dynamic_reduction_formula` (Linear/Smooth scaling)
-    /// Best for: Standard configurations, when depth-based scaling is desired
+    /// Dynamic reduction: Use `dynamic_reduction_formula` (Linear/Smooth
+    /// scaling) Best for: Standard configurations, when depth-based scaling
+    /// is desired
     Dynamic,
-    /// Depth-based reduction: Reduction varies by depth (smaller at shallow, larger at deep)
-    /// Formula: R = base + depth_scaling_factor * max(0, depth - min_depth_for_scaling)
-    /// Best for: When more conservative reduction at shallow depths is desired
+    /// Depth-based reduction: Reduction varies by depth (smaller at shallow,
+    /// larger at deep) Formula: R = base + depth_scaling_factor * max(0,
+    /// depth - min_depth_for_scaling) Best for: When more conservative
+    /// reduction at shallow depths is desired
     DepthBased,
-    /// Material-based reduction: Reduction adjusted by material count (fewer pieces = smaller reduction)
-    /// Formula: R = base + material_adjustment_factor * max(0, (piece_count_threshold - piece_count) / threshold_step)
-    /// Best for: When more conservative reduction in endgame positions is desired
+    /// Material-based reduction: Reduction adjusted by material count (fewer
+    /// pieces = smaller reduction) Formula: R = base +
+    /// material_adjustment_factor * max(0, (piece_count_threshold -
+    /// piece_count) / threshold_step) Best for: When more conservative
+    /// reduction in endgame positions is desired
     MaterialBased,
-    /// Position-type-based reduction: Different reduction for opening/middlegame/endgame
-    /// Formula: Uses different base reductions based on detected position type
-    /// Best for: When position characteristics should influence reduction amount
+    /// Position-type-based reduction: Different reduction for
+    /// opening/middlegame/endgame Formula: Uses different base reductions
+    /// based on detected position type Best for: When position
+    /// characteristics should influence reduction amount
     PositionTypeBased,
 }
 
@@ -1757,17 +1776,23 @@ impl NullMoveReductionStrategy {
 
 /// Preset configurations for Null Move Pruning
 ///
-/// These presets provide pre-configured settings optimized for different playing styles:
-/// - **Conservative**: Higher safety margins, lower reduction, stricter endgame detection (safer but slower)
-/// - **Aggressive**: Lower safety margins, higher reduction, relaxed endgame detection (faster but riskier)
-/// - **Balanced**: Default values optimized for general play (good balance of speed and safety)
+/// These presets provide pre-configured settings optimized for different
+/// playing styles:
+/// - **Conservative**: Higher safety margins, lower reduction, stricter endgame
+///   detection (safer but slower)
+/// - **Aggressive**: Lower safety margins, higher reduction, relaxed endgame
+///   detection (faster but riskier)
+/// - **Balanced**: Default values optimized for general play (good balance of
+///   speed and safety)
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum NullMovePreset {
-    /// Conservative preset: Higher verification_margin, lower reduction_factor, stricter endgame detection
-    /// Best for: Critical positions, endgame analysis, when safety is more important than speed
+    /// Conservative preset: Higher verification_margin, lower reduction_factor,
+    /// stricter endgame detection Best for: Critical positions, endgame
+    /// analysis, when safety is more important than speed
     Conservative,
-    /// Aggressive preset: Lower verification_margin, higher reduction_factor, relaxed endgame detection
-    /// Best for: Fast time controls, opening/middlegame, when speed is more important than safety
+    /// Aggressive preset: Lower verification_margin, higher reduction_factor,
+    /// relaxed endgame detection Best for: Fast time controls,
+    /// opening/middlegame, when speed is more important than safety
     Aggressive,
     /// Balanced preset: Default values optimized for general play
     /// Best for: Standard time controls, general use cases
@@ -1802,35 +1827,59 @@ pub struct NullMoveConfig {
     pub min_depth: u8,                                      // Minimum depth to use NMP
     pub reduction_factor: u8,                               // Static reduction factor (R)
     pub max_pieces_threshold: u8,                           // Disable NMP when pieces < threshold
-    pub enable_dynamic_reduction: bool, // Use dynamic reduction (deprecated, use dynamic_reduction_formula instead)
+    pub enable_dynamic_reduction: bool,                     /* Use dynamic reduction
+                                                             * (deprecated, use
+                                                             * dynamic_reduction_formula
+                                                             * instead) */
     pub enable_endgame_detection: bool, // Disable NMP in endgame
     pub verification_margin: i32,       // Safety margin for verification search (centipawns)
-    pub dynamic_reduction_formula: DynamicReductionFormula, // Formula for dynamic reduction calculation
-    pub enable_mate_threat_detection: bool, // Enable mate threat detection (default: false, opt-in feature)
+    pub dynamic_reduction_formula: DynamicReductionFormula, /* Formula for dynamic reduction
+                                                             * calculation */
+    pub enable_mate_threat_detection: bool, /* Enable mate threat detection (default: false,
+                                             * opt-in feature) */
     pub mate_threat_margin: i32, // Threshold for mate threat detection (default: 500 centipawns)
-    pub enable_endgame_type_detection: bool, // Enable endgame type detection (default: false, opt-in feature)
-    pub material_endgame_threshold: u8, // Threshold for material endgame detection (default: 12 pieces)
-    pub king_activity_threshold: u8, // Threshold for king activity endgame detection (default: 8 pieces)
-    pub zugzwang_threshold: u8, // Threshold for zugzwang-prone endgame detection (default: 6 pieces)
-    pub preset: Option<NullMovePreset>, // Optional: Track which preset was used to create this config
-    pub reduction_strategy: NullMoveReductionStrategy, // Advanced reduction strategy (default: Dynamic)
+    pub enable_endgame_type_detection: bool, /* Enable endgame type detection (default: false,
+                                              * opt-in feature) */
+    pub material_endgame_threshold: u8, /* Threshold for material endgame detection (default: 12
+                                         * pieces) */
+    pub king_activity_threshold: u8, /* Threshold for king activity endgame detection (default:
+                                      * 8 pieces) */
+    pub zugzwang_threshold: u8, /* Threshold for zugzwang-prone endgame detection (default: 6
+                                 * pieces) */
+    pub preset: Option<NullMovePreset>, /* Optional: Track which preset was used to create this
+                                         * config */
+    pub reduction_strategy: NullMoveReductionStrategy, /* Advanced reduction strategy (default:
+                                                        * Dynamic) */
     // Advanced reduction strategy parameters
-    pub depth_scaling_factor: u8, // Depth-based scaling factor (default: 1, used with DepthBased strategy)
-    pub min_depth_for_scaling: u8, // Minimum depth for depth-based scaling (default: 4, used with DepthBased strategy)
-    pub material_adjustment_factor: u8, // Material-based adjustment factor (default: 1, used with MaterialBased strategy)
-    pub piece_count_threshold: u8, // Piece count threshold for material-based adjustment (default: 20, used with MaterialBased strategy)
-    pub threshold_step: u8, // Threshold step for material-based adjustment (default: 4, used with MaterialBased strategy)
-    pub opening_reduction_factor: u8, // Reduction factor for opening positions (default: 3, used with PositionTypeBased strategy)
-    pub middlegame_reduction_factor: u8, // Reduction factor for middlegame positions (default: 2, used with PositionTypeBased strategy)
-    pub endgame_reduction_factor: u8, // Reduction factor for endgame positions (default: 1, used with PositionTypeBased strategy)
+    pub depth_scaling_factor: u8, /* Depth-based scaling factor (default: 1, used with
+                                   * DepthBased strategy) */
+    pub min_depth_for_scaling: u8, /* Minimum depth for depth-based scaling (default: 4, used
+                                    * with DepthBased strategy) */
+    pub material_adjustment_factor: u8, /* Material-based adjustment factor (default: 1, used
+                                         * with MaterialBased strategy) */
+    pub piece_count_threshold: u8, /* Piece count threshold for material-based adjustment
+                                    * (default: 20, used with MaterialBased strategy) */
+    pub threshold_step: u8, /* Threshold step for material-based adjustment (default: 4, used
+                             * with MaterialBased strategy) */
+    pub opening_reduction_factor: u8, /* Reduction factor for opening positions (default: 3,
+                                       * used with PositionTypeBased strategy) */
+    pub middlegame_reduction_factor: u8, /* Reduction factor for middlegame positions (default:
+                                          * 2, used with PositionTypeBased strategy) */
+    pub endgame_reduction_factor: u8, /* Reduction factor for endgame positions (default: 1,
+                                       * used with PositionTypeBased strategy) */
     // Per-depth reduction tuning
     pub enable_per_depth_reduction: bool, // Enable per-depth reduction factors (default: false)
-    pub reduction_factor_by_depth: HashMap<u8, u8>, // Depth -> reduction_factor mapping (optional, for fine-tuning)
+    pub reduction_factor_by_depth: HashMap<u8, u8>, /* Depth -> reduction_factor mapping
+                                                     * (optional, for fine-tuning) */
     // Per-position-type endgame thresholds
-    pub enable_per_position_type_threshold: bool, // Enable per-position-type thresholds (default: false)
-    pub opening_pieces_threshold: u8, // Threshold for opening positions (default: 12, same as max_pieces_threshold)
-    pub middlegame_pieces_threshold: u8, // Threshold for middlegame positions (default: 12, same as max_pieces_threshold)
-    pub endgame_pieces_threshold: u8, // Threshold for endgame positions (default: 12, same as max_pieces_threshold)
+    pub enable_per_position_type_threshold: bool, /* Enable per-position-type thresholds
+                                                   * (default: false) */
+    pub opening_pieces_threshold: u8, /* Threshold for opening positions (default: 12, same as
+                                       * max_pieces_threshold) */
+    pub middlegame_pieces_threshold: u8, /* Threshold for middlegame positions (default: 12,
+                                          * same as max_pieces_threshold) */
+    pub endgame_pieces_threshold: u8, /* Threshold for endgame positions (default: 12, same as
+                                       * max_pieces_threshold) */
 }
 
 impl Default for NullMoveConfig {
@@ -1845,10 +1894,14 @@ impl Default for NullMoveConfig {
 impl NullMoveConfig {
     /// Create a configuration from a preset
     ///
-    /// This creates a new `NullMoveConfig` with settings optimized for the specified preset:
-    /// - **Conservative**: Higher verification_margin, lower reduction_factor, stricter endgame detection
-    /// - **Aggressive**: Lower verification_margin, higher reduction_factor, relaxed endgame detection
-    /// - **Balanced**: Default values optimized for general play (verification_margin: 200, reduction_factor: 2)
+    /// This creates a new `NullMoveConfig` with settings optimized for the
+    /// specified preset:
+    /// - **Conservative**: Higher verification_margin, lower reduction_factor,
+    ///   stricter endgame detection
+    /// - **Aggressive**: Lower verification_margin, higher reduction_factor,
+    ///   relaxed endgame detection
+    /// - **Balanced**: Default values optimized for general play
+    ///   (verification_margin: 200, reduction_factor: 2)
     pub fn from_preset(preset: NullMovePreset) -> Self {
         match preset {
             NullMovePreset::Conservative => Self {
@@ -1891,13 +1944,15 @@ impl NullMoveConfig {
                 enable_dynamic_reduction: true,
                 enable_endgame_detection: true,
                 verification_margin: 100, // Lower safety margin (100 centipawns)
-                dynamic_reduction_formula: DynamicReductionFormula::Smooth, // Use smooth formula for better scaling
-                enable_mate_threat_detection: false, // Disable mate threat detection for speed
-                mate_threat_margin: 400,             // Lower mate threat margin (400 centipawns)
+                dynamic_reduction_formula: DynamicReductionFormula::Smooth, /* Use smooth formula for better scaling */
+                enable_mate_threat_detection: false,                        /* Disable mate
+                                                                             * threat detection
+                                                                             * for speed */
+                mate_threat_margin: 400, // Lower mate threat margin (400 centipawns)
                 enable_endgame_type_detection: false, // Disable endgame type detection for speed
-                material_endgame_threshold: 10,      // Lower threshold (10 pieces)
-                king_activity_threshold: 6,          // Lower threshold (6 pieces)
-                zugzwang_threshold: 4,               // Lower threshold (4 pieces)
+                material_endgame_threshold: 10, // Lower threshold (10 pieces)
+                king_activity_threshold: 6, // Lower threshold (6 pieces)
+                zugzwang_threshold: 4,   // Lower threshold (4 pieces)
                 preset: Some(NullMovePreset::Aggressive),
                 reduction_strategy: NullMoveReductionStrategy::Dynamic,
                 depth_scaling_factor: 1,
@@ -2070,10 +2125,9 @@ impl NullMoveConfig {
                     return Err("reduction_factor_by_depth: depth should not exceed 50".to_string());
                 }
                 if *factor == 0 {
-                    return Err(
-                        "reduction_factor_by_depth: reduction_factor must be greater than 0"
-                            .to_string(),
-                    );
+                    return Err("reduction_factor_by_depth: reduction_factor must be greater \
+                                than 0"
+                        .to_string());
                 }
                 if *factor > 5 {
                     return Err("reduction_factor_by_depth: reduction_factor should not exceed 5"
@@ -2141,7 +2195,11 @@ impl NullMoveConfig {
         };
         let strategy_str = format!(", reduction_strategy={}", self.reduction_strategy.to_string());
         format!(
-            "NullMoveConfig: enabled={}, min_depth={}, reduction_factor={}, max_pieces_threshold={}, dynamic_reduction={}, endgame_detection={}, verification_margin={}, reduction_formula={:?}, mate_threat_detection={}, mate_threat_margin={}, endgame_type_detection={}, material_endgame_threshold={}, king_activity_threshold={}, zugzwang_threshold={}{}{}",
+            "NullMoveConfig: enabled={}, min_depth={}, reduction_factor={}, \
+             max_pieces_threshold={}, dynamic_reduction={}, endgame_detection={}, \
+             verification_margin={}, reduction_formula={:?}, mate_threat_detection={}, \
+             mate_threat_margin={}, endgame_type_detection={}, material_endgame_threshold={}, \
+             king_activity_threshold={}, zugzwang_threshold={}{}{}",
             self.enabled,
             self.min_depth,
             self.reduction_factor,
@@ -2171,11 +2229,13 @@ pub struct NullMoveStats {
     pub disabled_in_check: u64,              // Times disabled due to check
     pub disabled_endgame: u64,               // Times disabled due to endgame
     pub verification_attempts: u64,          // Number of verification searches attempted
-    pub verification_cutoffs: u64, // Number of verification searches that resulted in cutoffs
+    pub verification_cutoffs: u64,           /* Number of verification searches that resulted in
+                                              * cutoffs */
     pub mate_threat_attempts: u64, // Number of mate threat detection attempts
     pub mate_threat_detected: u64, // Number of mate threats detected and verified
     pub disabled_material_endgame: u64, // Times disabled due to material endgame detection
-    pub disabled_king_activity_endgame: u64, // Times disabled due to king activity endgame detection
+    pub disabled_king_activity_endgame: u64, /* Times disabled due to king activity endgame
+                                              * detection */
     pub disabled_zugzwang: u64, // Times disabled due to zugzwang-prone endgame detection
     pub skipped_time_pressure: u64, // Times skipped due to time pressure (Task 7.0.2.8)
 }
@@ -2234,19 +2294,12 @@ impl NullMoveStats {
     /// Get a comprehensive performance report
     pub fn performance_report(&self) -> String {
         format!(
-            "Null Move Pruning Performance Report:\n\
-            - Attempts: {}\n\
-            - Cutoffs: {} ({:.2}%)\n\
-            - Total disabled: {} ({} in check, {} endgame)\n\
-            - Average reduction: {:.2}\n\
-            - Efficiency: {:.2}%\n\
-            - Verification attempts: {}\n\
-            - Verification cutoffs: {} ({:.2}%)\n\
-            - Mate threat attempts: {}\n\
-            - Mate threats detected: {} ({:.2}%)\n\
-            - Disabled material endgame: {}\n\
-            - Disabled king activity endgame: {}\n\
-            - Disabled zugzwang: {}",
+            "Null Move Pruning Performance Report:\n- Attempts: {}\n- Cutoffs: {} ({:.2}%)\n- \
+             Total disabled: {} ({} in check, {} endgame)\n- Average reduction: {:.2}\n- \
+             Efficiency: {:.2}%\n- Verification attempts: {}\n- Verification cutoffs: {} \
+             ({:.2}%)\n- Mate threat attempts: {}\n- Mate threats detected: {} ({:.2}%)\n- \
+             Disabled material endgame: {}\n- Disabled king activity endgame: {}\n- Disabled \
+             zugzwang: {}",
             self.attempts,
             self.cutoffs,
             self.cutoff_rate(),
@@ -2290,7 +2343,8 @@ pub struct LMRConfig {
     pub enable_dynamic_reduction: bool,   // Use dynamic vs static reduction
     pub enable_adaptive_reduction: bool,  // Use position-based adaptation
     pub enable_extended_exemptions: bool, // Extended move exemption rules
-    pub re_search_margin: i32, // Margin for re-search decision (centipawns, default: 50, range: 0-500)
+    pub re_search_margin: i32,            /* Margin for re-search decision (centipawns, default:
+                                           * 50, range: 0-500) */
     /// Enable position-type adaptive re-search margin (Task 7.0.6.1)
     pub enable_position_type_margin: bool,
     /// Re-search margin for tactical positions (default: 75cp) (Task 7.0.6.3)
@@ -2312,13 +2366,17 @@ pub struct LMRConfig {
 /// Configuration for position classification (Task 5.8)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct PositionClassificationConfig {
-    /// Tactical threshold: cutoff ratio above which position is classified as tactical (default: 0.3)
+    /// Tactical threshold: cutoff ratio above which position is classified as
+    /// tactical (default: 0.3)
     pub tactical_threshold: f64,
-    /// Quiet threshold: cutoff ratio below which position is classified as quiet (default: 0.1)
+    /// Quiet threshold: cutoff ratio below which position is classified as
+    /// quiet (default: 0.1)
     pub quiet_threshold: f64,
-    /// Material imbalance threshold: material difference above which position is more tactical (default: 300 centipawns)
+    /// Material imbalance threshold: material difference above which position
+    /// is more tactical (default: 300 centipawns)
     pub material_imbalance_threshold: i32,
-    /// Minimum moves threshold: minimum moves considered before classification (default: 5)
+    /// Minimum moves threshold: minimum moves considered before classification
+    /// (default: 5)
     pub min_moves_threshold: u64,
 }
 
@@ -2354,9 +2412,11 @@ pub enum AdvancedReductionStrategy {
     Basic,
     /// Depth-based reduction scaling (non-linear formulas) (Task 11.1)
     DepthBased,
-    /// Material-based reduction adjustment (reduce more in material-imbalanced positions) (Task 11.2)
+    /// Material-based reduction adjustment (reduce more in material-imbalanced
+    /// positions) (Task 11.2)
     MaterialBased,
-    /// History-based reduction (reduce more for moves with poor history scores) (Task 11.3)
+    /// History-based reduction (reduce more for moves with poor history scores)
+    /// (Task 11.3)
     HistoryBased,
     /// Combined: Use multiple strategies together
     Combined,
@@ -2371,21 +2431,26 @@ impl Default for AdvancedReductionStrategy {
 /// Configuration for conditional capture/promotion exemptions (Task 12.2, 12.3)
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ConditionalExemptionConfig {
-    /// Enable conditional capture exemption (default: false - all captures exempted)
+    /// Enable conditional capture exemption (default: false - all captures
+    /// exempted)
     pub enable_conditional_capture_exemption: bool,
-    /// Minimum captured piece value to exempt from LMR (default: 100 centipawns)
-    /// Small captures (below this value) may benefit from reduction in deep searches
+    /// Minimum captured piece value to exempt from LMR (default: 100
+    /// centipawns) Small captures (below this value) may benefit from
+    /// reduction in deep searches
     pub min_capture_value_threshold: i32,
     /// Minimum depth for conditional capture exemption (default: 5)
-    /// Only apply conditional exemption at deeper depths where small captures are less critical
+    /// Only apply conditional exemption at deeper depths where small captures
+    /// are less critical
     pub min_depth_for_conditional_capture: u8,
-    /// Enable conditional promotion exemption (default: false - all promotions exempted)
+    /// Enable conditional promotion exemption (default: false - all promotions
+    /// exempted)
     pub enable_conditional_promotion_exemption: bool,
     /// Only exempt tactical promotions (default: true)
     /// Quiet promotions (non-captures, non-checks) may benefit from reduction
     pub exempt_tactical_promotions_only: bool,
     /// Minimum depth for conditional promotion exemption (default: 5)
-    /// Only apply conditional exemption at deeper depths where quiet promotions are less critical
+    /// Only apply conditional exemption at deeper depths where quiet promotions
+    /// are less critical
     pub min_depth_for_conditional_promotion: u8,
 }
 
@@ -2417,7 +2482,8 @@ pub struct AdvancedReductionConfig {
     pub enable_history_based: bool,
     /// Depth scaling factor for non-linear depth scaling (default: 0.15)
     pub depth_scaling_factor: f64,
-    /// Material imbalance threshold for material-based reduction (default: 300 centipawns)
+    /// Material imbalance threshold for material-based reduction (default: 300
+    /// centipawns)
     pub material_imbalance_threshold: i32,
     /// History score threshold for history-based reduction (default: 0)
     pub history_score_threshold: i32,
@@ -2550,7 +2616,12 @@ impl LMRConfig {
     /// Get a summary of the configuration
     pub fn summary(&self) -> String {
         format!(
-            "LMRConfig: enabled={}, min_depth={}, min_move_index={}, base_reduction={}, max_reduction={}, dynamic={}, adaptive={}, extended_exemptions={}, re_search_margin={}, classification(tactical_threshold={:.2}, quiet_threshold={:.2}, material_imbalance_threshold={}, min_moves_threshold={}), escape_move(exemption={}, threat_detection={}), adaptive_tuning(enabled={}, aggressiveness={:?}), advanced_reduction(enabled={}, strategy={:?})",
+            "LMRConfig: enabled={}, min_depth={}, min_move_index={}, base_reduction={}, \
+             max_reduction={}, dynamic={}, adaptive={}, extended_exemptions={}, \
+             re_search_margin={}, classification(tactical_threshold={:.2}, quiet_threshold={:.2}, \
+             material_imbalance_threshold={}, min_moves_threshold={}), escape_move(exemption={}, \
+             threat_detection={}), adaptive_tuning(enabled={}, aggressiveness={:?}), \
+             advanced_reduction(enabled={}, strategy={:?})",
             self.enabled,
             self.min_depth,
             self.min_move_index,
@@ -2596,9 +2667,11 @@ pub struct MoveOrderingEffectivenessStats {
     pub cutoffs_after_lmr_threshold: u64,
     /// Cutoffs from moves before LMR threshold
     pub cutoffs_before_lmr_threshold: u64,
-    /// Late-ordered moves that caused cutoffs (indicates ordering could be better) (Task 10.2)
+    /// Late-ordered moves that caused cutoffs (indicates ordering could be
+    /// better) (Task 10.2)
     pub late_ordered_cutoffs: u64,
-    /// Early-ordered moves that didn't cause cutoffs (indicates ordering is good) (Task 10.3)
+    /// Early-ordered moves that didn't cause cutoffs (indicates ordering is
+    /// good) (Task 10.3)
     pub early_ordered_no_cutoffs: u64,
     /// Total move index sum for cutoff-causing moves (for average calculation)
     pub total_cutoff_index_sum: u64,
@@ -2618,7 +2691,8 @@ impl MoveOrderingEffectivenessStats {
         // Track cutoffs after LMR threshold (Task 10.4)
         if move_index >= lmr_threshold {
             self.cutoffs_after_lmr_threshold += 1;
-            self.late_ordered_cutoffs += 1; // Late-ordered move caused cutoff (Task 10.2)
+            self.late_ordered_cutoffs += 1; // Late-ordered move caused cutoff
+                                            // (Task 10.2)
         } else {
             self.cutoffs_before_lmr_threshold += 1;
         }
@@ -2629,7 +2703,8 @@ impl MoveOrderingEffectivenessStats {
         self.moves_no_cutoff += 1;
         self.total_no_cutoff_index_sum += move_index as u64;
 
-        // Track early-ordered moves that didn't cause cutoffs (indicates ordering is good) (Task 10.3)
+        // Track early-ordered moves that didn't cause cutoffs (indicates ordering is
+        // good) (Task 10.3)
         if move_index < lmr_threshold {
             self.early_ordered_no_cutoffs += 1;
         }
@@ -2659,10 +2734,12 @@ impl MoveOrderingEffectivenessStats {
         self.total_no_cutoff_index_sum as f64 / self.moves_no_cutoff as f64
     }
 
-    /// Get ordering effectiveness score (lower is better - indicates good ordering)
+    /// Get ordering effectiveness score (lower is better - indicates good
+    /// ordering)
     pub fn ordering_effectiveness(&self) -> f64 {
         if self.total_cutoffs == 0 {
-            return 100.0; // No cutoffs means perfect ordering (all moves pruned)
+            return 100.0; // No cutoffs means perfect ordering (all moves
+                          // pruned)
         }
 
         let avg_cutoff_index = self.average_cutoff_index();
@@ -2736,7 +2813,8 @@ pub struct EscapeMoveStats {
     pub escape_moves_exempted: u64, // Number of escape moves exempted from LMR
     pub threat_based_detections: u64, // Number of threat-based detections
     pub heuristic_detections: u64,  // Number of heuristic detections (fallback)
-    pub false_positives: u64, // Number of false positives (heuristic said escape but no threat)
+    pub false_positives: u64,       /* Number of false positives (heuristic said escape but no
+                                     * threat) */
     pub false_negatives: u64, // Number of false negatives (threat exists but not detected)
 }
 
@@ -2852,13 +2930,16 @@ pub struct LMRStats {
     pub re_search_margin_prevented: u64,   // Number of re-searches prevented by margin
     pub re_search_margin_allowed: u64,     // Number of re-searches allowed despite margin
     pub tt_move_exempted: u64,             // Number of TT moves exempted from LMR
-    pub tt_move_missed: u64, // Number of moves that should have been TT moves but weren't detected
-    pub iid_move_explicitly_exempted: u64, // Number of IID moves explicitly exempted from LMR (Task 7.0.1)
-    pub iid_move_reduced_count: u64, // Number of times IID move was reduced (should be 0!) (Task 7.0.5.1)
+    pub tt_move_missed: u64,               /* Number of moves that should have been TT moves but
+                                            * weren't detected */
+    pub iid_move_explicitly_exempted: u64, /* Number of IID moves explicitly exempted from LMR
+                                            * (Task 7.0.1) */
+    pub iid_move_reduced_count: u64, /* Number of times IID move was reduced (should be 0!)
+                                      * (Task 7.0.5.1) */
     /// Re-search statistics by position type (Task 7.0.6.4)
     pub tactical_researches: u64, // Re-searches in tactical positions
-    pub quiet_researches: u64,       // Re-searches in quiet positions
-    pub neutral_researches: u64,     // Re-searches in neutral positions
+    pub quiet_researches: u64,   // Re-searches in quiet positions
+    pub neutral_researches: u64, // Re-searches in neutral positions
     /// Statistics by game phase (Task 4.6)
     pub phase_stats: std::collections::HashMap<GamePhase, LMRPhaseStats>,
     /// Position classification statistics (Task 5.10)
@@ -2947,7 +3028,8 @@ impl LMRStats {
         if late_cutoff_rate > 25.0 {
             is_healthy = false;
             alerts.push(format!(
-                "Poor move ordering: {:.1}% of cutoffs from late-ordered moves (threshold: 25%). Ordering needs improvement.",
+                "Poor move ordering: {:.1}% of cutoffs from late-ordered moves (threshold: 25%). \
+                 Ordering needs improvement.",
                 late_cutoff_rate
             ));
         }
@@ -2956,7 +3038,8 @@ impl LMRStats {
         let avg_cutoff_index = self.move_ordering_stats.average_cutoff_index();
         if avg_cutoff_index > 5.0 {
             alerts.push(format!(
-                "High average cutoff index: {:.1} (threshold: 5.0). Move ordering may need improvement.",
+                "High average cutoff index: {:.1} (threshold: 5.0). Move ordering may need \
+                 improvement.",
                 avg_cutoff_index
             ));
         }
@@ -2987,7 +3070,8 @@ impl LMRStats {
         if late_cutoff_rate > 30.0 {
             is_healthy = false;
             alerts.push(format!(
-                "Move ordering degradation detected: {:.1}% of cutoffs from late-ordered moves (threshold: 30%)",
+                "Move ordering degradation detected: {:.1}% of cutoffs from late-ordered moves \
+                 (threshold: 30%)",
                 late_cutoff_rate
             ));
         }
@@ -2996,7 +3080,8 @@ impl LMRStats {
         if avg_cutoff_index > 6.0 {
             is_healthy = false;
             alerts.push(format!(
-                "Move ordering degradation detected: Average cutoff index {:.1} is too high (threshold: 6.0)",
+                "Move ordering degradation detected: Average cutoff index {:.1} is too high \
+                 (threshold: 6.0)",
                 avg_cutoff_index
             ));
         }
@@ -3004,7 +3089,8 @@ impl LMRStats {
         (is_healthy, alerts)
     }
 
-    /// Create performance report comparing ordering effectiveness vs LMR effectiveness (Task 10.8)
+    /// Create performance report comparing ordering effectiveness vs LMR
+    /// effectiveness (Task 10.8)
     pub fn get_ordering_vs_lmr_report(&self) -> String {
         let ordering_metrics = self.get_move_ordering_metrics();
         let efficiency = self.efficiency();
@@ -3012,19 +3098,13 @@ impl LMRStats {
         let cutoff_rate = self.cutoff_rate();
 
         format!(
-            "Move Ordering vs LMR Effectiveness Report:\n\
-            - Move Ordering Effectiveness: {:.1}%\n\
-            - Late-Ordered Cutoffs: {:.1}% ({} / {})\n\
-            - Average Cutoff Index: {:.2}\n\
-            - LMR Efficiency: {:.1}%\n\
-            - LMR Re-search Rate: {:.1}%\n\
-            - LMR Cutoff Rate: {:.1}%\n\
-            - Correlation: {:.1}% cutoffs from moves after LMR threshold\n\
-            \n\
-            Analysis:\n\
-            - Good ordering (low late cutoff rate) enables better LMR effectiveness\n\
-            - High late cutoff rate indicates ordering needs improvement\n\
-            - Average cutoff index should be < 5.0 for optimal LMR performance",
+            "Move Ordering vs LMR Effectiveness Report:\n- Move Ordering Effectiveness: {:.1}%\n- \
+             Late-Ordered Cutoffs: {:.1}% ({} / {})\n- Average Cutoff Index: {:.2}\n- LMR \
+             Efficiency: {:.1}%\n- LMR Re-search Rate: {:.1}%\n- LMR Cutoff Rate: {:.1}%\n- \
+             Correlation: {:.1}% cutoffs from moves after LMR threshold\n\nAnalysis:\n- Good \
+             ordering (low late cutoff rate) enables better LMR effectiveness\n- High late cutoff \
+             rate indicates ordering needs improvement\n- Average cutoff index should be < 5.0 \
+             for optimal LMR performance",
             ordering_metrics.ordering_effectiveness,
             ordering_metrics.cutoffs_after_threshold_percentage,
             ordering_metrics.late_ordered_cutoffs,
@@ -3098,17 +3178,11 @@ impl LMRStats {
     /// Get a comprehensive performance report (Task 4.8)
     pub fn performance_report(&self) -> String {
         let mut report = format!(
-            "Late Move Reductions Performance Report:\n\
-            - Moves considered: {}\n\
-            - Reductions applied: {} ({:.2}%)\n\
-            - Re-searches triggered: {} ({:.2}%)\n\
-            - Total cutoffs: {} ({:.2}%)\n\
-            - Average depth saved: {:.2}\n\
-            - Total depth saved: {}\n\
-            - Re-search margin prevented: {} ({:.2}%)\n\
-            - Re-search margin allowed: {}\n\
-            - TT moves exempted: {}\n\
-            - TT moves missed: {}\n",
+            "Late Move Reductions Performance Report:\n- Moves considered: {}\n- Reductions \
+             applied: {} ({:.2}%)\n- Re-searches triggered: {} ({:.2}%)\n- Total cutoffs: {} \
+             ({:.2}%)\n- Average depth saved: {:.2}\n- Total depth saved: {}\n- Re-search margin \
+             prevented: {} ({:.2}%)\n- Re-search margin allowed: {}\n- TT moves exempted: {}\n- \
+             TT moves missed: {}\n",
             self.moves_considered,
             self.reductions_applied,
             self.efficiency(),
@@ -3135,7 +3209,8 @@ impl LMRStats {
                     GamePhase::Endgame => "Endgame",
                 };
                 report.push_str(&format!(
-                    "  {}: {} moves, {:.1}% efficiency, {:.1}% re-search rate, {:.1}% cutoff rate\n",
+                    "  {}: {} moves, {:.1}% efficiency, {:.1}% re-search rate, {:.1}% cutoff \
+                     rate\n",
                     phase_name,
                     phase_stats.moves_considered,
                     phase_stats.efficiency(),
@@ -3187,7 +3262,8 @@ impl LMRStats {
     /// Get a summary of key metrics
     pub fn summary(&self) -> String {
         format!(
-            "LMR: {} considered, {:.1}% reduced, {:.1}% researched, {:.1}% cutoffs, {:.1} avg saved",
+            "LMR: {} considered, {:.1}% reduced, {:.1}% researched, {:.1}% cutoffs, {:.1} avg \
+             saved",
             self.moves_considered,
             self.efficiency(),
             self.research_rate(),
@@ -3662,7 +3738,8 @@ impl LMRProfileResult {
     /// Get a summary of the profile results
     pub fn summary(&self) -> String {
         format!(
-            "LMR Profile: {:.2}s total, {:.2}s avg/search, {:.0} moves/sec, {:.1}% reduced, {:.1}% researched",
+            "LMR Profile: {:.2}s total, {:.2}s avg/search, {:.0} moves/sec, {:.1}% reduced, \
+             {:.1}% researched",
             self.total_time.as_secs_f64(),
             self.average_time_per_search.as_secs_f64(),
             self.moves_per_second,
@@ -4014,11 +4091,13 @@ mod tests {
         let score = TaperedScore::new_tapered(100, 200);
 
         // Test with negative phase (should still work)
-        // 100 * (-1) + 200 * (256 - (-1)) / 256 = -100 + 200 * 257 / 256 = 51300 / 256 = 200
+        // 100 * (-1) + 200 * (256 - (-1)) / 256 = -100 + 200 * 257 / 256 = 51300 / 256
+        // = 200
         assert_eq!(score.interpolate(-1), 200);
 
         // Test with phase > GAME_PHASE_MAX
-        // 100 * 300 + 200 * (256 - 300) / 256 = 30000 + 200 * (-44) / 256 = (30000 - 8800) / 256 = 21200 / 256 = 82
+        // 100 * 300 + 200 * (256 - 300) / 256 = 30000 + 200 * (-44) / 256 = (30000 -
+        // 8800) / 256 = 21200 / 256 = 82
         assert_eq!(score.interpolate(300), 82);
 
         // Test with zero values
@@ -4084,11 +4163,14 @@ pub struct IIDConfig {
     pub dynamic_base_depth: u8,
     /// Task 4.11: Maximum depth cap for dynamic depth calculation (default: 4)
     pub dynamic_max_depth: u8,
-    /// Task 4.11: Adaptive minimum depth threshold (if enabled, adjusts min_depth based on position)
+    /// Task 4.11: Adaptive minimum depth threshold (if enabled, adjusts
+    /// min_depth based on position)
     pub adaptive_min_depth: bool,
-    /// Task 5.4: Maximum estimated IID time in milliseconds (default: 50ms, or percentage of remaining time)
+    /// Task 5.4: Maximum estimated IID time in milliseconds (default: 50ms, or
+    /// percentage of remaining time)
     pub max_estimated_iid_time_ms: u32,
-    /// Task 5.4: Use percentage of remaining time for max_estimated_iid_time_ms (if enabled, max_estimated_iid_time_ms is percentage)
+    /// Task 5.4: Use percentage of remaining time for max_estimated_iid_time_ms
+    /// (if enabled, max_estimated_iid_time_ms is percentage)
     pub max_estimated_iid_time_percentage: bool,
     /// Task 7.9: Enable complexity-based IID adjustments
     pub enable_complexity_based_adjustments: bool,
@@ -4104,21 +4186,28 @@ pub struct IIDConfig {
     pub complexity_depth_adjustment_high: i8,
     /// Task 7.8: Enable adaptive move count threshold based on position type
     pub enable_adaptive_move_count_threshold: bool,
-    /// Task 7.8: Move count threshold multiplier for tactical positions (default: 1.5)
+    /// Task 7.8: Move count threshold multiplier for tactical positions
+    /// (default: 1.5)
     pub tactical_move_count_multiplier: f64,
-    /// Task 7.8: Move count threshold multiplier for quiet positions (default: 0.8)
+    /// Task 7.8: Move count threshold multiplier for quiet positions (default:
+    /// 0.8)
     pub quiet_move_count_multiplier: f64,
-    /// Task 9.7: Base threshold for time pressure detection (default: 0.10 = 10%)
+    /// Task 9.7: Base threshold for time pressure detection (default: 0.10 =
+    /// 10%)
     pub time_pressure_base_threshold: f64,
-    /// Task 9.7: Complexity multiplier for time pressure detection (default: 1.0)
+    /// Task 9.7: Complexity multiplier for time pressure detection (default:
+    /// 1.0)
     pub time_pressure_complexity_multiplier: f64,
     /// Task 9.7: Depth multiplier for time pressure detection (default: 1.0)
     pub time_pressure_depth_multiplier: f64,
-    /// Task 9.6: Minimum TT entry depth to skip IID (default: 3, if TT entry depth < this, still apply IID)
+    /// Task 9.6: Minimum TT entry depth to skip IID (default: 3, if TT entry
+    /// depth < this, still apply IID)
     pub tt_move_min_depth_for_skip: u8,
-    /// Task 9.6: Maximum TT entry age to skip IID (default: 100, if TT entry age > this, still apply IID)
+    /// Task 9.6: Maximum TT entry age to skip IID (default: 100, if TT entry
+    /// age > this, still apply IID)
     pub tt_move_max_age_for_skip: u32,
-    /// Task 10.4: Track which preset was used (optional, None if manually configured)
+    /// Task 10.4: Track which preset was used (optional, None if manually
+    /// configured)
     pub preset: Option<IIDPreset>,
     /// Task 11.8: Enable game phase-based depth adjustment (default: false)
     pub enable_game_phase_based_adjustment: bool,
@@ -4132,32 +4221,40 @@ pub struct IIDConfig {
     pub game_phase_middlegame_multiplier: f64,
     /// Task 11.8: Depth multiplier for endgame phase (default: 1.0)
     pub game_phase_endgame_multiplier: f64,
-    /// Task 11.8: Material-based depth multiplier (default: 1.0, applied when material > threshold)
+    /// Task 11.8: Material-based depth multiplier (default: 1.0, applied when
+    /// material > threshold)
     pub material_depth_multiplier: f64,
-    /// Task 11.8: Material threshold for material-based adjustment (default: 20 pieces)
+    /// Task 11.8: Material threshold for material-based adjustment (default: 20
+    /// pieces)
     pub material_threshold_for_adjustment: u8,
-    /// Task 11.8: Time-based depth multiplier (default: 1.0, applied when time is low)
+    /// Task 11.8: Time-based depth multiplier (default: 1.0, applied when time
+    /// is low)
     pub time_depth_multiplier: f64,
-    /// Task 11.8: Time threshold for time-based adjustment (default: 0.15 = 15% remaining)
+    /// Task 11.8: Time threshold for time-based adjustment (default: 0.15 = 15%
+    /// remaining)
     pub time_threshold_for_adjustment: f64,
 }
 
 /// Task 10.1: IID configuration presets
 ///
 /// Presets provide convenient ways to configure IID for different use cases:
-/// - **Conservative**: Lower time overhead threshold, higher min_depth, shallower IID depth
-///   Best for: Critical positions, endgame analysis, when safety is more important than speed
-/// - **Aggressive**: Higher time overhead threshold, lower min_depth, deeper IID depth
-///   Best for: Fast time controls, opening/middlegame, when speed is more important than safety
-/// - **Balanced**: Default values optimized for general play
-///   Best for: Standard time controls, general use cases
+/// - **Conservative**: Lower time overhead threshold, higher min_depth,
+///   shallower IID depth Best for: Critical positions, endgame analysis, when
+///   safety is more important than speed
+/// - **Aggressive**: Higher time overhead threshold, lower min_depth, deeper
+///   IID depth Best for: Fast time controls, opening/middlegame, when speed is
+///   more important than safety
+/// - **Balanced**: Default values optimized for general play Best for: Standard
+///   time controls, general use cases
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum IIDPreset {
-    /// Conservative preset: Lower time overhead threshold, higher min_depth, shallower IID depth
-    /// Best for: Critical positions, endgame analysis, when safety is more important than speed
+    /// Conservative preset: Lower time overhead threshold, higher min_depth,
+    /// shallower IID depth Best for: Critical positions, endgame analysis,
+    /// when safety is more important than speed
     Conservative,
-    /// Aggressive preset: Higher time overhead threshold, lower min_depth, deeper IID depth
-    /// Best for: Fast time controls, opening/middlegame, when speed is more important than safety
+    /// Aggressive preset: Higher time overhead threshold, lower min_depth,
+    /// deeper IID depth Best for: Fast time controls, opening/middlegame,
+    /// when speed is more important than safety
     Aggressive,
     /// Balanced preset: Default values optimized for general play
     /// Best for: Standard time controls, general use cases
@@ -4420,7 +4517,8 @@ impl IIDConfig {
         };
 
         format!(
-            "IIDConfig: enabled={}, min_depth={}, iid_depth_ply={}, max_moves={}, overhead_threshold={:.2}, strategy={:?}{}",
+            "IIDConfig: enabled={}, min_depth={}, iid_depth_ply={}, max_moves={}, \
+             overhead_threshold={:.2}, strategy={:?}{}",
             self.enabled,
             self.min_depth,
             self.iid_depth_ply,
@@ -4444,7 +4542,8 @@ pub struct IIDStats {
     pub total_iid_nodes: u64,
     /// Total time spent in IID searches (milliseconds)
     pub iid_time_ms: u64,
-    /// Total time spent in all searches (milliseconds) - used for overhead calculation
+    /// Total time spent in all searches (milliseconds) - used for overhead
+    /// calculation
     pub total_search_time_ms: u64,
     /// Positions skipped due to transposition table move
     pub positions_skipped_tt_move: u64,
@@ -4458,43 +4557,56 @@ pub struct IIDStats {
     pub iid_searches_failed: u64,
     /// IID searches that found a move but it didn't improve alpha
     pub iid_moves_ineffective: u64,
-    /// Task 2.11: Number of times IID move was extracted from transposition table
+    /// Task 2.11: Number of times IID move was extracted from transposition
+    /// table
     pub iid_move_extracted_from_tt: u64,
-    /// Task 2.11: Number of times IID move was extracted from tracked best move during search
+    /// Task 2.11: Number of times IID move was extracted from tracked best move
+    /// during search
     pub iid_move_extracted_from_tracked: u64,
     /// Task 4.12: Statistics for dynamic depth selection
     /// Map from depth (u8) to count of times that depth was chosen
     pub dynamic_depth_selections: std::collections::HashMap<u8, u64>,
-    /// Task 4.12: Number of times dynamic depth was selected due to low complexity
+    /// Task 4.12: Number of times dynamic depth was selected due to low
+    /// complexity
     pub dynamic_depth_low_complexity: u64,
-    /// Task 4.12: Number of times dynamic depth was selected due to medium complexity
+    /// Task 4.12: Number of times dynamic depth was selected due to medium
+    /// complexity
     pub dynamic_depth_medium_complexity: u64,
-    /// Task 4.12: Number of times dynamic depth was selected due to high complexity
+    /// Task 4.12: Number of times dynamic depth was selected due to high
+    /// complexity
     pub dynamic_depth_high_complexity: u64,
     /// Task 5.8: Sum of predicted IID time (for accuracy tracking)
     pub total_predicted_iid_time_ms: u64,
     /// Task 5.8: Sum of actual IID time (for accuracy tracking)
     pub total_actual_iid_time_ms: u64,
-    /// Task 5.9: Number of times IID was skipped due to estimated time exceeding threshold
+    /// Task 5.9: Number of times IID was skipped due to estimated time
+    /// exceeding threshold
     pub positions_skipped_time_estimation: u64,
-    /// Task 6.2: Estimated total nodes if IID were disabled (for performance comparison)
+    /// Task 6.2: Estimated total nodes if IID were disabled (for performance
+    /// comparison)
     pub total_nodes_without_iid: u64,
-    /// Task 6.2: Estimated total time if IID were disabled (for performance comparison)
+    /// Task 6.2: Estimated total time if IID were disabled (for performance
+    /// comparison)
     pub total_time_without_iid_ms: u64,
-    /// Task 6.2: Calculated nodes saved by IID (calculated as total_nodes_without_iid - actual_total_nodes)
+    /// Task 6.2: Calculated nodes saved by IID (calculated as
+    /// total_nodes_without_iid - actual_total_nodes)
     pub nodes_saved: u64,
-    /// Task 6.6: Correlation tracking - sum of efficiency_rate * speedup for correlation analysis
+    /// Task 6.6: Correlation tracking - sum of efficiency_rate * speedup for
+    /// correlation analysis
     pub efficiency_speedup_correlation_sum: f64,
     /// Task 6.6: Number of correlation data points collected
     pub correlation_data_points: u64,
-    /// Task 6.8: Sum of predicted vs actual performance measurements for accuracy tracking
+    /// Task 6.8: Sum of predicted vs actual performance measurements for
+    /// accuracy tracking
     pub performance_measurement_accuracy_sum: f64,
     /// Task 6.8: Number of performance measurement samples
     pub performance_measurement_samples: u64,
-    /// Task 9.8: Time pressure detection accuracy (correct predictions / total predictions)
+    /// Task 9.8: Time pressure detection accuracy (correct predictions / total
+    /// predictions)
     pub time_pressure_detection_correct: u64,
     pub time_pressure_detection_total: u64,
-    /// Task 9.9: TT move condition effectiveness (times TT move was used vs times IID was skipped)
+    /// Task 9.9: TT move condition effectiveness (times TT move was used vs
+    /// times IID was skipped)
     pub tt_move_condition_skips: u64,
     pub tt_move_condition_tt_move_used: u64,
     /// Task 7.10: Position complexity distribution tracking
@@ -4503,7 +4615,8 @@ pub struct IIDStats {
     pub complexity_distribution_high: u64,
     pub complexity_distribution_unknown: u64,
     /// Task 7.11: IID effectiveness by complexity level
-    /// Maps complexity level to (successful_searches, total_searches, nodes_saved, time_saved)
+    /// Maps complexity level to (successful_searches, total_searches,
+    /// nodes_saved, time_saved)
     pub complexity_effectiveness:
         std::collections::HashMap<PositionComplexity, (u64, u64, u64, u64)>,
     /// Task 11.9: Advanced depth strategy effectiveness tracking
@@ -4520,10 +4633,12 @@ pub struct IIDStats {
     pub game_phase_opening_adjustments: u64,
     pub game_phase_middlegame_adjustments: u64,
     pub game_phase_endgame_adjustments: u64,
-    /// Task 12.2: Cross-feature statistics - IID move ordering and effectiveness
-    /// Number of times IID move was ordered first (should be 100% when IID move exists)
+    /// Task 12.2: Cross-feature statistics - IID move ordering and
+    /// effectiveness Number of times IID move was ordered first (should be
+    /// 100% when IID move exists)
     pub iid_move_ordered_first: u64,
-    /// Number of times IID move was not ordered first (should be 0% when IID move exists)
+    /// Number of times IID move was not ordered first (should be 0% when IID
+    /// move exists)
     pub iid_move_not_ordered_first: u64,
     /// Number of cutoffs from IID moves
     pub cutoffs_from_iid_moves: u64,
@@ -4531,18 +4646,21 @@ pub struct IIDStats {
     pub cutoffs_from_non_iid_moves: u64,
     /// Total cutoffs (for percentage calculation)
     pub total_cutoffs: u64,
-    /// Task 12.3: IID move position in ordered list (0 = first, 1 = second, etc.)
-    /// Tracked as sum of positions for average calculation
+    /// Task 12.3: IID move position in ordered list (0 = first, 1 = second,
+    /// etc.) Tracked as sum of positions for average calculation
     pub iid_move_position_sum: u64,
     /// Number of times IID move position was tracked
     pub iid_move_position_tracked: u64,
-    /// Task 12.4: Ordering effectiveness with IID (cutoff rate when IID move exists)
+    /// Task 12.4: Ordering effectiveness with IID (cutoff rate when IID move
+    /// exists)
     pub ordering_effectiveness_with_iid_cutoffs: u64,
     pub ordering_effectiveness_with_iid_total: u64,
-    /// Task 12.4: Ordering effectiveness without IID (cutoff rate when IID move doesn't exist)
+    /// Task 12.4: Ordering effectiveness without IID (cutoff rate when IID move
+    /// doesn't exist)
     pub ordering_effectiveness_without_iid_cutoffs: u64,
     pub ordering_effectiveness_without_iid_total: u64,
-    /// Task 12.5: Correlation tracking - sum of (IID efficiency * ordering effectiveness)
+    /// Task 12.5: Correlation tracking - sum of (IID efficiency * ordering
+    /// effectiveness)
     pub iid_efficiency_ordering_correlation_sum: f64,
     /// Task 12.5: Correlation tracking - number of correlation data points
     pub iid_efficiency_ordering_correlation_points: u64,
@@ -4610,17 +4728,11 @@ impl IIDStats {
     /// Get a comprehensive performance report
     pub fn performance_report(&self) -> String {
         format!(
-            "Internal Iterative Deepening Performance Report:\n\
-            - IID searches performed: {}\n\
-            - Success rate: {:.2}%\n\
-            - Efficiency rate: {:.2}%\n\
-            - Cutoff rate: {:.2}%\n\
-            - Average nodes per IID: {:.1}\n\
-            - Average time per IID: {:.1}ms\n\
-            - Positions skipped (TT): {} ({:.1}%)\n\
-            - Positions skipped (depth): {} ({:.1}%)\n\
-            - Positions skipped (moves): {} ({:.1}%)\n\
-            - Positions skipped (time): {} ({:.1}%)",
+            "Internal Iterative Deepening Performance Report:\n- IID searches performed: {}\n- \
+             Success rate: {:.2}%\n- Efficiency rate: {:.2}%\n- Cutoff rate: {:.2}%\n- Average \
+             nodes per IID: {:.1}\n- Average time per IID: {:.1}ms\n- Positions skipped (TT): {} \
+             ({:.1}%)\n- Positions skipped (depth): {} ({:.1}%)\n- Positions skipped (moves): {} \
+             ({:.1}%)\n- Positions skipped (time): {} ({:.1}%)",
             self.iid_searches_performed,
             self.success_rate(),
             self.efficiency_rate(),
@@ -4681,7 +4793,8 @@ impl IIDStats {
         (self.cutoffs_from_non_iid_moves as f64 / self.total_cutoffs as f64) * 100.0
     }
 
-    /// Task 12.3: Get average IID move position in ordered list (0 = first, 1 = second, etc.)
+    /// Task 12.3: Get average IID move position in ordered list (0 = first, 1 =
+    /// second, etc.)
     pub fn average_iid_move_position(&self) -> f64 {
         if self.iid_move_position_tracked == 0 {
             return 0.0;
@@ -4698,7 +4811,8 @@ impl IIDStats {
         (self.iid_move_ordered_first as f64 / total as f64) * 100.0
     }
 
-    /// Task 12.4: Get ordering effectiveness with IID (cutoff rate when IID move exists)
+    /// Task 12.4: Get ordering effectiveness with IID (cutoff rate when IID
+    /// move exists)
     pub fn ordering_effectiveness_with_iid(&self) -> f64 {
         if self.ordering_effectiveness_with_iid_total == 0 {
             return 0.0;
@@ -4708,7 +4822,8 @@ impl IIDStats {
             * 100.0
     }
 
-    /// Task 12.4: Get ordering effectiveness without IID (cutoff rate when IID move doesn't exist)
+    /// Task 12.4: Get ordering effectiveness without IID (cutoff rate when IID
+    /// move doesn't exist)
     pub fn ordering_effectiveness_without_iid(&self) -> f64 {
         if self.ordering_effectiveness_without_iid_total == 0 {
             return 0.0;
@@ -4718,7 +4833,8 @@ impl IIDStats {
             * 100.0
     }
 
-    /// Task 12.5: Get correlation coefficient between IID efficiency and ordering effectiveness
+    /// Task 12.5: Get correlation coefficient between IID efficiency and
+    /// ordering effectiveness
     pub fn iid_efficiency_ordering_correlation(&self) -> f64 {
         if self.iid_efficiency_ordering_correlation_points == 0 {
             return 0.0;
@@ -4750,9 +4866,11 @@ pub struct IIDPerformanceMetrics {
     pub depth_skip_rate: f64,
     pub move_count_skip_rate: f64,
     pub time_pressure_skip_rate: f64,
-    /// Task 6.7: Node reduction percentage (nodes_saved / total_nodes_without_iid * 100)
+    /// Task 6.7: Node reduction percentage (nodes_saved /
+    /// total_nodes_without_iid * 100)
     pub node_reduction_percentage: f64,
-    /// Task 6.7: Speedup percentage ((time_without_iid - time_with_iid) / time_without_iid * 100)
+    /// Task 6.7: Speedup percentage ((time_without_iid - time_with_iid) /
+    /// time_without_iid * 100)
     pub speedup_percentage: f64,
     /// Task 6.7: Net benefit (speedup_percentage - overhead_percentage)
     pub net_benefit_percentage: f64,
@@ -4761,13 +4879,16 @@ pub struct IIDPerformanceMetrics {
     /// Task 12.2: Percentage of cutoffs from IID moves vs non-IID moves
     pub cutoff_percentage_from_iid_moves: f64,
     pub cutoff_percentage_from_non_iid_moves: f64,
-    /// Task 12.3: Average IID move position in ordered list (0 = first, 1 = second, etc.)
+    /// Task 12.3: Average IID move position in ordered list (0 = first, 1 =
+    /// second, etc.)
     pub average_iid_move_position: f64,
     /// Task 12.3: Percentage of times IID move was ordered first
     pub iid_move_ordered_first_percentage: f64,
-    /// Task 12.4: Ordering effectiveness with IID (cutoff rate when IID move exists)
+    /// Task 12.4: Ordering effectiveness with IID (cutoff rate when IID move
+    /// exists)
     pub ordering_effectiveness_with_iid: f64,
-    /// Task 12.4: Ordering effectiveness without IID (cutoff rate when IID move doesn't exist)
+    /// Task 12.4: Ordering effectiveness without IID (cutoff rate when IID move
+    /// doesn't exist)
     pub ordering_effectiveness_without_iid: f64,
     /// Task 12.5: Correlation between IID efficiency and ordering effectiveness
     pub iid_efficiency_ordering_correlation: f64,
@@ -4867,7 +4988,8 @@ impl IIDPerformanceMetrics {
     /// Get a summary of the performance metrics
     pub fn summary(&self) -> String {
         format!(
-            "IID Performance: {:.1}% efficient, {:.1}% cutoffs, {:.1}% overhead, {:.1}% node reduction, {:.1}% speedup, {:.1}% net benefit",
+            "IID Performance: {:.1}% efficient, {:.1}% cutoffs, {:.1}% overhead, {:.1}% node \
+             reduction, {:.1}% speedup, {:.1}% net benefit",
             self.iid_efficiency,
             self.cutoff_rate,
             self.overhead_percentage,
@@ -4902,7 +5024,8 @@ pub struct AspirationWindowConfig {
     /// Enable position type tracking for window optimization (Task 7.1)
     pub enable_position_type_tracking: bool,
     /// Disable statistics tracking in production builds (Task 7.2)
-    /// When true, statistics tracking is disabled regardless of enable_statistics
+    /// When true, statistics tracking is disabled regardless of
+    /// enable_statistics
     pub disable_statistics_in_production: bool,
 }
 
@@ -4918,8 +5041,10 @@ impl Default for AspirationWindowConfig {
             max_researches: 2, // Allow up to 2 re-searches
             enable_statistics: true,
             use_static_eval_for_init: true, // Use static eval for first window (Task 4.1)
-            enable_position_type_tracking: true, // Task 7.1: Enable position type tracking by default
-            disable_statistics_in_production: false, // Task 7.2: Allow statistics in production by default
+            enable_position_type_tracking: true, /* Task 7.1: Enable position type tracking by
+                                                  * default */
+            disable_statistics_in_production: false, /* Task 7.2: Allow statistics in production
+                                                      * by default */
         }
     }
 }
@@ -4966,7 +5091,9 @@ impl AspirationWindowConfig {
     /// Get a summary of the configuration
     pub fn summary(&self) -> String {
         format!(
-            "AspirationWindowConfig: enabled={}, base_window_size={}, max_window_size={}, min_depth={}, dynamic_scaling={}, adaptive_sizing={}, max_researches={}, statistics={}",
+            "AspirationWindowConfig: enabled={}, base_window_size={}, max_window_size={}, \
+             min_depth={}, dynamic_scaling={}, adaptive_sizing={}, max_researches={}, \
+             statistics={}",
             self.enabled,
             self.base_window_size,
             self.max_window_size,
@@ -5277,7 +5404,8 @@ impl AspirationWindowStats {
         let research_rate = self.total_researches as f64 / self.total_searches as f64;
         let fail_rate = (self.fail_lows + self.fail_highs) as f64 / self.total_searches as f64;
 
-        // Effectiveness based on high success rate, low research rate, and low fail rate
+        // Effectiveness based on high success rate, low research rate, and low fail
+        // rate
         let effectiveness = success_rate * (1.0 - research_rate * 0.5) * (1.0 - fail_rate * 0.3);
         effectiveness.max(0.0).min(1.0)
     }
@@ -5417,15 +5545,10 @@ impl AspirationWindowStats {
     /// Get a comprehensive performance report
     pub fn performance_report(&self) -> String {
         format!(
-            "Aspiration Windows Performance Report:\n\
-            - Total searches: {}\n\
-            - Successful searches: {} ({:.2}%)\n\
-            - Fail-lows: {} ({:.2}%)\n\
-            - Fail-highs: {} ({:.2}%)\n\
-            - Total re-searches: {} ({:.2}%)\n\
-            - Average window size: {:.2}\n\
-            - Estimated time saved: {} ms\n\
-            - Estimated nodes saved: {}",
+            "Aspiration Windows Performance Report:\n- Total searches: {}\n- Successful searches: \
+             {} ({:.2}%)\n- Fail-lows: {} ({:.2}%)\n- Fail-highs: {} ({:.2}%)\n- Total \
+             re-searches: {} ({:.2}%)\n- Average window size: {:.2}\n- Estimated time saved: {} \
+             ms\n- Estimated nodes saved: {}",
             self.total_searches,
             self.successful_searches,
             self.success_rate(),
@@ -5444,7 +5567,8 @@ impl AspirationWindowStats {
     /// Get a summary of key metrics
     pub fn summary(&self) -> String {
         format!(
-            "Aspiration: {} searches, {:.1}% success, {:.1}% re-search, {:.1}% fail-low, {:.1}% fail-high, {:.1} avg window",
+            "Aspiration: {} searches, {:.1}% success, {:.1}% re-search, {:.1}% fail-low, {:.1}% \
+             fail-high, {:.1} avg window",
             self.total_searches,
             self.success_rate(),
             self.research_rate(),
@@ -5483,7 +5607,8 @@ impl AspirationWindowPerformanceMetrics {
     /// Get a summary of performance metrics
     pub fn summary(&self) -> String {
         format!(
-            "Aspiration Windows Performance: {:.1}% success, {:.1}% re-search, {:.1}% fail-low, {:.1}% fail-high, {:.0} ms saved",
+            "Aspiration Windows Performance: {:.1}% success, {:.1}% re-search, {:.1}% fail-low, \
+             {:.1}% fail-high, {:.0} ms saved",
             self.success_rate,
             self.research_rate,
             self.fail_lows as f64 / self.total_searches as f64 * 100.0,
@@ -5566,7 +5691,8 @@ impl WindowSizeStatistics {
     /// Get a summary of window size statistics
     pub fn summary(&self) -> String {
         format!(
-            "Window Size Stats: avg={:.1}, min={}, max={}, calculations={}, success={:.1}%, fail_low={:.1}%, fail_high={:.1}%",
+            "Window Size Stats: avg={:.1}, min={}, max={}, calculations={}, success={:.1}%, \
+             fail_low={:.1}%, fail_high={:.1}%",
             self.average_window_size,
             self.min_window_size,
             self.max_window_size,
@@ -5656,7 +5782,8 @@ impl ResearchEfficiencyMetrics {
     /// Get a summary of re-search efficiency
     pub fn summary(&self) -> String {
         format!(
-            "Re-search Efficiency: {} searches, {:.1}% success, {:.2} re-search rate, {:.1}% fail-low, {:.1}% fail-high",
+            "Re-search Efficiency: {} searches, {:.1}% success, {:.2} re-search rate, {:.1}% \
+             fail-low, {:.1}% fail-high",
             self.total_searches,
             self.success_rate * 100.0,
             self.research_rate,
@@ -5727,7 +5854,8 @@ impl DepthAnalysis {
     /// Get analysis summary
     pub fn summary(&self) -> String {
         format!(
-            "Depth Analysis: {} depths analyzed, avg success rate: {:.1}%, avg research rate: {:.1}%",
+            "Depth Analysis: {} depths analyzed, avg success rate: {:.1}%, avg research rate: \
+             {:.1}%",
             self.success_rate_by_depth.len(),
             self.get_average_success_rate() * 100.0,
             self.get_average_research_rate() * 100.0
@@ -5955,7 +6083,8 @@ pub struct ParallelOptions {
     pub ybwc_min_depth: u8,
     /// Minimum branch factor (number of moves) required to trigger YBWC.
     pub ybwc_min_branch: usize,
-    /// Maximum number of sibling moves evaluated in parallel once YBWC triggers.
+    /// Maximum number of sibling moves evaluated in parallel once YBWC
+    /// triggers.
     pub ybwc_max_siblings: usize,
     /// Shallow depth divisor for dynamic sibling cap.
     pub ybwc_shallow_divisor: usize,
@@ -6445,7 +6574,8 @@ impl EngineConfig {
     /// Get configuration summary
     pub fn summary(&self) -> String {
         format!(
-            "Engine Config: TT={}MB, MaxDepth={}, Quiescence={}, NMP={}, LMR={}, Aspiration={}, IID={}",
+            "Engine Config: TT={}MB, MaxDepth={}, Quiescence={}, NMP={}, LMR={}, Aspiration={}, \
+             IID={}",
             self.tt_size_mb,
             self.max_depth,
             if self.quiescence.enable_tt { "ON" } else { "OFF" },
@@ -6502,12 +6632,13 @@ pub struct TimeManagementConfig {
     pub check_time_limit_ms: u32,
     /// Enable time budget allocation (Task 4.5)
     pub enable_time_budget: bool,
-    /// Time check frequency: check every N nodes instead of every node (Task 8.4)
-    /// Set to 1 to check every node, higher values reduce overhead
+    /// Time check frequency: check every N nodes instead of every node (Task
+    /// 8.4) Set to 1 to check every node, higher values reduce overhead
     pub time_check_frequency: u32,
     /// Absolute safety margin in milliseconds (Task 8.2, 8.3)
     /// Used in addition to percentage-based safety_margin
-    /// This represents the minimum overhead buffer needed for time checks and search completion
+    /// This represents the minimum overhead buffer needed for time checks and
+    /// search completion
     pub absolute_safety_margin_ms: u32,
     /// Enable adaptive time allocation (Task 4.8)
     pub enable_adaptive_allocation: bool,
@@ -6597,10 +6728,12 @@ impl TimeManagementConfig {
         Ok(())
     }
 
-    /// Get a summary of the time management configuration including iterative deepening settings
+    /// Get a summary of the time management configuration including iterative
+    /// deepening settings
     pub fn summary_full(&self) -> String {
         format!(
-            "TimeManagement: enabled={}, buffer={:.1}%, strategy={:?}, safety_margin={:.1}%, min_time_depth={}ms, max_time_depth={}ms, check_opt={}, time_budget={}",
+            "TimeManagement: enabled={}, buffer={:.1}%, strategy={:?}, safety_margin={:.1}%, \
+             min_time_depth={}ms, max_time_depth={}ms, check_opt={}, time_budget={}",
             self.enabled,
             self.buffer_percentage * 100.0,
             self.allocation_strategy,
@@ -7007,7 +7140,8 @@ pub enum PositionClassification {
 }
 
 /// Source of transposition table entry for priority management (Task 7.0.3.1)
-/// Used to prevent shallow auxiliary search entries from overwriting deeper main search entries
+/// Used to prevent shallow auxiliary search entries from overwriting deeper
+/// main search entries
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EntrySource {
@@ -7055,11 +7189,13 @@ pub struct SearchState {
     pub best_move: Option<Move>,
     pub position_hash: u64,
     pub game_phase: GamePhase,
-    /// Position classification for adaptive reduction (optional, computed by SearchEngine)
+    /// Position classification for adaptive reduction (optional, computed by
+    /// SearchEngine)
     pub position_classification: Option<PositionClassification>,
     /// Transposition table best move (optional, retrieved from TT probe)
     pub tt_move: Option<Move>,
-    /// Advanced reduction strategies configuration (optional, for Task 11.1-11.3)
+    /// Advanced reduction strategies configuration (optional, for Task
+    /// 11.1-11.3)
     pub advanced_reduction_config: Option<AdvancedReductionConfig>,
     /// Best score found so far (for diagnostic purposes)
     pub best_score: i32,
@@ -7097,7 +7233,8 @@ impl SearchState {
     }
 
     /// Update search state with current position information
-    /// Note: This method should be called from SearchEngine with the appropriate values
+    /// Note: This method should be called from SearchEngine with the
+    /// appropriate values
     pub fn update_fields(
         &mut self,
         is_in_check: bool,
@@ -7293,7 +7430,8 @@ pub struct SearchPerformanceMetrics {
 }
 
 /// Comprehensive search metrics for performance monitoring (Task 5.7-5.9)
-/// Tracks key performance indicators: cutoff rate, TT hit rate, aspiration window success
+/// Tracks key performance indicators: cutoff rate, TT hit rate, aspiration
+/// window success
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct CoreSearchMetrics {
     /// Total number of nodes searched
@@ -7316,7 +7454,8 @@ pub struct CoreSearchMetrics {
     pub tt_lower_bound_hits: u64,
     /// Number of upper bound entries in TT
     pub tt_upper_bound_hits: u64,
-    /// Number of times auxiliary entry was prevented from overwriting deeper main entry (Task 7.0.3.10)
+    /// Number of times auxiliary entry was prevented from overwriting deeper
+    /// main entry (Task 7.0.3.10)
     pub tt_auxiliary_overwrites_prevented: u64,
     /// Number of times main entry preserved another main entry (Task 7.0.3.10)
     pub tt_main_entries_preserved: u64,
@@ -7380,24 +7519,12 @@ impl CoreSearchMetrics {
         let (exact_pct, lower_pct, upper_pct) = self.tt_hit_breakdown();
 
         format!(
-            "Core Search Metrics Report:\n\
-            =========================\n\
-            Total Nodes Searched: {}\n\
-            Total Cutoffs: {} ({:.2}% cutoff rate)\n\
-            Beta Cutoffs: {}\n\
-            \n\
-            Transposition Table:\n\
-            - Total Probes: {}\n\
-            - Total Hits: {} ({:.2}% hit rate)\n\
-            - Exact Entries: {} ({:.2}%)\n\
-            - Lower Bound: {} ({:.2}%)\n\
-            - Upper Bound: {} ({:.2}%)\n\
-            \n\
-            Aspiration Windows:\n\
-            - Total Searches: {}\n\
-            - Successful: {} ({:.2}% success rate)\n\
-            - Re-searches: {}\n\
-            ",
+            "Core Search Metrics Report:\n=========================\nTotal Nodes Searched: \
+             {}\nTotal Cutoffs: {} ({:.2}% cutoff rate)\nBeta Cutoffs: {}\n\nTransposition \
+             Table:\n- Total Probes: {}\n- Total Hits: {} ({:.2}% hit rate)\n- Exact Entries: {} \
+             ({:.2}%)\n- Lower Bound: {} ({:.2}%)\n- Upper Bound: {} ({:.2}%)\n\nAspiration \
+             Windows:\n- Total Searches: {}\n- Successful: {} ({:.2}% success rate)\n- \
+             Re-searches: {}\n",
             self.total_nodes,
             self.total_cutoffs,
             cutoff_rate,
@@ -7604,8 +7731,8 @@ impl PruningManager {
             + (state.depth / 4) as u8;
 
         // Apply advanced reduction strategies if enabled (Task 11.1-11.3)
-        // Note: Advanced strategies are configured via LMRConfig, which is passed via SearchState
-        // For now, we'll use the existing adaptive reduction logic
+        // Note: Advanced strategies are configured via LMRConfig, which is passed via
+        // SearchState For now, we'll use the existing adaptive reduction logic
         // Advanced strategies can be added as optional enhancements
 
         // Apply adaptive reduction if enabled
@@ -7623,7 +7750,8 @@ impl PruningManager {
     }
 
     /// Apply advanced reduction strategies (Task 11.1-11.3)
-    /// This method applies depth-based, material-based, and history-based reduction adjustments
+    /// This method applies depth-based, material-based, and history-based
+    /// reduction adjustments
     pub fn apply_advanced_reduction(
         &self,
         base_reduction: u8,
@@ -7656,8 +7784,9 @@ impl PruningManager {
     }
 
     /// Apply depth-based reduction scaling (non-linear formulas) (Task 11.1)
-    /// Research shows non-linear depth scaling can be more effective than linear scaling
-    /// Formula: R = base + depth_scaling_factor * (depth^1.5) / scaling_divisor
+    /// Research shows non-linear depth scaling can be more effective than
+    /// linear scaling Formula: R = base + depth_scaling_factor *
+    /// (depth^1.5) / scaling_divisor
     fn apply_depth_based_reduction(
         &self,
         base_reduction: u8,
@@ -7732,7 +7861,8 @@ impl PruningManager {
         }
     }
 
-    /// Apply adaptive reduction based on position characteristics (Task 8.4, 8.5, 8.11)
+    /// Apply adaptive reduction based on position characteristics (Task 8.4,
+    /// 8.5, 8.11)
     fn apply_adaptive_reduction(&self, base_reduction: u8, state: &SearchState, mv: &Move) -> u8 {
         let mut reduction = base_reduction;
 
@@ -8014,7 +8144,8 @@ impl PruningManager {
         potential.max(0)
     }
 
-    /// Check if extended futility pruning should be applied (for deeper positions)
+    /// Check if extended futility pruning should be applied (for deeper
+    /// positions)
     fn check_extended_futility_pruning(
         &mut self,
         state: &SearchState,
@@ -8441,7 +8572,8 @@ impl PruningManager {
     /// Calculate king safety
     fn calculate_king_safety(&self, state: &SearchState) -> u8 {
         // Simplified king safety calculation
-        // In a real implementation, this would analyze king position, pawn structure, etc.
+        // In a real implementation, this would analyze king position, pawn structure,
+        // etc.
         if state.static_eval < -300 {
             20 // King in danger
         } else if state.static_eval > 300 {
@@ -9537,7 +9669,8 @@ impl PositionAnalyzer {
             }
         }
 
-        // Add captured pieces value (simplified - could be enhanced with actual piece values)
+        // Add captured pieces value (simplified - could be enhanced with actual piece
+        // values)
         let player_captures = match player {
             Player::Black => &captured_pieces.black,
             Player::White => &captured_pieces.white,
@@ -9662,7 +9795,8 @@ impl PositionAnalyzer {
     /// Check if position is quiet (no immediate tactical threats)
     fn is_quiet_position(&self, _board: &BitboardBoard, _player: Player) -> bool {
         // Simplified quiet position detection
-        // In a real implementation, this would check for immediate captures, checks, etc.
+        // In a real implementation, this would check for immediate captures, checks,
+        // etc.
         true // Placeholder
     }
 

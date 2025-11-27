@@ -127,7 +127,8 @@ mod lmr_nps_comparison_tests {
         );
 
         // LMR should improve NPS (more nodes per second)
-        // Note: This is a basic test - in practice, LMR effectiveness depends on position
+        // Note: This is a basic test - in practice, LMR effectiveness depends on
+        // position
         println!("NPS with LMR: {:.0}, NPS without LMR: {:.0}", nps_with_lmr, nps_without_lmr);
         println!("Nodes with LMR: {}, Nodes without LMR: {}", nodes_with_lmr, nodes_without_lmr);
 
@@ -386,7 +387,8 @@ mod lmr_regression_tests {
         );
 
         // Moves should be the same or very similar
-        // (In practice, they might be different due to search order, but scores should be close)
+        // (In practice, they might be different due to search order, but scores should
+        // be close)
         println!("Move with LMR: {:?}, Score: {}", move_with_lmr, score_with_lmr);
         println!("Move without LMR: {:?}, Score: {}", move_without_lmr, score_without_lmr);
     }

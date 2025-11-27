@@ -1,7 +1,8 @@
-//! Integration tests for redundancy elimination and coordination in IntegratedEvaluator
+//! Integration tests for redundancy elimination and coordination in
+//! IntegratedEvaluator
 //!
-//! Tests verify that evaluation components coordinate properly to avoid double-counting
-//! of features like passed pawns and center control.
+//! Tests verify that evaluation components coordinate properly to avoid
+//! double-counting of features like passed pawns and center control.
 
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::integration::{IntegratedEvaluationConfig, IntegratedEvaluator};
@@ -73,8 +74,8 @@ fn test_passed_pawn_coordination() {
     // Evaluate the position
     let score = evaluator.evaluate(&board, Player::Black, &captured_pieces);
 
-    // Score should be computed (not necessarily non-zero, but evaluation should complete)
-    // The key is that passed pawns should not be double-counted
+    // Score should be computed (not necessarily non-zero, but evaluation should
+    // complete) The key is that passed pawns should not be double-counted
     assert!(score.score >= -10000 && score.score <= 10000);
 
     // Verify that the coordination logic is working by checking that
@@ -124,8 +125,8 @@ fn test_center_control_overlap_warning() {
     // Score should be computed
     assert!(score.score >= -10000 && score.score <= 10000);
 
-    // The warning is logged via debug_log, which we can't easily verify in tests
-    // but the code path should execute without errors
+    // The warning is logged via debug_log, which we can't easily verify in
+    // tests but the code path should execute without errors
 }
 
 #[test]
@@ -155,8 +156,8 @@ fn test_no_double_counting_passed_pawns() {
     assert!(score1.score >= -10000 && score1.score <= 10000);
     assert!(score2.score >= -10000 && score2.score <= 10000);
 
-    // The scores may differ (endgame_patterns may evaluate passed pawns differently),
-    // but both should be reasonable evaluations
+    // The scores may differ (endgame_patterns may evaluate passed pawns
+    // differently), but both should be reasonable evaluations
     // The key is that passed pawns are not counted twice in score2
 }
 
@@ -173,7 +174,8 @@ fn test_component_flags_passed_pawn_coordination() {
     let mut evaluator1 = IntegratedEvaluator::with_config(config1);
     let score1 = evaluator1.evaluate(&board, Player::Black, &captured_pieces);
 
-    // Test with endgame_patterns enabled - passed pawns should be skipped in position_features
+    // Test with endgame_patterns enabled - passed pawns should be skipped in
+    // position_features
     let mut config2 = IntegratedEvaluationConfig::default();
     config2.components.position_features = true;
     config2.components.endgame_patterns = true;

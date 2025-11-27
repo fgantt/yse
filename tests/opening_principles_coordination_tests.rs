@@ -1,6 +1,8 @@
-//! Tests for opening principles piece coordination evaluation (Task 19.0 - Task 2.0)
+//! Tests for opening principles piece coordination evaluation (Task 19.0 - Task
+//! 2.0)
 //!
-//! These tests verify that piece coordination bonuses are correctly detected and scored:
+//! These tests verify that piece coordination bonuses are correctly detected
+//! and scored:
 //! - Rook-lance batteries (same file, both developed)
 //! - Bishop-lance combinations (same diagonal, both developed)
 //! - Gold-silver defensive coordination (near king)
@@ -74,7 +76,8 @@ fn test_piece_synergy_bonuses() {
     let mut evaluator = OpeningPrincipleEvaluator::new();
     let board = BitboardBoard::new();
 
-    // Test piece synergy (rook supporting developed pieces) through evaluate_opening
+    // Test piece synergy (rook supporting developed pieces) through
+    // evaluate_opening
     let score = evaluator.evaluate_opening(&board, Player::Black, 5, None, None);
     let score_interp = score.interpolate(256);
 

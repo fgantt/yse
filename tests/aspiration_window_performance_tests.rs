@@ -375,6 +375,9 @@ mod aspiration_window_performance_tests {
         // Check efficiency metrics
         let metrics = engine.get_research_efficiency();
         assert!(metrics.total_searches > 0);
-        assert!(metrics.is_efficient() || metrics.total_searches < 10); // Allow for small sample size
+        assert!(metrics.is_efficient() || metrics.total_searches < 10); // Allow
+                                                                        // for small
+                                                                        // sample
+                                                                        // size
     }
 }

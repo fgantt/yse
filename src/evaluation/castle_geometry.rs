@@ -1,6 +1,7 @@
 use crate::types::core::{PieceType, Player, Position};
 
-/// Represents a relative offset from the king's square using player-centric axes.
+/// Represents a relative offset from the king's square using player-centric
+/// axes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RelativeOffset {
     pub rank: i8,
@@ -17,7 +18,8 @@ impl RelativeOffset {
         Self { rank: self.rank, file: -self.file }
     }
 
-    /// Convert the offset into an absolute board position for the given player and king square.
+    /// Convert the offset into an absolute board position for the given player
+    /// and king square.
     pub fn to_absolute(self, king: Position, player: Player) -> Option<Position> {
         let (rank_delta, file_delta) = match player {
             Player::Black => (self.rank, self.file),
@@ -35,7 +37,8 @@ impl RelativeOffset {
     }
 }
 
-/// Groups of interchangeable defenders that fulfil the same structural role in a castle.
+/// Groups of interchangeable defenders that fulfil the same structural role in
+/// a castle.
 #[derive(Debug, Clone, Copy)]
 pub enum CastlePieceClass {
     Exact(PieceType),
@@ -58,13 +61,15 @@ pub const fn exact(piece: PieceType) -> CastlePieceClass {
     CastlePieceClass::Exact(piece)
 }
 
-/// Family of defenders that guard the king like a gold: Gold itself plus promoted silvers.
+/// Family of defenders that guard the king like a gold: Gold itself plus
+/// promoted silvers.
 pub const GOLD_FAMILY: &[PieceType] = &[PieceType::Gold, PieceType::PromotedSilver];
 
 /// Family of flexible silver defenders, accepting the promoted form as well.
 pub const SILVER_FAMILY: &[PieceType] = &[PieceType::Silver, PieceType::PromotedSilver];
 
-/// Family of pawn-based defenders, including promoted and drop pawns that can still shield the king.
+/// Family of pawn-based defenders, including promoted and drop pawns that can
+/// still shield the king.
 pub const PAWN_WALL_FAMILY: &[PieceType] = &[PieceType::Pawn, PieceType::PromotedPawn];
 
 /// Family of lance defenders protecting the outer file.

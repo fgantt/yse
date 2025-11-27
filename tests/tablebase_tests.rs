@@ -327,8 +327,8 @@ mod cache_tests {
 
         // Miss
         let _ = cache.get(&board, Player::White, &captured_pieces);
-        // Note: hits and misses are now private fields, so we can't test them directly
-        // The cache should still work correctly
+        // Note: hits and misses are now private fields, so we can't test them
+        // directly The cache should still work correctly
     }
 
     #[test]

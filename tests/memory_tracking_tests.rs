@@ -75,7 +75,8 @@ fn test_memory_leak_detection() {
     let leak_detected = tracker.check_for_leak();
     // May or may not detect leak depending on actual memory usage
     // Just verify the method works
-    assert!(leak_detected || !leak_detected); // Always true, just checking it doesn't panic
+    assert!(leak_detected || !leak_detected); // Always true, just checking it
+                                              // doesn't panic
 }
 
 #[test]

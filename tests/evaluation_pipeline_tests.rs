@@ -72,8 +72,10 @@ fn pst_contribution_increases_as_position_reaches_endgame() {
     );
     assert!(
         endgame_score.score > middlegame_score.score,
-        "Endgame PST contribution ({}) should exceed middlegame contribution ({}) due to higher endgame weights",
-        endgame_score.score, middlegame_score.score
+        "Endgame PST contribution ({}) should exceed middlegame contribution ({}) due to higher \
+         endgame weights",
+        endgame_score.score,
+        middlegame_score.score
     );
 }
 

@@ -1,6 +1,7 @@
 //! Performance benchmarks for PruningManager adaptive reduction
 //!
-//! This benchmark suite verifies and measures PruningManager adaptive reduction:
+//! This benchmark suite verifies and measures PruningManager adaptive
+//! reduction:
 //! - Verifies adaptive reduction is actually being applied
 //! - Compares adaptive reduction with/without PruningManager
 //! - Measures effectiveness of position classification-based reduction
@@ -13,7 +14,8 @@
 //! - Search time impact
 //!
 //! Expected results:
-//! - Adaptive reduction should be applied correctly based on position classification
+//! - Adaptive reduction should be applied correctly based on position
+//!   classification
 //! - PruningManager should sync parameters with LMRConfig
 //! - Overhead should be minimal (<1% search time)
 //! - Position classification should improve reduction accuracy

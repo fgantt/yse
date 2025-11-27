@@ -1,11 +1,12 @@
 //! Capture move ordering
 //!
-//! This module contains MVV/LVA (Most Valuable Victim / Least Valuable Attacker)
-//! and capture move ordering implementation.
+//! This module contains MVV/LVA (Most Valuable Victim / Least Valuable
+//! Attacker) and capture move ordering implementation.
 
 use crate::types::core::{Move, PieceType, Position};
 
-/// Score a capture move using MVV/LVA (Most Valuable Victim / Least Valuable Attacker)
+/// Score a capture move using MVV/LVA (Most Valuable Victim / Least Valuable
+/// Attacker)
 ///
 /// This function scores capture moves based on the value of the captured piece
 /// and the value of the capturing piece. Higher scores are given for capturing
@@ -78,7 +79,8 @@ pub fn score_capture_move(move_: &Move, capture_weight: i32) -> i32 {
 /// # Arguments
 /// * `move_` - The move to score
 /// * `promotion_weight` - Base weight for promotion moves
-/// * `score_position_value` - Function to score position value (for center bonus)
+/// * `score_position_value` - Function to score position value (for center
+///   bonus)
 ///
 /// # Returns
 /// Score for the promotion move, or 0 if not a promotion
@@ -124,8 +126,8 @@ pub fn score_promotion_move(
 
 /// Inline capture move scoring for hot path optimization
 ///
-/// Optimized version using MVV-LVA (Most Valuable Victim - Least Valuable Attacker).
-/// This version is optimized for performance in hot paths.
+/// Optimized version using MVV-LVA (Most Valuable Victim - Least Valuable
+/// Attacker). This version is optimized for performance in hot paths.
 ///
 /// # Arguments
 /// * `move_` - The move to score

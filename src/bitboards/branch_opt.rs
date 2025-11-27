@@ -1,9 +1,10 @@
 //! Branch prediction optimization module for bit-scanning operations
 //!
-//! This module provides branch prediction optimizations for bitboard operations,
-//! including branch prediction hints, common case optimization, and performance-critical
-//! path optimization. These optimizations help the CPU's branch predictor make
-//! better decisions, reducing pipeline stalls and improving performance.
+//! This module provides branch prediction optimizations for bitboard
+//! operations, including branch prediction hints, common case optimization, and
+//! performance-critical path optimization. These optimizations help the CPU's
+//! branch predictor make better decisions, reducing pipeline stalls and
+//! improving performance.
 
 use crate::types::Bitboard;
 
@@ -709,7 +710,8 @@ pub mod benchmarks {
 pub mod validation {
     use super::*;
 
-    /// Validate that optimized functions produce the same results as standard ones
+    /// Validate that optimized functions produce the same results as standard
+    /// ones
     ///
     /// # Returns
     /// True if all optimized functions produce correct results

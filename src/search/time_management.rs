@@ -1,8 +1,9 @@
 //! Time Management Module
 //!
-//! This module handles time allocation, time limits, timeout handling, and time pressure
-//! calculations for the search engine. Extracted from `search_engine.rs` as part of
-//! Task 1.0: File Modularization and Structure Improvements.
+//! This module handles time allocation, time limits, timeout handling, and time
+//! pressure calculations for the search engine. Extracted from
+//! `search_engine.rs` as part of Task 1.0: File Modularization and Structure
+//! Improvements.
 
 use crate::types::search::{
     TimeAllocationStrategy, TimeBudgetStats, TimeManagementConfig, TimePressure,
@@ -80,7 +81,8 @@ impl TimeManager {
     }
 
     /// Force time check (bypasses frequency optimization)
-    /// Used when we must check time regardless of frequency (e.g., at depth boundaries)
+    /// Used when we must check time regardless of frequency (e.g., at depth
+    /// boundaries)
     pub fn should_stop_force(
         &self,
         start_time: &TimeSource,
@@ -145,7 +147,8 @@ impl TimeManager {
         let config = &self.config;
         let stats = &self.time_budget_stats;
 
-        // If we have historical data, use exponential weighting based on past completion times
+        // If we have historical data, use exponential weighting based on past
+        // completion times
         if !stats.depth_completion_times_ms.is_empty()
             && depth <= stats.depth_completion_times_ms.len() as u8
         {
@@ -275,8 +278,9 @@ mod tests {
         let pressure = manager.calculate_time_pressure_level(&start_time, 1000);
         assert!(matches!(pressure, TimePressure::None | TimePressure::Low));
 
-        // Test with very little time remaining (simulated by checking immediately)
-        // Note: This test may be flaky due to timing, but demonstrates the API
+        // Test with very little time remaining (simulated by checking
+        // immediately) Note: This test may be flaky due to timing, but
+        // demonstrates the API
     }
 
     #[test]

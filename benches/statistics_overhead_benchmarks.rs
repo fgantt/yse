@@ -1,6 +1,7 @@
 //! Performance benchmarks for statistics tracking overhead
 //!
-//! Measures the performance impact of statistics tracking in endgame pattern evaluation
+//! Measures the performance impact of statistics tracking in endgame pattern
+//! evaluation
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use shogi_engine::bitboards::BitboardBoard;

@@ -1,7 +1,9 @@
 #![cfg(feature = "legacy-tests")]
-/// Comprehensive Integration Tests for Search Algorithm Coordination (Task 7.0.5)
+/// Comprehensive Integration Tests for Search Algorithm Coordination (Task
+/// 7.0.5)
 ///
-/// Tests the interactions between PVS, NMP, IID, LMR, Quiescence Search, and Move Ordering
+/// Tests the interactions between PVS, NMP, IID, LMR, Quiescence Search, and
+/// Move Ordering
 use shogi_engine::*;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -272,7 +274,8 @@ mod integration_coordination_tests {
         assert_eq!(lmr_stats.iid_move_reduced_count, 0, "IID move should never be reduced");
     }
 
-    /// Test performance regression - search should be efficient with all features
+    /// Test performance regression - search should be efficient with all
+    /// features
     #[test]
     fn test_integration_performance_regression() {
         let mut engine = create_test_engine();

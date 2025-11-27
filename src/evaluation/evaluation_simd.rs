@@ -1,25 +1,27 @@
 //! SIMD-optimized evaluation functions
 //!
-//! This module provides SIMD-accelerated evaluation functions for material counting
-//! and piece-square table evaluation, achieving 2-4x speedup over scalar implementations.
+//! This module provides SIMD-accelerated evaluation functions for material
+//! counting and piece-square table evaluation, achieving 2-4x speedup over
+//! scalar implementations.
 //!
 //! # Feature Flags & Configuration
 //!
 //! - **Compile-time**: This module only compiles when the crate is built with
 //!   `--features simd`.
-//! - **Runtime**: `IntegratedEvaluator` consults `config::SimdConfig::enable_simd_evaluation`
-//!   before calling into `SimdEvaluator`. Toggling that flag lets you switch back
-//!   to the scalar path without rebuilding, as described in
+//! - **Runtime**: `IntegratedEvaluator` consults
+//!   `config::SimdConfig::enable_simd_evaluation` before calling into
+//!   `SimdEvaluator`. Toggling that flag lets you switch back to the scalar
+//!   path without rebuilding, as described in
 //!   `docs/design/implementation/simd-optimization/SIMD_INTEGRATION_STATUS.md`.
-//! - **Telemetry**: Every invocation is tracked through `SimdTelemetry`, making it
-//!   easy to validate performance regressions reported in
+//! - **Telemetry**: Every invocation is tracked through `SimdTelemetry`, making
+//!   it easy to validate performance regressions reported in
 //!   `SIMD_IMPLEMENTATION_EVALUATION.md`.
 //!
 //! # Performance
 //!
-//! Uses SIMD batch operations to process multiple pieces/positions simultaneously,
-//! reducing evaluation overhead in the search tree (2-4x faster vs scalar according
-//! to the integration benchmarks).
+//! Uses SIMD batch operations to process multiple pieces/positions
+//! simultaneously, reducing evaluation overhead in the search tree (2-4x faster
+//! vs scalar according to the integration benchmarks).
 //!
 //! # Usage
 //!
@@ -63,7 +65,8 @@ impl SimdEvaluator {
 
     /// Evaluate piece-square tables using SIMD batch operations
     ///
-    /// Processes multiple positions simultaneously to reduce evaluation overhead.
+    /// Processes multiple positions simultaneously to reduce evaluation
+    /// overhead.
     ///
     /// # Performance
     ///
@@ -175,7 +178,8 @@ impl SimdEvaluator {
 
     /// Evaluate material using batch counting with SIMD optimization
     ///
-    /// Counts all piece types simultaneously using SIMD bitboards for better performance.
+    /// Counts all piece types simultaneously using SIMD bitboards for better
+    /// performance.
     ///
     /// # Performance
     ///

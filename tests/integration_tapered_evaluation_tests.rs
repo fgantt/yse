@@ -21,7 +21,8 @@ fn test_integration_starting_position() {
     assert!(black_score > 0, "Black starting position should be positive: {}", black_score);
     assert!(white_score > 0, "White starting position should be positive: {}", white_score);
 
-    // Scores should be similar (not opposite) since evaluation is from player's perspective
+    // Scores should be similar (not opposite) since evaluation is from player's
+    // perspective
     let score_diff = (black_score - white_score).abs();
     assert!(
         score_diff < 100,
@@ -199,7 +200,8 @@ fn test_integration_evaluation_symmetry() {
     assert!(black_score > 0, "Black evaluation should be positive: {}", black_score);
     assert!(white_score > 0, "White evaluation should be positive: {}", white_score);
 
-    // Scores should be similar (not opposite) since evaluation is from player's perspective
+    // Scores should be similar (not opposite) since evaluation is from player's
+    // perspective
     let score_diff = (black_score - white_score).abs();
     assert!(
         score_diff < 100,

@@ -1,7 +1,8 @@
 //! Core Domain Types
 //!
-//! This module contains the fundamental domain types for shogi: Player, PieceType, Position, Piece, and Move.
-//! Extracted from `types.rs` as part of Task 1.0: File Modularization and Structure Improvements.
+//! This module contains the fundamental domain types for shogi: Player,
+//! PieceType, Position, Piece, and Move. Extracted from `types.rs` as part of
+//! Task 1.0: File Modularization and Structure Improvements.
 
 use serde::{Deserialize, Serialize};
 

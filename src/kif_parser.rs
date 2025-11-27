@@ -135,7 +135,8 @@ impl KifGame {
         // Strip any trailing annotation such as elapsed time or comments after spaces
         let token = kif_text.split_whitespace().next().unwrap_or(kif_text);
 
-        // Separate the base move (e.g. "７六歩") from optional origin information "(77)"
+        // Separate the base move (e.g. "７六歩") from optional origin information
+        // "(77)"
         let (base, origin_hint) = match token.split_once('(') {
             Some((head, tail)) => (head, Some(tail.trim_end_matches(')'))),
             None => (token, None),

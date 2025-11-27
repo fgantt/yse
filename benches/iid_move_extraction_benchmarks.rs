@@ -7,7 +7,8 @@
 //! - Search performance with improved move extraction
 //!
 //! Task 2.15: Compare TT-based vs tracked move extraction
-//! Task 2.16: Verify IID move extraction improvement doesn't add significant overhead (<1% search time)
+//! Task 2.16: Verify IID move extraction improvement doesn't add significant
+//! overhead (<1% search time)
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use shogi_engine::{

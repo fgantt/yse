@@ -16,7 +16,8 @@ use crate::types::core::{Move, Player};
 /// # Arguments
 /// * `board` - The current board position
 /// * `player` - The player to move (attacking player)
-/// * `captured_pieces` - The captured pieces (must be provided for correct board state)
+/// * `captured_pieces` - The captured pieces (must be provided for correct
+///   board state)
 /// * `max_depth` - Maximum search depth (default 30 moves)
 ///
 /// # Returns

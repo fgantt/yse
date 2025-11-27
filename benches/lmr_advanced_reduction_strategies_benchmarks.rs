@@ -1,6 +1,7 @@
 //! Performance benchmarks for advanced reduction strategies
 //!
-//! This benchmark suite measures the effectiveness and overhead of advanced reduction strategies:
+//! This benchmark suite measures the effectiveness and overhead of advanced
+//! reduction strategies:
 //! - Depth-based reduction scaling (non-linear formulas)
 //! - Material-based reduction adjustment
 //! - History-based reduction

@@ -10,7 +10,8 @@ use std::time::Instant;
 #[cfg(not(feature = "tt-config-tuning"))]
 fn main() {
     eprintln!(
-        "Enable the `tt-config-tuning` feature to build the transposition_table_configuration_tuning example."
+        "Enable the `tt-config-tuning` feature to build the \
+         transposition_table_configuration_tuning example."
     );
 }
 

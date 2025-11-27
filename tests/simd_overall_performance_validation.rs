@@ -1,8 +1,8 @@
 #![cfg(feature = "simd")]
 /// Overall engine performance validation for SIMD optimizations
 ///
-/// These tests validate that SIMD optimizations provide at least 20% NPS improvement
-/// in overall engine performance through end-to-end testing.
+/// These tests validate that SIMD optimizations provide at least 20% NPS
+/// improvement in overall engine performance through end-to-end testing.
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::evaluation_simd::SimdEvaluator;
 use shogi_engine::evaluation::piece_square_tables::PieceSquareTables;
@@ -170,10 +170,12 @@ fn test_simd_overall_performance_improvement() {
 
     // Target: At least 20% improvement in release builds
     // In debug builds, SIMD may have overhead, so we allow up to 50% regression
-    // This is expected because SIMD has function call overhead that isn't optimized in debug
-    // In release builds with optimizations, SIMD should provide 20%+ improvement
+    // This is expected because SIMD has function call overhead that isn't optimized
+    // in debug In release builds with optimizations, SIMD should provide 20%+
+    // improvement
     let min_improvement = if cfg!(debug_assertions) {
-        -50.0 // Allow up to 50% regression in debug builds (overhead from function calls)
+        -50.0 // Allow up to 50% regression in debug builds (overhead from
+              // function calls)
     } else {
         20.0 // Require 20%+ improvement in release builds
     };
@@ -206,8 +208,8 @@ fn test_simd_contribution_to_nps() {
     // Measure SIMD workload
     let simd_ops_per_sec = simulate_evaluation_workload_simd(iterations);
 
-    // Target: At least 100 ops/sec for evaluation workload (adjusted for debug builds)
-    // This simulates the evaluation work done during search
+    // Target: At least 100 ops/sec for evaluation workload (adjusted for debug
+    // builds) This simulates the evaluation work done during search
     // Actual search will have more overhead, but this validates SIMD contribution
     let min_ops_per_sec = if cfg!(debug_assertions) {
         50.0 // Lower target for debug builds

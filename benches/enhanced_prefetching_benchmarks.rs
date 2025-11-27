@@ -1,9 +1,10 @@
 //! Enhanced prefetching performance benchmarks
 //!
-//! Optimization 6: Enhanced prefetching - benchmarks to measure prefetching effectiveness
+//! Optimization 6: Enhanced prefetching - benchmarks to measure prefetching
+//! effectiveness
 //!
-//! This benchmark suite measures the performance impact of enhanced adaptive prefetching
-//! strategies compared to fixed-distance prefetching:
+//! This benchmark suite measures the performance impact of enhanced adaptive
+//! prefetching strategies compared to fixed-distance prefetching:
 //! - Adaptive prefetching with workload-aware distances
 //! - Magic table lookup prefetching
 //! - PST table lookup prefetching
@@ -11,10 +12,14 @@
 //!
 //! # Benchmarks
 //!
-//! - `prefetch_magic_table_lookups`: Measures prefetching effectiveness for magic table lookups
-//! - `prefetch_pst_table_lookups`: Measures prefetching effectiveness for PST table lookups
-//! - `adaptive_vs_fixed_prefetch`: Compares adaptive prefetching to fixed-distance prefetching
-//! - `prefetch_distance_tuning`: Tests different prefetch distances for optimal performance
+//! - `prefetch_magic_table_lookups`: Measures prefetching effectiveness for
+//!   magic table lookups
+//! - `prefetch_pst_table_lookups`: Measures prefetching effectiveness for PST
+//!   table lookups
+//! - `adaptive_vs_fixed_prefetch`: Compares adaptive prefetching to
+//!   fixed-distance prefetching
+//! - `prefetch_distance_tuning`: Tests different prefetch distances for optimal
+//!   performance
 
 #![cfg(feature = "simd")]
 
@@ -28,7 +33,8 @@ use shogi_engine::evaluation::integration::IntegratedEvaluator;
 use shogi_engine::moves::MoveGenerator;
 use shogi_engine::types::*;
 
-/// Create a board with many sliding pieces for magic table prefetching benchmarks
+/// Create a board with many sliding pieces for magic table prefetching
+/// benchmarks
 fn create_sliding_pieces_board() -> BitboardBoard {
     let mut board = BitboardBoard::new();
 

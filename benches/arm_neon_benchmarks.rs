@@ -1,10 +1,12 @@
 //! ARM NEON optimization benchmarks
 //!
-//! This benchmark suite measures the performance improvements from ARM NEON optimizations
-//! including optimized batch operations and tree reduction for combine_all.
+//! This benchmark suite measures the performance improvements from ARM NEON
+//! optimizations including optimized batch operations and tree reduction for
+//! combine_all.
 //!
-//! **Note**: These benchmarks require ARM64 hardware (Mac M-series, ARM servers) for validation.
-//! They will compile on x86_64 but won't run the optimized NEON code paths.
+//! **Note**: These benchmarks require ARM64 hardware (Mac M-series, ARM
+//! servers) for validation. They will compile on x86_64 but won't run the
+//! optimized NEON code paths.
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use shogi_engine::bitboards::{AlignedBitboardArray, SimdBitboard};

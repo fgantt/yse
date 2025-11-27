@@ -1,10 +1,11 @@
 //! Pattern Recognition Types
 //!
-//! This module contains types related to pattern recognition that are used across
-//! the codebase. Note that the main pattern recognition configuration types
-//! (PatternConfig, PatternWeights, etc.) are in the `evaluation` module.
+//! This module contains types related to pattern recognition that are used
+//! across the codebase. Note that the main pattern recognition configuration
+//! types (PatternConfig, PatternWeights, etc.) are in the `evaluation` module.
 //!
-//! Extracted from `types.rs` (now `all.rs`) as part of Task 1.0: File Modularization and Structure Improvements.
+//! Extracted from `types.rs` (now `all.rs`) as part of Task 1.0: File
+//! Modularization and Structure Improvements.
 
 use serde::{Deserialize, Serialize};
 

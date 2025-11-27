@@ -1,7 +1,8 @@
 //! Tests for Shogi-specific hash handling with known positions
 //!
 //! This module provides comprehensive tests using well-known Shogi positions
-//! to validate the correctness of hash handling for all Shogi-specific features.
+//! to validate the correctness of hash handling for all Shogi-specific
+//! features.
 
 use crate::bitboards::BitboardBoard;
 use crate::search::shogi_hash::{ShogiHashHandler, ShogiMoveValidator};

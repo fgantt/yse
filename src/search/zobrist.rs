@@ -7,9 +7,9 @@ use rand::{Rng, SeedableRng};
 
 /// Zobrist hashing table for Shogi positions
 ///
-/// This struct contains all the random keys needed to generate unique hash values
-/// for Shogi positions. It includes keys for piece positions, hand pieces,
-/// side to move, and repetition states.
+/// This struct contains all the random keys needed to generate unique hash
+/// values for Shogi positions. It includes keys for piece positions, hand
+/// pieces, side to move, and repetition states.
 #[derive(Debug, Clone)]
 pub struct ZobristTable {
     /// Hash keys for piece positions [piece_type][position]

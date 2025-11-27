@@ -555,7 +555,8 @@ mod lmr_adaptive_reduction_tests {
 
         let move_ = create_test_move();
         let reduction = engine.calculate_reduction(&move_, 6, 8);
-        assert_eq!(reduction, 3); // Should be base + depth + move_index, no adaptation
+        assert_eq!(reduction, 3); // Should be base + depth + move_index, no
+                                  // adaptation
     }
 
     #[test]
@@ -1154,7 +1155,8 @@ mod re_search_margin_tests {
         let mut engine2 = create_test_engine();
         engine2.update_lmr_config(config).unwrap();
 
-        // With margin = 0, re-search should trigger when score > alpha (current behavior)
+        // With margin = 0, re-search should trigger when score > alpha (current
+        // behavior)
         assert_eq!(engine2.get_lmr_config().re_search_margin, 0);
     }
 
@@ -1936,7 +1938,8 @@ mod escape_move_detection_tests {
         let move_ =
             Move::new(Position::new(4, 4), Position::new(3, 3), Player::Black, false, false, false);
 
-        // Test threat-based detection (simplified - actual threat detection would check board state)
+        // Test threat-based detection (simplified - actual threat detection would check
+        // board state)
         let is_escape = engine.is_escape_move(&move_, &board, &captured_pieces, player);
 
         // Result depends on threat detection (simplified implementation)
@@ -1975,7 +1978,8 @@ mod escape_move_detection_tests {
         let player = Player::Black;
 
         // Test with king (if king is in check, escape move should be detected)
-        // This is a simplified test - actual implementation would check if king is in check
+        // This is a simplified test - actual implementation would check if king is in
+        // check
         let move_ =
             Move::new(Position::new(4, 4), Position::new(3, 3), Player::Black, false, false, false);
 
@@ -2535,7 +2539,8 @@ mod pruning_manager_adaptive_reduction_tests {
         let quiet_reduction =
             pruning_manager.calculate_lmr_reduction(&search_state, &move_, false, None);
 
-        // Tactical should be <= base, quiet should be >= base (if adaptive reduction enabled)
+        // Tactical should be <= base, quiet should be >= base (if adaptive reduction
+        // enabled)
         if pruning_manager.parameters.lmr_enable_adaptive_reduction {
             assert!(tactical_reduction <= quiet_reduction);
         }

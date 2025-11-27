@@ -2,7 +2,8 @@
 //! Integration tests for bit-scanning optimization system
 //!
 //! These tests verify that the bit-scanning optimizations work correctly
-//! across different platforms and integrate properly with the existing codebase.
+//! across different platforms and integrate properly with the existing
+//! codebase.
 
 use shogi_engine::bitboards::{
     // Bit scanning functions

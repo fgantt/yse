@@ -1,9 +1,9 @@
 //! Square coordinate conversion utilities for bitboard operations
 //!
-//! This module provides comprehensive utilities for converting between bit positions,
-//! square coordinates, and various coordinate systems used in Shogi. It integrates
-//! with the existing Position type and provides efficient conversion functions
-//! optimized for bitboard operations.
+//! This module provides comprehensive utilities for converting between bit
+//! positions, square coordinates, and various coordinate systems used in Shogi.
+//! It integrates with the existing Position type and provides efficient
+//! conversion functions optimized for bitboard operations.
 
 use crate::types::core::Position;
 use crate::types::Bitboard;
@@ -23,11 +23,11 @@ use crate::types::Bitboard;
 /// ```
 /// use shogi_engine::bitboards::square_utils::bit_to_square;
 ///
-/// let pos = bit_to_square(0);  // Top-left corner
+/// let pos = bit_to_square(0); // Top-left corner
 /// assert_eq!(pos.row, 0);
 /// assert_eq!(pos.col, 0);
 ///
-/// let pos = bit_to_square(8);  // First square of second rank
+/// let pos = bit_to_square(8); // First square of second rank
 /// assert_eq!(pos.row, 1);
 /// assert_eq!(pos.col, 0);
 ///
@@ -92,11 +92,11 @@ pub fn square_to_bit(square: Position) -> u8 {
 /// ```
 /// use shogi_engine::bitboards::square_utils::bit_to_coords;
 ///
-/// let (file, rank) = bit_to_coords(0);  // Top-left corner
+/// let (file, rank) = bit_to_coords(0); // Top-left corner
 /// assert_eq!(file, 0);
 /// assert_eq!(rank, 0);
 ///
-/// let (file, rank) = bit_to_coords(8);  // First square of second rank
+/// let (file, rank) = bit_to_coords(8); // First square of second rank
 /// assert_eq!(file, 0);
 /// assert_eq!(rank, 1);
 ///
@@ -131,8 +131,8 @@ pub fn bit_to_coords(bit: u8) -> (u8, u8) {
 /// ```
 /// use shogi_engine::bitboards::square_utils::coords_to_bit;
 ///
-/// assert_eq!(coords_to_bit(0, 0), 0);  // Top-left corner
-/// assert_eq!(coords_to_bit(0, 1), 9);  // First square of second rank
+/// assert_eq!(coords_to_bit(0, 0), 0); // Top-left corner
+/// assert_eq!(coords_to_bit(0, 1), 9); // First square of second rank
 /// assert_eq!(coords_to_bit(8, 8), 80); // Bottom-right corner
 /// ```
 pub fn coords_to_bit(file: u8, rank: u8) -> u8 {
@@ -158,10 +158,10 @@ pub fn coords_to_bit(file: u8, rank: u8) -> u8 {
 /// ```
 /// use shogi_engine::bitboards::square_utils::bit_to_square_name;
 ///
-/// assert_eq!(bit_to_square_name(0), "1i");   // Top-left corner
-/// assert_eq!(bit_to_square_name(4), "5i");   // Center of top rank
-/// assert_eq!(bit_to_square_name(40), "5e");  // Center of board
-/// assert_eq!(bit_to_square_name(80), "9a");  // Bottom-right corner
+/// assert_eq!(bit_to_square_name(0), "1i"); // Top-left corner
+/// assert_eq!(bit_to_square_name(4), "5i"); // Center of top rank
+/// assert_eq!(bit_to_square_name(40), "5e"); // Center of board
+/// assert_eq!(bit_to_square_name(80), "9a"); // Bottom-right corner
 /// ```
 pub fn bit_to_square_name(bit: u8) -> String {
     if bit >= 128 {
@@ -204,10 +204,10 @@ pub fn bit_to_square_name(bit: u8) -> String {
 /// ```
 /// use shogi_engine::bitboards::square_utils::square_name_to_bit;
 ///
-/// assert_eq!(square_name_to_bit("1i"), 0);   // Top-left corner
-/// assert_eq!(square_name_to_bit("5i"), 4);   // Center of top rank
-/// assert_eq!(square_name_to_bit("5e"), 40);  // Center of board
-/// assert_eq!(square_name_to_bit("9a"), 80);  // Bottom-right corner
+/// assert_eq!(square_name_to_bit("1i"), 0); // Top-left corner
+/// assert_eq!(square_name_to_bit("5i"), 4); // Center of top rank
+/// assert_eq!(square_name_to_bit("5e"), 40); // Center of board
+/// assert_eq!(square_name_to_bit("9a"), 80); // Bottom-right corner
 /// ```
 pub fn square_name_to_bit(name: &str) -> u8 {
     if name.len() != 2 {
@@ -253,9 +253,9 @@ pub fn square_name_to_bit(name: &str) -> u8 {
 /// ```
 /// use shogi_engine::bitboards::square_utils::is_valid_shogi_square;
 ///
-/// assert!(is_valid_shogi_square(0));   // Top-left corner
-/// assert!(is_valid_shogi_square(40));  // Center of board
-/// assert!(is_valid_shogi_square(80));  // Bottom-right corner
+/// assert!(is_valid_shogi_square(0)); // Top-left corner
+/// assert!(is_valid_shogi_square(40)); // Center of board
+/// assert!(is_valid_shogi_square(80)); // Bottom-right corner
 /// assert!(!is_valid_shogi_square(81)); // Beyond 9x9 board
 /// assert!(!is_valid_shogi_square(127)); // Extended bitboard position
 /// ```
@@ -283,8 +283,8 @@ pub fn is_valid_shogi_square(bit: u8) -> bool {
 /// assert!(is_promotion_zone(80, Player::Black)); // Rank 9
 ///
 /// // White's promotion zone (ranks 1, 2, 3)
-/// assert!(is_promotion_zone(0, Player::White));  // Rank 1
-/// assert!(is_promotion_zone(9, Player::White));  // Rank 2
+/// assert!(is_promotion_zone(0, Player::White)); // Rank 1
+/// assert!(is_promotion_zone(9, Player::White)); // Rank 2
 /// assert!(is_promotion_zone(18, Player::White)); // Rank 3
 /// ```
 pub fn is_promotion_zone(bit: u8, player: crate::types::Player) -> bool {
@@ -313,10 +313,10 @@ pub fn is_promotion_zone(bit: u8, player: crate::types::Player) -> bool {
 /// ```
 /// use shogi_engine::bitboards::square_utils::square_distance;
 ///
-/// assert_eq!(square_distance(0, 0), 0);   // Same square
-/// assert_eq!(square_distance(0, 1), 1);   // Adjacent horizontally
-/// assert_eq!(square_distance(0, 9), 1);   // Adjacent vertically
-/// assert_eq!(square_distance(0, 10), 2);  // Diagonal (1+1)
+/// assert_eq!(square_distance(0, 0), 0); // Same square
+/// assert_eq!(square_distance(0, 1), 1); // Adjacent horizontally
+/// assert_eq!(square_distance(0, 9), 1); // Adjacent vertically
+/// assert_eq!(square_distance(0, 10), 2); // Diagonal (1+1)
 /// ```
 pub fn square_distance(bit1: u8, bit2: u8) -> u8 {
     let (file1, rank1) = bit_to_coords(bit1);
@@ -365,7 +365,7 @@ pub fn get_rank_squares(bit: u8) -> Vec<u8> {
 ///
 /// let file_squares = get_file_squares(4); // Center of top rank
 /// assert_eq!(file_squares.len(), 9);
-/// assert!(file_squares.contains(&4));  // Top
+/// assert!(file_squares.contains(&4)); // Top
 /// assert!(file_squares.contains(&40)); // Center
 /// assert!(file_squares.contains(&76)); // Bottom
 /// ```
@@ -387,7 +387,7 @@ pub fn get_file_squares(bit: u8) -> Vec<u8> {
 /// use shogi_engine::bitboards::square_utils::get_diagonal_squares;
 ///
 /// let diag_squares = get_diagonal_squares(40); // Center of board
-/// assert!(diag_squares.contains(&0));  // Top-left
+/// assert!(diag_squares.contains(&0)); // Top-left
 /// assert!(diag_squares.contains(&40)); // Center
 /// assert!(diag_squares.contains(&80)); // Bottom-right
 /// ```
@@ -460,10 +460,10 @@ pub fn rank_mask(rank: u8) -> Bitboard {
 /// use shogi_engine::bitboards::square_utils::file_mask;
 ///
 /// let file_0 = file_mask(0); // Leftmost file
-/// // Pattern: bit 0, 9, 18, 27, 36, 45, 54, 63, 72
+///                            // Pattern: bit 0, 9, 18, 27, 36, 45, 54, 63, 72
 ///
 /// let file_8 = file_mask(8); // Rightmost file
-/// // Pattern: bit 8, 17, 26, 35, 44, 53, 62, 71, 80
+///                            // Pattern: bit 8, 17, 26, 35, 44, 53, 62, 71, 80
 /// ```
 pub fn file_mask(file: u8) -> Bitboard {
     if file >= 9 {
@@ -543,9 +543,9 @@ pub fn get_center_squares() -> Vec<u8> {
 /// ```
 /// use shogi_engine::bitboards::square_utils::is_center_square;
 ///
-/// assert!(is_center_square(40));  // 5e (center)
-/// assert!(is_center_square(31));  // 5d
-/// assert!(!is_center_square(0));  // 9i (corner)
+/// assert!(is_center_square(40)); // 5e (center)
+/// assert!(is_center_square(31)); // 5d
+/// assert!(!is_center_square(0)); // 9i (corner)
 /// ```
 pub fn is_center_square(bit: u8) -> bool {
     let (file, rank) = bit_to_coords(bit);

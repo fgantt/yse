@@ -136,7 +136,8 @@ impl TablebaseConfig {
             .map_err(|e| format!("Failed to serialize to JSON: {}", e))
     }
 
-    /// Merge with another configuration, taking values from other where they exist
+    /// Merge with another configuration, taking values from other where they
+    /// exist
     pub fn merge_with(&mut self, other: &TablebaseConfig) {
         self.enabled = other.enabled;
         self.cache_size = other.cache_size;
@@ -746,15 +747,9 @@ impl TablebaseStats {
     /// Get performance summary
     pub fn performance_summary(&self) -> String {
         format!(
-            "Tablebase Performance Summary:\n\
-            Total Probes: {}\n\
-            Cache Hit Rate: {:.2}%\n\
-            Solver Hit Rate: {:.2}%\n\
-            Overall Hit Rate: {:.2}%\n\
-            Average Probe Time: {:.2}ms\n\
-            Total Probe Time: {}ms\n\
-            Avg Position Analysis Time: {:.2}ms\n\
-            Avg Solver Selection Time: {:.2}ms",
+            "Tablebase Performance Summary:\nTotal Probes: {}\nCache Hit Rate: {:.2}%\nSolver Hit \
+             Rate: {:.2}%\nOverall Hit Rate: {:.2}%\nAverage Probe Time: {:.2}ms\nTotal Probe \
+             Time: {}ms\nAvg Position Analysis Time: {:.2}ms\nAvg Solver Selection Time: {:.2}ms",
             self.total_probes,
             self.cache_hit_rate() * 100.0,
             self.solver_hit_rate() * 100.0,
@@ -831,12 +826,8 @@ impl TablebaseStats {
     /// Get memory usage summary
     pub fn memory_summary(&self, max_memory: usize) -> String {
         format!(
-            "Memory Usage Summary:\n\
-            Current Memory: {} bytes ({:.2}% of max)\n\
-            Peak Memory: {} bytes\n\
-            Memory Warnings: {}\n\
-            Critical Alerts: {}\n\
-            Auto Evictions: {}",
+            "Memory Usage Summary:\nCurrent Memory: {} bytes ({:.2}% of max)\nPeak Memory: {} \
+             bytes\nMemory Warnings: {}\nCritical Alerts: {}\nAuto Evictions: {}",
             self.current_memory_bytes,
             self.memory_usage_percentage(max_memory),
             self.peak_memory_bytes,

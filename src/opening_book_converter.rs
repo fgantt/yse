@@ -3,7 +3,8 @@ use crate::types::core::PieceType;
 /// Opening Book JSON to Binary Converter
 ///
 /// This module provides functionality to convert the existing JSON opening book
-/// format to the new binary format, with enhanced move analysis and weight assignment.
+/// format to the new binary format, with enhanced move analysis and weight
+/// assignment.
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -45,8 +46,8 @@ pub struct WeightDistribution {
 
 /// Configuration for opening book converter
 ///
-/// This struct contains all configurable mappings for weight and evaluation scores.
-/// It can be loaded from JSON/YAML files or created programmatically.
+/// This struct contains all configurable mappings for weight and evaluation
+/// scores. It can be loaded from JSON/YAML files or created programmatically.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpeningBookConverterConfig {
     /// Mapping of opening names to their base weights (0-1000)
@@ -97,7 +98,8 @@ impl OpeningBookConverterConfig {
         for (characteristic, score) in &self.evaluation_scores {
             if *score < -1000 || *score > 1000 {
                 return Err(format!(
-                    "Evaluation score for '{}' is out of reasonable range: {} (expected -1000 to 1000)",
+                    "Evaluation score for '{}' is out of reasonable range: {} (expected -1000 to \
+                     1000)",
                     characteristic, score
                 ));
             }
@@ -139,7 +141,8 @@ impl OpeningBookConverter {
     /// * `config_path` - Path to the JSON configuration file
     ///
     /// # Errors
-    /// Returns an error if the file cannot be read or parsed, or if validation fails.
+    /// Returns an error if the file cannot be read or parsed, or if validation
+    /// fails.
     pub fn from_json_file(config_path: &str) -> Result<Self, String> {
         let content = fs::read_to_string(config_path)
             .map_err(|e| format!("Failed to read config file '{}': {}", config_path, e))?;
@@ -161,7 +164,8 @@ impl OpeningBookConverter {
     /// * `config_path` - Path to the YAML configuration file
     ///
     /// # Errors
-    /// Returns an error if the file cannot be read or parsed, or if validation fails.
+    /// Returns an error if the file cannot be read or parsed, or if validation
+    /// fails.
     pub fn from_yaml_file(config_path: &str) -> Result<Self, String> {
         let content = fs::read_to_string(config_path)
             .map_err(|e| format!("Failed to read config file '{}': {}", config_path, e))?;
@@ -549,8 +553,10 @@ impl OpeningBookConverterBuilder {
     /// Set the evaluation score for a specific move characteristic
     ///
     /// # Arguments
-    /// * `characteristic` - Move characteristic (e.g., "tactical", "development")
-    /// * `score` - Evaluation score in centipawns (recommended range: -1000 to 1000)
+    /// * `characteristic` - Move characteristic (e.g., "tactical",
+    ///   "development")
+    /// * `score` - Evaluation score in centipawns (recommended range: -1000 to
+    ///   1000)
     ///
     /// # Returns
     /// Self for method chaining
@@ -562,7 +568,8 @@ impl OpeningBookConverterBuilder {
     /// Build the converter from the configured settings
     ///
     /// # Panics
-    /// Panics if the configuration is invalid (weights > 1000 or evaluations out of range)
+    /// Panics if the configuration is invalid (weights > 1000 or evaluations
+    /// out of range)
     pub fn build(self) -> OpeningBookConverter {
         OpeningBookConverter::from_config(self.config)
     }
@@ -570,7 +577,8 @@ impl OpeningBookConverterBuilder {
     /// Build the converter from the configured settings, returning a Result
     ///
     /// # Returns
-    /// Ok(OpeningBookConverter) if configuration is valid, Err(String) otherwise
+    /// Ok(OpeningBookConverter) if configuration is valid, Err(String)
+    /// otherwise
     pub fn try_build(self) -> Result<OpeningBookConverter, String> {
         self.config.validate()?;
         Ok(OpeningBookConverter::from_config(self.config))

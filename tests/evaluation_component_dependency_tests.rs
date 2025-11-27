@@ -1,4 +1,5 @@
-//! Tests for component dependency validation and coordination (Task 20.0 - Task 5.0)
+//! Tests for component dependency validation and coordination (Task 20.0 - Task
+//! 5.0)
 
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::config::{
@@ -145,10 +146,12 @@ fn test_auto_resolve_conflicts() {
     assert!(!suggestions.is_empty(), "Should provide conflict resolution suggestions");
 
     // Test auto-resolve (logs resolutions)
-    // Note: auto_resolve_conflicts may return empty if conflicts are handled during evaluation
+    // Note: auto_resolve_conflicts may return empty if conflicts are handled during
+    // evaluation
     let resolutions = config.auto_resolve_conflicts();
-    // Resolutions may be empty if conflicts are handled via precedence during evaluation
-    // This is OK - the method provides information about how conflicts are resolved
+    // Resolutions may be empty if conflicts are handled via precedence during
+    // evaluation This is OK - the method provides information about how
+    // conflicts are resolved
 }
 
 /// Test phase compatibility validation (Task 20.0 - Task 5.23)
@@ -164,8 +167,9 @@ fn test_phase_compatibility_validation() {
 
     let warnings = config.check_phase_compatibility(&phase_history);
 
-    // Should warn when opening_principles is enabled but phase is consistently < opening_threshold
-    // (Note: This is a simplified check - full implementation would analyze average phase)
+    // Should warn when opening_principles is enabled but phase is consistently <
+    // opening_threshold (Note: This is a simplified check - full implementation
+    // would analyze average phase)
     assert!(
         warnings.len() >= 0, // May or may not warn depending on threshold logic
         "Should check phase compatibility"
@@ -205,7 +209,8 @@ fn test_comprehensive_dependency_validation() {
     let warnings = result.unwrap();
 
     // Should have some warnings (depending on configuration)
-    // We're not asserting specific warnings since default config may or may not have conflicts
+    // We're not asserting specific warnings since default config may or may not
+    // have conflicts
     assert!(warnings.len() >= 0, "Should return warnings (may be empty if no conflicts)");
 }
 
@@ -301,5 +306,6 @@ fn test_suggest_component_resolution() {
             "Suggestions should contain helpful information"
         );
     }
-    // It's OK if suggestions is empty - conflicts may be handled during evaluation
+    // It's OK if suggestions is empty - conflicts may be handled during
+    // evaluation
 }

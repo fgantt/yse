@@ -1,8 +1,9 @@
 #![cfg(feature = "simd")]
 /// Integration tests for SIMD move generation in MoveGenerator
 ///
-/// These tests verify that SIMD-optimized move generation produces the same results
-/// as scalar implementation and is actually used when the feature is enabled.
+/// These tests verify that SIMD-optimized move generation produces the same
+/// results as scalar implementation and is actually used when the feature is
+/// enabled.
 ///
 /// # Task 4.0 (Task 5.11)
 use shogi_engine::bitboards::BitboardBoard;

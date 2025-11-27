@@ -1,16 +1,16 @@
 //! 4-bit lookup tables for bit counting and position determination
 //!
-//! This module provides efficient bit counting and position lookup using 4-bit tables.
-//! These tables are optimized for small bitboards and sparse bit patterns, providing
-//! fast lookup-based operations with minimal memory usage.
+//! This module provides efficient bit counting and position lookup using 4-bit
+//! tables. These tables are optimized for small bitboards and sparse bit
+//! patterns, providing fast lookup-based operations with minimal memory usage.
 
 use crate::types::Bitboard;
 
 /// 4-bit population count lookup table
 ///
-/// This table contains the population count (number of set bits) for all possible
-/// 4-bit patterns. Index 0 corresponds to pattern 0000 (0 bits), index 1 to 0001 (1 bit),
-/// and so on up to index 15 (1111 with 4 bits).
+/// This table contains the population count (number of set bits) for all
+/// possible 4-bit patterns. Index 0 corresponds to pattern 0000 (0 bits), index
+/// 1 to 0001 (1 bit), and so on up to index 15 (1111 with 4 bits).
 ///
 /// # Memory Usage
 /// - Size: 16 bytes (16 entries × 1 byte each)
@@ -24,7 +24,8 @@ const POPCOUNT_4BIT: [u8; 16] = [
 /// 4-bit bit position lookup table
 ///
 /// This table contains the bit positions for all possible 4-bit patterns.
-/// Each entry is an array of up to 4 positions, with unused positions set to 255.
+/// Each entry is an array of up to 4 positions, with unused positions set to
+/// 255.
 ///
 /// # Memory Usage
 /// - Size: 64 bytes (16 entries × 4 bytes each)
@@ -51,8 +52,9 @@ const BIT_POSITION_4BIT: [[u8; 4]; 16] = [
 
 /// 4-bit lookup population count
 ///
-/// This function counts the number of set bits in a bitboard using 4-bit lookup tables.
-/// It processes the bitboard in 4-bit chunks and looks up the count for each chunk.
+/// This function counts the number of set bits in a bitboard using 4-bit lookup
+/// tables. It processes the bitboard in 4-bit chunks and looks up the count for
+/// each chunk.
 ///
 /// # Arguments
 /// * `bb` - The bitboard to count bits in
@@ -61,8 +63,8 @@ const BIT_POSITION_4BIT: [[u8; 4]; 16] = [
 /// The number of set bits in the bitboard
 ///
 /// # Performance
-/// This implementation provides O(log n) performance where n is the number of bits,
-/// processing 4 bits at a time with constant-time lookups.
+/// This implementation provides O(log n) performance where n is the number of
+/// bits, processing 4 bits at a time with constant-time lookups.
 ///
 /// # Examples
 /// ```
@@ -90,8 +92,9 @@ pub fn popcount_4bit_lookup(bb: Bitboard) -> u32 {
 
 /// 4-bit lookup bit positions
 ///
-/// This function returns all bit positions in a bitboard using 4-bit lookup tables.
-/// It processes the bitboard in 4-bit chunks and looks up the positions for each chunk.
+/// This function returns all bit positions in a bitboard using 4-bit lookup
+/// tables. It processes the bitboard in 4-bit chunks and looks up the positions
+/// for each chunk.
 ///
 /// # Arguments
 /// * `bb` - The bitboard to process
@@ -100,8 +103,8 @@ pub fn popcount_4bit_lookup(bb: Bitboard) -> u32 {
 /// A vector containing all bit positions (0-based), ordered from LSB to MSB
 ///
 /// # Performance
-/// This implementation provides O(k) performance where k is the number of set bits,
-/// processing 4 bits at a time with constant-time position lookups.
+/// This implementation provides O(k) performance where k is the number of set
+/// bits, processing 4 bits at a time with constant-time position lookups.
 ///
 /// # Examples
 /// ```
@@ -150,8 +153,8 @@ pub fn bit_positions_4bit_lookup(bb: Bitboard) -> Vec<u8> {
 /// The number of set bits in the bitboard
 ///
 /// # Performance
-/// This implementation provides O(k) performance where k is the number of 4-bit chunks
-/// that contain set bits, with early termination for sparse bitboards.
+/// This implementation provides O(k) performance where k is the number of 4-bit
+/// chunks that contain set bits, with early termination for sparse bitboards.
 pub fn popcount_4bit_optimized(bb: Bitboard) -> u32 {
     let mut count = 0;
     let mut remaining = bb;
@@ -180,7 +183,8 @@ pub fn popcount_4bit_optimized(bb: Bitboard) -> u32 {
 /// where we can process the entire bitboard as 4-bit chunks efficiently.
 ///
 /// # Arguments
-/// * `bb` - The bitboard to process (should be ≤ 64 bits for optimal performance)
+/// * `bb` - The bitboard to process (should be ≤ 64 bits for optimal
+///   performance)
 ///
 /// # Returns
 /// The number of set bits in the bitboard
@@ -209,11 +213,12 @@ pub fn popcount_4bit_small(bb: Bitboard) -> u32 {
 
 /// Fast 4-bit bit position enumeration
 ///
-/// This function provides optimized bit position enumeration for small bitboards
-/// using 4-bit lookup tables.
+/// This function provides optimized bit position enumeration for small
+/// bitboards using 4-bit lookup tables.
 ///
 /// # Arguments
-/// * `bb` - The bitboard to process (should be ≤ 64 bits for optimal performance)
+/// * `bb` - The bitboard to process (should be ≤ 64 bits for optimal
+///   performance)
 ///
 /// # Returns
 /// A vector containing all bit positions (0-based), ordered from LSB to MSB
@@ -252,8 +257,8 @@ pub fn bit_positions_4bit_small(bb: Bitboard) -> Vec<u8> {
 
 /// Validate 4-bit lookup tables correctness
 ///
-/// This function validates that the 4-bit lookup tables are correctly configured
-/// for all possible 4-bit patterns.
+/// This function validates that the 4-bit lookup tables are correctly
+/// configured for all possible 4-bit patterns.
 ///
 /// # Returns
 /// True if the lookup tables are correctly configured, false otherwise
@@ -289,19 +294,16 @@ pub fn validate_4bit_lookup_tables() -> bool {
 
 /// Get 4-bit lookup tables information
 ///
-/// This function returns information about the 4-bit lookup tables configuration,
-/// useful for debugging and validation.
+/// This function returns information about the 4-bit lookup tables
+/// configuration, useful for debugging and validation.
 ///
 /// # Returns
 /// A string containing information about the lookup tables
 pub fn get_4bit_lookup_info() -> String {
     format!(
-        "4-bit Lookup Tables Info:\n\
-         Population Count Table Size: {} bytes\n\
-         Bit Position Table Size: {} bytes\n\
-         Total Memory Usage: {} bytes\n\
-         Population Count Entries: {}\n\
-         Bit Position Entries: {}",
+        "4-bit Lookup Tables Info:\nPopulation Count Table Size: {} bytes\nBit Position Table \
+         Size: {} bytes\nTotal Memory Usage: {} bytes\nPopulation Count Entries: {}\nBit Position \
+         Entries: {}",
         std::mem::size_of_val(&POPCOUNT_4BIT),
         std::mem::size_of_val(&BIT_POSITION_4BIT),
         std::mem::size_of_val(&POPCOUNT_4BIT) + std::mem::size_of_val(&BIT_POSITION_4BIT),

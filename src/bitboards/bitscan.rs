@@ -1,7 +1,7 @@
 //! Bit scanning implementations for bit-scanning optimizations
 //!
-//! This module provides multiple implementations of bit scanning (finding bit positions)
-//! optimized for different platforms and capabilities.
+//! This module provides multiple implementations of bit scanning (finding bit
+//! positions) optimized for different platforms and capabilities.
 
 use crate::bitboards::platform_detection::{get_best_bitscan_impl, BitscanImpl};
 use crate::types::Bitboard;
@@ -15,12 +15,13 @@ use crate::types::Bitboard;
 /// * `bb` - The bitboard to scan
 ///
 /// # Returns
-/// The position of the least significant bit (0-based), or None if the bitboard is empty
+/// The position of the least significant bit (0-based), or None if the bitboard
+/// is empty
 ///
 /// # Examples
 /// ```
-/// use shogi_engine::types::Bitboard;
 /// use shogi_engine::bitboards::bitscan::bit_scan_forward;
+/// use shogi_engine::types::Bitboard;
 ///
 /// let bb: Bitboard = 0b1010; // Bits at positions 1 and 3
 /// assert_eq!(bit_scan_forward(bb), Some(1)); // Returns position of LSB
@@ -43,12 +44,13 @@ pub fn bit_scan_forward(bb: Bitboard) -> Option<u8> {
 /// * `bb` - The bitboard to scan
 ///
 /// # Returns
-/// The position of the most significant bit (0-based), or None if the bitboard is empty
+/// The position of the most significant bit (0-based), or None if the bitboard
+/// is empty
 ///
 /// # Examples
 /// ```
-/// use shogi_engine::types::Bitboard;
 /// use shogi_engine::bitboards::bitscan::bit_scan_reverse;
+/// use shogi_engine::types::Bitboard;
 ///
 /// let bb: Bitboard = 0b1010; // Bits at positions 1 and 3
 /// assert_eq!(bit_scan_reverse(bb), Some(3)); // Returns position of MSB
@@ -64,15 +66,16 @@ pub fn bit_scan_reverse(bb: Bitboard) -> Option<u8> {
 
 /// Hardware-accelerated bit scan forward using x86_64 BSF instruction
 ///
-/// This implementation uses the native BSF (Bit Scan Forward) instruction available on
-/// x86_64 processors. It provides the fastest possible performance for finding the
-/// least significant bit.
+/// This implementation uses the native BSF (Bit Scan Forward) instruction
+/// available on x86_64 processors. It provides the fastest possible performance
+/// for finding the least significant bit.
 ///
 /// # Arguments
 /// * `bb` - The bitboard to scan
 ///
 /// # Returns
-/// The position of the least significant bit (0-based), or None if the bitboard is empty
+/// The position of the least significant bit (0-based), or None if the bitboard
+/// is empty
 ///
 /// # Safety
 /// This function uses unsafe intrinsics and should only be called when
@@ -97,15 +100,16 @@ pub fn bit_scan_forward_hardware(bb: Bitboard) -> Option<u8> {
 
 /// Hardware-accelerated bit scan reverse using x86_64 BSR instruction
 ///
-/// This implementation uses the native BSR (Bit Scan Reverse) instruction available on
-/// x86_64 processors. It provides the fastest possible performance for finding the
-/// most significant bit.
+/// This implementation uses the native BSR (Bit Scan Reverse) instruction
+/// available on x86_64 processors. It provides the fastest possible performance
+/// for finding the most significant bit.
 ///
 /// # Arguments
 /// * `bb` - The bitboard to scan
 ///
 /// # Returns
-/// The position of the most significant bit (0-based), or None if the bitboard is empty
+/// The position of the most significant bit (0-based), or None if the bitboard
+/// is empty
 ///
 /// # Safety
 /// This function uses unsafe intrinsics and should only be called when
@@ -130,14 +134,16 @@ pub fn bit_scan_reverse_hardware(bb: Bitboard) -> Option<u8> {
 
 /// ARM hardware-accelerated bit scan forward using CLZ instruction
 ///
-/// This implementation uses the native CLZ (Count Leading Zeros) instruction available on
-/// ARM processors. It provides the fastest possible performance for finding bit positions.
+/// This implementation uses the native CLZ (Count Leading Zeros) instruction
+/// available on ARM processors. It provides the fastest possible performance
+/// for finding bit positions.
 ///
 /// # Arguments
 /// * `bb` - The bitboard to scan
 ///
 /// # Returns
-/// The position of the least significant bit (0-based), or None if the bitboard is empty
+/// The position of the least significant bit (0-based), or None if the bitboard
+/// is empty
 #[cfg(target_arch = "aarch64")]
 pub fn bit_scan_forward_hardware(bb: Bitboard) -> Option<u8> {
     if bb.is_empty() {
@@ -156,15 +162,16 @@ pub fn bit_scan_forward_hardware(bb: Bitboard) -> Option<u8> {
 
 /// ARM hardware-accelerated bit scan reverse using CLZ instruction
 ///
-/// This implementation uses the native CLZ (Count Leading Zeros) instruction available on
-/// ARM processors. It provides the fastest possible performance for finding the
-/// most significant bit.
+/// This implementation uses the native CLZ (Count Leading Zeros) instruction
+/// available on ARM processors. It provides the fastest possible performance
+/// for finding the most significant bit.
 ///
 /// # Arguments
 /// * `bb` - The bitboard to scan
 ///
 /// # Returns
-/// The position of the most significant bit (0-based), or None if the bitboard is empty
+/// The position of the most significant bit (0-based), or None if the bitboard
+/// is empty
 #[cfg(target_arch = "aarch64")]
 pub fn bit_scan_reverse_hardware(bb: Bitboard) -> Option<u8> {
     if bb.is_empty() {
@@ -194,28 +201,32 @@ pub fn bit_scan_reverse_hardware(bb: Bitboard) -> Option<u8> {
 
 /// De Bruijn sequence bit scan forward implementation
 ///
-/// This implementation uses De Bruijn sequences for efficient bit position determination.
-/// It works on all supported platforms and provides good performance.
+/// This implementation uses De Bruijn sequences for efficient bit position
+/// determination. It works on all supported platforms and provides good
+/// performance.
 ///
 /// # Arguments
 /// * `bb` - The bitboard to scan
 ///
 /// # Returns
-/// The position of the least significant bit (0-based), or None if the bitboard is empty
+/// The position of the least significant bit (0-based), or None if the bitboard
+/// is empty
 pub fn bit_scan_forward_debruijn(bb: Bitboard) -> Option<u8> {
     crate::bitboards::debruijn::bit_scan_forward_debruijn(bb)
 }
 
 /// De Bruijn sequence bit scan reverse implementation
 ///
-/// This implementation uses De Bruijn sequences for efficient bit position determination.
-/// It works on all supported platforms and provides good performance.
+/// This implementation uses De Bruijn sequences for efficient bit position
+/// determination. It works on all supported platforms and provides good
+/// performance.
 ///
 /// # Arguments
 /// * `bb` - The bitboard to scan
 ///
 /// # Returns
-/// The position of the most significant bit (0-based), or None if the bitboard is empty
+/// The position of the most significant bit (0-based), or None if the bitboard
+/// is empty
 pub fn bit_scan_reverse_debruijn(bb: Bitboard) -> Option<u8> {
     crate::bitboards::debruijn::bit_scan_reverse_debruijn(bb)
 }
@@ -229,7 +240,8 @@ pub fn bit_scan_reverse_debruijn(bb: Bitboard) -> Option<u8> {
 /// * `bb` - The bitboard to scan
 ///
 /// # Returns
-/// The position of the least significant bit (0-based), or None if the bitboard is empty
+/// The position of the least significant bit (0-based), or None if the bitboard
+/// is empty
 pub fn bit_scan_forward_software(bb: Bitboard) -> Option<u8> {
     if bb.is_empty() {
         return None;
@@ -254,7 +266,8 @@ pub fn bit_scan_forward_software(bb: Bitboard) -> Option<u8> {
 /// * `bb` - The bitboard to scan
 ///
 /// # Returns
-/// The position of the most significant bit (0-based), or None if the bitboard is empty
+/// The position of the most significant bit (0-based), or None if the bitboard
+/// is empty
 pub fn bit_scan_reverse_software(bb: Bitboard) -> Option<u8> {
     if bb.is_empty() {
         return None;

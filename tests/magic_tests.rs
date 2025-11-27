@@ -2,7 +2,8 @@
 //! Comprehensive unit tests for magic bitboards
 //!
 //! This test suite validates the correctness of magic bitboard implementation
-//! including magic number generation, attack patterns, and lookup functionality.
+//! including magic number generation, attack patterns, and lookup
+//! functionality.
 
 use shogi_engine::bitboards::magic::{AttackGenerator, MagicFinder, MagicValidator};
 use shogi_engine::types::{Bitboard, MagicTable, PieceType, Position};
@@ -56,7 +57,8 @@ fn test_rook_attack_patterns() {
     // On empty board, rook should attack entire rank and file
     assert!(attacks != 0, "Rook should have attacks on empty board");
 
-    // Count attacked squares (should be 16: 8 in rank + 8 in file, minus the square itself)
+    // Count attacked squares (should be 16: 8 in rank + 8 in file, minus the square
+    // itself)
     let attack_count = attacks.count_ones();
     assert!(attack_count > 0, "Rook should attack at least some squares");
 }
@@ -143,7 +145,8 @@ fn test_edge_squares() {
         let bishop_attacks = table.get_attacks(edge, PieceType::Bishop, empty_board);
 
         assert!(rook_attacks != 0, "Rook should have attacks from edge {}", edge);
-        // Bishop may not have attacks from all edges (depends on diagonal availability)
+        // Bishop may not have attacks from all edges (depends on diagonal
+        // availability)
     }
 }
 

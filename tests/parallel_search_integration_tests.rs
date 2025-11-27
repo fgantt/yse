@@ -35,7 +35,8 @@ fn create_test_position() -> (BitboardBoard, CapturedPieces, Player) {
 
 #[test]
 fn test_parallel_tt_concurrent_access() {
-    // Test 4.1: Verify ThreadSafeTranspositionTable works correctly in parallel context
+    // Test 4.1: Verify ThreadSafeTranspositionTable works correctly in parallel
+    // context
     let config = TranspositionConfig::performance_optimized();
     let tt = Arc::new(RwLock::new(ThreadSafeTranspositionTable::new(config)));
     let tt_clone = Arc::clone(&tt);
@@ -291,7 +292,8 @@ fn test_parallel_search_with_null_move() {
 
 #[test]
 fn test_parallel_search_pruning_correctness() {
-    // Test 4.8, 4.10: Verify thread-local move ordering doesn't interfere with pruning
+    // Test 4.8, 4.10: Verify thread-local move ordering doesn't interfere with
+    // pruning
     let config = ParallelSearchConfig::new(2);
     let stop_flag = Arc::new(AtomicBool::new(false));
 

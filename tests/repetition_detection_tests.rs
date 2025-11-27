@@ -2,7 +2,8 @@
 //! Comprehensive tests for hash-based repetition detection (Task 5.13)
 //!
 //! This module tests the hash-based repetition detection system to ensure:
-//! - Correctness: Repetition states are correctly identified (TwoFold, ThreeFold, FourFold)
+//! - Correctness: Repetition states are correctly identified (TwoFold,
+//!   ThreeFold, FourFold)
 //! - Performance: Hash-based detection is faster than FEN-based
 //! - Integration: Works correctly with search engine
 //! - Edge cases: Handles boundary conditions correctly
@@ -27,8 +28,9 @@ fn test_hash_based_repetition_detection_basic() {
 
     // Add position to history (first occurrence - should be None when checked)
     hash_handler.add_position_to_history(hash1);
-    // After first add, hash is in history once, so repetition state is None (not yet repeated)
-    // But the hash is tracked, so checking immediately might show None
+    // After first add, hash is in history once, so repetition state is None (not
+    // yet repeated) But the hash is tracked, so checking immediately might show
+    // None
 
     // Add same position again (second occurrence)
     hash_handler.add_position_to_history(hash1);
@@ -151,7 +153,8 @@ fn test_repetition_history_cleanup() {
 #[test]
 fn test_repetition_detection_in_search_context() {
     // Test repetition detection using public API
-    // Note: hash_calculator is private, so we test through ShogiHashHandler directly
+    // Note: hash_calculator is private, so we test through ShogiHashHandler
+    // directly
     let mut hash_handler = ShogiHashHandler::new_default();
     let mut board = BitboardBoard::new();
     let captured = CapturedPieces::new();

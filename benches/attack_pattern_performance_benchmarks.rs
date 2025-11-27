@@ -162,8 +162,8 @@ fn bench_vs_traditional_raycast(c: &mut Criterion) {
         });
     });
 
-    // Note: This would require implementing a traditional raycast method for comparison
-    // For now, we'll just benchmark the precomputed version
+    // Note: This would require implementing a traditional raycast method for
+    // comparison For now, we'll just benchmark the precomputed version
     group.finish();
 }
 
@@ -210,7 +210,8 @@ fn bench_cache_efficiency(c: &mut Criterion) {
 
     group.bench_function("repeated_lookups", |b| {
         b.iter(|| {
-            // Repeated lookups of the same pattern should be very fast due to cache locality
+            // Repeated lookups of the same pattern should be very fast due to cache
+            // locality
             for _ in 0..1000 {
                 let pattern = tables.get_attack_pattern(40, PieceType::King, Player::Black);
                 black_box(pattern);

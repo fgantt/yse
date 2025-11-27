@@ -1,6 +1,7 @@
 //! Position-Specific Evaluation Features Module
 //!
-//! This module provides phase-aware evaluation of position-specific features including:
+//! This module provides phase-aware evaluation of position-specific features
+//! including:
 //! - King safety by phase
 //! - Pawn structure by phase
 //! - Piece mobility by phase
@@ -1389,8 +1390,9 @@ impl PositionFeatureEvaluator {
     /// Evaluate pawn structure with phase-aware weights
     ///
     /// # Parameters
-    /// - `skip_passed_pawn_evaluation`: If true, skips passed pawn evaluation to avoid double-counting
-    ///   when endgame patterns are enabled (endgame patterns handle passed pawns with endgame-specific bonuses)
+    /// - `skip_passed_pawn_evaluation`: If true, skips passed pawn evaluation
+    ///   to avoid double-counting when endgame patterns are enabled (endgame
+    ///   patterns handle passed pawns with endgame-specific bonuses)
     pub fn evaluate_pawn_structure(
         &mut self,
         board: &BitboardBoard,
@@ -2023,8 +2025,9 @@ impl PositionFeatureEvaluator {
     /// Center control is more important in opening/middlegame.
     ///
     /// # Parameters
-    /// - `skip_center_control`: If true, skips center control evaluation (optional, for future use
-    ///   when positional patterns handle center control to avoid double-counting)
+    /// - `skip_center_control`: If true, skips center control evaluation
+    ///   (optional, for future use when positional patterns handle center
+    ///   control to avoid double-counting)
     pub fn evaluate_center_control(
         &mut self,
         board: &BitboardBoard,
@@ -2125,8 +2128,9 @@ impl PositionFeatureEvaluator {
     /// Evaluate piece development
     ///
     /// # Parameters
-    /// - `skip_development`: If true, skips development evaluation (optional, for coordination with
-    ///   opening_principles to avoid double-counting when opening_principles is enabled in opening phase)
+    /// - `skip_development`: If true, skips development evaluation (optional,
+    ///   for coordination with opening_principles to avoid double-counting when
+    ///   opening_principles is enabled in opening phase)
     pub fn evaluate_development(
         &mut self,
         board: &BitboardBoard,

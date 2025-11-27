@@ -1,6 +1,7 @@
 //! Integration tests for pattern detection completeness
 //!
-//! Tests verify that all pattern detection improvements work together correctly:
+//! Tests verify that all pattern detection improvements work together
+//! correctly:
 //! - Opposition with pawn count filtering
 //! - Triangulation with opponent mobility checks
 //! - King activity with safety checks
@@ -19,7 +20,8 @@ fn test_pattern_detection_completeness() {
     // Test that all pattern detections work together
     let score = evaluator.evaluate_endgame(&board, Player::Black, &captured_pieces);
 
-    // Score should be computed (not necessarily non-zero, but evaluation should complete)
+    // Score should be computed (not necessarily non-zero, but evaluation should
+    // complete)
     assert!(score.mg >= -10000 && score.mg <= 10000);
     assert!(score.eg >= -10000 && score.eg <= 10000);
 }
@@ -35,7 +37,8 @@ fn test_opposition_pawn_count_filtering() {
     let initial_detections = evaluator.stats().opposition_detections;
 
     // Create a position with fewer pawns (simulated by checking behavior)
-    // Note: This test verifies the pawn count check exists, not that it always filters
+    // Note: This test verifies the pawn count check exists, not that it always
+    // filters
     assert!(score1.eg >= -10000 && score1.eg <= 10000);
 }
 

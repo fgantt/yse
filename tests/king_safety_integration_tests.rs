@@ -136,8 +136,9 @@ mod end_to_end_tests {
         let black_score = evaluator.evaluate(&board, Player::Black);
         let white_score = evaluator.evaluate(&board, Player::White);
 
-        // Both players should return valid scores (not necessarily non-negative due to threats)
-        // Just ensure we get valid TaperedScore values without panicking
+        // Both players should return valid scores (not necessarily non-negative due to
+        // threats) Just ensure we get valid TaperedScore values without
+        // panicking
         assert!(black_score.mg >= -1000 && black_score.mg <= 1000);
         assert!(white_score.mg >= -1000 && white_score.mg <= 1000);
     }
@@ -273,7 +274,8 @@ mod real_game_position_tests {
 
         // In a symmetric position, scores should be similar
         let score_diff = (black_score.mg - white_score.mg).abs();
-        assert!(score_diff < 100); // Allow some difference due to piece placement
+        assert!(score_diff < 100); // Allow some difference due to piece
+                                   // placement
     }
 }
 

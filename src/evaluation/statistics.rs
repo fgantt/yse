@@ -1,7 +1,7 @@
 //! Statistics and Monitoring Module
 //!
-//! This module provides comprehensive statistics tracking and monitoring for the
-//! tapered evaluation system. Tracks:
+//! This module provides comprehensive statistics tracking and monitoring for
+//! the tapered evaluation system. Tracks:
 //! - Evaluation statistics (count, averages, distributions)
 //! - Phase distribution across evaluations
 //! - Accuracy metrics (prediction quality)
@@ -96,7 +96,8 @@ pub struct EvaluationTelemetry {
     pub tactical: Option<TacticalStatsSnapshot>,
     pub king_safety: Option<KingSafetyStatsSnapshot>,
     pub castle_patterns: Option<CastleCacheStats>,
-    /// Weight contributions: component name -> contribution percentage (0.0-1.0)
+    /// Weight contributions: component name -> contribution percentage
+    /// (0.0-1.0)
     pub weight_contributions: HashMap<String, f32>,
 }
 

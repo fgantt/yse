@@ -1,8 +1,10 @@
 //! Performance Benchmarks for Unified Time Pressure Management
 //!
-//! This benchmark suite measures the effectiveness of time pressure coordination
+//! This benchmark suite measures the effectiveness of time pressure
+//! coordination
 //!
-//! Task 7.0.2.12: Measure timeout rate before and after time pressure improvements
+//! Task 7.0.2.12: Measure timeout rate before and after time pressure
+//! improvements
 //!
 //! Metrics:
 //! - Timeout rate at various time limits

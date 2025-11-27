@@ -24,4 +24,5 @@ pub use crate::evaluation::position_features::*;
 pub use crate::evaluation::positional_patterns::*;
 pub use crate::evaluation::pst_loader::*;
 pub use crate::evaluation::tactical_patterns::*;
-// Note: patterns::common exports are excluded to avoid conflicts with attacks module
+// Note: patterns::common exports are excluded to avoid conflicts with attacks
+// module

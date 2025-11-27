@@ -1,5 +1,6 @@
 #![cfg(feature = "legacy-tests")]
-//! Tests for aspiration window improvements with various position types (Task 7.5)
+//! Tests for aspiration window improvements with various position types (Task
+//! 7.5)
 //!
 //! This module tests that aspiration window statistics tracking works correctly
 //! across different position types (opening, middlegame, endgame):
@@ -95,7 +96,8 @@ fn test_position_type_tracking_disabled() {
     // Task 7.2: Test that position type tracking can be disabled
     let mut stats = AspirationWindowStats::default();
 
-    // Update with position type (methods update regardless, config check happens before calling)
+    // Update with position type (methods update regardless, config check happens
+    // before calling)
     let window_size = 50;
     stats.update_window_size_by_position_type(GamePhase::Opening, window_size);
     stats.update_success_rate_by_position_type(GamePhase::Opening, true);
@@ -123,8 +125,9 @@ fn test_statistics_disabled_in_production() {
     config.enable_position_type_tracking = true;
     engine.update_aspiration_window_config(config).unwrap();
 
-    // The actual update would check should_track_stats which includes disable_statistics_in_production
-    // Since we can't easily test the conditional compilation, we verify the config flag works
+    // The actual update would check should_track_stats which includes
+    // disable_statistics_in_production Since we can't easily test the
+    // conditional compilation, we verify the config flag works
     let engine_config = engine.get_aspiration_window_config();
     assert!(engine_config.disable_statistics_in_production);
 }
@@ -158,13 +161,15 @@ fn test_window_size_calculation_with_stats() {
     }
 
     // Verify that window sizes were calculated correctly
-    // Note: The statistics tracking may be disabled by the feature flag in test builds,
-    // but we can verify that the window size calculation itself works correctly
+    // Note: The statistics tracking may be disabled by the feature flag in test
+    // builds, but we can verify that the window size calculation itself works
+    // correctly
     let stats = engine.get_aspiration_window_stats();
 
-    // The function should calculate valid window sizes regardless of statistics tracking
-    // We verify that at least the calculation logic works (window sizes were in valid range)
-    // Statistics tracking behavior depends on feature flags which we can't control in tests
+    // The function should calculate valid window sizes regardless of statistics
+    // tracking We verify that at least the calculation logic works (window
+    // sizes were in valid range) Statistics tracking behavior depends on
+    // feature flags which we can't control in tests
     let last_window_size = engine.calculate_window_size(5, 0, 2);
     assert!(
         last_window_size >= 10 && last_window_size <= config.max_window_size,

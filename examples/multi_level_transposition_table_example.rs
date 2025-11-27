@@ -158,8 +158,11 @@ fn demonstrate_cross_level_search(
         // Search from a different depth than where it was stored
         let search_depth = original_depth + 2;
         if let Some(found) = table.probe(hash, search_depth) {
-            println!("Cross-level search: found entry {} (stored at depth {}, searched at depth {}): score={}", 
-                hash, original_depth, search_depth, found.score);
+            println!(
+                "Cross-level search: found entry {} (stored at depth {}, searched at depth {}): \
+                 score={}",
+                hash, original_depth, search_depth, found.score
+            );
             assert_eq!(found.score, expected_score);
         } else {
             println!("Cross-level search failed for entry {}", hash);

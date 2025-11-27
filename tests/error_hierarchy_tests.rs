@@ -1,6 +1,7 @@
 //! Tests for error type hierarchy and error propagation
 //!
-//! Tests for Task 4.0 - Tasks 4.31: Verify error type hierarchy and error propagation
+//! Tests for Task 4.0 - Tasks 4.31: Verify error type hierarchy and error
+//! propagation
 
 use shogi_engine::error::*;
 

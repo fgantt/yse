@@ -14,12 +14,14 @@ pub type SEEResult<T> = Result<T, String>;
 /// Find all attackers and defenders of a given square
 ///
 /// This function identifies all pieces that can attack the target square.
-/// For SEE calculation, we need to know which pieces can capture on this square.
+/// For SEE calculation, we need to know which pieces can capture on this
+/// square.
 ///
-/// Returns a vector of all pieces that can attack the square, with their positions.
-/// The caller will separate them by player.
-/// Task 3.0.3.1: Rewritten to use bitboard iteration instead of nested 9×9 loops
-/// Task 3.0.3.4: Uses iter_pieces for efficient iteration over board pieces
+/// Returns a vector of all pieces that can attack the square, with their
+/// positions. The caller will separate them by player.
+/// Task 3.0.3.1: Rewritten to use bitboard iteration instead of nested 9×9
+/// loops Task 3.0.3.4: Uses iter_pieces for efficient iteration over board
+/// pieces
 pub fn find_attackers_defenders(square: Position, board: &BitboardBoard) -> Vec<(Position, Piece)> {
     let mut all_attackers = Vec::new();
 
@@ -235,7 +237,8 @@ pub fn calculate_see_internal(move_: &Move, board: &BitboardBoard) -> i32 {
     // Simulate the exchange sequence
     // The exchange continues with the least valuable piece at each step
     // We alternate between attackers and defenders
-    // After the initial capture, the opponent recaptures, then we can recapture, etc.
+    // After the initial capture, the opponent recaptures, then we can recapture,
+    // etc.
 
     // Start with defenders (opponent recaptures after the initial capture)
     let mut current_side = defenders; // Current side's pieces (opponent recaptures first)
@@ -404,14 +407,16 @@ impl SEECache {
 
     /// Select a cache entry for eviction
     /// Task 7.0: Hybrid eviction policy combining LRU and value-based eviction
-    /// Prefers evicting entries with low absolute SEE values and low recent access
+    /// Prefers evicting entries with low absolute SEE values and low recent
+    /// access
     fn select_eviction_candidate(&self) -> Option<(Position, Position)> {
         if self.cache.is_empty() {
             return None;
         }
 
         // Score each entry: lower score = more likely to evict
-        // Score = (access_age_weight * normalized_age) + (value_weight * normalized_inverse_value)
+        // Score = (access_age_weight * normalized_age) + (value_weight *
+        // normalized_inverse_value)
         let access_age_weight = 0.6;
         let value_weight = 0.4;
 

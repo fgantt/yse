@@ -1,8 +1,10 @@
-//! Comprehensive testing and validation suite for transposition table enhancements
+//! Comprehensive testing and validation suite for transposition table
+//! enhancements
 //!
-//! This module provides extensive testing for all transposition table components,
-//! including unit tests, integration tests, performance benchmarks, stress tests,
-//! memory leak tests, regression tests, and validation against known positions.
+//! This module provides extensive testing for all transposition table
+//! components, including unit tests, integration tests, performance benchmarks,
+//! stress tests, memory leak tests, regression tests, and validation against
+//! known positions.
 
 use crate::bitboards::*;
 use crate::search::*;
@@ -776,7 +778,8 @@ impl ComprehensiveTestSuite {
     }
 
     fn test_thread_safety(&self) -> bool {
-        // Since ThreadSafeTranspositionTable is already thread-safe, we can test it directly
+        // Since ThreadSafeTranspositionTable is already thread-safe, we can test it
+        // directly
         let tt = ThreadSafeTranspositionTable::new(TranspositionConfig::default());
 
         // Test basic operations work

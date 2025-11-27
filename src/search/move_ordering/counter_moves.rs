@@ -37,8 +37,9 @@ impl Default for CounterMoveConfig {
 /// adding, retrieving, and managing counter-moves.
 #[derive(Debug, Clone)]
 pub struct CounterMoveManager {
-    /// Counter-move table: maps opponent's move -> counter-moves that refuted it
-    /// Used for quiet move ordering: if opponent played move X, try counter-moves that refuted X
+    /// Counter-move table: maps opponent's move -> counter-moves that refuted
+    /// it Used for quiet move ordering: if opponent played move X, try
+    /// counter-moves that refuted X
     counter_move_table: HashMap<Move, Vec<Move>>,
 }
 
@@ -50,14 +51,16 @@ impl CounterMoveManager {
 
     /// Add a counter-move for an opponent's move
     ///
-    /// This method stores a move that refuted (caused a cutoff against) an opponent's move.
-    /// Counter-moves are used to prioritize moves that were successful against specific opponent moves.
+    /// This method stores a move that refuted (caused a cutoff against) an
+    /// opponent's move. Counter-moves are used to prioritize moves that
+    /// were successful against specific opponent moves.
     ///
     /// # Arguments
     /// * `opponent_move` - The opponent's move that was refuted
     /// * `counter_move` - The move that refuted the opponent's move
     /// * `moves_equal` - Function to check if two moves are equal
-    /// * `max_counter_moves` - Maximum number of counter-moves per opponent move
+    /// * `max_counter_moves` - Maximum number of counter-moves per opponent
+    ///   move
     ///
     /// # Returns
     /// True if the counter-move was added (not a duplicate), false otherwise
@@ -100,7 +103,8 @@ impl CounterMoveManager {
     /// * `moves_equal` - Function to check if two moves are equal
     ///
     /// # Returns
-    /// True if the move is a counter-move for the opponent's last move, false otherwise
+    /// True if the move is a counter-move for the opponent's last move, false
+    /// otherwise
     pub fn is_counter_move<F>(
         &self,
         move_: &Move,

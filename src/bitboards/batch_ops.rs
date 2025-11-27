@@ -10,15 +10,17 @@
 //! process 4 bitboards simultaneously. AVX-512 is only used for large batches
 //! to minimize CPU frequency throttling impact.
 //!
-//! **Note**: AVX-512 intrinsics may need adjustment based on Rust's std::arch::x86_64 API.
-//! The implementation structure is complete, but specific function names may vary.
+//! **Note**: AVX-512 intrinsics may need adjustment based on Rust's
+//! std::arch::x86_64 API. The implementation structure is complete, but
+//! specific function names may vary.
 //!
 //! # Integration with Critical Paths
 //!
-//! Batch operations can be integrated into move generation and attack calculation:
+//! Batch operations can be integrated into move generation and attack
+//! calculation:
 //!
 //! ```rust
-//! use shogi_engine::bitboards::{SimdBitboard, batch_ops::AlignedBitboardArray};
+//! use shogi_engine::bitboards::{batch_ops::AlignedBitboardArray, SimdBitboard};
 //!
 //! // Example: Combine attack patterns from multiple pieces
 //! let attack_patterns = AlignedBitboardArray::<4>::from_slice(&[
@@ -122,13 +124,13 @@ impl<const N: usize> AlignedBitboardArray<N> {
 
     /// Combine all bitboards in the array using OR operation
     ///
-    /// This is useful for combining multiple attack patterns into a single bitboard.
-    /// Uses SIMD vectorization with tree reduction for optimal performance.
-    /// Target: 2-4x speedup vs scalar loop.
+    /// This is useful for combining multiple attack patterns into a single
+    /// bitboard. Uses SIMD vectorization with tree reduction for optimal
+    /// performance. Target: 2-4x speedup vs scalar loop.
     ///
     /// # Example
     /// ```rust
-    /// use shogi_engine::bitboards::{SimdBitboard, batch_ops::AlignedBitboardArray};
+    /// use shogi_engine::bitboards::{batch_ops::AlignedBitboardArray, SimdBitboard};
     ///
     /// let attacks = AlignedBitboardArray::<4>::from_slice(&[
     ///     piece1_attacks,
@@ -164,7 +166,7 @@ impl<const N: usize> AlignedBitboardArray<N> {
     ///
     /// # Example
     /// ```rust
-    /// use shogi_engine::bitboards::{SimdBitboard, batch_ops::AlignedBitboardArray};
+    /// use shogi_engine::bitboards::{batch_ops::AlignedBitboardArray, SimdBitboard};
     ///
     /// let a = AlignedBitboardArray::<4>::from_slice(&[
     ///     SimdBitboard::from_u128(0x0F0F),
@@ -244,11 +246,13 @@ mod x86_64_batch {
 
     /// Process batch AND operation using SSE/AVX2/AVX-512
     /// Processes multiple bitboards simultaneously using SIMD vectorization
-    /// With AVX-512 (512-bit), we can process 4 bitboards at once (for large batches)
-    /// With AVX2 (256-bit), we can process 2 bitboards at once
-    /// With SSE (128-bit), we process 1 at a time but with optimized memory access
+    /// With AVX-512 (512-bit), we can process 4 bitboards at once (for large
+    /// batches) With AVX2 (256-bit), we can process 2 bitboards at once
+    /// With SSE (128-bit), we process 1 at a time but with optimized memory
+    /// access
     ///
-    /// Note: AVX-512 is only used for large batches (>= 16) to minimize frequency throttling impact
+    /// Note: AVX-512 is only used for large batches (>= 16) to minimize
+    /// frequency throttling impact
     pub(super) fn batch_and<const N: usize>(
         a: &AlignedBitboardArray<N>,
         b: &AlignedBitboardArray<N>,
@@ -256,8 +260,8 @@ mod x86_64_batch {
         let caps = platform_detection::get_platform_capabilities();
 
         // Use AVX-512 for large batches (>= 16) to minimize frequency throttling impact
-        // AVX-512 can cause CPU frequency throttling, so we only use it when the benefit
-        // (processing 4 at once vs 2) outweighs the throttling cost
+        // AVX-512 can cause CPU frequency throttling, so we only use it when the
+        // benefit (processing 4 at once vs 2) outweighs the throttling cost
         if caps.has_avx512 && N >= 16 {
             unsafe { batch_and_avx512(a, b) }
         } else if caps.has_avx2 {
@@ -268,7 +272,8 @@ mod x86_64_batch {
     }
 
     /// AVX-512-optimized batch AND: processes 4 bitboards simultaneously
-    /// Only used for large batches (>= 16) to minimize frequency throttling impact
+    /// Only used for large batches (>= 16) to minimize frequency throttling
+    /// impact
     #[target_feature(enable = "avx512f")]
     unsafe fn batch_and_avx512<const N: usize>(
         a: &AlignedBitboardArray<N>,
@@ -442,8 +447,9 @@ mod x86_64_batch {
             let b2_bytes = b_slice[idx2].to_u128().to_le_bytes();
 
             // Combine two 128-bit values into one 256-bit AVX2 register
-            // We interleave: [a1_low, a2_low] in low 128 bits, [a1_high, a2_high] in high 128 bits
-            // Actually, simpler: just load them as two separate 128-bit values and pack them
+            // We interleave: [a1_low, a2_low] in low 128 bits, [a1_high, a2_high] in high
+            // 128 bits Actually, simpler: just load them as two separate
+            // 128-bit values and pack them
             let a1_vec = _mm_loadu_si128(a1_bytes.as_ptr() as *const __m128i);
             let a2_vec = _mm_loadu_si128(a2_bytes.as_ptr() as *const __m128i);
             let b1_vec = _mm_loadu_si128(b1_bytes.as_ptr() as *const __m128i);
@@ -529,7 +535,8 @@ mod x86_64_batch {
     }
 
     /// Process batch OR operation using SSE/AVX2/AVX-512
-    /// AVX-512 is only used for large batches (>= 16) to minimize frequency throttling impact
+    /// AVX-512 is only used for large batches (>= 16) to minimize frequency
+    /// throttling impact
     pub(super) fn batch_or<const N: usize>(
         a: &AlignedBitboardArray<N>,
         b: &AlignedBitboardArray<N>,
@@ -547,7 +554,8 @@ mod x86_64_batch {
     }
 
     /// AVX-512-optimized batch OR: processes 4 bitboards simultaneously
-    /// Only used for large batches (>= 16) to minimize frequency throttling impact
+    /// Only used for large batches (>= 16) to minimize frequency throttling
+    /// impact
     #[target_feature(enable = "avx512f")]
     unsafe fn batch_or_avx512<const N: usize>(
         a: &AlignedBitboardArray<N>,
@@ -801,7 +809,8 @@ mod x86_64_batch {
     }
 
     /// Process batch XOR operation using SSE/AVX2/AVX-512
-    /// AVX-512 is only used for large batches (>= 16) to minimize frequency throttling impact
+    /// AVX-512 is only used for large batches (>= 16) to minimize frequency
+    /// throttling impact
     pub(super) fn batch_xor<const N: usize>(
         a: &AlignedBitboardArray<N>,
         b: &AlignedBitboardArray<N>,
@@ -819,7 +828,8 @@ mod x86_64_batch {
     }
 
     /// AVX-512-optimized batch XOR: processes 4 bitboards simultaneously
-    /// Only used for large batches (>= 16) to minimize frequency throttling impact
+    /// Only used for large batches (>= 16) to minimize frequency throttling
+    /// impact
     #[target_feature(enable = "avx512f")]
     unsafe fn batch_xor_avx512<const N: usize>(
         a: &AlignedBitboardArray<N>,
@@ -1080,8 +1090,8 @@ mod aarch64_batch {
     use crate::bitboards::SimdBitboard;
     use std::arch::aarch64::*;
 
-    /// Process batch AND operation using NEON with optimized memory access and prefetching
-    /// Optimizations:
+    /// Process batch AND operation using NEON with optimized memory access and
+    /// prefetching Optimizations:
     /// - Process 2 bitboards at a time for better throughput
     /// - Prefetch hints for better cache performance
     /// - Reduced instruction overhead
@@ -1148,8 +1158,8 @@ mod aarch64_batch {
         result
     }
 
-    /// Process batch OR operation using NEON with optimized memory access and prefetching
-    /// Optimizations:
+    /// Process batch OR operation using NEON with optimized memory access and
+    /// prefetching Optimizations:
     /// - Process 2 bitboards at a time for better throughput
     /// - Prefetch hints for better cache performance
     /// - Reduced instruction overhead
@@ -1216,8 +1226,8 @@ mod aarch64_batch {
         result
     }
 
-    /// Process batch XOR operation using NEON with optimized memory access and prefetching
-    /// Optimizations:
+    /// Process batch XOR operation using NEON with optimized memory access and
+    /// prefetching Optimizations:
     /// - Process 2 bitboards at a time for better throughput
     /// - Prefetch hints for better cache performance
     /// - Reduced instruction overhead
@@ -1293,8 +1303,9 @@ mod x86_64_combine_all {
     use std::arch::x86_64::*;
 
     /// Combine all bitboards using SIMD-optimized OR operations
-    /// Uses AVX-512 when available for large batches (>= 16), AVX2 for medium batches, otherwise SSE
-    /// AVX-512 is only used for large batches to minimize frequency throttling impact
+    /// Uses AVX-512 when available for large batches (>= 16), AVX2 for medium
+    /// batches, otherwise SSE AVX-512 is only used for large batches to
+    /// minimize frequency throttling impact
     pub(super) fn combine_all<const N: usize>(arr: &AlignedBitboardArray<N>) -> SimdBitboard {
         if N == 0 {
             return SimdBitboard::empty();
@@ -1315,7 +1326,8 @@ mod x86_64_combine_all {
     }
 
     /// AVX-512-optimized combine_all: processes 4 bitboards at a time
-    /// Only used for large batches (>= 16) to minimize frequency throttling impact
+    /// Only used for large batches (>= 16) to minimize frequency throttling
+    /// impact
     #[target_feature(enable = "avx512f")]
     unsafe fn combine_all_avx512<const N: usize>(arr: &AlignedBitboardArray<N>) -> SimdBitboard {
         let slice = arr.as_slice();
@@ -1542,8 +1554,9 @@ mod aarch64_combine_all {
     use std::arch::aarch64::*;
 
     /// Combine all bitboards using NEON-optimized tree reduction
-    /// Uses tree reduction pattern for O(log N) depth instead of O(N) sequential operations
-    /// This provides better instruction-level parallelism and reduced dependency chains
+    /// Uses tree reduction pattern for O(log N) depth instead of O(N)
+    /// sequential operations This provides better instruction-level
+    /// parallelism and reduced dependency chains
     pub(super) fn combine_all<const N: usize>(arr: &AlignedBitboardArray<N>) -> SimdBitboard {
         if N == 0 {
             return SimdBitboard::empty();
@@ -1554,7 +1567,8 @@ mod aarch64_combine_all {
 
         let slice = arr.as_slice();
         unsafe {
-            // For small arrays, use sequential reduction (overhead of tree reduction not worth it)
+            // For small arrays, use sequential reduction (overhead of tree reduction not
+            // worth it)
             if N <= 4 {
                 let mut result = slice[0];
                 for i in 1..N {

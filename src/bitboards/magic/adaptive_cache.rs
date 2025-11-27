@@ -1,6 +1,7 @@
 //! Adaptive caching system for magic bitboard lookups
 //!
-//! This module provides an LRU cache with adaptive sizing based on usage patterns.
+//! This module provides an LRU cache with adaptive sizing based on usage
+//! patterns.
 
 use crate::types::Bitboard;
 use std::cell::RefCell;

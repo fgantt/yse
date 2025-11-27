@@ -9,8 +9,8 @@ use std::collections::HashMap;
 
 /// PV move ordering manager
 ///
-/// Manages PV move cache and provides methods for retrieving and updating PV moves.
-/// PV moves are cached by position hash for fast lookup.
+/// Manages PV move cache and provides methods for retrieving and updating PV
+/// moves. PV moves are cached by position hash for fast lookup.
 /// Task 11.0: Enhanced with multiple PV moves and previous iteration support
 #[derive(Debug, Clone)]
 pub struct PVOrdering {
@@ -127,7 +127,8 @@ impl PVOrdering {
     // ==================== Task 11.0: Previous Iteration PV ====================
 
     /// Store PV move from previous iteration
-    /// Task 11.0: Called at the start of a new iteration to save previous PV moves
+    /// Task 11.0: Called at the start of a new iteration to save previous PV
+    /// moves
     pub fn save_previous_iteration_pv(&mut self) {
         // Copy current PV moves to previous iteration cache
         self.previous_iteration_pv.clear();
@@ -187,7 +188,8 @@ impl PVOrdering {
     }
 
     /// Get memory usage estimate for cache
-    /// Task 11.0/11.4: Updated to include all PV caches (multiple, previous iteration, sibling)
+    /// Task 11.0/11.4: Updated to include all PV caches (multiple, previous
+    /// iteration, sibling)
     pub fn cache_memory_bytes(&self) -> usize {
         let single_pv = self.pv_move_cache.len()
             * (std::mem::size_of::<u64>() + std::mem::size_of::<Option<Move>>());
@@ -291,7 +293,8 @@ impl PVMoveStatistics {
         }
     }
 
-    /// Calculate primary PV effectiveness (percentage of times it was best move)
+    /// Calculate primary PV effectiveness (percentage of times it was best
+    /// move)
     pub fn primary_pv_effectiveness(&self) -> f64 {
         if self.primary_pv_hits > 0 {
             (self.primary_pv_best_move_count as f64 / self.primary_pv_hits as f64) * 100.0

@@ -187,7 +187,8 @@ fn log_reference_measurement(
     let hier_snapshot = hier_table.snapshot();
 
     println!(
-        "[TT Baseline vs Hierarchical] workload={} flat_time_ms={:.2} hier_time_ms={:.2} flat_hits={} hier_hits={} l1_hits={} l2_hits={} promotions={} demotions={}",
+        "[TT Baseline vs Hierarchical] workload={} flat_time_ms={:.2} hier_time_ms={:.2} \
+         flat_hits={} hier_hits={} l1_hits={} l2_hits={} promotions={} demotions={}",
         entries.len(),
         flat_duration.as_secs_f64() * 1000.0,
         hier_duration.as_secs_f64() * 1000.0,
@@ -242,7 +243,9 @@ fn log_memory_vs_hit_rate(entries: &[TranspositionEntry], probes: &[(u64, u8)]) 
                 let total_bytes = l1_bytes + l2_bytes;
 
                 println!(
-                    "[TT Memory vs Hit Rate] l1_entries={} promotion_depth={} demotion_age={} total_hits={} hit_rate={:.2}% l1_hits={} l2_hits={} l1_mem_mb={:.2} l2_mem_mb={:.2} total_mem_mb={:.2}",
+                    "[TT Memory vs Hit Rate] l1_entries={} promotion_depth={} demotion_age={} \
+                     total_hits={} hit_rate={:.2}% l1_hits={} l2_hits={} l1_mem_mb={:.2} \
+                     l2_mem_mb={:.2} total_mem_mb={:.2}",
                     l1_capacity,
                     promotion_depth,
                     demotion_age,

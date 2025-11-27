@@ -445,7 +445,8 @@ impl TacticalPatternRecognizer {
             // Fall through to scalar implementation if SIMD disabled at runtime
         }
 
-        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
+        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag
+        // is false)
         {
             // Record scalar pattern matching call
             #[cfg(feature = "simd")]
@@ -765,7 +766,8 @@ impl TacticalPatternRecognizer {
             // Fall through to scalar implementation if SIMD disabled at runtime
         }
 
-        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
+        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag
+        // is false)
         {
             // Record scalar pattern matching call
             #[cfg(feature = "simd")]
@@ -942,7 +944,8 @@ impl TacticalPatternRecognizer {
             // Fall through to scalar implementation if SIMD disabled at runtime
         }
 
-        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
+        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag
+        // is false)
         {
             // Record scalar pattern matching call
             #[cfg(feature = "simd")]
@@ -1084,7 +1087,8 @@ impl TacticalPatternRecognizer {
             // Fall through to scalar implementation if SIMD disabled at runtime
         }
 
-        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag is false)
+        // Scalar implementation (fallback when SIMD feature is disabled or runtime flag
+        // is false)
         {
             // Record scalar pattern matching call
             #[cfg(feature = "simd")]
@@ -1112,7 +1116,8 @@ impl TacticalPatternRecognizer {
         piece_pos: Position,
         target_pos: Position,
     ) -> bool {
-        // Check if there's a friendly sliding piece behind this piece that would attack target
+        // Check if there's a friendly sliding piece behind this piece that would attack
+        // target
         let direction = match TacticalDetectionContext::direction_towards(piece_pos, target_pos) {
             Some(dir) => dir,
             None => return false,
@@ -1168,7 +1173,8 @@ impl TacticalPatternRecognizer {
     // KNIGHT FORK DETECTION
     // ===================================================================
 
-    /// Detect knight fork patterns (special handling for knight's unique movement)
+    /// Detect knight fork patterns (special handling for knight's unique
+    /// movement)
     fn detect_knight_forks(&mut self, ctx: &TacticalDetectionContext) -> TaperedScore {
         self.stats.knight_fork_checks += 1;
 

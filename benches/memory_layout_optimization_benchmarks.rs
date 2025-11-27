@@ -2,8 +2,9 @@
 //!
 //! Optimization 5.5: Benchmark memory layout improvements.
 //!
-//! This benchmark suite measures the performance improvements from memory layout
-//! optimizations, including SoA vs AoA layouts and cache-aligned structures.
+//! This benchmark suite measures the performance improvements from memory
+//! layout optimizations, including SoA vs AoA layouts and cache-aligned
+//! structures.
 
 #![cfg(feature = "simd")]
 

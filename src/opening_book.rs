@@ -304,8 +304,8 @@ pub struct MemoryOptimizationResult {
 ///
 /// # Thread Safety
 ///
-/// **This struct is NOT thread-safe.** It is designed for single-threaded access only.
-/// The struct does not implement `Send` or `Sync` traits.
+/// **This struct is NOT thread-safe.** It is designed for single-threaded
+/// access only. The struct does not implement `Send` or `Sync` traits.
 ///
 /// If you need thread-safe access, use `ThreadSafeOpeningBook` which wraps this
 /// struct with a `Mutex`.
@@ -710,10 +710,12 @@ impl OpeningBook {
         None
     }
 
-    /// Get the best move for a position prioritized by opening principles (Task 19.0 - Task 3.0)
+    /// Get the best move for a position prioritized by opening principles (Task
+    /// 19.0 - Task 3.0)
     ///
-    /// This method evaluates all book moves using opening principles and returns the best one.
-    /// If opening principles evaluation is not available, falls back to weight-based selection.
+    /// This method evaluates all book moves using opening principles and
+    /// returns the best one. If opening principles evaluation is not
+    /// available, falls back to weight-based selection.
     ///
     /// # Arguments
     ///
@@ -721,7 +723,8 @@ impl OpeningBook {
     /// * `board` - Current board state (for opening principles evaluation)
     /// * `captured_pieces` - Current captured pieces state
     /// * `move_count` - Number of moves played so far
-    /// * `opening_evaluator` - Optional opening principles evaluator (if None, uses weight-based selection)
+    /// * `opening_evaluator` - Optional opening principles evaluator (if None,
+    ///   uses weight-based selection)
     ///
     /// # Returns
     ///
@@ -904,9 +907,11 @@ impl OpeningBook {
         let entry = PositionEntry::new(fen.clone(), moves);
         self.total_moves += entry.moves.len();
 
-        // Detect hash collisions: if insert returns Some, check if it's a true collision
+        // Detect hash collisions: if insert returns Some, check if it's a true
+        // collision
         if let Some(old_entry) = self.positions.insert(hash, entry) {
-            // If the FENs are different, this is a hash collision (same hash, different FEN)
+            // If the FENs are different, this is a hash collision (same hash, different
+            // FEN)
             if old_entry.fen != fen {
                 // True hash collision detected
                 let chain_length = self.count_positions_with_hash(hash);
@@ -924,7 +929,8 @@ impl OpeningBook {
                     );
                 }
             }
-            // If FENs are the same, we're just overwriting the same position (not a collision)
+            // If FENs are the same, we're just overwriting the same position
+            // (not a collision)
         }
 
         self.hash_collision_stats.record_position();
@@ -938,8 +944,8 @@ impl OpeningBook {
         // Since we can't access HashMap internals, we estimate based on
         // how many positions we've seen with this hash
         // In practice, HashMap uses open addressing, so chain length is typically 1-2
-        // We'll use a conservative estimate: if we see a collision, assume chain length of 2
-        // This will be updated as we see more collisions
+        // We'll use a conservative estimate: if we see a collision, assume chain length
+        // of 2 This will be updated as we see more collisions
         if self.hash_collision_stats.max_chain_length > 0 {
             self.hash_collision_stats.max_chain_length + 1
         } else {
@@ -1107,7 +1113,8 @@ impl OpeningBook {
                         evicted_count += 1;
 
                         // Remove positions from this chunk from lazy_positions
-                        // (In practice, we'd need to track which positions belong to which chunk)
+                        // (In practice, we'd need to track which positions
+                        // belong to which chunk)
                         // For now, we'll just evict from the manager
                     } else {
                         break; // Couldn't evict, stop trying
@@ -1387,8 +1394,8 @@ impl OpeningBook {
 
     /// Refresh evaluations for all positions using current engine evaluation
     ///
-    /// Re-evaluates all book positions using the current engine's evaluation function
-    /// and updates the `evaluation` field in each `BookMove`.
+    /// Re-evaluates all book positions using the current engine's evaluation
+    /// function and updates the `evaluation` field in each `BookMove`.
     ///
     /// Note: This requires engine integration and is a stub implementation.
     /// In a full implementation, this would:
@@ -1541,7 +1548,8 @@ impl OpeningBook {
         _player: Player,
     ) -> bool {
         // This is a simplified implementation
-        // In a full implementation, this would check if the move attacks the opponent's king
+        // In a full implementation, this would check if the move attacks the opponent's
+        // king
         false
     }
 }

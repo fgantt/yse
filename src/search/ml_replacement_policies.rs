@@ -1183,6 +1183,7 @@ mod tests {
         linear_model.train(&training_data);
 
         let new_decision = linear_model.predict(&vec![1.0, 0.0]);
-        assert!(new_decision.confidence != 0.5); // Should have learned something
+        assert!(new_decision.confidence != 0.5); // Should have learned
+                                                 // something
     }
 }

@@ -14,7 +14,8 @@ mod time_pressure_calculation_tests {
         SearchEngine::new(None, 16)
     }
 
-    /// Test 7.0.2.10: Test time pressure calculation at various remaining time percentages
+    /// Test 7.0.2.10: Test time pressure calculation at various remaining time
+    /// percentages
     #[test]
     fn test_time_pressure_none() {
         let engine = create_test_engine();
@@ -104,7 +105,8 @@ mod time_pressure_integration_tests {
         CapturedPieces::new()
     }
 
-    /// Test 7.0.2.11: Integration test simulating time pressure with NMP and IID
+    /// Test 7.0.2.11: Integration test simulating time pressure with NMP and
+    /// IID
     #[test]
     fn test_nmp_skipped_high_time_pressure() {
         let mut engine = create_test_engine();
@@ -132,7 +134,8 @@ mod time_pressure_integration_tests {
         println!("NMP skipped (time pressure): {}", nmp_stats.skipped_time_pressure);
 
         // NMP should have been skipped at least once due to time pressure
-        // (may not always trigger depending on search speed, so we just verify the counter works)
+        // (may not always trigger depending on search speed, so we just verify the
+        // counter works)
         assert!(
             nmp_stats.skipped_time_pressure >= 0,
             "NMP time pressure skip counter should be present"

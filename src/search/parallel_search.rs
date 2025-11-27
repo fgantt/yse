@@ -1,7 +1,8 @@
-//! Parallel search implementation using Young Brothers Wait Concept (YBWC) algorithm with work-stealing.
+//! Parallel search implementation using Young Brothers Wait Concept (YBWC)
+//! algorithm with work-stealing.
 //!
-//! This module provides multi-threaded search capabilities to utilize multiple CPU cores,
-//! achieving near-linear speedup with the number of available cores.
+//! This module provides multi-threaded search capabilities to utilize multiple
+//! CPU cores, achieving near-linear speedup with the number of available cores.
 //!
 //! # Architecture
 //!
@@ -83,8 +84,10 @@ pub struct WorkUnit {
 /// Thread-safe work-stealing deque used by the parallel search engine.
 ///
 /// Thread safety:
-/// - Uses a `Mutex<VecDeque<WorkUnit>>` internally; short critical sections reduce contention.
-/// - Recovers from poisoned locks to keep the engine running under panic scenarios.
+/// - Uses a `Mutex<VecDeque<WorkUnit>>` internally; short critical sections
+///   reduce contention.
+/// - Recovers from poisoned locks to keep the engine running under panic
+///   scenarios.
 pub struct WorkStealingQueue {
     /// Lock-free injector queue backing this work queue.
     injector: Arc<Injector<WorkUnit>>,
@@ -408,7 +411,8 @@ impl Default for ParallelSearchConfig {
 }
 
 impl ParallelSearchConfig {
-    /// Create a new parallel search configuration with the specified number of threads.
+    /// Create a new parallel search configuration with the specified number of
+    /// threads.
     ///
     /// # Arguments
     ///
@@ -505,7 +509,8 @@ pub struct ThreadLocalSearchContext {
 }
 
 impl ThreadLocalSearchContext {
-    /// Create a new thread-local search context by cloning the root board state.
+    /// Create a new thread-local search context by cloning the root board
+    /// state.
     ///
     /// # Arguments
     ///
@@ -570,7 +575,8 @@ impl ThreadLocalSearchContext {
         &self.captured_pieces
     }
 
-    /// Borrow mutable references to both board and captured pieces simultaneously.
+    /// Borrow mutable references to both board and captured pieces
+    /// simultaneously.
     pub fn board_and_captured_mut(&mut self) -> (&mut BitboardBoard, &mut CapturedPieces) {
         (&mut self.board, &mut self.captured_pieces)
     }
@@ -701,7 +707,8 @@ impl YBWCSync {
         self.inner.condvar.notify_all();
     }
 
-    /// Wait for oldest brother to complete (with timeout and stop flag support).
+    /// Wait for oldest brother to complete (with timeout and stop flag
+    /// support).
     pub fn wait_for_complete(&self, timeout_ms: u32) -> WaitOutcome {
         let timeout = Duration::from_millis(timeout_ms as u64);
         let start = std::time::Instant::now();
@@ -744,7 +751,8 @@ impl YBWCSync {
 /// Parallel search engine using YBWC algorithm with work-stealing.
 ///
 /// This engine coordinates parallel search across multiple threads,
-/// sharing a transposition table while maintaining thread-local search contexts.
+/// sharing a transposition table while maintaining thread-local search
+/// contexts.
 pub struct ParallelSearchEngine {
     /// Thread pool for managing worker threads.
     thread_pool: ThreadPool,
@@ -774,7 +782,8 @@ impl ParallelSearchEngine {
     ///
     /// # Returns
     ///
-    /// A new `ParallelSearchEngine` instance, or an error if thread pool creation fails.
+    /// A new `ParallelSearchEngine` instance, or an error if thread pool
+    /// creation fails.
     ///
     /// # Errors
     ///
@@ -792,13 +801,17 @@ impl ParallelSearchEngine {
             .stack_size(8 * 1024 * 1024)
             .panic_handler(|_| {
                 // Ensure panics in worker threads do not bring the process down; request stop
-                crate::utils::telemetry::debug_log("Parallel worker thread panicked; requesting stop and continuing on remaining threads");
+                crate::utils::telemetry::debug_log(
+                    "Parallel worker thread panicked; requesting stop and continuing on remaining \
+                     threads",
+                );
             })
             .build()
             .map_err(|e| format!("Failed to create thread pool: {}", e))?;
 
         // For now, we'll create a placeholder transposition table.
-        // This will be replaced with the actual shared TT from SearchEngine in later checkpoints.
+        // This will be replaced with the actual shared TT from SearchEngine in later
+        // checkpoints.
         let tt_config = crate::search::TranspositionConfig::performance_optimized();
         let transposition_table =
             Arc::new(RwLock::new(ThreadSafeTranspositionTable::new(tt_config)));
@@ -838,10 +851,12 @@ impl ParallelSearchEngine {
     ///
     /// # Returns
     ///
-    /// A new `ParallelSearchEngine` instance, or an error if thread pool creation fails.
-    /// Create a new engine with an optional external stop flag.
+    /// A new `ParallelSearchEngine` instance, or an error if thread pool
+    /// creation fails. Create a new engine with an optional external stop
+    /// flag.
     ///
-    /// When the stop flag is set, workers observe it and stop after current work.
+    /// When the stop flag is set, workers observe it and stop after current
+    /// work.
     pub fn new_with_stop_flag(
         config: ParallelSearchConfig,
         stop_flag: Option<Arc<AtomicBool>>,
@@ -853,7 +868,10 @@ impl ParallelSearchEngine {
             .num_threads(config.num_threads)
             .stack_size(8 * 1024 * 1024)
             .panic_handler(|_| {
-                crate::utils::telemetry::debug_log("Parallel worker thread panicked; requesting stop and continuing on remaining threads");
+                crate::utils::telemetry::debug_log(
+                    "Parallel worker thread panicked; requesting stop and continuing on remaining \
+                     threads",
+                );
             })
             .build()
             .map_err(|e| format!("Failed to create thread pool: {}", e))?;
@@ -923,15 +941,18 @@ impl ParallelSearchEngine {
     /// # Arguments
     ///
     /// * `config` - Parallel search configuration
-    /// * `transposition_table` - Shared transposition table to use across all threads
+    /// * `transposition_table` - Shared transposition table to use across all
+    ///   threads
     /// * `stop_flag` - Optional shared stop flag for interrupting search
     ///
     /// # Returns
     ///
-    /// A new `ParallelSearchEngine` instance with shared TT, or an error if thread pool creation fails.
-    /// Create a new engine with a provided shared transposition table.
+    /// A new `ParallelSearchEngine` instance with shared TT, or an error if
+    /// thread pool creation fails. Create a new engine with a provided
+    /// shared transposition table.
     ///
-    /// Useful when composing with an existing `SearchEngine` TT to maximize reuse.
+    /// Useful when composing with an existing `SearchEngine` TT to maximize
+    /// reuse.
     pub fn new_with_shared_tt(
         config: ParallelSearchConfig,
         transposition_table: Arc<RwLock<ThreadSafeTranspositionTable>>,
@@ -944,7 +965,10 @@ impl ParallelSearchEngine {
             .num_threads(config.num_threads)
             .stack_size(8 * 1024 * 1024)
             .panic_handler(|_| {
-                crate::utils::telemetry::debug_log("Parallel worker thread panicked; requesting stop and continuing on remaining threads");
+                crate::utils::telemetry::debug_log(
+                    "Parallel worker thread panicked; requesting stop and continuing on remaining \
+                     threads",
+                );
             })
             .build()
             .map_err(|e| format!("Failed to create thread pool: {}", e))?;
@@ -982,7 +1006,8 @@ impl ParallelSearchEngine {
     ///
     /// # Returns
     ///
-    /// Best move and score, or None if search was interrupted or no moves available.
+    /// Best move and score, or None if search was interrupted or no moves
+    /// available.
     pub fn search_root_moves(
         &self,
         board: &BitboardBoard,
@@ -1059,7 +1084,8 @@ impl ParallelSearchEngine {
                 let nps =
                     if elapsed > 0 { nodes.saturating_mul(1000) / (elapsed as u64) } else { 0 };
                 // Get actual seldepth (selective depth) - the maximum depth reached
-                // If seldepth wasn't updated during search (shouldn't happen), use depth as fallback
+                // If seldepth wasn't updated during search (shouldn't happen), use depth as
+                // fallback
                 let seldepth_raw =
                     crate::search::search_engine::GLOBAL_SELDEPTH.load(Ordering::Relaxed) as u8;
                 let seldepth = if seldepth_raw == 0 { depth } else { seldepth_raw.max(depth) };
@@ -1067,10 +1093,15 @@ impl ParallelSearchEngine {
                 if std::env::var("SHOGI_SILENT_BENCH").is_err() {
                     if !best_pv.is_empty() {
                         println!(
-                            "info depth {} seldepth {} multipv 1 score cp {} time {} nodes {} nps {} pv {}",
-                            depth, seldepth,
+                            "info depth {} seldepth {} multipv 1 score cp {} time {} nodes {} nps \
+                             {} pv {}",
+                            depth,
+                            seldepth,
                             if let Ok(g) = best_for_consumer.lock() { g.1 } else { score },
-                            elapsed, nodes, nps, best_pv
+                            elapsed,
+                            nodes,
+                            nps,
+                            best_pv
                         );
                     }
                     let _ = std::io::Write::flush(&mut std::io::stdout());
@@ -1104,14 +1135,10 @@ impl ParallelSearchEngine {
                             return;
                         }
 
-                        holder
-                            .context
-                            .update_stop_flag(Some(search_stop.clone()));
+                        holder.context.update_stop_flag(Some(search_stop.clone()));
 
                         if holder.generation != generation_id {
-                            holder
-                                .context
-                                .refresh_root_state(board, captured_pieces);
+                            holder.context.refresh_root_state(board, captured_pieces);
                             holder
                                 .context
                                 .search_engine_mut()
@@ -1124,10 +1151,7 @@ impl ParallelSearchEngine {
 
                         let search_depth = if depth > 0 { depth - 1 } else { 0 };
 
-                        if env::var("SHOGI_FORCE_WORKER_PANIC")
-                            .ok()
-                            .as_deref()
-                            == Some("1")
+                        if env::var("SHOGI_FORCE_WORKER_PANIC").ok().as_deref() == Some("1")
                             && idx == 0
                         {
                             panic!("Forced worker panic for testing");
@@ -1144,11 +1168,11 @@ impl ParallelSearchEngine {
 
                         if let Some(score_child) = search_score {
                             let seldepth = crate::search::search_engine::GLOBAL_SELDEPTH
-                                .load(Ordering::Relaxed) as u8;
+                                .load(Ordering::Relaxed)
+                                as u8;
                             let pv_depth = if seldepth > 0 { seldepth } else { 64 };
-                            let pv_moves = holder
-                                .context
-                                .flush_and_get_pv(player.opposite(), pv_depth);
+                            let pv_moves =
+                                holder.context.flush_and_get_pv(player.opposite(), pv_depth);
                             let mv_root = mv.to_usi_string();
                             let mut pv_string =
                                 String::with_capacity(mv_root.len() + pv_moves.len() * 4);
@@ -1158,7 +1182,10 @@ impl ParallelSearchEngine {
                                 pv_string.push_str(&child.to_usi_string());
                             }
                             if search_stop.load(Ordering::Relaxed) {
-                                crate::utils::telemetry::debug_log("Stop flag observed after move search; reporting partial and returning");
+                                crate::utils::telemetry::debug_log(
+                                    "Stop flag observed after move search; reporting partial and \
+                                     returning",
+                                );
                             }
                             let score = -score_child;
                             let _ = tx.send((mv.clone(), score, pv_string));
@@ -1220,9 +1247,10 @@ impl ParallelSearchEngine {
             }
 
             // IMPORTANT: Before building PV from root, we need to ensure all worker threads
-            // have flushed their TT buffers. However, worker threads are already done at this point.
-            // The issue might be that some positions along the PV simply weren't searched deeply enough,
-            // or their TT entries don't have best_move. We've already fixed storing best_move,
+            // have flushed their TT buffers. However, worker threads are already done at
+            // this point. The issue might be that some positions along the PV
+            // simply weren't searched deeply enough, or their TT entries don't
+            // have best_move. We've already fixed storing best_move,
             // so if PV is still short, it likely means the search depth itself is limited.
 
             // Now rebuild the full PV from the root position using the shared TT
@@ -1243,8 +1271,8 @@ impl ParallelSearchEngine {
                 .search_engine_mut()
                 .set_shared_transposition_table(self.transposition_table.clone());
 
-            // Build full PV from root position - try multiple times if first attempt is short
-            // This helps if there's a race condition with TT writes
+            // Build full PV from root position - try multiple times if first attempt is
+            // short This helps if there's a race condition with TT writes
             let mut full_pv = temp_context.search_engine_mut().get_pv_for_reporting(
                 board,
                 captured_pieces,
@@ -1276,7 +1304,8 @@ impl ParallelSearchEngine {
 
                 if !pv_string.is_empty() {
                     println!(
-                        "info depth {} seldepth {} multipv 1 score cp {} time {} nodes {} nps {} pv {}",
+                        "info depth {} seldepth {} multipv 1 score cp {} time {} nodes {} nps {} \
+                         pv {}",
                         depth, seldepth_final, *best_score, elapsed, nodes, nps, pv_string
                     );
                     let _ = std::io::Write::flush(&mut std::io::stdout());
@@ -1299,8 +1328,14 @@ impl ParallelSearchEngine {
         let metrics_mode = self.work_stats.mode();
         let total_work_units = self.work_stats.snapshot().map(|s| s.total_work_units).unwrap_or(0);
         crate::utils::telemetry::debug_log(&format!(
-            "PARALLEL_PROF: pushes={}, pops={}, steals={}, steal_retries={}, work_metrics_mode={:?}, total_work_units={}",
-            total_pushes, total_pops, total_steals, total_steal_retries, metrics_mode, total_work_units
+            "PARALLEL_PROF: pushes={}, pops={}, steals={}, steal_retries={}, \
+             work_metrics_mode={:?}, total_work_units={}",
+            total_pushes,
+            total_pops,
+            total_steals,
+            total_steal_retries,
+            metrics_mode,
+            total_work_units
         ));
         result
     }
@@ -1384,8 +1419,8 @@ impl ParallelSearchEngine {
 
     /// Distribute work units to threads based on YBWC principles.
     ///
-    /// Creates work units for each move, with the first move marked as "oldest brother"
-    /// for YBWC synchronization.
+    /// Creates work units for each move, with the first move marked as "oldest
+    /// brother" for YBWC synchronization.
     ///
     /// # Arguments
     ///

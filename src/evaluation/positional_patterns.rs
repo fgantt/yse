@@ -224,7 +224,8 @@ impl PositionalPatternAnalyzer {
         }
     }
 
-    /// Evaluate center control (shogi-oriented occupancy, mobility, and drop pressure)
+    /// Evaluate center control (shogi-oriented occupancy, mobility, and drop
+    /// pressure)
     fn evaluate_center_control(
         &mut self,
         board: &BitboardBoard,
@@ -436,7 +437,8 @@ impl PositionalPatternAnalyzer {
     // OUTPOST DETECTION
     // ===================================================================
 
-    /// Evaluate outposts (strong pieces on key squares that cannot be easily attacked)
+    /// Evaluate outposts (strong pieces on key squares that cannot be easily
+    /// attacked)
     fn evaluate_outposts(
         &mut self,
         board: &BitboardBoard,

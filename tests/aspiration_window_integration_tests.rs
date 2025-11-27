@@ -274,7 +274,8 @@ mod aspiration_window_integration_tests {
 
         assert!(window_size2 >= 10);
         assert!(window_size2 <= 200);
-        assert!(window_size2 != window_size); // Should be different due to different parameters
+        assert!(window_size2 != window_size); // Should be different due to
+                                              // different parameters
     }
 
     #[test]

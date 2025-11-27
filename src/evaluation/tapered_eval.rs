@@ -1,15 +1,18 @@
 //! Tapered Evaluation Module
 //!
-//! This module provides a comprehensive tapered evaluation system for the Shogi engine.
-//! Tapered evaluation allows different evaluation weights for opening/middlegame and endgame
-//! phases, providing more accurate position assessment throughout the game.
+//! This module provides a comprehensive tapered evaluation system for the Shogi
+//! engine. Tapered evaluation allows different evaluation weights for
+//! opening/middlegame and endgame phases, providing more accurate position
+//! assessment throughout the game.
 //!
 //! # Overview
 //!
 //! The tapered evaluation system consists of:
-//! - **TaperedScore**: A dual-phase score with separate middlegame and endgame values
+//! - **TaperedScore**: A dual-phase score with separate middlegame and endgame
+//!   values
 //! - **TaperedEvaluation**: Coordination struct for managing tapered evaluation
-//! - **Game Phase Calculation**: Based on material count to determine current game phase
+//! - **Game Phase Calculation**: Based on material count to determine current
+//!   game phase
 //! - **Interpolation**: Smooth transition between middlegame and endgame scores
 //!
 //! # Example
@@ -191,7 +194,8 @@ impl TaperedEvaluation {
     /// # Arguments
     ///
     /// * `score` - The tapered score to interpolate
-    /// * `phase` - The current game phase (0 = endgame, GAME_PHASE_MAX = opening)
+    /// * `phase` - The current game phase (0 = endgame, GAME_PHASE_MAX =
+    ///   opening)
     ///
     /// # Returns
     ///
@@ -199,9 +203,11 @@ impl TaperedEvaluation {
     ///
     /// # Algorithm
     ///
-    /// Linear interpolation: `(mg * phase + eg * (GAME_PHASE_MAX - phase)) / GAME_PHASE_MAX`
+    /// Linear interpolation: `(mg * phase + eg * (GAME_PHASE_MAX - phase)) /
+    /// GAME_PHASE_MAX`
     ///
-    /// This provides smooth transitions between game phases without discontinuities.
+    /// This provides smooth transitions between game phases without
+    /// discontinuities.
     pub fn interpolate(&self, score: TaperedScore, phase: i32) -> i32 {
         self.stats.interpolations.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         score.interpolate(phase)
@@ -315,7 +321,8 @@ pub struct TaperedEvaluationStats {
     pub interpolations: std::sync::atomic::AtomicU64,
 }
 
-/// Snapshot of tapered evaluation metrics with atomics resolved into scalar values.
+/// Snapshot of tapered evaluation metrics with atomics resolved into scalar
+/// values.
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize)]
 pub struct TaperedEvaluationSnapshot {
     pub phase_calculations: u64,

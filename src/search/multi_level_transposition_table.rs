@@ -16,7 +16,9 @@
 //! # Usage
 //!
 //! ```rust
-//! use shogi_engine::search::{MultiLevelTranspositionTable, TranspositionEntry, TranspositionFlag};
+//! use shogi_engine::search::{
+//!     MultiLevelTranspositionTable, TranspositionEntry, TranspositionFlag,
+//! };
 //!
 //! // Create a multi-level table with 3 levels
 //! let mut table = MultiLevelTranspositionTable::new(3, 1024);
@@ -49,7 +51,8 @@ pub struct MultiLevelConfig {
     pub levels: usize,
     /// Base table size (will be adjusted per level)
     pub base_size: usize,
-    /// Size multiplier for each level (level i has size base_size * (multiplier^i))
+    /// Size multiplier for each level (level i has size base_size *
+    /// (multiplier^i))
     pub size_multiplier: f64,
     /// Minimum size for any level
     pub min_level_size: usize,
@@ -68,7 +71,8 @@ pub struct MultiLevelConfig {
 pub enum MemoryAllocationStrategy {
     /// Equal memory allocation across all levels
     Equal,
-    /// Proportional allocation based on level index (higher levels get more memory)
+    /// Proportional allocation based on level index (higher levels get more
+    /// memory)
     Proportional,
     /// Custom allocation based on expected usage patterns
     Custom,
@@ -96,7 +100,8 @@ impl Default for MultiLevelConfig {
             size_multiplier: 1.5,
             min_level_size: 256,
             max_level_size: 65536,
-            depth_thresholds: vec![2, 6], // Level 0: depth 0-2, Level 1: depth 3-6, Level 2: depth 7+
+            depth_thresholds: vec![2, 6], /* Level 0: depth 0-2, Level 1: depth 3-6, Level 2:
+                                           * depth 7+ */
             enable_level_policies: true,
             allocation_strategy: MemoryAllocationStrategy::Proportional,
         }
@@ -410,9 +415,9 @@ impl MultiLevelTranspositionTable {
         // Select replacement policy for this level
         let replacement_policy = if config.enable_level_policies {
             match level {
-                0 => crate::search::transposition_table::ReplacementPolicy::AgeBased, // Shallow levels favor newer entries
-                1 => crate::search::transposition_table::ReplacementPolicy::DepthPreferred, // Medium levels favor depth
-                _ => crate::search::transposition_table::ReplacementPolicy::DepthPreferred, // Deep levels favor depth
+                0 => crate::search::transposition_table::ReplacementPolicy::AgeBased, /* Shallow levels favor newer entries */
+                1 => crate::search::transposition_table::ReplacementPolicy::DepthPreferred, /* Medium levels favor depth */
+                _ => crate::search::transposition_table::ReplacementPolicy::DepthPreferred, /* Deep levels favor depth */
             }
         } else {
             crate::search::transposition_table::ReplacementPolicy::DepthPreferred

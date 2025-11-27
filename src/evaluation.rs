@@ -378,7 +378,8 @@ impl PositionEvaluator {
     }
 
     /// Extract raw feature values for tuning
-    /// Returns a vector of unweighted feature values that can be used for automated tuning
+    /// Returns a vector of unweighted feature values that can be used for
+    /// automated tuning
     pub fn get_evaluation_features(
         &self,
         board: &BitboardBoard,
@@ -512,7 +513,8 @@ impl PositionEvaluator {
         score
     }
 
-    /// Evaluate using tuned weights if available, otherwise use traditional evaluation
+    /// Evaluate using tuned weights if available, otherwise use traditional
+    /// evaluation
     pub fn evaluate_with_tuned_weights(
         &mut self,
         board: &BitboardBoard,
@@ -647,7 +649,8 @@ impl PositionEvaluator {
         let final_score = total_score.interpolate(game_phase);
 
         // 4. Return score from perspective of current player
-        // Note: The evaluation is already calculated from the perspective of the given player
+        // Note: The evaluation is already calculated from the perspective of the given
+        // player
 
         final_score
     }
@@ -865,7 +868,8 @@ impl PositionEvaluator {
         self.evaluate_basic_king_safety(board, player)
     }
 
-    /// Basic king safety evaluation (fallback when advanced evaluation is disabled)
+    /// Basic king safety evaluation (fallback when advanced evaluation is
+    /// disabled)
     fn evaluate_basic_king_safety(&self, board: &BitboardBoard, player: Player) -> TaperedScore {
         let mut mg_score = 0;
         let mut eg_score = 0;
@@ -878,7 +882,8 @@ impl PositionEvaluator {
 
         let king_pos = king_pos.unwrap();
 
-        // King shield: reward for having friendly pieces nearby (more important in middlegame)
+        // King shield: reward for having friendly pieces nearby (more important in
+        // middlegame)
         let shield_offsets = [(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)];
 
         for (dr, dc) in shield_offsets.iter() {
@@ -898,7 +903,8 @@ impl PositionEvaluator {
                             _ => 5,
                         };
                         mg_score += shield_value; // Full value in middlegame
-                        eg_score += shield_value / 2; // Reduced value in endgame
+                        eg_score += shield_value / 2; // Reduced value in
+                                                      // endgame
                     }
                 }
             }
@@ -1089,7 +1095,8 @@ impl PositionEvaluator {
 
                 // Bonus for multiple pieces attacking same square
                 if attackers >= 2 {
-                    score += (attackers - 1) * 8; // Each additional attacker adds value
+                    score += (attackers - 1) * 8; // Each additional attacker
+                                                  // adds value
                 }
             }
         }
@@ -1443,7 +1450,8 @@ impl PositionEvaluator {
     }
 
     /// Calculate the current game phase (0 = endgame, GAME_PHASE_MAX = opening)
-    /// This is based on the number and type of non-pawn, non-king pieces on the board
+    /// This is based on the number and type of non-pawn, non-king pieces on the
+    /// board
     pub fn calculate_game_phase(
         &self,
         board: &BitboardBoard,
@@ -1475,7 +1483,8 @@ impl PositionEvaluator {
     }
 
     /// Get phase value for a piece type
-    /// Returns None for pieces that don't contribute to game phase (pawns, kings)
+    /// Returns None for pieces that don't contribute to game phase (pawns,
+    /// kings)
     fn get_piece_phase_value(&self, piece_type: PieceType) -> Option<i32> {
         PIECE_PHASE_VALUES
             .iter()
@@ -1796,9 +1805,9 @@ mod tests {
         let captured_pieces = CapturedPieces::new();
 
         // Starting position should have maximum phase
-        // Each player has: 2 Knights(1) + 2 Silvers(1) + 2 Golds(2) + 1 Bishop(2) + 1 Rook(3) + 2 Lances(1)
-        // Total per player: 2*1 + 2*1 + 2*2 + 1*2 + 1*3 + 2*1 = 2 + 2 + 4 + 2 + 3 + 2 = 15
-        // Both players: 15 * 2 = 30
+        // Each player has: 2 Knights(1) + 2 Silvers(1) + 2 Golds(2) + 1 Bishop(2) + 1
+        // Rook(3) + 2 Lances(1) Total per player: 2*1 + 2*1 + 2*2 + 1*2 + 1*3 +
+        // 2*1 = 2 + 2 + 4 + 2 + 3 + 2 = 15 Both players: 15 * 2 = 30
         // But we need to scale this to 0-256 range
         let phase = evaluator.calculate_game_phase(&board, &captured_pieces);
         assert_eq!(phase, GAME_PHASE_MAX);
@@ -1946,7 +1955,8 @@ mod tests {
         // Test rook table lookup
         let rook_score = tables.get_value(PieceType::Rook, pos, player);
         assert!(rook_score.mg > 0); // Should have positive mg value
-        assert!(rook_score.eg > rook_score.mg); // Endgame should value rook activity more
+        assert!(rook_score.eg > rook_score.mg); // Endgame should value rook
+                                                // activity more
     }
 
     #[test]
@@ -2026,7 +2036,8 @@ mod tests {
         // Test that middlegame tables have reasonable values
         let (rook_mg, _rook_eg) = tables.get_tables(PieceType::Rook);
         assert!(rook_mg[4][4] > 0); // Center should be positive
-        assert!(rook_mg[0][4] > 0); // First rank should be positive in middlegame
+        assert!(rook_mg[0][4] > 0); // First rank should be positive in
+                                    // middlegame
     }
 
     fn parse_fen_triple(fen: &str) -> (BitboardBoard, Player, CapturedPieces) {
@@ -2092,7 +2103,8 @@ mod tests {
 
         // Test development evaluation
         let development = evaluator.evaluate_development(&board, Player::Black);
-        assert!(development.mg >= 0 || development.eg >= 0); // Should have some value
+        assert!(development.mg >= 0 || development.eg >= 0); // Should have some
+                                                             // value
     }
 
     #[test]
@@ -2422,7 +2434,8 @@ mod tests {
         let black_score = evaluator.evaluate_king_safety(&board, Player::Black);
         let white_score = evaluator.evaluate_king_safety(&board, Player::White);
 
-        // Both should return valid TaperedScore values (may be equal for starting position)
+        // Both should return valid TaperedScore values (may be equal for starting
+        // position)
         assert_eq!(black_score.mg, black_score.mg); // Basic sanity check
         assert_eq!(white_score.mg, white_score.mg); // Basic sanity check
     }
@@ -2457,7 +2470,8 @@ mod tests {
 
         let features = evaluator.get_evaluation_features(&board, Player::Black, &captured_pieces);
 
-        // In starting position, both players have equal material, so all differences should be 0
+        // In starting position, both players have equal material, so all differences
+        // should be 0
         assert_eq!(features[MATERIAL_PAWN_INDEX], 0.0);
         assert_eq!(features[MATERIAL_LANCE_INDEX], 0.0);
         assert_eq!(features[MATERIAL_KNIGHT_INDEX], 0.0);

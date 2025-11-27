@@ -138,7 +138,8 @@ pub struct OptimizationResults {
     pub convergence_reason: ConvergenceReason,
     pub optimization_time: Duration,
     pub error_history: Vec<f64>,
-    /// Pareto front for multi-objective optimization (None for single-objective)
+    /// Pareto front for multi-objective optimization (None for
+    /// single-objective)
     pub pareto_front: Option<ParetoFront>,
 }
 
@@ -185,8 +186,10 @@ pub struct LBFGSState {
 ///
 /// The genetic algorithm uses a population-based approach to optimize weights.
 /// Key configurable parameters:
-/// - `tournament_size`: Number of candidates in tournament selection (default: 3)
-/// - `elite_percentage`: Percentage of population preserved as elite (default: 0.1 = 10%)
+/// - `tournament_size`: Number of candidates in tournament selection (default:
+///   3)
+/// - `elite_percentage`: Percentage of population preserved as elite (default:
+///   0.1 = 10%)
 /// - `mutation_magnitude`: Magnitude of mutation changes (default: 0.2)
 /// - `mutation_bounds`: Bounds for mutation values (default: (-10.0, 10.0))
 #[derive(Debug, Clone)]
@@ -423,8 +426,10 @@ impl AdamState {
     ///
     /// # Arguments
     /// * `num_weights` - Number of weights to optimize
-    /// * `beta1` - Exponential decay rate for first moment estimates (typically 0.9)
-    /// * `beta2` - Exponential decay rate for second moment estimates (typically 0.999)
+    /// * `beta1` - Exponential decay rate for first moment estimates (typically
+    ///   0.9)
+    /// * `beta2` - Exponential decay rate for second moment estimates
+    ///   (typically 0.999)
     /// * `epsilon` - Small constant for numerical stability (typically 1e-8)
     fn new(num_weights: usize, beta1: f64, beta2: f64, epsilon: f64) -> Self {
         Self { m: vec![0.0; num_weights], v: vec![0.0; num_weights], beta1, beta2, epsilon, t: 0 }
@@ -482,12 +487,14 @@ impl LineSearch {
     /// * `current_weights` - Current weight vector x
     /// * `search_direction` - Search direction p (negative gradient direction)
     /// * `current_error` - Current objective value f(x)
-    /// * `directional_derivative` - ∇f(x)^T * p (should be negative for descent)
-    /// * `calculate_error` - Function to calculate f(x + αp) for given step size
+    /// * `directional_derivative` - ∇f(x)^T * p (should be negative for
+    ///   descent)
+    /// * `calculate_error` - Function to calculate f(x + αp) for given step
+    ///   size
     ///
     /// # Returns
-    /// Step size α that satisfies Armijo condition, or initial_step_size if condition
-    /// cannot be satisfied within max_iterations
+    /// Step size α that satisfies Armijo condition, or initial_step_size if
+    /// condition cannot be satisfied within max_iterations
     fn armijo_search<F>(
         &self,
         current_weights: &[f64],
@@ -662,10 +669,12 @@ impl GeneticAlgorithmState {
         )
     }
 
-    /// Create new genetic algorithm state with optional initial weights for warm-starting
+    /// Create new genetic algorithm state with optional initial weights for
+    /// warm-starting
     ///
-    /// If `initial_weights` is provided, the first individual in the population is initialized
-    /// with these weights. The rest of the population is randomly initialized.
+    /// If `initial_weights` is provided, the first individual in the population
+    /// is initialized with these weights. The rest of the population is
+    /// randomly initialized.
     fn new_with_initial(
         population_size: usize,
         num_weights: usize,
@@ -855,7 +864,8 @@ impl Optimizer {
     /// Apply all constraints to weights
     ///
     /// Projects weights to satisfy all constraints in the configuration.
-    /// Returns the number of constraints that were applied (i.e., needed projection).
+    /// Returns the number of constraints that were applied (i.e., needed
+    /// projection).
     pub fn apply_constraints(&self, weights: &mut [f64]) -> usize {
         let mut applied_count = 0;
         for constraint in &self.config.constraints {
@@ -915,8 +925,9 @@ impl Optimizer {
 
     /// Optimize weights using the specified method
     ///
-    /// If `initial_weights_path` is provided in the config, loads initial weights
-    /// from the file for warm-starting. Otherwise, uses default initialization.
+    /// If `initial_weights_path` is provided in the config, loads initial
+    /// weights from the file for warm-starting. Otherwise, uses default
+    /// initialization.
     pub fn optimize(&self, positions: &[TrainingPosition]) -> Result<OptimizationResults, String> {
         // Load initial weights if path is provided
         let initial_weights = Self::load_initial_weights(&self.config.initial_weights_path)?;
@@ -1024,8 +1035,9 @@ impl Optimizer {
     /// * `k_factor` - K-factor for sigmoid scaling
     /// * `initial_weights` - Optional initial weights for warm-starting
     ///
-    /// All parameters (`beta1`, `beta2`, `epsilon`) are honored from the configuration.
-    /// If `initial_weights` is provided, uses those weights instead of default initialization.
+    /// All parameters (`beta1`, `beta2`, `epsilon`) are honored from the
+    /// configuration. If `initial_weights` is provided, uses those weights
+    /// instead of default initialization.
     fn adam_optimize(
         &self,
         positions: &[TrainingPosition],
@@ -1112,7 +1124,8 @@ impl Optimizer {
     ///
     /// # Arguments
     /// * `positions` - Training positions for optimization
-    /// * `memory_size` - LBFGS memory size (number of previous steps to remember)
+    /// * `memory_size` - LBFGS memory size (number of previous steps to
+    ///   remember)
     /// * `max_iterations` - Maximum number of optimization iterations
     /// * `line_search_type` - Type of line search (Armijo or Wolfe)
     /// * `initial_step_size` - Initial step size for line search
@@ -1303,14 +1316,19 @@ impl Optimizer {
     ///
     /// Uses a population-based evolutionary approach to optimize weights.
     /// Configurable parameters:
-    /// - `tournament_size`: Size of tournament for selection (larger = more selective)
-    /// - `elite_percentage`: Percentage of best individuals preserved (0.0 to 1.0)
-    /// - `mutation_magnitude`: Maximum change per mutation (larger = more exploration)
+    /// - `tournament_size`: Size of tournament for selection (larger = more
+    ///   selective)
+    /// - `elite_percentage`: Percentage of best individuals preserved (0.0 to
+    ///   1.0)
+    /// - `mutation_magnitude`: Maximum change per mutation (larger = more
+    ///   exploration)
     /// - `mutation_bounds`: Clamping bounds for mutated values (min, max)
-    /// - `initial_weights`: Optional initial weights for warm-starting (seeds population)
+    /// - `initial_weights`: Optional initial weights for warm-starting (seeds
+    ///   population)
     ///
-    /// If `initial_weights` is provided, the first individual in the population is initialized
-    /// with these weights, and the rest are randomly initialized.
+    /// If `initial_weights` is provided, the first individual in the population
+    /// is initialized with these weights, and the rest are randomly
+    /// initialized.
     fn genetic_algorithm_optimize(
         &self,
         positions: &[TrainingPosition],
@@ -1441,8 +1459,9 @@ impl Optimizer {
 
     /// Calculate objective values for given weights
     ///
-    /// Returns a vector of objective values corresponding to the objectives in the config.
-    /// If no objectives are specified, returns a single accuracy value.
+    /// Returns a vector of objective values corresponding to the objectives in
+    /// the config. If no objectives are specified, returns a single
+    /// accuracy value.
     pub fn calculate_objective_values(
         &self,
         weights: &[f64],
@@ -1527,8 +1546,8 @@ impl Optimizer {
 
     /// Optimize weights incrementally using batch processing
     ///
-    /// Processes positions in batches and maintains optimizer state across updates.
-    /// This allows continuous learning from streaming data.
+    /// Processes positions in batches and maintains optimizer state across
+    /// updates. This allows continuous learning from streaming data.
     #[allow(dead_code)]
     fn optimize_incremental(
         &self,
@@ -1649,8 +1668,8 @@ impl Optimizer {
 
     /// Update weights incrementally with a new batch of positions
     ///
-    /// This method allows updating weights with new data without full re-optimization.
-    /// Returns the updated weights and current error.
+    /// This method allows updating weights with new data without full
+    /// re-optimization. Returns the updated weights and current error.
     pub fn update_incremental(
         &mut self,
         state: &mut IncrementalState,
@@ -1807,7 +1826,8 @@ mod tests {
         let _s = tuner.sigmoid(x);
         let derivative = tuner.sigmoid_derivative(x);
 
-        // At x=0, sigmoid derivative should be k_factor * s * (1-s) = 1.0 * 0.5 * 0.5 = 0.25
+        // At x=0, sigmoid derivative should be k_factor * s * (1-s) = 1.0 * 0.5 * 0.5 =
+        // 0.25
         assert!((derivative - 0.25).abs() < 1e-10);
     }
 
@@ -1938,8 +1958,9 @@ mod tests {
 
     #[test]
     fn test_adam_optimizer_behavior_with_different_parameters() {
-        // Integration test verifying Adam optimizer behavior changes with different parameter configurations
-        // Create a synthetic dataset with known characteristics
+        // Integration test verifying Adam optimizer behavior changes with different
+        // parameter configurations Create a synthetic dataset with known
+        // characteristics
         let positions: Vec<TrainingPosition> = (0..50)
             .map(|i| {
                 let mut features = vec![0.0; NUM_EVAL_FEATURES];
@@ -2015,7 +2036,8 @@ mod tests {
         // Verify that parameters are actually being used (not just default values)
         // by checking that different configurations produce valid results
         // Note: Different parameters may converge in different numbers of iterations
-        // or to different final errors, but all should produce valid optimization results
+        // or to different final errors, but all should produce valid optimization
+        // results
         assert!(
             result_default.iterations > 0 && result_high_beta1.iterations > 0,
             "Both configurations should complete optimization"
@@ -2135,7 +2157,8 @@ mod tests {
 
     #[test]
     fn test_lbfgs_line_search_vs_fixed_step() {
-        // Integration test comparing LBFGS with line search vs. effectively fixed step size
+        // Integration test comparing LBFGS with line search vs. effectively fixed step
+        // size
         let positions = create_test_positions();
 
         // LBFGS with proper line search (Armijo)
@@ -2212,7 +2235,8 @@ mod tests {
         assert_eq!(state_large.tournament_size, 5);
 
         // Tournament selection should use the configured size
-        // (We can't easily test the selection logic directly, but we verify the parameter is stored)
+        // (We can't easily test the selection logic directly, but we verify the
+        // parameter is stored)
     }
 
     #[test]
@@ -2447,7 +2471,8 @@ mod tests {
 
         let results = result.unwrap();
         // Verify that initial weights were used (first iteration should start from 5.0)
-        // Since we can't easily check the exact initial state, we verify the optimization completed
+        // Since we can't easily check the exact initial state, we verify the
+        // optimization completed
         assert_eq!(results.optimized_weights.len(), NUM_EVAL_FEATURES);
         assert!(results.final_error >= 0.0);
     }
@@ -2565,8 +2590,9 @@ mod tests {
         assert!(result_warm.final_error >= 0.0);
         assert!(result_random.final_error >= 0.0);
 
-        // Warm-started optimization may converge faster or to a different solution
-        // (We can't guarantee which is better, but both should work)
+        // Warm-started optimization may converge faster or to a different
+        // solution (We can't guarantee which is better, but both should
+        // work)
     }
 
     #[test]

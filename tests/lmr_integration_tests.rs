@@ -556,7 +556,8 @@ mod iid_lmr_coordination_tests {
         // IID move should have been explicitly exempted at least once
         assert!(
             lmr_stats.iid_move_explicitly_exempted > 0,
-            "IID move should have been explicitly exempted from LMR at least once, but count was {}",
+            "IID move should have been explicitly exempted from LMR at least once, but count was \
+             {}",
             lmr_stats.iid_move_explicitly_exempted
         );
 
@@ -566,7 +567,8 @@ mod iid_lmr_coordination_tests {
         println!("Reductions applied: {}", lmr_stats.reductions_applied);
     }
 
-    /// Test 7.0.1.9: Integration test to ensure IID move is first in ordering AND exempted from LMR
+    /// Test 7.0.1.9: Integration test to ensure IID move is first in ordering
+    /// AND exempted from LMR
     #[test]
     fn test_iid_move_ordering_and_exemption() {
         let mut engine = create_test_engine();

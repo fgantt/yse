@@ -1,7 +1,7 @@
 //! SIMD NPS (Nodes Per Second) Benchmarks
 //!
-//! Comprehensive benchmarks comparing SIMD vs scalar implementations for overall
-//! engine performance measured in nodes per second (NPS).
+//! Comprehensive benchmarks comparing SIMD vs scalar implementations for
+//! overall engine performance measured in nodes per second (NPS).
 //!
 //! # Task 5.12 (Task 5.12.1)
 

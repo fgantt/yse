@@ -1,6 +1,7 @@
 //! Integration tests for TranspositionTableTrait
 //!
-//! Tests for Task 3.0 - Task 3.30: Verify transposition table trait works with all table implementations
+//! Tests for Task 3.0 - Task 3.30: Verify transposition table trait works with
+//! all table implementations
 
 use shogi_engine::search::transposition_table_config::create_transposition_table;
 use shogi_engine::search::transposition_table_config::TranspositionTableConfig;

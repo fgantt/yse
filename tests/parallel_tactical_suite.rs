@@ -60,7 +60,8 @@ fn test_tactical_dataset_parallel_vs_single() {
             }
         }
     }
-    // Require at least some coverage and tolerate some mismatch due to nondeterminism
+    // Require at least some coverage and tolerate some mismatch due to
+    // nondeterminism
     assert!(compared >= 10, "Too few comparable positions ({} of {})", compared, total);
     let mismatch_ratio = if compared > 0 { mismatches as f64 / compared as f64 } else { 1.0 };
     assert!(

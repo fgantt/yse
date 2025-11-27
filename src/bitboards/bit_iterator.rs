@@ -1,8 +1,9 @@
 //! Efficient bit iterator for bitboard operations
 //!
-//! This module provides an efficient iterator for traversing set bits in a bitboard.
-//! The iterator is designed for zero-allocation performance and optimal memory usage,
-//! making it suitable for high-performance bitboard operations in Shogi engines.
+//! This module provides an efficient iterator for traversing set bits in a
+//! bitboard. The iterator is designed for zero-allocation performance and
+//! optimal memory usage, making it suitable for high-performance bitboard
+//! operations in Shogi engines.
 
 use crate::bitboards::integration::GlobalOptimizer;
 use crate::types::Bitboard;
@@ -223,7 +224,8 @@ impl Iterator for BitIterator {
     /// Provide a size hint for iterator optimization
     ///
     /// # Returns
-    /// A tuple containing (lower_bound, upper_bound) for the number of remaining items
+    /// A tuple containing (lower_bound, upper_bound) for the number of
+    /// remaining items
     fn size_hint(&self) -> (usize, Option<usize>) {
         let remaining = self.count() as usize;
         (remaining, Some(remaining))

@@ -1,8 +1,8 @@
 //! Traits and interfaces for endgame solvers
 //!
-//! This module defines the common interface that all endgame solvers must implement.
-//! It provides a trait-based architecture that allows for easy extension and
-//! modular implementation of different endgame scenarios.
+//! This module defines the common interface that all endgame solvers must
+//! implement. It provides a trait-based architecture that allows for easy
+//! extension and modular implementation of different endgame scenarios.
 
 use super::TablebaseResult;
 use crate::types::core::Player;
@@ -11,9 +11,9 @@ use crate::CapturedPieces;
 
 /// Trait that all endgame solvers must implement
 ///
-/// This trait provides a common interface for solving specific endgame positions.
-/// Each solver is responsible for recognizing positions it can handle and
-/// providing the optimal move for those positions.
+/// This trait provides a common interface for solving specific endgame
+/// positions. Each solver is responsible for recognizing positions it can
+/// handle and providing the optimal move for those positions.
 pub trait EndgameSolver: Send + Sync {
     /// Check if this solver can handle the given position
     ///
@@ -186,7 +186,8 @@ pub trait EndgameSolverHelper {
         ((pos1.row as i8 - pos2.row as i8).abs() + (pos1.col as i8 - pos2.col as i8).abs()) as u8
     }
 
-    /// Calculate the Chebyshev distance (max of row and column differences) between two positions
+    /// Calculate the Chebyshev distance (max of row and column differences)
+    /// between two positions
     fn chebyshev_distance(&self, pos1: crate::types::Position, pos2: crate::types::Position) -> u8 {
         ((pos1.row as i8 - pos2.row as i8)
             .abs()

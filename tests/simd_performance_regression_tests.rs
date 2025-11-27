@@ -3,10 +3,11 @@
 //! Baseline-driven performance regression tests for SIMD bitboard operations.
 //!
 //! These tests implement **Test Task 2** from
-//! `docs/design/implementation/simd-optimization/tasks-SIMD_FUTURE_IMPROVEMENTS.md`
-//! by comparing the current implementation against the documented baselines in
-//! `SIMD_IMPLEMENTATION_EVALUATION.md`. Each scenario reads its baseline ratio
-//! (SIMD vs scalar) from `tests/performance_baselines/simd_performance_baseline.json`
+//! `docs/design/implementation/simd-optimization/
+//! tasks-SIMD_FUTURE_IMPROVEMENTS.md` by comparing the current implementation
+//! against the documented baselines in `SIMD_IMPLEMENTATION_EVALUATION.md`.
+//! Each scenario reads its baseline ratio (SIMD vs scalar) from
+//! `tests/performance_baselines/simd_performance_baseline.json`
 //! so CI can detect regressions automatically.
 
 use lazy_static::lazy_static;
@@ -107,7 +108,8 @@ fn test_simd_performance_against_baseline() {
         if ratio > allowed_ratio && !measurement.is_within_noise() {
             status = "FAIL";
             failures.push(format!(
-                "{} exceeded allowed ratio {:.3}x (measured {:.3}x, baseline {:.3}x, speedup {:.2}x)",
+                "{} exceeded allowed ratio {:.3}x (measured {:.3}x, baseline {:.3}x, speedup \
+                 {:.2}x)",
                 scenario.name, allowed_ratio, ratio, scenario.baseline_ratio, speedup
             ));
         }
@@ -157,7 +159,10 @@ fn write_summary(rows: &[String], alerts: &[String], failures: &[String]) {
 
     let mut report = String::new();
     report.push_str("# SIMD Performance Regression Results\n\n");
-    report.push_str("| Scenario | Measured Ratio | Baseline Ratio | Allowed Ratio | SIMD avg (ns) | Scalar avg (ns) | Status | Notes |\n");
+    report.push_str(
+        "| Scenario | Measured Ratio | Baseline Ratio | Allowed Ratio | SIMD avg (ns) | Scalar \
+         avg (ns) | Status | Notes |\n",
+    );
     report.push_str("|----------|----------------|----------------|---------------|---------------|-----------------|--------|-------|\n");
     for row in rows {
         report.push_str(row);

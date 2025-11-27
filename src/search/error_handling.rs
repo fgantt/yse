@@ -1,7 +1,8 @@
 //! Error handling for transposition table operations
 //!
 //! This module provides comprehensive error handling, graceful degradation,
-//! error recovery mechanisms, and logging for all transposition table operations.
+//! error recovery mechanisms, and logging for all transposition table
+//! operations.
 
 use crate::search::transposition_config::TranspositionConfig;
 use std::fmt;

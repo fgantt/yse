@@ -12,7 +12,8 @@
 //! - Verification search attempts and cutoffs
 //!
 //! Expected results:
-//! - Verification search should have minimal overhead (<10% increase in search time)
+//! - Verification search should have minimal overhead (<10% increase in search
+//!   time)
 //! - NMP effectiveness should remain high (cutoff rate reduction <5%)
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
@@ -373,8 +374,9 @@ fn benchmark_comprehensive_nmp_analysis(c: &mut Criterion) {
     group.finish();
 }
 
-/// Validation benchmark to verify verification search doesn't significantly impact NMP effectiveness
-/// This ensures cutoff rate reduction is <5% when verification is enabled
+/// Validation benchmark to verify verification search doesn't significantly
+/// impact NMP effectiveness This ensures cutoff rate reduction is <5% when
+/// verification is enabled
 fn benchmark_verify_effectiveness_impact(c: &mut Criterion) {
     let mut group = c.benchmark_group("verify_effectiveness_impact");
     group.measurement_time(Duration::from_secs(30));

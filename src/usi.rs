@@ -140,11 +140,7 @@ impl UsiHandler {
             "option name USI_Hash type spin default 16 min 1 max 1024".to_string(),
             format!(
                 "option name ParallelEnable type check default {}",
-                if parallel_options.enable_parallel {
-                    "true"
-                } else {
-                    "false"
-                }
+                if parallel_options.enable_parallel { "true" } else { "false" }
             ),
             format!(
                 "option name ParallelHash type spin default {} min 1 max 512",
@@ -159,19 +155,11 @@ impl UsiHandler {
             "option name PSTPath type string default".to_string(),
             format!(
                 "option name ParallelMetrics type check default {}",
-                if parallel_options.enable_metrics {
-                    "true"
-                } else {
-                    "false"
-                }
+                if parallel_options.enable_metrics { "true" } else { "false" }
             ),
             format!(
                 "option name YBWCEnable type check default {}",
-                if parallel_options.ybwc_enabled {
-                    "true"
-                } else {
-                    "false"
-                }
+                if parallel_options.ybwc_enabled { "true" } else { "false" }
             ),
             format!(
                 "option name YBWCMinDepth type spin default {} min 0 max 32",
@@ -203,7 +191,9 @@ impl UsiHandler {
             // Time Management Options (Task 8.0, 4.0)
             "option name TimeCheckFrequency type spin default 1024 min 1 max 100000".to_string(),
             "option name TimeSafetyMargin type spin default 100 min 0 max 10000".to_string(),
-            "option name TimeAllocationStrategy type combo default Adaptive var Equal var Exponential var Adaptive".to_string(),
+            "option name TimeAllocationStrategy type combo default Adaptive var Equal var \
+             Exponential var Adaptive"
+                .to_string(),
             "option name EnableTimeBudget type check default true".to_string(),
             "option name EnableCheckOptimization type check default true".to_string(),
             // Aspiration Window Options (Task 7.0)

@@ -1,4 +1,5 @@
-//! Benchmarks for redundancy elimination and coordination in IntegratedEvaluator
+//! Benchmarks for redundancy elimination and coordination in
+//! IntegratedEvaluator
 //!
 //! Measures the performance impact of coordination logic and verifies
 //! that double-counting prevention doesn't significantly impact performance.
