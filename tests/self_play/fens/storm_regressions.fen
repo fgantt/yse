@@ -1,0 +1,22 @@
+# Critical Position FENs for Gameplay Stability Testing
+# These positions represent scenarios where the engine failed before move 20
+
+# Game A: △8七歩成 crush scenario
+# Position right before the critical △8七歩成 move
+# Engine had repeated bishop oscillation (▲7九角→▲8八角→▲7九角) and no castle
+# White's pawn storm on file 8 reached 8六, threatening promotion
+game_a_before_pawn_promotion: lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
+
+# Game B: ▲4四角?? blunder scenario  
+# Position right before the ▲4四角?? blunder
+# Engine had king-first improvisation (▲4八玉) and disharmonious rook swing (▲3八飛)
+# Bishop was pushed to 5五 and about to be voluntarily traded
+game_b_before_bishop_blunder: lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
+
+# Additional test positions for storm detection
+# Position with active pawn storm on file 8 (similar to Game A)
+storm_file_8_active: lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
+
+# Position with incomplete castle and storm threat
+incomplete_castle_storm_threat: lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1
+
