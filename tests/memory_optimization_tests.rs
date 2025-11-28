@@ -112,3 +112,6 @@ fn test_telemetry() {
     assert_eq!(stats_after_reset.simd_batch_operations, 0);
     assert_eq!(stats_after_reset.prefetch_operations, 0);
 }
+
+
+

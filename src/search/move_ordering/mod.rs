@@ -6156,17 +6156,312 @@ impl MoveOrdering {
             stability_bonus += storm_bonus;
         }
         
-        // If stability bonuses are significant, return early with bonus
-        if stability_bonus > 0 {
+        // Check if move guards critical promotion squares (8-7, 2-3)
+        if let Some(flank_bonus) = self.score_flank_security_move(move_, board) {
+            stability_bonus += flank_bonus;
+        }
+        
+        // Check if move creates vulnerabilities (e.g., ▲7六歩 leaving 8八 undefended)
+        let safety_penalty = self.check_move_safety(move_, board);
+        
+        // If stability bonuses are significant, return early with bonus (but subtract safety penalty)
+        if stability_bonus > 0 || safety_penalty < 0 {
             let base_score = self.score_move(move_).unwrap_or(0);
-            return base_score + stability_bonus;
+            return base_score + stability_bonus + safety_penalty;
         }
 
         // Use regular move scoring (MVV/LVA for captures)
         self.stats.killer_move_misses += 1;
-        self.score_move(move_).unwrap_or(0)
+        let base_score = self.score_move(move_).unwrap_or(0);
+        base_score + safety_penalty
     }
 
+    /// Check if a move creates vulnerabilities (e.g., ▲7六歩 leaving 8八 undefended)
+    ///
+    /// Returns a penalty score if the move is unsafe, 0 if safe.
+    /// This prevents moves that leave critical squares undefended, allowing
+    /// devastating bishop promotions like △8八角成.
+    fn check_move_safety(
+        &self,
+        move_: &Move,
+        board: &crate::bitboards::BitboardBoard,
+    ) -> i32 {
+        use crate::types::core::{PieceType, Position};
+        
+        let mut penalty = 0;
+        
+        // 1. Block king moves on moves 1-2 (unless to castle position)
+        if move_.piece_type == PieceType::King {
+            if let Some(from) = move_.from {
+                let start_row = if move_.player == crate::types::core::Player::Black { 8 } else { 0 };
+                if from.row == start_row {
+                    // King is moving from starting position
+                    let is_castle_position = match move_.player {
+                        crate::types::core::Player::Black => {
+                            move_.to.row >= 7 && (move_.to.col <= 2 || move_.to.col >= 6)
+                        }
+                        crate::types::core::Player::White => {
+                            move_.to.row <= 1 && (move_.to.col <= 2 || move_.to.col >= 6)
+                        }
+                    };
+                    
+                    if !is_castle_position {
+                        // Massive penalty for non-castle king moves early
+                        return -10000; // Should prevent these moves entirely
+                    }
+                }
+            }
+        }
+        
+        // 2. Check pawn moves in the opening
+        if move_.piece_type == PieceType::Pawn {
+            let file = 9 - move_.to.col; // Convert column to file (1-9)
+            
+            // Check for early pawn pushes on files 5, 6, 7 before castle is established
+            if file >= 5 && file <= 7 {
+                // Check if king is exposed (not in castle)
+                if let Some(king_pos) = board.find_king_position(move_.player) {
+                    let start_row = if move_.player == crate::types::core::Player::Black { 8 } else { 0 };
+                    let king_moved = king_pos.row != start_row;
+                    
+                    // Check if king is in castle position
+                    let is_castle_pos = match move_.player {
+                        crate::types::core::Player::Black => {
+                            king_pos.row >= 7 && (king_pos.col <= 2 || king_pos.col >= 6)
+                        }
+                        crate::types::core::Player::White => {
+                            king_pos.row <= 1 && (king_pos.col <= 2 || king_pos.col >= 6)
+                        }
+                    };
+                    
+                    // Check if defensive pieces are developed (castle started)
+                    let mut castle_started = is_castle_pos;
+                    if !castle_started {
+                        // Check for developed golds/silvers near king
+                        for row in 0..9 {
+                            for col in 0..9 {
+                                let pos = Position::new(row, col);
+                                if let Some(piece) = board.get_piece(pos) {
+                                    if piece.player == move_.player {
+                                        if matches!(piece.piece_type, PieceType::Gold | PieceType::Silver) {
+                                            let distance = {
+                                                let dr = if row > king_pos.row {
+                                                    row - king_pos.row
+                                                } else {
+                                                    king_pos.row - row
+                                                };
+                                                let dc = if col > king_pos.col {
+                                                    col - king_pos.col
+                                                } else {
+                                                    king_pos.col - col
+                                                };
+                                                dr + dc
+                                            };
+                                            if distance <= 2 {
+                                                castle_started = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            if castle_started {
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if king_moved && !castle_started {
+                        // King is exposed and no castle - heavily penalize side pawn pushes
+                        penalty -= 2000; // Very large penalty
+                    }
+                }
+            }
+            
+            // Check for specific vulnerabilities on files 7 and 2 (bishop promotion threats)
+            if file == 7 || file == 2 {
+                // Make the move on a temporary board to check resulting position
+                let mut temp_board = board.clone();
+                if temp_board.make_move(move_).is_none() {
+                    return penalty; // Move is invalid, return accumulated penalty
+                }
+
+                // Determine the critical square that needs to be defended
+                // For file 7: 8h (row 7, col 1 in 0-based for Black)
+                // For file 2: 1h (row 7, col 8 in 0-based for Black)
+                let critical_square = if move_.player == crate::types::core::Player::Black {
+                    if file == 7 {
+                        Position::new(7, 1) // 8h
+                    } else {
+                        Position::new(7, 8) // 1h
+                    }
+                } else {
+                    // White's perspective (mirrored)
+                    if file == 7 {
+                        Position::new(1, 1) // 2h
+                    } else {
+                        Position::new(1, 8) // 9h
+                    }
+                };
+
+                // Check if the critical square is defended
+                if !temp_board.is_square_attacked_by(critical_square, move_.player) {
+                    // Square is not defended - check for immediate bishop promotion threat
+                    let opponent = move_.player.opposite();
+                    
+                    // Check if the critical square is in the opponent's promotion zone
+                    let promotion_zone = if opponent == crate::types::core::Player::Black {
+                        critical_square.row >= 6 // Ranks 7, 8, 9
+                    } else {
+                        critical_square.row <= 2 // Ranks 1, 2, 3
+                    };
+                    
+                    if promotion_zone && temp_board.is_square_attacked_by(critical_square, opponent) {
+                        // This is a critical vulnerability - return large penalty
+                        penalty -= 5000; // Very large penalty to prevent this move
+                    } else {
+                        // Square is not defended but no immediate threat - still risky
+                        penalty -= 500; // Moderate penalty
+                    }
+                }
+            }
+        }
+        
+        // 3. Penalty for early pawn pushes on files 5, 6, 7 before castle is established
+        let file = 9 - move_.to.col; // Convert column to file (1-9)
+        if file >= 5 && file <= 7 {
+            // Check if king is exposed (not in castle)
+            if let Some(king_pos) = board.find_king_position(move_.player) {
+                let start_row = if move_.player == crate::types::core::Player::Black { 8 } else { 0 };
+                let king_moved = king_pos.row != start_row;
+                
+                // Check if king is in castle position
+                let is_castle_pos = match move_.player {
+                    crate::types::core::Player::Black => {
+                        king_pos.row >= 7 && (king_pos.col <= 2 || king_pos.col >= 6)
+                    }
+                    crate::types::core::Player::White => {
+                        king_pos.row <= 1 && (king_pos.col <= 2 || king_pos.col >= 6)
+                    }
+                };
+                
+                // Check if defensive pieces are developed (castle started)
+                let mut castle_started = is_castle_pos;
+                if !castle_started {
+                    // Check for developed golds/silvers near king
+                    for row in 0..9 {
+                        for col in 0..9 {
+                            let pos = Position::new(row, col);
+                            if let Some(piece) = board.get_piece(pos) {
+                                if piece.player == move_.player {
+                                    if matches!(piece.piece_type, PieceType::Gold | PieceType::Silver) {
+                                        let distance = {
+                                            let dr = if row > king_pos.row {
+                                                row - king_pos.row
+                                            } else {
+                                                king_pos.row - row
+                                            };
+                                            let dc = if col > king_pos.col {
+                                                col - king_pos.col
+                                            } else {
+                                                king_pos.col - col
+                                            };
+                                            dr + dc
+                                        };
+                                        if distance <= 2 {
+                                            castle_started = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if castle_started {
+                            break;
+                        }
+                    }
+                }
+                
+                if king_moved && !castle_started {
+                    // King is exposed and no castle - heavily penalize side pawn pushes
+                    penalty -= 2000; // Very large penalty
+                }
+            }
+        }
+        
+        penalty
+    }
+
+    /// Score moves that guard critical flank file promotion squares (8-7, 2-3)
+    ///
+    /// Returns bonus for moves that secure or guard promotion squares on files 8 and 2.
+    /// This prevents opponent pawn promotions that lead to dragon invasions.
+    fn score_flank_security_move(
+        &self,
+        move_: &Move,
+        board: &crate::bitboards::BitboardBoard,
+    ) -> Option<i32> {
+        use crate::types::core::{PieceType, Position};
+        
+        // Make move on temp board to check resulting position
+        let mut temp_board = board.clone();
+        if temp_board.make_move(move_).is_none() {
+            return None;
+        }
+        
+        // Critical promotion squares for Black: 8-7 (row 6, col 1) and 2-3 (row 2, col 8)
+        // For White: 2-3 (row 2, col 1) and 8-7 (row 6, col 8)
+        let promotion_squares = if move_.player == crate::types::core::Player::Black {
+            [Position::new(6, 1), Position::new(2, 8)] // 8-7 and 2-3
+        } else {
+            [Position::new(2, 1), Position::new(6, 8)] // 2-3 and 8-7
+        };
+        
+        let mut bonus = 0;
+        
+        for &promo_sq in &promotion_squares {
+            // Check if move guards this promotion square
+            if temp_board.is_square_attacked_by(promo_sq, move_.player) {
+                // Check if it wasn't guarded before
+                if !board.is_square_attacked_by(promo_sq, move_.player) {
+                    // Move newly guards the square - big bonus
+                    bonus += 800;
+                } else {
+                    // Already guarded, but move maintains guard - smaller bonus
+                    bonus += 200;
+                }
+            }
+            
+            // Check if move places a defensive piece near the promotion square
+            let distance = {
+                let dr = if move_.to.row > promo_sq.row {
+                    move_.to.row - promo_sq.row
+                } else {
+                    promo_sq.row - move_.to.row
+                };
+                let dc = if move_.to.col > promo_sq.col {
+                    move_.to.col - promo_sq.col
+                } else {
+                    promo_sq.col - move_.to.col
+                };
+                dr + dc
+            };
+            
+            if distance <= 2 {
+                // Move places piece near promotion square
+                if matches!(move_.piece_type, PieceType::Gold | PieceType::Silver | PieceType::Rook | PieceType::Bishop) {
+                    bonus += 300; // Bonus for defensive piece placement
+                }
+            }
+        }
+        
+        if bonus > 0 {
+            Some(bonus)
+        } else {
+            None
+        }
+    }
+    
     // ==================== Transposition Table Integration ====================
 
     /// Integrate move ordering with transposition table

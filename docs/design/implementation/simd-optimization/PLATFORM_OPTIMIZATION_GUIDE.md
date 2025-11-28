@@ -224,3 +224,6 @@ cargo bench --features simd
 - [ARM NEON Intrinsics Reference](https://developer.arm.com/architectures/instruction-sets/simd-isas/neon)
 - [x86-64 Optimization Guide](https://www.agner.org/optimize/)
 
+
+
+

@@ -141,3 +141,6 @@ This document analyzes opportunities for vectorizing algorithms in the Shogi eng
 - Performance targets are conservative - actual improvements may be higher
 - Some vectorization opportunities may require algorithm redesign
 
+
+
+

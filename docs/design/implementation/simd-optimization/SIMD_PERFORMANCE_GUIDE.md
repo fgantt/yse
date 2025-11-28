@@ -99,3 +99,6 @@ Use the Criterion suites (`benches/simd_integration_benchmarks.rs`, `benches/sim
 Keep this guide updated whenever you refresh performance baselines, add new SIMD backends, or change the telemetry schema.
 
 
+
+
+

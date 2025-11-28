@@ -707,3 +707,6 @@ SIMD configuration provides fine-grained control over performance optimizations:
 
 For most users, the default configuration (all SIMD features enabled) provides the best performance. Disable SIMD features only when debugging or when specific compatibility issues arise.
 
+
+
+
