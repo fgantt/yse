@@ -158,6 +158,19 @@ impl OpeningPrincipleEvaluator {
             let flank_score = self.evaluate_flank_file_security(board, player, move_count);
             score += flank_score;
         }
+        
+        // 9. Bonus for contesting 8-file pushes immediately
+        if move_count <= 12 {
+            let contest_bonus = self.evaluate_8_file_contest_bonus(board, player);
+            score += contest_bonus;
+        }
+        
+        // 10. Bonus for active counterplay when material loss is forced
+        // Reward rook trades, checks, and pawn storms on opposite flank
+        if move_count <= 15 {
+            let counterplay_bonus = self.evaluate_active_counterplay_bonus(board, player, move_count);
+            score += counterplay_bonus;
+        }
 
         // Telemetry: Log component contributions that exceed threshold (Task 19.0 -
         // Task 5.0)
@@ -842,6 +855,25 @@ impl OpeningPrincipleEvaluator {
                 }
             }
             
+            // 3b. Penalty for double king shuffle (moving king twice in first 8 moves)
+            if move_count <= 8 {
+                if let Some(history) = move_history {
+                    let king_move_count = history.iter()
+                        .filter(|m| m.player == player && m.piece_type == PieceType::King)
+                        .count();
+                    
+                    if king_move_count >= 2 {
+                        // King moved twice - check if castle is started
+                        if let Some(king_pos) = self.find_king_position(board, player) {
+                            if !self.is_castle_position(king_pos, player) && !self.has_castle_defensive_pieces(board, player) {
+                                // Double king shuffle without castle - very bad
+                                mg_penalty += 600; // Massive penalty for double king shuffle
+                            }
+                        }
+                    }
+                }
+            }
+            
             // 4. Penalty for early pawn pushes on files 5, 6, 7 before castle is established
             // This prevents moves like ▲5六歩, ▲6六歩, ▲7六歩 when king is exposed
             if move_count <= 10 {
@@ -885,34 +917,69 @@ impl OpeningPrincipleEvaluator {
 
         mg_penalty += self.calculate_opening_debt(board, player, move_count);
         
-        // 5. Penalty for bishop leaving defensive position before castle is established
-        if move_count <= 12 {
+        // 5. Penalty for unsupported early bishop sorties (CRITICAL: prevents ▲5五角 disasters)
+        if move_count <= 8 {
             if let Some(bishop_pos) = self.find_bishop_position(board, player) {
                 let start_row = if player == Player::Black { 8 } else { 0 };
                 let start_col = if player == Player::Black { 7 } else { 1 };
                 let defensive_pos = Position::new(start_row, start_col);
                 
-                // Check if bishop has moved from defensive position (7七 for Black)
+                // Check if bishop has moved from defensive position
                 if bishop_pos != defensive_pos {
-                    // Check if castle is established
-                    if let Some(king_pos) = self.find_king_position(board, player) {
-                        if !self.is_castle_position(king_pos, player) && !self.has_castle_defensive_pieces(board, player) {
-                            // Bishop moved away before castle - penalize heavily
-                            // Especially bad if bishop is on 5五 or similar exposed positions
-                            let exposed_positions = if player == Player::Black {
-                                bishop_pos.row <= 5 && bishop_pos.col >= 3 && bishop_pos.col <= 5
+                    // Check if castle is established or defensive pieces guard key squares
+                    let castle_established = if let Some(king_pos) = self.find_king_position(board, player) {
+                        self.is_castle_position(king_pos, player) || self.has_castle_defensive_pieces(board, player)
+                    } else {
+                        false
+                    };
+                    
+                    if !castle_established {
+                        // Check if bishop is on exposed central squares (5五, 2二, etc.)
+                        let exposed_central = if player == Player::Black {
+                            bishop_pos.row <= 5 && bishop_pos.col >= 3 && bishop_pos.col <= 5
+                        } else {
+                            bishop_pos.row >= 3 && bishop_pos.col >= 3 && bishop_pos.col <= 5
+                        };
+                        
+                        // Check if key defensive squares (7七, 8八) are guarded
+                        let critical_squares = if player == Player::Black {
+                            [Position::new(6, 1), Position::new(7, 1)] // 7七 and 8八
+                        } else {
+                            [Position::new(2, 1), Position::new(1, 1)] // 3三 and 2二
+                        };
+                        
+                        let squares_guarded = critical_squares.iter()
+                            .any(|&sq| board.is_square_attacked_by(sq, player));
+                        
+                        // Check if opponent can force promotion (9九角成, 8七歩成, etc.)
+                        let promotion_threat = self.has_promotion_sequence_threat(board, player, bishop_pos);
+                        
+                        if exposed_central {
+                            if !squares_guarded || promotion_threat {
+                                // Very dangerous: exposed bishop on central square with unguarded squares or promotion threat
+                                mg_penalty += 800; // Massive penalty - should prevent ▲5五角 type moves
                             } else {
-                                bishop_pos.row >= 3 && bishop_pos.col >= 3 && bishop_pos.col <= 5
-                            };
-                            
-                            if exposed_positions {
-                                mg_penalty += 300; // Very large penalty for exposed bishop
-                            } else {
-                                mg_penalty += 100; // Large penalty for moving bishop early
+                                mg_penalty += 400; // Large penalty even if guarded
                             }
+                        } else if !squares_guarded {
+                            // Bishop moved but key squares not guarded
+                            mg_penalty += 300;
+                        } else {
+                            // Bishop moved but squares are guarded - smaller penalty
+                            mg_penalty += 100;
                         }
                     }
                 }
+            }
+        }
+        
+        // 6. Bonus for castle-start moves before long-range commitments
+        if move_count <= 8 {
+            // Check if defensive pieces are developed (castle starting)
+            if self.has_castle_defensive_pieces(board, player) {
+                // Bonus for starting castle development
+                // This encourages 7八金 / 6八銀 / 4八銀 before bishop sorties
+                mg_penalty = mg_penalty.saturating_sub(50); // Bonus (reduces penalty)
             }
         }
 
@@ -1319,7 +1386,149 @@ impl OpeningPrincipleEvaluator {
         // but not as catastrophic (allow it with reduced bonus)
         true
     }
+    
+    /// Evaluate bonus for contesting 8-file pushes immediately
+    ///
+    /// Rewards moves that immediately contest opponent pawn pushes on files 8 and 2,
+    /// preventing them from gaining tempo through promotions.
+    fn evaluate_8_file_contest_bonus(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+    ) -> TaperedScore {
+        let mut mg_score = 0;
+        let opponent = player.opposite();
+        
+        // Check for opponent pawns on files 8 and 2 that have advanced
+        for row in 0..9 {
+            for col in 0..9 {
+                let pos = Position::new(row, col);
+                if let Some(piece) = board.get_piece(pos) {
+                    if piece.player == opponent && piece.piece_type == PieceType::Pawn {
+                        let file = 9 - col;
+                        
+                        if file == 8 || file == 2 {
+                            let start_row: u8 = if opponent == Player::Black { 6 } else { 2 };
+                            let advancement = if opponent == Player::Black {
+                                start_row.saturating_sub(row)
+                            } else {
+                                row.saturating_sub(start_row)
+                            };
+                            
+                            // If opponent pawn has advanced to rank 5 or beyond, we should contest
+                            if advancement >= 2 {
+                                // Check if we can contest immediately (pawn on adjacent rank)
+                                let contest_square = if opponent == Player::Black {
+                                    // Opponent pawn on file 8, we can contest with our pawn on 8-5
+                                    if row < 8 {
+                                        Position::new(row + 1, col) // One rank ahead
+                                    } else {
+                                        continue;
+                                    }
+                                } else {
+                                    // White pawns
+                                    if row > 0 {
+                                        Position::new(row.saturating_sub(1), col) // One rank behind
+                                    } else {
+                                        continue;
+                                    }
+                                };
+                                
+                                // Bonus if we have a piece that can contest this square
+                                if board.is_square_attacked_by(contest_square, player) {
+                                    mg_score += 100; // Bonus for being able to contest
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        TaperedScore::new_tapered(mg_score, mg_score / 4)
+    }
 
+    /// Check if opponent has a promotion sequence threat (e.g., 9九角成, 8七歩成)
+    ///
+    /// Detects if opponent can force a promotion in 1-2 plies through captures
+    /// or pawn advances that would create a promoted piece (horse, dragon, tokin).
+    fn has_promotion_sequence_threat(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        bishop_pos: Position,
+    ) -> bool {
+        let opponent = player.opposite();
+        
+        // Check for opponent bishop that can trade and promote
+        let opponent_bishops = self.find_pieces(board, opponent, PieceType::Bishop);
+        
+        for opp_bishop_pos in opponent_bishops {
+            // Check if opponent bishop can capture our bishop and promote
+            // This simulates the 5五角 → 同桂 → 9九角成 sequence
+            if self.can_bishop_attack(board, opp_bishop_pos, bishop_pos, opponent) {
+                // Check if opponent can promote after capture
+                let promotion_squares = if opponent == Player::Black {
+                    // Black promotes on ranks 7, 8, 9 (rows 6, 7, 8)
+                    [Position::new(7, 0), Position::new(7, 8), Position::new(6, 0), Position::new(6, 8)] // 9九, 1九, 9八, 1八
+                } else {
+                    // White promotes on ranks 1, 2, 3 (rows 0, 1, 2)
+                    [Position::new(1, 0), Position::new(1, 8), Position::new(2, 0), Position::new(2, 8)] // 1一, 9一, 1二, 9二
+                };
+                
+                for &promo_sq in &promotion_squares {
+                    // Check if opponent bishop can reach promotion square after trade
+                    if self.can_bishop_attack(board, opp_bishop_pos, promo_sq, opponent) {
+                        // Check if promotion square is undefended or weakly defended
+                        if !board.is_square_attacked_by(promo_sq, player) {
+                            return true; // Promotion threat exists
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Check for pawn promotion threats on files 8 and 2
+        for row in 0..9 {
+            for col in 0..9 {
+                let pos = Position::new(row, col);
+                if let Some(piece) = board.get_piece(pos) {
+                    if piece.player == opponent && piece.piece_type == PieceType::Pawn {
+                        let file = 9 - col;
+                        if file == 8 || file == 2 {
+                            // Check if pawn can advance to promotion square
+                            let promo_sq = if file == 8 {
+                                if opponent == Player::Black {
+                                    Position::new(6, 1) // 8-7
+                                } else {
+                                    Position::new(2, 1) // 2-3
+                                }
+                            } else {
+                                if opponent == Player::Black {
+                                    Position::new(2, 8) // 2-3
+                                } else {
+                                    Position::new(6, 8) // 8-7
+                                }
+                            };
+                            
+                            // Check if pawn can reach promotion square in 1-2 moves
+                            let can_reach = if opponent == Player::Black {
+                                row > promo_sq.row && row <= promo_sq.row + 2
+                            } else {
+                                row < promo_sq.row && row >= promo_sq.row.saturating_sub(2)
+                            };
+                            
+                            if can_reach && !board.is_square_attacked_by(promo_sq, player) {
+                                return true; // Pawn promotion threat
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        false
+    }
     /// Check if opponent has a bishop promotion threat to a critical square
     fn has_bishop_promotion_threat(
         &self,
@@ -1427,6 +1636,96 @@ impl OpeningPrincipleEvaluator {
             }
         }
 
+        false
+    }
+
+    /// Evaluate bonus for active counterplay when material loss is forced
+    /// Rewards rook trades, checks, and pawn storms on opposite flank
+    fn evaluate_active_counterplay_bonus(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        move_count: u32,
+    ) -> TaperedScore {
+        let mut mg_score = 0;
+        
+        // Check if opponent has a promoted rook/dragon on edge files (8 or 2)
+        // If so, reward moves that create immediate counterplay
+        let opponent = player.opposite();
+        let mut has_opponent_dragon = false;
+        let mut dragon_file = 0;
+        
+        for row in 0..9 {
+            for col in 0..9 {
+                let pos = Position::new(row, col);
+                if let Some(piece) = board.get_piece(pos) {
+                    if piece.player == opponent && piece.piece_type == PieceType::PromotedRook {
+                        let file = 9 - col;
+                        if file == 8 || file == 2 {
+                            has_opponent_dragon = true;
+                            dragon_file = file;
+                            break;
+                        }
+                    }
+                }
+            }
+            if has_opponent_dragon {
+                break;
+            }
+        }
+        
+        // If opponent has a dragon on edge file, reward counterplay
+        if has_opponent_dragon && move_count <= 15 {
+            // Bonus for rook trades (if we have a rook)
+            let our_rook_file = self.find_rook_file(board, player);
+            if our_rook_file > 0 {
+                // Rook trade is valuable when opponent has active dragon
+                mg_score += 80;
+            }
+            
+            // Bonus for checks (active moves that force responses)
+            // This is evaluated per-move, so we'll check in move ordering instead
+            
+            // Bonus for pawn storms on opposite flank
+            let opposite_file = if dragon_file == 8 { 2 } else { 8 };
+            if self.has_pawn_on_file(board, player, opposite_file) {
+                // We have a pawn on the opposite flank - can create counterplay
+                mg_score += 60;
+            }
+        }
+        
+        TaperedScore {
+            mg: mg_score,
+            eg: 0,
+        }
+    }
+    
+    /// Find which file our rook is on (1-9), or 0 if not found
+    fn find_rook_file(&self, board: &BitboardBoard, player: Player) -> u8 {
+        for row in 0..9 {
+            for col in 0..9 {
+                let pos = Position::new(row, col);
+                if let Some(piece) = board.get_piece(pos) {
+                    if piece.player == player && matches!(piece.piece_type, PieceType::Rook | PieceType::PromotedRook) {
+                        return 9 - col; // Convert column to file
+                    }
+                }
+            }
+        }
+        0
+    }
+    
+    /// Check if we have a pawn on a specific file
+    fn has_pawn_on_file(&self, board: &BitboardBoard, player: Player, file: u8) -> bool {
+        let col = Self::file_to_col(file);
+        for row in 0..9 {
+            let pos = Position::new(row, col);
+            if let Some(piece) = board.get_piece(pos) {
+                if piece.player == player && piece.piece_type == PieceType::Pawn {
+                    return true;
+                }
+            }
+        }
         false
     }
 

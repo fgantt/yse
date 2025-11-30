@@ -2781,7 +2781,22 @@ impl SearchEngine {
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
+                // A piece was captured - add it to captured pieces
                 new_captured.add_piece(captured.piece_type, player);
+            } else if move_.from.is_none() {
+                // This is a drop move - remove the piece from captured pieces
+                let removed = new_captured.remove_piece(move_.piece_type, player);
+                if !removed {
+                    #[cfg(debug_assertions)]
+                    {
+                        eprintln!("SEARCH DROP MOVE BUG: Failed to remove piece from captured pieces!");
+                        eprintln!("  Move: {}", move_.to_usi_string());
+                        panic!(
+                            "SEARCH DROP MOVE BUG: Failed to remove {:?} from captured pieces!",
+                            move_.piece_type
+                        );
+                    }
+                }
             }
 
             // Shallow search for this move with null window for efficiency
@@ -3659,7 +3674,25 @@ impl SearchEngine {
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
+                // A piece was captured - add it to captured pieces
                 new_captured.add_piece(captured.piece_type, player);
+            } else if move_.from.is_none() {
+                // This is a drop move - remove the piece from captured pieces
+                let removed = new_captured.remove_piece(move_.piece_type, player);
+                if !removed {
+                    // CRITICAL: This should never happen if move generation is correct
+                    #[cfg(debug_assertions)]
+                    {
+                        eprintln!("SEARCH DROP MOVE BUG: Failed to remove piece from captured pieces!");
+                        eprintln!("  Move: {}", move_.to_usi_string());
+                        eprintln!("  Piece type: {:?}", move_.piece_type);
+                        eprintln!("  Player: {:?}", player);
+                        panic!(
+                            "SEARCH DROP MOVE BUG: Failed to remove {:?} from captured pieces for {:?}!",
+                            move_.piece_type, player
+                        );
+                    }
+                }
             }
 
             // Recursive search with reduced depth
@@ -4208,7 +4241,22 @@ impl SearchEngine {
                 let mut new_captured = captured_pieces.clone();
 
                 if let Some(ref captured) = move_info.captured_piece {
+                    // A piece was captured - add it to captured pieces
                     new_captured.add_piece(captured.piece_type, player);
+                } else if move_.from.is_none() {
+                    // This is a drop move - remove the piece from captured pieces
+                    let removed = new_captured.remove_piece(move_.piece_type, player);
+                    if !removed {
+                        #[cfg(debug_assertions)]
+                        {
+                            eprintln!("SEARCH DROP MOVE BUG: Failed to remove piece from captured pieces!");
+                            eprintln!("  Move: {}", move_.to_usi_string());
+                            panic!(
+                                "SEARCH DROP MOVE BUG: Failed to remove {:?} from captured pieces!",
+                                move_.piece_type
+                            );
+                        }
+                    }
                 }
 
                 // Use aspiration window for this PV
@@ -4664,7 +4712,22 @@ impl SearchEngine {
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
+                // A piece was captured - add it to captured pieces
                 new_captured.add_piece(captured.piece_type, player);
+            } else if move_.from.is_none() {
+                // This is a drop move - remove the piece from captured pieces
+                let removed = new_captured.remove_piece(move_.piece_type, player);
+                if !removed {
+                    #[cfg(debug_assertions)]
+                    {
+                        eprintln!("SEARCH DROP MOVE BUG: Failed to remove piece from captured pieces!");
+                        eprintln!("  Move: {}", move_.to_usi_string());
+                        panic!(
+                            "SEARCH DROP MOVE BUG: Failed to remove {:?} from captured pieces!",
+                            move_.piece_type
+                        );
+                    }
+                }
             }
 
             // Shallow search to evaluate move potential
@@ -4739,12 +4802,27 @@ impl SearchEngine {
             }
 
             // Use move unmaking instead of board cloning
-            let move_info =
-                board.make_move_with_info(&convert_move_from_all(&promising_move.move_));
+            let converted_move = convert_move_from_all(&promising_move.move_);
+            let move_info = board.make_move_with_info(&converted_move);
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
+                // A piece was captured - add it to captured pieces
                 new_captured.add_piece(captured.piece_type, player);
+            } else if converted_move.from.is_none() {
+                // This is a drop move - remove the piece from captured pieces
+                let removed = new_captured.remove_piece(converted_move.piece_type, player);
+                if !removed {
+                    #[cfg(debug_assertions)]
+                    {
+                        eprintln!("SEARCH DROP MOVE BUG: Failed to remove piece from captured pieces!");
+                        eprintln!("  Move: {}", converted_move.to_usi_string());
+                        panic!(
+                            "SEARCH DROP MOVE BUG: Failed to remove {:?} from captured pieces!",
+                            converted_move.piece_type
+                        );
+                    }
+                }
             }
 
             // Deeper search for verification
@@ -5734,7 +5812,25 @@ impl SearchEngine {
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
+                // A piece was captured - add it to captured pieces
                 new_captured.add_piece(captured.piece_type, player);
+            } else if move_.from.is_none() {
+                // This is a drop move - remove the piece from captured pieces
+                let removed = new_captured.remove_piece(move_.piece_type, player);
+                if !removed {
+                    // CRITICAL: This should never happen if move generation is correct
+                    #[cfg(debug_assertions)]
+                    {
+                        eprintln!("SEARCH DROP MOVE BUG: Failed to remove piece from captured pieces!");
+                        eprintln!("  Move: {}", move_.to_usi_string());
+                        eprintln!("  Piece type: {:?}", move_.piece_type);
+                        eprintln!("  Player: {:?}", player);
+                        panic!(
+                            "SEARCH DROP MOVE BUG: Failed to remove {:?} from captured pieces for {:?}!",
+                            move_.piece_type, player
+                        );
+                    }
+                }
             }
 
             let score = -self.negamax(
@@ -6800,7 +6896,22 @@ impl SearchEngine {
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
+                // A piece was captured - add it to captured pieces
                 new_captured.add_piece(captured.piece_type, player);
+            } else if move_.from.is_none() {
+                // This is a drop move - remove the piece from captured pieces
+                let removed = new_captured.remove_piece(move_.piece_type, player);
+                if !removed {
+                    #[cfg(debug_assertions)]
+                    {
+                        eprintln!("SEARCH DROP MOVE BUG: Failed to remove piece from captured pieces!");
+                        eprintln!("  Move: {}", move_.to_usi_string());
+                        panic!(
+                            "SEARCH DROP MOVE BUG: Failed to remove {:?} from captured pieces!",
+                            move_.piece_type
+                        );
+                    }
+                }
             }
 
             crate::debug_utils::start_timing(&format!("move_search_{}", move_index));
@@ -7593,7 +7704,25 @@ impl SearchEngine {
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
+                // A piece was captured - add it to captured pieces
                 new_captured.add_piece(captured.piece_type, player);
+            } else if move_.from.is_none() {
+                // This is a drop move - remove the piece from captured pieces
+                let removed = new_captured.remove_piece(move_.piece_type, player);
+                if !removed {
+                    // CRITICAL: This should never happen if move generation is correct
+                    #[cfg(debug_assertions)]
+                    {
+                        eprintln!("SEARCH DROP MOVE BUG: Failed to remove piece from captured pieces!");
+                        eprintln!("  Move: {}", move_.to_usi_string());
+                        eprintln!("  Piece type: {:?}", move_.piece_type);
+                        eprintln!("  Player: {:?}", player);
+                        panic!(
+                            "SEARCH DROP MOVE BUG: Failed to remove {:?} from captured pieces for {:?}!",
+                            move_.piece_type, player
+                        );
+                    }
+                }
             }
 
             // Task 7.6, 7.7: Extension logic and depth decrement behavior
@@ -8003,7 +8132,12 @@ impl SearchEngine {
         let mut temp_captured = CapturedPieces::new();
 
         if let Some(ref captured) = move_info.captured_piece {
+            // A piece was captured - add it to captured pieces
             temp_captured.add_piece(captured.piece_type, move_.player);
+        } else if move_.from.is_none() {
+            // This is a drop move - for tablebase checking, we don't need to track
+            // captured pieces since we're creating a fresh temp_captured
+            // But we should still note that a drop occurred
         }
 
         let cache_key =
@@ -8563,6 +8697,31 @@ impl SearchEngine {
 
         // Extend for captures of high-value pieces
         if move_.is_capture && move_.captured_piece_value() > 500 {
+            return true;
+        }
+
+        // Extend for pawn moves on edge files (8 or 2) that create promotion threats
+        // This helps the engine see deeper into critical promotion sequences
+        if move_.piece_type == crate::types::core::PieceType::Pawn {
+            let file = 9 - move_.to.col; // Convert column to file (1-9)
+            if file == 8 || file == 2 {
+                // Check if this pawn is on rank 5 (x-5) - critical promotion threat position
+                let rank = if move_.player == crate::types::core::Player::Black {
+                    move_.to.row
+                } else {
+                    8 - move_.to.row
+                };
+                // Rank 5 means pawn is on x-5 (one step from promotion zone)
+                if rank == 4 {
+                    return true; // Extend search for promotion threats
+                }
+            }
+        }
+        
+        // Extend for moves that threaten tokin promotion near opponent king
+        // This is critical for seeing forced mate sequences
+        if move_.piece_type == crate::types::core::PieceType::Pawn && move_.is_promotion {
+            // This is a promotion move - extend to see the consequences
             return true;
         }
 

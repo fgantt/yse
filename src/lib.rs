@@ -562,6 +562,166 @@ impl ShogiEngine {
         crate::utils::telemetry::debug_log("Search completed, checking result");
 
         if let Ok(Some((move_, _score))) = search_result {
+            // CRITICAL: Verify move is legal before returning
+            // This prevents illegal moves from being played
+            let move_generator = MoveGenerator::new();
+            let current_legal_moves = move_generator.generate_legal_moves(
+                &self.board,
+                self.current_player,
+                &self.captured_pieces,
+            );
+            
+            if !current_legal_moves.contains(&move_) {
+                // Illegal move detected - this is a critical bug
+                let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
+                eprintln!("ERROR: Search returned illegal move!");
+                eprintln!("Move: {}", move_.to_usi_string());
+                eprintln!("Position FEN: {}", fen);
+                eprintln!("Current player: {:?}", self.current_player);
+                eprintln!("Legal moves count: {}", current_legal_moves.len());
+                eprintln!("Legal moves: {:?}", current_legal_moves.iter().map(|m| m.to_usi_string()).collect::<Vec<_>>());
+                eprintln!("Captured pieces: {:?}", self.captured_pieces);
+                
+                // CRITICAL: Check for drop moves that are illegal
+                use crate::types::core::PieceType;
+                if move_.from.is_none() {
+                    // This is a drop move - verify piece is in hand
+                    let piece_count = self.captured_pieces.count(move_.piece_type, move_.player);
+                    if piece_count == 0 {
+                        eprintln!("DROP MOVE BUG: Attempting to drop piece that is not in hand!");
+                        eprintln!("  Move: {}", move_.to_usi_string());
+                        eprintln!("  Piece type: {:?}", move_.piece_type);
+                        eprintln!("  Player: {:?}", move_.player);
+                        eprintln!("  Pieces in hand: {:?}", self.captured_pieces);
+                        
+                        #[cfg(debug_assertions)]
+                        {
+                            panic!(
+                                "DROP MOVE BUG: Attempting to drop {:?} but player has 0 in hand!",
+                                move_.piece_type
+                            );
+                        }
+                    }
+                    
+                    // Verify square is not occupied
+                    if let Some(existing_piece) = self.board.get_piece(move_.to) {
+                        eprintln!("DROP MOVE BUG: Attempting to drop to occupied square!");
+                        eprintln!("  Move: {}", move_.to_usi_string());
+                        eprintln!("  Existing piece: {:?}", existing_piece);
+                        eprintln!("  Square: row {}, col {} (file {} rank {})", 
+                                 move_.to.row, move_.to.col, 9 - move_.to.col, 9 - move_.to.row);
+                        
+                        #[cfg(debug_assertions)]
+                        {
+                            panic!(
+                                "DROP MOVE BUG: Attempting to drop to occupied square! Existing piece: {:?}",
+                                existing_piece
+                            );
+                        }
+                    }
+                }
+                
+                // CRITICAL: Check for king moves that leave king in check
+                if move_.piece_type == PieceType::King {
+                    // Verify the king move doesn't leave the king in check
+                    let mut temp_board = self.board.clone();
+                    let mut temp_captured = self.captured_pieces.clone();
+                    
+                    if let Some(captured) = temp_board.make_move(&move_) {
+                        temp_captured.add_piece(captured.piece_type, move_.player);
+                    }
+                    
+                    let king_in_check = temp_board.is_king_in_check(move_.player, &temp_captured);
+                    if king_in_check {
+                        eprintln!("KING MOVE BUG: Move leaves king in check!");
+                        eprintln!("  Move: {}", move_.to_usi_string());
+                        eprintln!("  King position after move: row {}, col {}", move_.to.row, move_.to.col);
+                        
+                        // Check what pieces are attacking the king
+                        let opponent = move_.player.opposite();
+                        eprintln!("  Checking attacks from {:?}", opponent);
+                        
+                        // This is a critical bug - the move should have been filtered out
+                        #[cfg(debug_assertions)]
+                        {
+                            panic!(
+                                "KING MOVE BUG: Search returned move {} that leaves king in check!",
+                                move_.to_usi_string()
+                            );
+                        }
+                    }
+                }
+                
+                // CRITICAL: Check for pawn direction bug and drop violations
+                if move_.piece_type == PieceType::Pawn {
+                    // Check if this is a drop move
+                    if move_.from.is_none() {
+                        let file = 9 - move_.to.col;
+                        let rank = 9 - move_.to.row;
+                        
+                        // Check if square is occupied (this should never happen for a legal move)
+                        if let Some(existing_piece) = self.board.get_piece(move_.to) {
+                            eprintln!("PAWN DROP BUG: Square is occupied by {:?}", existing_piece);
+                            eprintln!("  Attempting to drop pawn to file {} rank {} (row {}, col {})", 
+                                     file, rank, move_.to.row, move_.to.col);
+                        }
+                        
+                        // Check two-pawn rule (this should never happen for a legal move)
+                        let mut pawn_count = 0;
+                        for r in 0..9 {
+                            let check_pos = crate::types::core::Position::new(r, move_.to.col);
+                            if let Some(p) = self.board.get_piece(check_pos) {
+                                if p.piece_type == PieceType::Pawn && p.player == move_.player {
+                                    pawn_count += 1;
+                                }
+                            }
+                        }
+                        
+                        if pawn_count > 0 {
+                            eprintln!("PAWN DROP BUG: Two-pawn rule violation!");
+                            eprintln!("  Attempting to drop pawn to file {} rank {} (row {}, col {})", 
+                                     file, rank, move_.to.row, move_.to.col);
+                            eprintln!("  {} pawn(s) already exist on file {}", pawn_count, file);
+                        }
+                    }
+                    if let Some(from) = move_.from {
+                        let file = 9 - from.col;
+                        let from_rank = from.row;
+                        let to_rank = move_.to.row;
+                        
+                        eprintln!("PAWN DIRECTION CHECK:");
+                        eprintln!("  File: {}", file);
+                        eprintln!("  From rank: {} (row {})", 9 - from_rank, from_rank);
+                        eprintln!("  To rank: {} (row {})", 9 - to_rank, to_rank);
+                        eprintln!("  Player: {:?}", move_.player);
+                        
+                        if move_.player == Player::Black && to_rank > from_rank {
+                            eprintln!("  *** BUG DETECTED: Black pawn moving UPWARD (from row {} to row {}) ***", from_rank, to_rank);
+                        }
+                        if move_.player == Player::White && to_rank < from_rank {
+                            eprintln!("  *** BUG DETECTED: White pawn moving DOWNWARD (from row {} to row {}) ***", from_rank, to_rank);
+                        }
+                        
+                        // Check if pawn exists at from square
+                        if let Some(piece) = self.board.get_piece(from) {
+                            eprintln!("  Piece at from square: {:?}", piece);
+                        } else {
+                            eprintln!("  *** BUG DETECTED: No piece at from square {:?} ***", from);
+                        }
+                    }
+                }
+                
+                // Panic in debug mode, fallback in release
+                #[cfg(debug_assertions)]
+                {
+                    panic!("Search returned illegal move: {} in position {}", move_.to_usi_string(), fen);
+                }
+                
+                // In release, fallback to first legal move
+                crate::utils::telemetry::debug_log("Falling back to first legal move due to illegal move from search");
+                return current_legal_moves.first().cloned();
+            }
+            
             Some(move_)
         } else {
             // Fallback to random move if search fails
@@ -594,16 +754,53 @@ impl ShogiEngine {
 
         // Check if move is legal
         if !legal_moves.contains(move_) {
+            // CRITICAL: Log full state for debugging illegal moves
+            let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
+            eprintln!("ERROR: Attempted to apply illegal move!");
+            eprintln!("Move: {}", move_.to_usi_string());
+            eprintln!("Position FEN: {}", fen);
+            eprintln!("Current player: {:?}", self.current_player);
+            eprintln!("Legal moves count: {}", legal_moves.len());
+            eprintln!("Legal moves: {:?}", legal_moves.iter().map(|m| m.to_usi_string()).collect::<Vec<_>>());
+            eprintln!("Captured pieces: {:?}", self.captured_pieces);
+            
             crate::utils::telemetry::debug_log(&format!(
                 "Move {} is not legal in current position",
                 move_.to_usi_string()
             ));
+            
+            // Panic in debug mode to catch bugs early
+            #[cfg(debug_assertions)]
+            {
+                panic!("Attempted to apply illegal move: {} in position {}", move_.to_usi_string(), fen);
+            }
+            
             return false;
         }
 
         // Apply the move
         if let Some(captured_piece) = self.board.make_move(move_) {
+            // A piece was captured - add it to captured pieces
             self.captured_pieces.add_piece(captured_piece.piece_type, self.current_player);
+        } else if move_.from.is_none() {
+            // This is a drop move - remove the piece from captured pieces
+            let removed = self.captured_pieces.remove_piece(move_.piece_type, self.current_player);
+            if !removed {
+                // CRITICAL: This should never happen if move generation is correct
+                eprintln!("DROP MOVE BUG: Failed to remove piece from captured pieces!");
+                eprintln!("  Move: {}", move_.to_usi_string());
+                eprintln!("  Piece type: {:?}", move_.piece_type);
+                eprintln!("  Player: {:?}", self.current_player);
+                eprintln!("  Captured pieces before: {:?}", self.captured_pieces);
+                
+                #[cfg(debug_assertions)]
+                {
+                    panic!(
+                        "DROP MOVE BUG: Failed to remove {:?} from captured pieces for {:?}!",
+                        move_.piece_type, self.current_player
+                    );
+                }
+            }
         }
 
         // Switch turns

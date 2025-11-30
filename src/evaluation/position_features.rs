@@ -365,6 +365,16 @@ impl PositionFeatureEvaluator {
         let attacker_penalty = self.evaluate_enemy_attackers(board, king_pos, player);
         mg_score -= attacker_penalty.mg;
         eg_score -= attacker_penalty.eg;
+        
+        // 5b. Open file attacks near king (rook on open file next to king)
+        let open_file_penalty = self.evaluate_open_file_attacks(board, king_pos, player);
+        mg_score -= open_file_penalty.mg;
+        eg_score -= open_file_penalty.eg;
+        
+        // 5c. Tokin threats near king
+        let tokin_threat_penalty = self.evaluate_tokin_threats(board, king_pos, player);
+        mg_score -= tokin_threat_penalty.mg;
+        eg_score -= tokin_threat_penalty.eg;
 
         // 6. King exposure (open squares near king)
         let exposure = self.evaluate_king_exposure(board, king_pos, player);
@@ -605,6 +615,130 @@ impl PositionFeatureEvaluator {
             }
         }
 
+        TaperedScore::new_tapered(mg_score, eg_score)
+    }
+    
+    /// Evaluate open file attacks near the king
+    /// Detects when opponent has a rook on an open file adjacent to the king
+    /// This is the critical pattern: open 8-file + rook invasion
+    fn evaluate_open_file_attacks(
+        &self,
+        board: &BitboardBoard,
+        king_pos: Position,
+        player: Player,
+    ) -> TaperedScore {
+        let mut mg_score = 0;
+        let mut eg_score = 0;
+        let opponent = player.opposite();
+        
+        // Get the file the king is on
+        let king_file = 9 - king_pos.col; // Convert column to file (1-9)
+        
+        // Check adjacent files (8 and 2 are edge files, most dangerous)
+        let adjacent_files = if king_file == 1 {
+            vec![2]
+        } else if king_file == 9 {
+            vec![8]
+        } else {
+            vec![king_file - 1, king_file + 1]
+        };
+        
+        for &file in &adjacent_files {
+            let file_col = 9 - file; // Convert file to column
+            
+            // Check if this file is open (no pawns blocking)
+            let mut file_is_open = true;
+            for row in 0..9 {
+                let pos = Position::new(row, file_col);
+                if let Some(piece) = board.get_piece(pos) {
+                    if piece.piece_type == PieceType::Pawn {
+                        file_is_open = false;
+                        break;
+                    }
+                }
+            }
+            
+            if file_is_open {
+                // Check if opponent has a rook that can use this file
+                let mut opponent_has_rook = false;
+                for row in 0..9 {
+                    for col in 0..9 {
+                        let pos = Position::new(row, col);
+                        if let Some(piece) = board.get_piece(pos) {
+                            if piece.player == opponent && matches!(piece.piece_type, PieceType::Rook | PieceType::PromotedRook) {
+                                // Rook can use the open file (horizontal movement)
+                                opponent_has_rook = true;
+                                break;
+                            }
+                        }
+                    }
+                    if opponent_has_rook {
+                        break;
+                    }
+                }
+                
+                if opponent_has_rook {
+                    // Open file next to king with opponent rook - very dangerous
+                    // This is the "open 8-file + rook invasion" pattern
+                    if file == 8 || file == 2 {
+                        // Edge files are most dangerous
+                        mg_score += 150; // Large penalty
+                        eg_score += 100;
+                    } else {
+                        mg_score += 80;
+                        eg_score += 50;
+                    }
+                }
+            }
+        }
+        
+        TaperedScore::new_tapered(mg_score, eg_score)
+    }
+    
+    /// Evaluate tokin (promoted pawn) threats near the king
+    /// Tokin attacks like gold and is extremely dangerous near the king
+    fn evaluate_tokin_threats(
+        &self,
+        board: &BitboardBoard,
+        king_pos: Position,
+        player: Player,
+    ) -> TaperedScore {
+        let mut mg_score = 0;
+        let mut eg_score = 0;
+        let opponent = player.opposite();
+        let mut tokin_count = 0;
+        
+        // Check for tokin near the king (within 2 squares)
+        for row in (king_pos.row.saturating_sub(2))..=(king_pos.row + 2).min(8) {
+            for col in (king_pos.col.saturating_sub(2))..=(king_pos.col + 2).min(8) {
+                let pos = Position::new(row, col);
+                if let Some(piece) = board.get_piece(pos) {
+                    if piece.player == opponent && piece.piece_type == PieceType::PromotedPawn {
+                        let distance = ((row as i8 - king_pos.row as i8).abs()
+                            + (col as i8 - king_pos.col as i8).abs())
+                            as u8;
+                        
+                        if distance <= 2 {
+                            tokin_count += 1;
+                            // Tokin very close to king - catastrophic
+                            mg_score += 200;
+                            eg_score += 150;
+                        } else if distance == 3 {
+                            // Tokin near king - very dangerous
+                            mg_score += 100;
+                            eg_score += 70;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Multiple tokin threats - extremely dangerous
+        if tokin_count >= 2 {
+            mg_score += 300; // Additional catastrophic penalty
+            eg_score += 200;
+        }
+        
         TaperedScore::new_tapered(mg_score, eg_score)
     }
 

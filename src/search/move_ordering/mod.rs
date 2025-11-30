@@ -6161,6 +6161,11 @@ impl MoveOrdering {
             stability_bonus += flank_bonus;
         }
         
+        // Check if move creates active counterplay (checks, rook trades) when opponent has dragon
+        if let Some(counterplay_bonus) = self.score_active_counterplay_move(move_, board) {
+            stability_bonus += counterplay_bonus;
+        }
+        
         // Check if move creates vulnerabilities (e.g., ▲7六歩 leaving 8八 undefended)
         let safety_penalty = self.check_move_safety(move_, board);
         
@@ -6191,6 +6196,7 @@ impl MoveOrdering {
         let mut penalty = 0;
         
         // 1. Block king moves on moves 1-2 (unless to castle position)
+        // Also penalize double king moves in first 8 moves
         if move_.piece_type == PieceType::King {
             if let Some(from) = move_.from {
                 let start_row = if move_.player == crate::types::core::Player::Black { 8 } else { 0 };
@@ -6209,11 +6215,309 @@ impl MoveOrdering {
                         // Massive penalty for non-castle king moves early
                         return -10000; // Should prevent these moves entirely
                     }
+                } else {
+                    // King is moving from non-starting position - check if this is a second king move
+                    // Count king moves in recent history (we'll estimate by checking if king has moved before)
+                    let king_moved_before = from.row != start_row;
+                    
+                    if king_moved_before {
+                        // This is a second (or more) king move
+                        // Check if castle is established
+                        let castle_established = {
+                            let is_castle_pos = match move_.player {
+                                crate::types::core::Player::Black => {
+                                    from.row >= 7 && (from.col <= 2 || from.col >= 6)
+                                }
+                                crate::types::core::Player::White => {
+                                    from.row <= 1 && (from.col <= 2 || from.col >= 6)
+                                }
+                            };
+                            
+                            // Also check for defensive pieces
+                            let mut has_defensive = false;
+                            for row in 0..9 {
+                                for col in 0..9 {
+                                    let pos = Position::new(row, col);
+                                    if let Some(piece) = board.get_piece(pos) {
+                                        if piece.player == move_.player {
+                                            if matches!(piece.piece_type, PieceType::Gold | PieceType::Silver) {
+                                                let distance = {
+                                                    let dr = if row > from.row {
+                                                        row - from.row
+                                                    } else {
+                                                        from.row - row
+                                                    };
+                                                    let dc = if col > from.col {
+                                                        col - from.col
+                                                    } else {
+                                                        from.col - col
+                                                    };
+                                                    dr + dc
+                                                };
+                                                if distance <= 2 {
+                                                    has_defensive = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                if has_defensive {
+                                    break;
+                                }
+                            }
+                            
+                            is_castle_pos || has_defensive
+                        };
+                        
+                        if !castle_established {
+                            // Double king shuffle without castle - very bad
+                            penalty -= 8000; // Massive penalty
+                        }
+                    }
                 }
             }
         }
         
-        // 2. Check pawn moves in the opening
+        // 2. Penalty for unsupported early bishop sorties (prevents ▲5五角 disasters)
+        if move_.piece_type == PieceType::Bishop {
+            // Check if this is an early move (first 8 moves)
+            // We'll estimate this by checking if defensive pieces are developed
+            let defensive_pieces_developed = {
+                let mut count = 0;
+                for row in 0..9 {
+                    for col in 0..9 {
+                        let pos = Position::new(row, col);
+                        if let Some(piece) = board.get_piece(pos) {
+                            if piece.player == move_.player {
+                                if matches!(piece.piece_type, PieceType::Gold | PieceType::Silver) {
+                                    let start_row = if move_.player == crate::types::core::Player::Black { 8 } else { 0 };
+                                    if pos.row != start_row {
+                                        count += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                count
+            };
+            
+            // If defensive pieces not developed, this is likely an early bishop sortie
+            if defensive_pieces_developed < 2 {
+                // Check if bishop is moving to exposed central square (5五, 2二, etc.)
+                let exposed_central = match move_.player {
+                    crate::types::core::Player::Black => {
+                        move_.to.row <= 5 && move_.to.col >= 3 && move_.to.col <= 5
+                    }
+                    crate::types::core::Player::White => {
+                        move_.to.row >= 3 && move_.to.col >= 3 && move_.to.col <= 5
+                    }
+                };
+                
+                // Also check if moving from starting position (defensive position)
+                let from_starting = if let Some(from) = move_.from {
+                    let start_row = if move_.player == crate::types::core::Player::Black { 8 } else { 0 };
+                    let start_col = if move_.player == crate::types::core::Player::Black { 7 } else { 1 };
+                    from.row == start_row && from.col == start_col
+                } else {
+                    false
+                };
+                
+                // Only penalize if moving from starting position to exposed central square
+                if from_starting && exposed_central {
+                    // Make move on temp board to check resulting position
+                    let mut temp_board = board.clone();
+                    if temp_board.make_move(move_).is_some() {
+                        // Check if key defensive squares are guarded
+                        let critical_squares = if move_.player == crate::types::core::Player::Black {
+                            [Position::new(6, 1), Position::new(7, 1)] // 7七 and 8八
+                        } else {
+                            [Position::new(2, 1), Position::new(1, 1)] // 3三 and 2二
+                        };
+                        
+                        let squares_guarded = critical_squares.iter()
+                            .any(|&sq| temp_board.is_square_attacked_by(sq, move_.player));
+                        
+                        if !squares_guarded {
+                            // Very dangerous: exposed bishop sortie without guard
+                            penalty -= 5000; // Massive penalty - should prevent ▲5五角
+                        } else {
+                            // Still risky even if guarded
+                            penalty -= 2000; // Large penalty
+                        }
+                    }
+                } else {
+                    // Bishop moving but not to exposed central - still risky early
+                    penalty -= 1000; // Moderate penalty
+                }
+            }
+        }
+        
+        // 3. CRITICAL: "Don't take the 8-pawn" heuristic
+        // Penalty for capturing pawns on edge files (8/2) when it opens the file for opponent's rook
+        // This prevents the fatal pattern: △8六歩 → ▲同歩 → opens file for rook invasion
+        if move_.piece_type == PieceType::Pawn && move_.is_capture {
+            let file = 9 - move_.to.col; // Convert column to file (1-9)
+            
+            if file == 8 || file == 2 {
+                // This is a pawn capture on flank file
+                let mut temp_board = board.clone();
+                if temp_board.make_move(move_).is_some() {
+                    let opponent = move_.player.opposite();
+                    
+                    // Check if this capture opens the file for opponent's rook
+                    // The file is "open" if there are no pawns blocking the rook's path
+                    let file_col = move_.to.col;
+                    let mut file_is_open = true;
+                    
+                    // Check if there are any pawns blocking the file
+                    for row in 0..9 {
+                        let pos = Position::new(row, file_col);
+                        if let Some(piece) = temp_board.get_piece(pos) {
+                            if piece.piece_type == PieceType::Pawn {
+                                // There's still a pawn on this file - not fully open
+                                file_is_open = false;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Check if opponent has a rook that can use the open file
+                    let mut opponent_has_rook = false;
+                    let mut rook_can_use_file = false;
+                    
+                    for row in 0..9 {
+                        for col in 0..9 {
+                            let pos = Position::new(row, col);
+                            if let Some(piece) = temp_board.get_piece(pos) {
+                                if piece.player == opponent && matches!(piece.piece_type, PieceType::Rook | PieceType::PromotedRook) {
+                                    opponent_has_rook = true;
+                                    // Check if rook is on or can reach this file
+                                    if col == file_col {
+                                        rook_can_use_file = true;
+                                    } else {
+                                        // Check if rook can move to this file (horizontal movement)
+                                        // Rooks can move horizontally, so if it's on any row, it can use the file
+                                        rook_can_use_file = true;
+                                    }
+                                    break;
+                                }
+                            }
+                        }
+                        if opponent_has_rook {
+                            break;
+                        }
+                    }
+                    
+                    // If file is open and opponent has a rook, this is a strategic blunder
+                    if file_is_open && opponent_has_rook && rook_can_use_file {
+                        // Check if opponent can immediately drop rook or advance it
+                        // This is the critical pattern: capturing the pawn opens the file
+                        penalty -= 5000; // Massive penalty - prevents "don't take the 8-pawn" blunders
+                    }
+                    
+                    // Also check for promotion threats (existing logic)
+                    let promotion_square = if file == 8 {
+                        if opponent == crate::types::core::Player::Black {
+                            Position::new(6, 1) // 8-7 for Black
+                        } else {
+                            Position::new(2, 1) // 2-3 for White
+                        }
+                    } else {
+                        if opponent == crate::types::core::Player::Black {
+                            Position::new(2, 8) // 2-3 for Black
+                        } else {
+                            Position::new(6, 8) // 8-7 for White
+                        }
+                    };
+                    
+                    // Check if opponent rook can reach promotion square and promote with tempo
+                    let mut allows_promotion = false;
+                    let mut promotion_with_tempo = false;
+                    
+                    for row in 0..9 {
+                        for col in 0..9 {
+                            let pos = Position::new(row, col);
+                            if let Some(piece) = temp_board.get_piece(pos) {
+                                if piece.player == opponent && matches!(piece.piece_type, PieceType::Rook | PieceType::PromotedRook) {
+                                    // Check if rook can attack promotion square
+                                    if temp_board.is_square_attacked_by(promotion_square, opponent) {
+                                        allows_promotion = true;
+                                        
+                                        // Check if promotion is with tempo (rook can promote immediately)
+                                        // This simulates the "同歩 → 同飛 → 8七飛成" sequence
+                                        // If rook is on same file and can move to promotion square, it's with tempo
+                                        if pos.col == promotion_square.col {
+                                            // Rook is on same file - can promote with tempo
+                                            promotion_with_tempo = true;
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if allows_promotion {
+                            break;
+                        }
+                    }
+                    
+                    if promotion_with_tempo {
+                        // "Free dragon" scenario - trade allows opponent promoted rook with tempo
+                        penalty -= 6000; // Massive penalty - should prevent these trades entirely
+                    } else if allows_promotion {
+                        // Promotion possible but not immediate - still very bad
+                        penalty -= 4000; // Large penalty
+                    }
+                }
+            }
+        }
+        
+        // 4. Bonus for contesting 8-file pushes immediately
+        if move_.piece_type == PieceType::Pawn {
+            let file = 9 - move_.to.col;
+            
+            // Check if this move contests an opponent pawn push on file 8 or 2
+            if file == 8 || file == 2 {
+                let opponent = move_.player.opposite();
+                
+                // Check if opponent has an advanced pawn on this file
+                let opponent_pawn_row = if opponent == crate::types::core::Player::Black {
+                    // Black pawns advance downward, check if pawn is on rank 5 or 6
+                    if move_.to.row <= 4 && move_.to.row >= 2 {
+                        Some(move_.to.row)
+                    } else {
+                        None
+                    }
+                } else {
+                    // White pawns advance upward
+                    if move_.to.row >= 4 && move_.to.row <= 6 {
+                        Some(move_.to.row)
+                    } else {
+                        None
+                    }
+                };
+                
+                if let Some(opp_pawn_row) = opponent_pawn_row {
+                    // Check if opponent has a pawn on adjacent rank
+                    let adj_row = if opponent == crate::types::core::Player::Black {
+                        opp_pawn_row + 1
+                    } else {
+                        opp_pawn_row.saturating_sub(1)
+                    };
+                    
+                    let adj_pos = Position::new(adj_row, move_.to.col);
+                    if let Some(piece) = board.get_piece(adj_pos) {
+                        if piece.player == opponent && piece.piece_type == PieceType::Pawn {
+                            // This move contests opponent's pawn push - bonus
+                            penalty += 1500; // Large bonus for contesting
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 5. Check pawn moves in the opening
         if move_.piece_type == PieceType::Pawn {
             let file = 9 - move_.to.col; // Convert column to file (1-9)
             
@@ -6396,6 +6700,80 @@ impl MoveOrdering {
     ///
     /// Returns bonus for moves that secure or guard promotion squares on files 8 and 2.
     /// This prevents opponent pawn promotions that lead to dragon invasions.
+    /// Score active counterplay moves (checks, rook trades) when opponent has a dragon
+    /// This rewards moves that create immediate counterplay instead of passive defense
+    fn score_active_counterplay_move(
+        &self,
+        move_: &Move,
+        board: &crate::bitboards::BitboardBoard,
+    ) -> Option<i32> {
+        let player = move_.player;
+        let opponent = player.opposite();
+        
+        // Check if opponent has a promoted rook/dragon on edge files (8 or 2)
+        let mut has_opponent_dragon = false;
+        let mut dragon_file = 0;
+        
+        for row in 0..9 {
+            for col in 0..9 {
+                let pos = crate::types::core::Position::new(row, col);
+                if let Some(piece) = board.get_piece(pos) {
+                    if piece.player == opponent && piece.piece_type == crate::types::core::PieceType::PromotedRook {
+                        let file = 9 - col;
+                        if file == 8 || file == 2 {
+                            has_opponent_dragon = true;
+                            dragon_file = file;
+                            break;
+                        }
+                    }
+                }
+            }
+            if has_opponent_dragon {
+                break;
+            }
+        }
+        
+        if !has_opponent_dragon {
+            return None; // No dragon threat, no counterplay bonus needed
+        }
+        
+        let mut bonus = 0;
+        
+        // Bonus for checks (active moves that force responses)
+        if move_.gives_check {
+            bonus += 1200; // Strong bonus for checks when opponent has dragon
+        }
+        
+        // Bonus for rook trades (if this move trades rooks)
+        if move_.piece_type == crate::types::core::PieceType::Rook || move_.piece_type == crate::types::core::PieceType::PromotedRook {
+            if move_.is_capture {
+                // Check if capturing opponent's rook
+                let captured_pos = move_.to;
+                if let Some(piece) = board.get_piece(captured_pos) {
+                    if piece.player == opponent && matches!(piece.piece_type, crate::types::core::PieceType::Rook | crate::types::core::PieceType::PromotedRook) {
+                        bonus += 1000; // Strong bonus for rook trade
+                    }
+                }
+            }
+        }
+        
+        // Bonus for pawn storms on opposite flank
+        if move_.piece_type == crate::types::core::PieceType::Pawn {
+            let file = 9 - move_.to.col;
+            let opposite_file = if dragon_file == 8 { 2 } else { 8 };
+            if file == opposite_file {
+                // Pawn move on opposite flank - creates counterplay
+                bonus += 800;
+            }
+        }
+        
+        if bonus > 0 {
+            Some(bonus)
+        } else {
+            None
+        }
+    }
+
     fn score_flank_security_move(
         &self,
         move_: &Move,

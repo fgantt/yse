@@ -149,7 +149,42 @@ impl MoveGenerator {
                     temp_captured.add_piece(captured.piece_type, player);
                 }
 
-                !temp_board.is_king_in_check(player, &temp_captured)
+                let king_safe = !temp_board.is_king_in_check(player, &temp_captured);
+                
+                // CRITICAL: For king moves, double-check the king is not in check
+                #[cfg(debug_assertions)]
+                if m.piece_type == PieceType::King && !king_safe {
+                    eprintln!("ILLEGAL KING MOVE DETECTED in move generation!");
+                    eprintln!("  Move: {}", m.to_usi_string());
+                    eprintln!("  Player: {:?}", player);
+                    eprintln!("  King would be at: row {}, col {}", m.to.row, m.to.col);
+                    
+                    // Check what's attacking the king
+                    let opponent = player.opposite();
+                    let king_pos = m.to;
+                    
+                    // Check all opponent pieces that might attack the king
+                    for r in 0..9 {
+                        for c in 0..9 {
+                            let pos = Position::new(r, c);
+                            if let Some(piece) = temp_board.get_piece(pos) {
+                                if piece.player == opponent {
+                                    if temp_board.piece_attacks_square_bitboard(
+                                        piece.piece_type,
+                                        pos,
+                                        king_pos,
+                                        opponent,
+                                    ) {
+                                        eprintln!("  King is attacked by {:?} at row {}, col {}", 
+                                                 piece.piece_type, r, c);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                king_safe
             })
             .collect();
 
@@ -255,7 +290,26 @@ impl MoveGenerator {
                 let dir: i8 = if player == Player::Black { -1 } else { 1 };
                 let new_row = pos.row as i8 + dir;
                 if new_row >= 0 && new_row < 9 {
-                    handle_capture_move(&mut moves, Position::new(new_row as u8, pos.col));
+                    let target_pos = Position::new(new_row as u8, pos.col);
+                    
+                    // CRITICAL: Verify pawn direction is correct
+                    #[cfg(debug_assertions)]
+                    {
+                        if player == Player::Black && new_row > pos.row as i8 {
+                            panic!(
+                                "PAWN MOVE BUG: Black pawn at row {} trying to move to row {} (upward movement is illegal for Black!)",
+                                pos.row, new_row
+                            );
+                        }
+                        if player == Player::White && new_row < pos.row as i8 {
+                            panic!(
+                                "PAWN MOVE BUG: White pawn at row {} trying to move to row {} (downward movement is illegal for White!)",
+                                pos.row, new_row
+                            );
+                        }
+                    }
+                    
+                    handle_capture_move(&mut moves, target_pos);
                 }
             }
             PieceType::Knight => {
@@ -499,7 +553,26 @@ impl MoveGenerator {
                 let dir: i8 = if player == Player::Black { -1 } else { 1 };
                 let new_row = pos.row as i8 + dir;
                 if new_row >= 0 && new_row < 9 {
-                    handle_move(&mut moves, Position::new(new_row as u8, pos.col));
+                    let target_pos = Position::new(new_row as u8, pos.col);
+                    
+                    // CRITICAL: Verify pawn direction is correct
+                    #[cfg(debug_assertions)]
+                    {
+                        if player == Player::Black && new_row > pos.row as i8 {
+                            panic!(
+                                "PAWN MOVE BUG: Black pawn at row {} trying to move to row {} (upward movement is illegal for Black!)",
+                                pos.row, new_row
+                            );
+                        }
+                        if player == Player::White && new_row < pos.row as i8 {
+                            panic!(
+                                "PAWN MOVE BUG: White pawn at row {} trying to move to row {} (downward movement is illegal for White!)",
+                                pos.row, new_row
+                            );
+                        }
+                    }
+                    
+                    handle_move(&mut moves, target_pos);
                 }
             }
             PieceType::Knight => {
@@ -593,19 +666,73 @@ impl MoveGenerator {
         let captured =
             if player == Player::Black { &captured_pieces.black } else { &captured_pieces.white };
 
+        // CRITICAL: Count pieces in hand to verify we're generating correct drops
+        let mut piece_counts: std::collections::HashMap<PieceType, u8> = std::collections::HashMap::new();
+        for &piece_type in captured {
+            *piece_counts.entry(piece_type).or_insert(0) += 1;
+        }
+
         for &piece_type in captured {
             if !processed_pieces.insert(piece_type) {
                 continue;
+            }
+            
+            // CRITICAL: Verify piece is actually in hand
+            let count = captured_pieces.count(piece_type, player);
+            if count == 0 {
+                #[cfg(debug_assertions)]
+                {
+                    eprintln!("DROP GENERATION BUG: Attempting to generate drops for piece type {:?} but count is 0!", piece_type);
+                    eprintln!("  Player: {:?}", player);
+                    eprintln!("  Captured pieces: {:?}", captured_pieces);
+                    panic!("DROP GENERATION BUG: Piece type {:?} has count 0 but is in captured list!", piece_type);
+                }
+                continue; // Skip if not in hand
             }
 
             for r in 0..9 {
                 for c in 0..9 {
                     let pos = Position::new(r, c);
-                    if !board.is_square_occupied(pos) {
-                        // Basic legality check for drops (e.g., pawn drops)
-                        if is_legal_drop_location(board, piece_type, pos, player) {
-                            moves.push(Move::new_drop(piece_type, pos, player));
+                    
+                    // CRITICAL: Double-check square is not occupied
+                    // This should never fail if is_square_occupied is correct, but we check anyway
+                    if board.is_square_occupied(pos) {
+                        #[cfg(debug_assertions)]
+                        {
+                            if piece_type == PieceType::Pawn {
+                                if let Some(existing_piece) = board.get_piece(pos) {
+                                    eprintln!("WARNING: Attempting to generate pawn drop to occupied square!");
+                                    eprintln!("  Position: row {}, col {} (file {} rank {})", 
+                                             r, c, 9 - c, 9 - r);
+                                    eprintln!("  Existing piece: {:?}", existing_piece);
+                                }
+                            }
                         }
+                        continue; // Skip occupied squares
+                    }
+                    
+                    // Basic legality check for drops (e.g., pawn drops)
+                    if is_legal_drop_location(board, piece_type, pos, player) {
+                        // CRITICAL: Double-check piece is still in hand before creating move
+                        let current_count = captured_pieces.count(piece_type, player);
+                        if current_count == 0 {
+                            #[cfg(debug_assertions)]
+                            {
+                                eprintln!("DROP GENERATION BUG: Piece count became 0 during move generation!");
+                                eprintln!("  Piece type: {:?}", piece_type);
+                                eprintln!("  Player: {:?}", player);
+                                eprintln!("  Position: row {}, col {}", r, c);
+                                panic!("DROP GENERATION BUG: Piece count is 0 when generating drop move!");
+                            }
+                            continue; // Skip if not in hand
+                        }
+                        
+                        let drop_move = Move::new_drop(piece_type, pos, player);
+                        
+                        // Note: is_legal_drop_location already checks the two-pawn rule,
+                        // so we don't need to check again here
+                        
+                        moves.push(drop_move);
                     }
                 }
             }
@@ -1114,18 +1241,31 @@ fn is_legal_drop_location(
     if piece_type == PieceType::Pawn {
         // Rule 1: Cannot drop on a file that already contains an unpromoted pawn of the
         // same color (Nifu / 二歩)
+        let file = 9 - pos.col;
+        let mut pawn_count = 0;
+        let mut pawn_positions = Vec::new();
+        
         for r in 0..9 {
-            if let Some(p) = board.get_piece(Position::new(r, pos.col)) {
+            let check_pos = Position::new(r, pos.col);
+            if let Some(p) = board.get_piece(check_pos) {
                 if p.piece_type == PieceType::Pawn && p.player == player {
-                    crate::utils::telemetry::debug_log(&format!(
-                        "[NIFU] Illegal pawn drop at {}{}. Already have pawn on file {}",
-                        (b'a' + pos.col) as char,
-                        9 - pos.row,
-                        (b'a' + pos.col) as char
-                    ));
-                    return false;
+                    pawn_count += 1;
+                    pawn_positions.push((r, check_pos));
                 }
             }
+        }
+        
+        if pawn_count > 0 {
+            // Two-pawn rule violation - this is normal and expected, just return false
+            // Only log in debug mode if we want to trace this
+            crate::utils::telemetry::debug_log(&format!(
+                "[NIFU] Illegal pawn drop at {}{}. Already have {} pawn(s) on file {}",
+                (b'a' + pos.col) as char,
+                9 - pos.row,
+                pawn_count,
+                (b'a' + pos.col) as char
+            ));
+            return false;
         }
 
         // Rule 2: Cannot drop pawn to give immediate checkmate (Uchifuzume /

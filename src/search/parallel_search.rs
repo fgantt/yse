@@ -593,7 +593,22 @@ impl ThreadLocalSearchContext {
         let board = &mut self.board;
         let captured = &mut self.captured_pieces;
         if let Some(captured_piece) = board.make_move(mv) {
+            // A piece was captured - add it to captured pieces
             captured.add_piece(captured_piece.piece_type, player);
+        } else if mv.from.is_none() {
+            // This is a drop move - remove the piece from captured pieces
+            let removed = captured.remove_piece(mv.piece_type, player);
+            if !removed {
+                #[cfg(debug_assertions)]
+                {
+                    eprintln!("PARALLEL SEARCH DROP MOVE BUG: Failed to remove piece from captured pieces!");
+                    eprintln!("  Move: {}", mv.to_usi_string());
+                    panic!(
+                        "PARALLEL SEARCH DROP MOVE BUG: Failed to remove {:?} from captured pieces!",
+                        mv.piece_type
+                    );
+                }
+            }
         }
         self.search_engine
             .search_at_depth(board, captured, player.opposite(), depth, time_limit_ms, alpha, beta)

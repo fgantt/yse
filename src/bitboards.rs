@@ -579,6 +579,27 @@ impl BitboardBoard {
             move_info.from, move_info.to
         ));
 
+        // CRITICAL: Verify board state before unmaking
+        #[cfg(debug_assertions)]
+        {
+            // Check that the destination square has a piece (the moved piece)
+            if let Some(piece_at_to) = self.get_piece(move_info.to) {
+                // Verify it's the correct player
+                assert_eq!(
+                    piece_at_to.player,
+                    move_info.player,
+                    "UNMAKE_MOVE: Piece at destination {:?} has wrong player. Expected {:?}, got {:?}",
+                    move_info.to, move_info.player, piece_at_to.player
+                );
+            } else {
+                // This is a critical error - we're trying to unmake a move but there's no piece at the destination
+                panic!(
+                    "UNMAKE_MOVE: No piece at destination {:?} when unmaking move from {:?}",
+                    move_info.to, move_info.from
+                );
+            }
+        }
+
         // Remove the piece that was placed at the destination
         self.remove_piece(move_info.to);
 
@@ -590,6 +611,17 @@ impl BitboardBoard {
         // Restore the moved piece to its original position
         if let Some(from) = move_info.from {
             // This was a normal move (not a drop)
+            // CRITICAL: Verify the from square is empty before restoring
+            #[cfg(debug_assertions)]
+            {
+                if let Some(existing_piece) = self.get_piece(from) {
+                    panic!(
+                        "UNMAKE_MOVE: From square {:?} is not empty! Contains {:?}. This indicates board state corruption.",
+                        from, existing_piece
+                    );
+                }
+            }
+            
             // Place the original piece type (before promotion) back at the from position
             self.place_piece(Piece::new(move_info.original_piece_type, move_info.player), from);
         }

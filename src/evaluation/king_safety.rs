@@ -657,6 +657,9 @@ impl KingSafetyEvaluator {
 
         if let Some(king_pos) = self.find_king_position(board, player) {
             let opponent = player.opposite();
+            let mut rook_attacks = 0;
+            let mut bishop_attacks = 0;
+            let mut tokin_threats = 0;
 
             // Check for major pieces attacking the king zone
             for row in 0..9 {
@@ -670,19 +673,103 @@ impl KingSafetyEvaluator {
 
                             if distance <= 3 {
                                 match piece.piece_type {
-                                    PieceType::Rook | PieceType::PromotedRook => score -= 30,
-                                    PieceType::Bishop | PieceType::PromotedBishop => score -= 25,
+                                    PieceType::Rook | PieceType::PromotedRook => {
+                                        score -= 30;
+                                        rook_attacks += 1;
+                                    }
+                                    PieceType::Bishop | PieceType::PromotedBishop => {
+                                        score -= 25;
+                                        bishop_attacks += 1;
+                                    }
                                     PieceType::Silver | PieceType::Gold => score -= 15,
                                     _ => score -= 5,
+                                }
+                            }
+                            
+                            // Check for tokin (promoted pawn) threats near king
+                            // Tokin attacks like gold - very dangerous near king
+                            if piece.piece_type == PieceType::PromotedPawn {
+                                let tokin_distance = ((row as i8 - king_pos.row as i8).abs()
+                                    + (col as i8 - king_pos.col as i8).abs())
+                                    as u8;
+                                if tokin_distance <= 2 {
+                                    // Tokin very close to king - catastrophic
+                                    tokin_threats += 1;
+                                    score -= 200; // Massive penalty for tokin near king
+                                } else if tokin_distance <= 3 {
+                                    // Tokin near king - very dangerous
+                                    score -= 100;
                                 }
                             }
                         }
                     }
                 }
             }
+            
+            // Double attack penalty: rook + bishop attacking king zone
+            // This is the "open file + entering bishop" pattern
+            if rook_attacks > 0 && bishop_attacks > 0 {
+                score -= 150; // Additional penalty for double attack
+            }
+            
+            // Multiple tokin threats - extremely dangerous
+            if tokin_threats >= 2 {
+                score -= 300; // Catastrophic penalty
+            }
+            
+            // Check for open files near the king
+            // If opponent has a rook and the file next to king is open, very dangerous
+            let king_file = 9 - king_pos.col; // Convert column to file (1-9)
+            let adjacent_files = if king_file == 1 {
+                vec![2]
+            } else if king_file == 9 {
+                vec![8]
+            } else {
+                vec![king_file - 1, king_file + 1]
+            };
+            
+            for &file in &adjacent_files {
+                if self.is_file_open_for_rook(board, file, opponent) {
+                    // Open file next to king - very dangerous
+                    score -= 100;
+                }
+            }
         }
 
         TaperedScore::new_tapered(score, score / 2)
+    }
+    
+    /// Check if a file is open for a rook (no pawns blocking)
+    fn is_file_open_for_rook(&self, board: &BitboardBoard, file: u8, player: Player) -> bool {
+        let col = 9 - file; // Convert file to column
+        let mut has_pawn = false;
+        
+        for row in 0..9 {
+            let pos = Position::new(row, col);
+            if let Some(piece) = board.get_piece(pos) {
+                if piece.piece_type == PieceType::Pawn {
+                    has_pawn = true;
+                    break;
+                }
+            }
+        }
+        
+        // File is open if no pawns, and we check if opponent has a rook that can use it
+        if !has_pawn {
+            // Check if opponent has a rook
+            for row in 0..9 {
+                for c in 0..9 {
+                    let pos = Position::new(row, c);
+                    if let Some(piece) = board.get_piece(pos) {
+                        if piece.player == player && matches!(piece.piece_type, PieceType::Rook | PieceType::PromotedRook) {
+                            return true; // Opponent has rook and file is open
+                        }
+                    }
+                }
+            }
+        }
+        
+        false
     }
 
     /// Get a simple hash for the board position
