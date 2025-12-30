@@ -4769,7 +4769,23 @@ impl SearchEngine {
         }
 
         // Sort by improvement over alpha (most promising first)
-        promising_moves.sort_by(|a, b| b.improvement_over_alpha.cmp(&a.improvement_over_alpha));
+        // Use indexed approach to ensure total order even when moves are identical
+        let mut indexed_promising: Vec<(usize, PromisingMove)> = promising_moves.into_iter().enumerate().collect();
+        indexed_promising.sort_by(|(idx_a, a), (idx_b, b)| {
+            let score_cmp = b.improvement_over_alpha.cmp(&a.improvement_over_alpha);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                let move_cmp = self.compare_all_moves_directly(&a.move_, &b.move_);
+                if move_cmp != std::cmp::Ordering::Equal {
+                    move_cmp
+                } else {
+                    // Final tie-breaker: use original index
+                    idx_a.cmp(idx_b)
+                }
+            }
+        });
+        promising_moves = indexed_promising.into_iter().map(|(_, item)| item).collect();
 
         // Limit to top promising moves for efficiency
         promising_moves.truncate(3);
@@ -8117,7 +8133,23 @@ impl SearchEngine {
                 (m.clone(), base_score + pruning_score)
             })
             .collect();
-        scored_regular.sort_by(|a, b| b.1.cmp(&a.1));
+        // Use indexed approach to ensure total order even when moves are identical
+        let mut indexed_scored: Vec<(usize, (Move, i32))> = scored_regular.into_iter().enumerate().collect();
+        indexed_scored.sort_by(|(idx_a, a), (idx_b, b)| {
+            let score_cmp = b.1.cmp(&a.1);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                let move_cmp = self.compare_moves_directly(&a.0, &b.0);
+                if move_cmp != std::cmp::Ordering::Equal {
+                    move_cmp
+                } else {
+                    // Final tie-breaker: use original index
+                    idx_a.cmp(idx_b)
+                }
+            }
+        });
+        let scored_regular: Vec<(Move, i32)> = indexed_scored.into_iter().map(|(_, item)| item).collect();
 
         // Combine: tablebase moves first, then regular moves
         let mut result = tablebase_moves;
@@ -8372,7 +8404,23 @@ impl SearchEngine {
                 (m.clone(), base_score + pruning_score + adaptive_score)
             })
             .collect();
-        scored_regular.sort_by(|a, b| b.1.cmp(&a.1));
+        // Use indexed approach to ensure total order even when moves are identical
+        let mut indexed_scored: Vec<(usize, (Move, i32))> = scored_regular.into_iter().enumerate().collect();
+        indexed_scored.sort_by(|(idx_a, a), (idx_b, b)| {
+            let score_cmp = b.1.cmp(&a.1);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                let move_cmp = self.compare_moves_directly(&a.0, &b.0);
+                if move_cmp != std::cmp::Ordering::Equal {
+                    move_cmp
+                } else {
+                    // Final tie-breaker: use original index
+                    idx_a.cmp(idx_b)
+                }
+            }
+        });
+        let scored_regular: Vec<(Move, i32)> = indexed_scored.into_iter().map(|(_, item)| item).collect();
 
         // Combine: tablebase moves first, then regular moves
         let mut result = tablebase_moves;
@@ -8383,6 +8431,110 @@ impl SearchEngine {
 
     pub fn moves_equal(&self, move1: &Move, move2: &Move) -> bool {
         move1.from == move2.from && move1.to == move2.to && move1.piece_type == move2.piece_type
+    }
+
+    /// Compare all::Move directly by their properties to ensure total order
+    /// This is used as a tie-breaker for PromisingMove sorting
+    fn compare_all_moves_directly(&self, a: &crate::types::all::Move, b: &crate::types::all::Move) -> std::cmp::Ordering {
+        // Compare by to position first
+        let to_cmp = a.to.row.cmp(&b.to.row);
+        if to_cmp != std::cmp::Ordering::Equal {
+            return to_cmp;
+        }
+        let to_col_cmp = a.to.col.cmp(&b.to.col);
+        if to_col_cmp != std::cmp::Ordering::Equal {
+            return to_col_cmp;
+        }
+        
+        // Compare by from position
+        match (a.from, b.from) {
+            (Some(a_from), Some(b_from)) => {
+                let from_row_cmp = a_from.row.cmp(&b_from.row);
+                if from_row_cmp != std::cmp::Ordering::Equal {
+                    return from_row_cmp;
+                }
+                let from_col_cmp = a_from.col.cmp(&b_from.col);
+                if from_col_cmp != std::cmp::Ordering::Equal {
+                    return from_col_cmp;
+                }
+            }
+            (Some(_), None) => return std::cmp::Ordering::Less,
+            (None, Some(_)) => return std::cmp::Ordering::Greater,
+            (None, None) => {}
+        }
+        
+        // Compare by piece type
+        let piece_cmp = (a.piece_type as u8).cmp(&(b.piece_type as u8));
+        if piece_cmp != std::cmp::Ordering::Equal {
+            return piece_cmp;
+        }
+        
+        // Compare by player
+        let player_cmp = (a.player as u8).cmp(&(b.player as u8));
+        if player_cmp != std::cmp::Ordering::Equal {
+            return player_cmp;
+        }
+        
+        // Final tie-breaker: compare by move flags to ensure total order
+        // Even if all other properties are equal, these flags can differ
+        // This ensures we never return Equal for different moves
+        let a_flags = ((a.is_promotion as u8) << 2) | ((a.is_capture as u8) << 1) | (a.gives_check as u8);
+        let b_flags = ((b.is_promotion as u8) << 2) | ((b.is_capture as u8) << 1) | (b.gives_check as u8);
+        let flags_cmp = a_flags.cmp(&b_flags);
+        if flags_cmp != std::cmp::Ordering::Equal {
+            return flags_cmp;
+        }
+        
+        // If we get here, the moves are truly identical
+        // Return Equal (this is fine - identical moves should compare as equal)
+        std::cmp::Ordering::Equal
+    }
+
+    /// Compare moves directly by their properties to ensure total order
+    /// This is used as a final tie-breaker when all other comparisons are equal
+    fn compare_moves_directly(&self, a: &Move, b: &Move) -> std::cmp::Ordering {
+        // Compare by to position first
+        let to_cmp = a.to.row.cmp(&b.to.row);
+        if to_cmp != std::cmp::Ordering::Equal {
+            return to_cmp;
+        }
+        let to_col_cmp = a.to.col.cmp(&b.to.col);
+        if to_col_cmp != std::cmp::Ordering::Equal {
+            return to_col_cmp;
+        }
+        
+        // Compare by from position
+        match (a.from, b.from) {
+            (Some(a_from), Some(b_from)) => {
+                let from_row_cmp = a_from.row.cmp(&b_from.row);
+                if from_row_cmp != std::cmp::Ordering::Equal {
+                    return from_row_cmp;
+                }
+                let from_col_cmp = a_from.col.cmp(&b_from.col);
+                if from_col_cmp != std::cmp::Ordering::Equal {
+                    return from_col_cmp;
+                }
+            }
+            (Some(_), None) => return std::cmp::Ordering::Less,
+            (None, Some(_)) => return std::cmp::Ordering::Greater,
+            (None, None) => {}
+        }
+        
+        // Compare by piece type
+        let piece_cmp = (a.piece_type as u8).cmp(&(b.piece_type as u8));
+        if piece_cmp != std::cmp::Ordering::Equal {
+            return piece_cmp;
+        }
+        
+        // Compare by player
+        let player_cmp = (a.player as u8).cmp(&(b.player as u8));
+        if player_cmp != std::cmp::Ordering::Equal {
+            return player_cmp;
+        }
+        
+        // If we get here, moves are truly equal (same from, to, piece_type, player)
+        // This should be extremely rare, but we return Equal in this case
+        std::cmp::Ordering::Equal
     }
 
     fn update_killer_moves(&mut self, new_killer: Move) {
@@ -8862,10 +9014,18 @@ impl SearchEngine {
             return threat_cmp;
         }
 
-        // 5. Use a simple hash-based comparison to ensure total order
+        // 5. Use hash-based comparison for total order
+        // If hashes are equal, use direct move comparison as final tie-breaker
         let a_hash = self.move_hash(a);
         let b_hash = self.move_hash(b);
-        a_hash.cmp(&b_hash)
+        let hash_cmp = a_hash.cmp(&b_hash);
+        if hash_cmp != std::cmp::Ordering::Equal {
+            return hash_cmp;
+        }
+        
+        // Final tie-breaker: compare moves directly by their properties
+        // This ensures total order even if hash collides (extremely unlikely)
+        self.compare_moves_directly(a, b)
     }
 
     /// Create a simple hash for move comparison
@@ -8988,9 +9148,18 @@ impl SearchEngine {
     /// compatibility)
     #[cfg(test)]
     pub fn sort_quiescence_moves(&self, moves: &[Move]) -> Vec<Move> {
-        let mut sorted_moves = moves.to_vec();
-        sorted_moves.sort_by(|a, b| self.compare_quiescence_moves(a, b));
-        sorted_moves
+        // Use indexed moves to ensure deterministic ordering even for identical moves
+        let mut indexed_moves: Vec<(usize, Move)> = moves.iter().cloned().enumerate().collect();
+        indexed_moves.sort_by(|(idx_a, a), (idx_b, b)| {
+            let cmp = self.compare_quiescence_moves(a, b);
+            if cmp != std::cmp::Ordering::Equal {
+                cmp
+            } else {
+                // Final tie-breaker: use original index to ensure deterministic ordering
+                idx_a.cmp(idx_b)
+            }
+        });
+        indexed_moves.into_iter().map(|(_, m)| m).collect()
     }
 
     /// Enhanced sort moves for quiescence search with position context
@@ -9018,33 +9187,39 @@ impl SearchEngine {
             return moves.to_vec();
         }
 
-        let mut sorted_moves = moves.to_vec();
-
-        // If move hint is provided, prioritize it (Task 5.11)
-        if let Some(hint_move) = move_hint {
-            if let Some(pos) =
-                sorted_moves.iter().position(|m| self.moves_equal_for_ordering(m, hint_move))
-            {
-                // Move hint to front if it exists in the list
-                if pos > 0 {
-                    sorted_moves.swap(0, pos);
-                }
-            }
-        }
-
-        // Use enhanced comparison with position context
-        sorted_moves.sort_by(|a, b| {
-            // If either move is the hint, prioritize it
+        // Create indexed moves from original input to preserve original order for tie-breaking
+        // This ensures deterministic ordering even for identical moves
+        let mut indexed_moves: Vec<(usize, Move)> = moves.iter().cloned().enumerate().collect();
+        
+        // If move hint is provided, we'll handle it in the sort comparison
+        // Don't swap beforehand - let the sort handle prioritization
+        
+        indexed_moves.sort_by(|(idx_a, a), (idx_b, b)| {
+            // If move hint is provided, prioritize it
+            // But ensure total order: if both are hint, use enhanced comparison
             if let Some(hint_move) = move_hint {
-                if self.moves_equal_for_ordering(a, hint_move) {
-                    return std::cmp::Ordering::Less;
-                }
-                if self.moves_equal_for_ordering(b, hint_move) {
-                    return std::cmp::Ordering::Greater;
+                let a_is_hint = self.moves_equal_for_ordering(a, hint_move);
+                let b_is_hint = self.moves_equal_for_ordering(b, hint_move);
+                match (a_is_hint, b_is_hint) {
+                    (true, false) => return std::cmp::Ordering::Less,
+                    (false, true) => return std::cmp::Ordering::Greater,
+                    (true, true) => {
+                        // Both are hint - fall through to enhanced comparison for tie-breaking
+                    }
+                    (false, false) => {
+                        // Neither is hint - fall through to enhanced comparison
+                    }
                 }
             }
-            self.compare_quiescence_moves_enhanced(a, b, board, captured_pieces, player)
+            let cmp = self.compare_quiescence_moves_enhanced(a, b, board, captured_pieces, player);
+            if cmp != std::cmp::Ordering::Equal {
+                cmp
+            } else {
+                // Final tie-breaker: use original index to ensure deterministic ordering
+                idx_a.cmp(idx_b)
+            }
         });
+        let sorted_moves: Vec<Move> = indexed_moves.into_iter().map(|(_, m)| m).collect();
 
         sorted_moves
     }
@@ -9097,9 +9272,17 @@ impl SearchEngine {
         }
 
         // 4. Use hash-based comparison for total order
+        // If hashes are equal, use direct move comparison as final tie-breaker
         let a_hash = self.move_hash(a);
         let b_hash = self.move_hash(b);
-        a_hash.cmp(&b_hash)
+        let hash_cmp = a_hash.cmp(&b_hash);
+        if hash_cmp != std::cmp::Ordering::Equal {
+            return hash_cmp;
+        }
+        
+        // Final tie-breaker: compare moves directly by their properties
+        // This ensures total order even if hash collides (extremely unlikely)
+        self.compare_moves_directly(a, b)
     }
 
     /// Assess position value for quiescence move ordering
@@ -9259,10 +9442,23 @@ impl SearchEngine {
 
                 // Sort by depth (ascending) - shallowest first
                 // For same depth, prefer keeping entries with lower last_access_age (older)
-                entries.sort_by(|(_, a), (_, b)| match a.depth.cmp(&b.depth) {
-                    std::cmp::Ordering::Equal => a.last_access_age.cmp(&b.last_access_age),
-                    other => other,
+                // Use indexed approach to ensure total order even when entries are identical
+                let mut indexed_entries: Vec<(usize, (String, &QuiescenceEntry))> = entries.iter().enumerate().map(|(i, (k, v))| (i, (k.clone(), *v))).collect();
+                indexed_entries.sort_by(|(idx_a, (_, a)), (idx_b, (_, b))| {
+                    let depth_cmp = a.depth.cmp(&b.depth);
+                    if depth_cmp != std::cmp::Ordering::Equal {
+                        depth_cmp
+                    } else {
+                        let age_cmp = a.last_access_age.cmp(&b.last_access_age);
+                        if age_cmp != std::cmp::Ordering::Equal {
+                            age_cmp
+                        } else {
+                            // Final tie-breaker: use original index
+                            idx_a.cmp(idx_b)
+                        }
+                    }
                 });
+                entries = indexed_entries.into_iter().map(|(_, item)| item).collect();
 
                 // Remove shallowest entries
                 let keys_to_remove: Vec<String> =
@@ -14255,6 +14451,14 @@ impl IterativeDeepening {
         let mut best_score = 0;
         let mut previous_scores = Vec::new();
 
+        // Log NNUE status once at the start of search (not too noisy)
+        if search_engine.evaluator.is_nnue_enabled() {
+            if std::env::var("SHOGI_SILENT_BENCH").is_err() {
+                println!("info string Using NNUE evaluation");
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+            }
+        }
+
         // Calculate initial static evaluation for aspiration window initialization
         let initial_static_eval = search_engine.evaluate_position(board, player, captured_pieces);
         trace_log!(
@@ -14392,28 +14596,19 @@ impl IterativeDeepening {
                 break;
             }
 
-            // For unlimited depth, use minimal buffer. For limited depth, use larger
-            // buffer.
+            // For unlimited depth, use minimal buffer. For limited depth, use percentage buffer.
             let time_buffer_ms = if self.max_depth >= 100 {
                 // Unlimited depth: only stop if we have less than 500ms remaining
                 // This allows the search to use almost all available time
                 500u32
             } else {
-                // Limited depth: use 20% or 2 seconds, whichever is larger
+                // Limited depth: use 20% of time limit, with a minimum of 50ms and maximum of 2000ms
+                // This ensures we have enough time to complete at least one depth iteration
                 let percentage_buffer = (search_time_limit as f64 * 0.20) as u32;
-                percentage_buffer.max(2000u32)
+                percentage_buffer.max(50u32).min(2000u32)
             };
 
-            eprintln!(
-                "DEBUG: Depth {} time check - elapsed: {}ms, limit: {}ms, remaining: {}ms, \
-                 buffer: {}ms (unlimited={})",
-                depth,
-                elapsed_ms,
-                search_time_limit,
-                remaining_ms,
-                time_buffer_ms,
-                self.max_depth >= 100
-            );
+            // Debug output removed to reduce noise during training
 
             if remaining_ms <= time_buffer_ms {
                 trace_log!(
@@ -14424,11 +14619,7 @@ impl IterativeDeepening {
                         elapsed_ms, search_time_limit, remaining_ms, time_buffer_ms
                     ),
                 );
-                eprintln!(
-                    "DEBUG: Breaking at depth {} due to time limit (elapsed: {}ms, limit: {}ms, \
-                     remaining: {}ms, buffer: {}ms)",
-                    depth, elapsed_ms, search_time_limit, remaining_ms, time_buffer_ms
-                );
+                // Debug output removed to reduce noise during training
                 break;
             }
             // CRITICAL: If we've been searching for too long without progress, force return
@@ -15244,10 +15435,17 @@ impl IterativeDeepening {
                         "Skipping info message: score is 0 and PV is empty",
                     );
                 } else {
+                    // Add NNUE indicator to first depth output (subtle but visible)
+                    let nnue_indicator = if depth == 1 && search_engine.evaluator.is_nnue_enabled() {
+                        " [NNUE]"
+                    } else {
+                        ""
+                    };
+                    
                     let info_string = format!(
                         "info depth {} seldepth {} multipv 1 score cp {} time {} nodes {} nps {} \
-                         pv {}",
-                        depth, seldepth, score, time_searched, nodes_for_info, nps, pv_string
+                         pv {}{}",
+                        depth, seldepth, score, time_searched, nodes_for_info, nps, pv_string, nnue_indicator
                     );
 
                     // Print the info message to stdout for USI protocol (skip during silent
@@ -15376,11 +15574,7 @@ impl IterativeDeepening {
                 ),
             );
             let board_state_fen = board.to_fen(player, captured_pieces);
-            eprintln!(
-                "DEBUG: Returning default fallback move {} (score 0) for board_fen={}",
-                legal_moves[0].to_usi_string(),
-                board_state_fen
-            );
+            // Debug output removed to reduce noise during training
             Some((legal_moves[0].clone(), 0))
         } else {
             None // Only return None if there are truly no legal moves

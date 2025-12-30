@@ -151,38 +151,9 @@ impl MoveGenerator {
 
                 let king_safe = !temp_board.is_king_in_check(player, &temp_captured);
                 
-                // CRITICAL: For king moves, double-check the king is not in check
-                #[cfg(debug_assertions)]
-                if m.piece_type == PieceType::King && !king_safe {
-                    eprintln!("ILLEGAL KING MOVE DETECTED in move generation!");
-                    eprintln!("  Move: {}", m.to_usi_string());
-                    eprintln!("  Player: {:?}", player);
-                    eprintln!("  King would be at: row {}, col {}", m.to.row, m.to.col);
-                    
-                    // Check what's attacking the king
-                    let opponent = player.opposite();
-                    let king_pos = m.to;
-                    
-                    // Check all opponent pieces that might attack the king
-                    for r in 0..9 {
-                        for c in 0..9 {
-                            let pos = Position::new(r, c);
-                            if let Some(piece) = temp_board.get_piece(pos) {
-                                if piece.player == opponent {
-                                    if temp_board.piece_attacks_square_bitboard(
-                                        piece.piece_type,
-                                        pos,
-                                        king_pos,
-                                        opponent,
-                                    ) {
-                                        eprintln!("  King is attacked by {:?} at row {}, col {}", 
-                                                 piece.piece_type, r, c);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                // Note: Illegal king moves (that would leave the king in check) are correctly
+                // filtered out here. This is expected behavior - the move generator generates
+                // pseudo-legal moves and then filters out those that would leave the king in check.
                 
                 king_safe
             })
@@ -694,21 +665,9 @@ impl MoveGenerator {
                 for c in 0..9 {
                     let pos = Position::new(r, c);
                     
-                    // CRITICAL: Double-check square is not occupied
-                    // This should never fail if is_square_occupied is correct, but we check anyway
+                    // Skip occupied squares (this is expected - most squares are occupied)
                     if board.is_square_occupied(pos) {
-                        #[cfg(debug_assertions)]
-                        {
-                            if piece_type == PieceType::Pawn {
-                                if let Some(existing_piece) = board.get_piece(pos) {
-                                    eprintln!("WARNING: Attempting to generate pawn drop to occupied square!");
-                                    eprintln!("  Position: row {}, col {} (file {} rank {})", 
-                                             r, c, 9 - c, 9 - r);
-                                    eprintln!("  Existing piece: {:?}", existing_piece);
-                                }
-                            }
-                        }
-                        continue; // Skip occupied squares
+                        continue;
                     }
                     
                     // Basic legality check for drops (e.g., pawn drops)
@@ -895,7 +854,23 @@ impl MoveGenerator {
         }
 
         // Sort first to group duplicates together
-        moves.sort_by(|a, b| self.compare_quiescence_moves_simple(a, b));
+        // Use indexed approach to ensure deterministic ordering even for identical moves
+        let mut indices: Vec<usize> = (0..moves.len()).collect();
+        indices.sort_by(|&idx_a, &idx_b| {
+            let cmp = self.compare_quiescence_moves_simple(&moves[idx_a], &moves[idx_b]);
+            if cmp != std::cmp::Ordering::Equal {
+                cmp
+            } else {
+                // Final tie-breaker: use original index to ensure deterministic ordering
+                idx_a.cmp(&idx_b)
+            }
+        });
+        // Reorder moves based on sorted indices
+        let mut new_moves = Vec::with_capacity(moves.len());
+        for idx in indices {
+            new_moves.push(moves[idx].clone());
+        }
+        *moves = new_moves;
 
         // Remove duplicates (moves with same from, to, and piece_type)
         let mut write_index = 0;
@@ -1017,7 +992,71 @@ impl MoveGenerator {
         // This guarantees that different moves will always have different orderings
         let a_hash = self.move_hash(a);
         let b_hash = self.move_hash(b);
-        a_hash.cmp(&b_hash)
+        let hash_cmp = a_hash.cmp(&b_hash);
+        if hash_cmp != std::cmp::Ordering::Equal {
+            return hash_cmp;
+        }
+        
+        // Final tie-breaker: compare moves directly by their properties
+        // This ensures total order even if hash collides (extremely unlikely)
+        self.compare_moves_directly(a, b)
+    }
+
+    /// Compare moves directly by their properties to ensure total order
+    /// This is used as a final tie-breaker when all other comparisons are equal
+    fn compare_moves_directly(&self, a: &Move, b: &Move) -> std::cmp::Ordering {
+        // Compare by to position first
+        let to_cmp = a.to.row.cmp(&b.to.row);
+        if to_cmp != std::cmp::Ordering::Equal {
+            return to_cmp;
+        }
+        let to_col_cmp = a.to.col.cmp(&b.to.col);
+        if to_col_cmp != std::cmp::Ordering::Equal {
+            return to_col_cmp;
+        }
+        
+        // Compare by from position
+        match (a.from, b.from) {
+            (Some(a_from), Some(b_from)) => {
+                let from_row_cmp = a_from.row.cmp(&b_from.row);
+                if from_row_cmp != std::cmp::Ordering::Equal {
+                    return from_row_cmp;
+                }
+                let from_col_cmp = a_from.col.cmp(&b_from.col);
+                if from_col_cmp != std::cmp::Ordering::Equal {
+                    return from_col_cmp;
+                }
+            }
+            (Some(_), None) => return std::cmp::Ordering::Less,
+            (None, Some(_)) => return std::cmp::Ordering::Greater,
+            (None, None) => {}
+        }
+        
+        // Compare by piece type
+        let piece_cmp = (a.piece_type as u8).cmp(&(b.piece_type as u8));
+        if piece_cmp != std::cmp::Ordering::Equal {
+            return piece_cmp;
+        }
+        
+        // Compare by player
+        let player_cmp = (a.player as u8).cmp(&(b.player as u8));
+        if player_cmp != std::cmp::Ordering::Equal {
+            return player_cmp;
+        }
+        
+        // Final tie-breaker: compare by move flags to ensure total order
+        // Even if all other properties are equal, these flags can differ
+        // This ensures we never return Equal for different moves
+        let a_flags = ((a.is_promotion as u8) << 2) | ((a.is_capture as u8) << 1) | (a.gives_check as u8);
+        let b_flags = ((b.is_promotion as u8) << 2) | ((b.is_capture as u8) << 1) | (b.gives_check as u8);
+        let flags_cmp = a_flags.cmp(&b_flags);
+        if flags_cmp != std::cmp::Ordering::Equal {
+            return flags_cmp;
+        }
+        
+        // If we get here, the moves are truly identical
+        // Return Equal (this is fine - identical moves should compare as equal)
+        std::cmp::Ordering::Equal
     }
 
     /// Create a simple hash for move comparison

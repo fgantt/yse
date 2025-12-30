@@ -70,6 +70,8 @@ pub mod initiative_tracking;
 pub mod storm_tracking;
 pub mod telemetry;
 pub mod weight_tuning;
+pub mod nnue;
+pub mod nnue_training;
 
 /// Feature extraction namespace (re-exports for stable API)
 pub mod extractors;
@@ -80,6 +82,7 @@ use advanced_integration::AdvancedIntegration;
 use eval_cache::{EvaluationCache, MultiLevelCache};
 use integration::IntegratedEvaluator;
 use king_safety::KingSafetyEvaluator;
+use nnue::NNUEEvaluator;
 use statistics::EvaluationTelemetry;
 
 /// Position evaluator for the Shogi engine
@@ -106,6 +109,10 @@ pub struct PositionEvaluator {
     multi_level_cache: Option<MultiLevelCache>,
     // Whether to use cache
     use_cache: bool,
+    // NNUE evaluator (optional)
+    nnue_evaluator: Option<NNUEEvaluator>,
+    // Whether to use NNUE for evaluation
+    use_nnue: bool,
 }
 
 impl PositionEvaluator {
@@ -122,6 +129,8 @@ impl PositionEvaluator {
             eval_cache: None,
             multi_level_cache: None,
             use_cache: false,
+            nnue_evaluator: None,
+            use_nnue: false,
         }
     }
 
@@ -139,6 +148,8 @@ impl PositionEvaluator {
             eval_cache: None,
             multi_level_cache: None,
             use_cache: false,
+            nnue_evaluator: None,
+            use_nnue: false,
         }
     }
 
@@ -378,6 +389,52 @@ impl PositionEvaluator {
         }
     }
 
+    /// Enable NNUE evaluation
+    pub fn enable_nnue(&mut self, hidden_size_1: usize, hidden_size_2: usize) {
+        self.nnue_evaluator = Some(NNUEEvaluator::new(hidden_size_1, hidden_size_2));
+        self.use_nnue = true;
+    }
+
+    /// Enable NNUE evaluation with loaded weights
+    pub fn enable_nnue_with_weights<P: AsRef<std::path::Path>>(
+        &mut self,
+        weights_path: P,
+    ) -> Result<(), nnue::NNUEError> {
+        let nnue_eval = NNUEEvaluator::load(weights_path)?;
+        self.nnue_evaluator = Some(nnue_eval);
+        self.use_nnue = true;
+        Ok(())
+    }
+
+    /// Enable NNUE evaluation with provided weights (internal use)
+    pub fn enable_nnue_with_weights_internal(&mut self, weights: nnue::NNUEWeights) {
+        let nnue_eval = NNUEEvaluator::from_weights(weights);
+        self.nnue_evaluator = Some(nnue_eval);
+        self.use_nnue = true;
+    }
+
+    /// Disable NNUE evaluation
+    pub fn disable_nnue(&mut self) {
+        self.use_nnue = false;
+    }
+
+    /// Check if NNUE is enabled
+    pub fn is_nnue_enabled(&self) -> bool {
+        self.use_nnue
+    }
+
+    /// Save NNUE weights to file
+    pub fn save_nnue_weights<P: AsRef<std::path::Path>>(
+        &self,
+        path: P,
+    ) -> Result<(), nnue::NNUEError> {
+        if let Some(ref nnue) = self.nnue_evaluator {
+            nnue.save_weights(path)
+        } else {
+            Err(nnue::NNUEError::InvalidFormat)
+        }
+    }
+
     /// Extract raw feature values for tuning
     /// Returns a vector of unweighted feature values that can be used for
     /// automated tuning
@@ -459,6 +516,15 @@ impl PositionEvaluator {
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> i32 {
+        // Use NNUE if enabled and available
+        if self.use_nnue {
+            if let Some(ref mut nnue) = self.nnue_evaluator {
+                let nnue_score = nnue.evaluate(board, player, captured_pieces);
+                // NNUE returns score from perspective of player, so adjust if needed
+                return nnue_score;
+            }
+        }
+
         // Try cache first (Task 3.1.2: Cache probe before evaluation)
         if self.use_cache {
             if let Some(ref cache) = self.eval_cache {

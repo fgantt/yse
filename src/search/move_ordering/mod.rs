@@ -2218,7 +2218,16 @@ impl MoveOrdering {
         }
 
         // OPTIMIZATION: Sort by score using stable sort for deterministic ordering
-        move_scores.sort_by(|a, b| b.0.cmp(&a.0));
+        // Use index as tie-breaker when scores are equal to ensure total order
+        move_scores.sort_by(|a, b| {
+            let score_cmp = b.0.cmp(&a.0);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                // When scores are equal, use index to maintain stable ordering
+                a.1.cmp(&b.1)
+            }
+        });
 
         // OPTIMIZATION: Rebuild ordered moves using pre-computed scores
         for (_, index) in &move_scores {
@@ -3747,6 +3756,98 @@ impl MoveOrdering {
         moves_equal_helper(a, b) // Task 6.0: use pv_ordering module
     }
 
+    /// Compare moves directly by their properties to ensure total order
+    /// This is used as a tie-breaker when scores are equal
+    /// Get a deterministic sort key for a move
+    /// This creates a unique u64 key from move properties for stable sorting
+    fn get_move_sort_key(&self, move_: &Move) -> u64 {
+        let mut key = 0u64;
+        
+        // Pack move properties into the key
+        // to position: 6 bits for row (0-8), 6 bits for col (0-8) = 12 bits
+        key |= (move_.to.row as u64) << 58;
+        key |= (move_.to.col as u64) << 52;
+        
+        // from position: 6 bits for row, 6 bits for col = 12 bits (or 0 if None)
+        match move_.from {
+            Some(from) => {
+                key |= (from.row as u64) << 46;
+                key |= (from.col as u64) << 40;
+            }
+            None => {
+                key |= 0x3F << 46; // Use max value to sort None after Some
+                key |= 0x3F << 40;
+            }
+        }
+        
+        // piece_type: 8 bits
+        key |= (move_.piece_type as u8 as u64) << 32;
+        
+        // player: 2 bits
+        key |= (move_.player as u8 as u64) << 30;
+        
+        // flags: 3 bits (is_promotion, is_capture, gives_check)
+        let flags = ((move_.is_promotion as u8) << 2) | ((move_.is_capture as u8) << 1) | (move_.gives_check as u8);
+        key |= (flags as u64) << 27;
+        
+        key
+    }
+
+    fn compare_moves_directly(&self, a: &Move, b: &Move) -> std::cmp::Ordering {
+        // Compare by to position first
+        let to_cmp = a.to.row.cmp(&b.to.row);
+        if to_cmp != std::cmp::Ordering::Equal {
+            return to_cmp;
+        }
+        let to_col_cmp = a.to.col.cmp(&b.to.col);
+        if to_col_cmp != std::cmp::Ordering::Equal {
+            return to_col_cmp;
+        }
+        
+        // Compare by from position
+        match (a.from, b.from) {
+            (Some(a_from), Some(b_from)) => {
+                let from_row_cmp = a_from.row.cmp(&b_from.row);
+                if from_row_cmp != std::cmp::Ordering::Equal {
+                    return from_row_cmp;
+                }
+                let from_col_cmp = a_from.col.cmp(&b_from.col);
+                if from_col_cmp != std::cmp::Ordering::Equal {
+                    return from_col_cmp;
+                }
+            }
+            (Some(_), None) => return std::cmp::Ordering::Less,
+            (None, Some(_)) => return std::cmp::Ordering::Greater,
+            (None, None) => {}
+        }
+        
+        // Compare by piece type
+        let piece_cmp = (a.piece_type as u8).cmp(&(b.piece_type as u8));
+        if piece_cmp != std::cmp::Ordering::Equal {
+            return piece_cmp;
+        }
+        
+        // Compare by player
+        let player_cmp = (a.player as u8).cmp(&(b.player as u8));
+        if player_cmp != std::cmp::Ordering::Equal {
+            return player_cmp;
+        }
+        
+        // Final tie-breaker: compare by move flags to ensure total order
+        // Even if all other properties are equal, these flags can differ
+        // This ensures we never return Equal for different moves
+        let a_flags = ((a.is_promotion as u8) << 2) | ((a.is_capture as u8) << 1) | (a.gives_check as u8);
+        let b_flags = ((b.is_promotion as u8) << 2) | ((b.is_capture as u8) << 1) | (b.gives_check as u8);
+        let flags_cmp = a_flags.cmp(&b_flags);
+        if flags_cmp != std::cmp::Ordering::Equal {
+            return flags_cmp;
+        }
+        
+        // If we get here, the moves are truly identical
+        // Return Equal (this is fine - identical moves should compare as equal)
+        std::cmp::Ordering::Equal
+    }
+
     /// Order moves with PV move prioritization
     ///
     /// This enhanced version of order_moves prioritizes PV moves from
@@ -3772,15 +3873,28 @@ impl MoveOrdering {
         // Get PV move for this position
         let pv_move = self.get_pv_move(board, captured_pieces, player, depth);
 
-        // Create mutable copy for sorting
-        let mut ordered_moves = moves.to_vec();
+        // Create indexed moves to ensure total order even when moves are identical
+        let mut indexed_moves: Vec<(usize, Move)> = moves.iter().cloned().enumerate().collect();
 
         // Sort moves by score with PV move prioritization
-        ordered_moves.sort_by(|a, b| {
+        // Use move comparison as tie-breaker to ensure total order
+        indexed_moves.sort_by(|(idx_a, a), (idx_b, b)| {
             let score_a = self.score_move_with_pv(a, &pv_move);
             let score_b = self.score_move_with_pv(b, &pv_move);
-            score_b.cmp(&score_a)
+            let score_cmp = score_b.cmp(&score_a);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                let move_cmp = self.compare_moves_directly(a, b);
+                if move_cmp != std::cmp::Ordering::Equal {
+                    move_cmp
+                } else {
+                    // Final tie-breaker: use original index
+                    idx_a.cmp(idx_b)
+                }
+            }
         });
+        let ordered_moves: Vec<Move> = indexed_moves.into_iter().map(|(_, m)| m).collect();
 
         // Update timing statistics
         let elapsed_ms = start_time.elapsed_ms();
@@ -4135,15 +4249,28 @@ impl MoveOrdering {
         // Get killer moves for current depth
         let killer_moves = self.get_current_killer_moves().cloned().unwrap_or_default();
 
-        // Create mutable copy for sorting
-        let mut ordered_moves = moves.to_vec();
+        // Create indexed moves to ensure total order even when moves are identical
+        let mut indexed_moves: Vec<(usize, Move)> = moves.iter().cloned().enumerate().collect();
 
         // Sort moves by score with killer move prioritization
-        ordered_moves.sort_by(|a, b| {
+        // Use move comparison as tie-breaker to ensure total order
+        indexed_moves.sort_by(|(idx_a, a), (idx_b, b)| {
             let score_a = self.score_move_with_killer(a, &killer_moves);
             let score_b = self.score_move_with_killer(b, &killer_moves);
-            score_b.cmp(&score_a)
+            let score_cmp = score_b.cmp(&score_a);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                let move_cmp = self.compare_moves_directly(a, b);
+                if move_cmp != std::cmp::Ordering::Equal {
+                    move_cmp
+                } else {
+                    // Final tie-breaker: use original index
+                    idx_a.cmp(idx_b)
+                }
+            }
         });
+        let ordered_moves: Vec<Move> = indexed_moves.into_iter().map(|(_, m)| m).collect();
 
         // Update timing statistics
         let elapsed_ms = start_time.elapsed_ms();
@@ -4204,15 +4331,28 @@ impl MoveOrdering {
         // Get killer moves for current depth
         let killer_moves = self.get_current_killer_moves().cloned().unwrap_or_default();
 
-        // Create mutable copy for sorting
-        let mut ordered_moves = moves.to_vec();
+        // Create indexed moves to ensure total order even when moves are identical
+        let mut indexed_moves: Vec<(usize, Move)> = moves.iter().cloned().enumerate().collect();
 
         // Sort moves by score with PV and killer move prioritization
-        ordered_moves.sort_by(|a, b| {
+        // Use move comparison as tie-breaker to ensure total order
+        indexed_moves.sort_by(|(idx_a, a), (idx_b, b)| {
             let score_a = self.score_move_with_pv_and_killer(a, &pv_move, &killer_moves);
             let score_b = self.score_move_with_pv_and_killer(b, &pv_move, &killer_moves);
-            score_b.cmp(&score_a)
+            let score_cmp = score_b.cmp(&score_a);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                let move_cmp = self.compare_moves_directly(a, b);
+                if move_cmp != std::cmp::Ordering::Equal {
+                    move_cmp
+                } else {
+                    // Final tie-breaker: use original index
+                    idx_a.cmp(idx_b)
+                }
+            }
         });
+        let ordered_moves: Vec<Move> = indexed_moves.into_iter().map(|(_, m)| m).collect();
 
         // Update timing statistics
         let elapsed_ms = start_time.elapsed_ms();
@@ -5905,15 +6045,28 @@ impl MoveOrdering {
         self.stats.total_moves_ordered += moves.len() as u64;
         self.stats.moves_sorted += moves.len() as u64;
 
-        // Create mutable copy for sorting
-        let mut ordered_moves = moves.to_vec();
+        // Create indexed moves to ensure total order even when moves are identical
+        let mut indexed_moves: Vec<(usize, Move)> = moves.iter().cloned().enumerate().collect();
 
         // Sort moves by score with history heuristic prioritization
-        ordered_moves.sort_by(|a, b| {
+        // Use move comparison as tie-breaker to ensure total order
+        indexed_moves.sort_by(|(idx_a, a), (idx_b, b)| {
             let score_a = self.score_move_with_history(a);
             let score_b = self.score_move_with_history(b);
-            score_b.cmp(&score_a)
+            let score_cmp = score_b.cmp(&score_a);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                let move_cmp = self.compare_moves_directly(a, b);
+                if move_cmp != std::cmp::Ordering::Equal {
+                    move_cmp
+                } else {
+                    // Final tie-breaker: use original index
+                    idx_a.cmp(idx_b)
+                }
+            }
         });
+        let ordered_moves: Vec<Move> = indexed_moves.into_iter().map(|(_, m)| m).collect();
 
         // Update timing statistics
         let elapsed_ms = start_time.elapsed_ms();
@@ -6015,31 +6168,26 @@ impl MoveOrdering {
         // Get killer moves for current depth (Task 6.4: depth-aware)
         let killer_moves = self.get_current_killer_moves().cloned().unwrap_or_default();
 
-        // Task 3.0: Create mutable copy for sorting
-        let mut ordered_moves = moves.to_vec();
+        // Compute deterministic sort keys for all moves
+        // Use a tuple key to ensure total order: (negative_score, move_key, original_index)
+        // Negative score because we want descending order (higher scores first)
+        let mut move_keys: Vec<((i32, u64, usize), Move)> = moves.iter().cloned().enumerate().map(|(idx, m)| {
+            let score = self.score_move_with_all_heuristics(
+                &m,
+                iid_move,
+                &pv_move,
+                &killer_moves,
+                opponent_last_move,
+                board,
+            );
+            // Create a deterministic key from move properties for tie-breaking
+            let move_key = self.get_move_sort_key(&m);
+            ((-score, move_key, idx), m)
+        }).collect();
 
-        // Task 3.0: Sort moves by score with all heuristics prioritization, including
-        // IID move Task 2.6: Pass opponent's last move to move ordering for
-        // counter-move heuristic
-        ordered_moves.sort_by(|a, b| {
-            let score_a = self.score_move_with_all_heuristics(
-                a,
-                iid_move,
-                &pv_move,
-                &killer_moves,
-                opponent_last_move,
-                board,
-            );
-            let score_b = self.score_move_with_all_heuristics(
-                b,
-                iid_move,
-                &pv_move,
-                &killer_moves,
-                opponent_last_move,
-                board,
-            );
-            score_b.cmp(&score_a)
-        });
+        // Sort by key - tuple comparison is guaranteed to be total order
+        move_keys.sort_by_key(|(key, _)| *key);
+        let ordered_moves: Vec<Move> = move_keys.into_iter().map(|(_, m)| m).collect();
 
         // Task 6.2: Cache the ordering result for this position and depth (Task 6.0:
         // use cache_manager) Task 3.0: Use improved eviction policy (LRU,
@@ -7511,11 +7659,25 @@ impl MoveOrdering {
         );
 
         // In analysis mode, also consider quiet moves more
-        analysis_ordered.sort_by(|a, b| {
+        // Create indexed moves to ensure total order even when moves are identical
+        let mut indexed_analysis: Vec<(usize, Move)> = analysis_ordered.into_iter().enumerate().collect();
+        indexed_analysis.sort_by(|(idx_a, a), (idx_b, b)| {
             let score_a = self.score_move_for_analysis(a);
             let score_b = self.score_move_for_analysis(b);
-            score_b.cmp(&score_a)
+            let score_cmp = score_b.cmp(&score_a);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                let move_cmp = self.compare_moves_directly(a, b);
+                if move_cmp != std::cmp::Ordering::Equal {
+                    move_cmp
+                } else {
+                    // Final tie-breaker: use original index
+                    idx_a.cmp(idx_b)
+                }
+            }
         });
+        analysis_ordered = indexed_analysis.into_iter().map(|(_, m)| m).collect();
 
         self.stats.analysis_orderings += 1;
         analysis_ordered

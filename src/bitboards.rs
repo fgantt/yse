@@ -726,7 +726,7 @@ impl BitboardBoard {
     /// Check if a piece type attacks a square (bitboard-optimized version)
     /// Task 3.0.3.2: Uses precomputed attack tables for non-sliding pieces and
     /// bit scans for sliding pieces
-    fn piece_attacks_square_bitboard(
+    pub fn piece_attacks_square_bitboard(
         &self,
         piece_type: PieceType,
         from_pos: Position,

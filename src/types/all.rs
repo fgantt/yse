@@ -5234,7 +5234,7 @@ pub struct TimeBudgetStats {
     /// Number of depths completed
     pub depths_completed: u8,
     /// Number of depths that exceeded budget
-    pub depths_exceeded_budget: u8,
+    pub depths_exceeded_budget: u32,
     /// Average time estimation accuracy (0.0 to 1.0)
     pub estimation_accuracy: f64,
 }

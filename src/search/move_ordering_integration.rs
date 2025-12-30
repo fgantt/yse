@@ -264,6 +264,63 @@ impl TranspositionMoveOrderer {
         categorized
     }
 
+    /// Compare moves directly by their properties to ensure total order
+    /// This is used as a tie-breaker when scores are equal
+    fn compare_moves_directly(&self, a: &Move, b: &Move) -> std::cmp::Ordering {
+        // Compare by to position first
+        let to_cmp = a.to.row.cmp(&b.to.row);
+        if to_cmp != std::cmp::Ordering::Equal {
+            return to_cmp;
+        }
+        let to_col_cmp = a.to.col.cmp(&b.to.col);
+        if to_col_cmp != std::cmp::Ordering::Equal {
+            return to_col_cmp;
+        }
+        
+        // Compare by from position
+        match (a.from, b.from) {
+            (Some(a_from), Some(b_from)) => {
+                let from_row_cmp = a_from.row.cmp(&b_from.row);
+                if from_row_cmp != std::cmp::Ordering::Equal {
+                    return from_row_cmp;
+                }
+                let from_col_cmp = a_from.col.cmp(&b_from.col);
+                if from_col_cmp != std::cmp::Ordering::Equal {
+                    return from_col_cmp;
+                }
+            }
+            (Some(_), None) => return std::cmp::Ordering::Less,
+            (None, Some(_)) => return std::cmp::Ordering::Greater,
+            (None, None) => {}
+        }
+        
+        // Compare by piece type
+        let piece_cmp = (a.piece_type as u8).cmp(&(b.piece_type as u8));
+        if piece_cmp != std::cmp::Ordering::Equal {
+            return piece_cmp;
+        }
+        
+        // Compare by player
+        let player_cmp = (a.player as u8).cmp(&(b.player as u8));
+        if player_cmp != std::cmp::Ordering::Equal {
+            return player_cmp;
+        }
+        
+        // Final tie-breaker: compare by move flags to ensure total order
+        // Even if all other properties are equal, these flags can differ
+        // This ensures we never return Equal for different moves
+        let a_flags = ((a.is_promotion as u8) << 2) | ((a.is_capture as u8) << 1) | (a.gives_check as u8);
+        let b_flags = ((b.is_promotion as u8) << 2) | ((b.is_capture as u8) << 1) | (b.gives_check as u8);
+        let flags_cmp = a_flags.cmp(&b_flags);
+        if flags_cmp != std::cmp::Ordering::Equal {
+            return flags_cmp;
+        }
+        
+        // If we get here, the moves are truly identical
+        // Return Equal (this is fine - identical moves should compare as equal)
+        std::cmp::Ordering::Equal
+    }
+
     /// Order captures using MVV-LVA (Most Valuable Victim - Least Valuable
     /// Attacker)
     fn order_captures(
@@ -272,11 +329,25 @@ impl TranspositionMoveOrderer {
         _board: &BitboardBoard,
         _hints: &MoveOrderingHints,
     ) {
-        captures.sort_by(|a, b| {
+        // Use indexed approach to ensure total order even when moves are identical
+        let mut indexed_captures: Vec<(usize, Move)> = captures.iter().cloned().enumerate().collect();
+        indexed_captures.sort_by(|(idx_a, a), (idx_b, b)| {
             let a_mvv_lva = self.calculate_mvv_lva(a);
             let b_mvv_lva = self.calculate_mvv_lva(b);
-            b_mvv_lva.cmp(&a_mvv_lva)
+            let score_cmp = b_mvv_lva.cmp(&a_mvv_lva);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                let move_cmp = self.compare_moves_directly(a, b);
+                if move_cmp != std::cmp::Ordering::Equal {
+                    move_cmp
+                } else {
+                    // Final tie-breaker: use original index
+                    idx_a.cmp(idx_b)
+                }
+            }
         });
+        *captures = indexed_captures.into_iter().map(|(_, m)| m).collect();
     }
 
     /// Order killer moves
@@ -286,11 +357,25 @@ impl TranspositionMoveOrderer {
         _board: &BitboardBoard,
         _hints: &MoveOrderingHints,
     ) {
-        killers.sort_by(|a, b| {
+        // Use indexed approach to ensure total order even when moves are identical
+        let mut indexed_killers: Vec<(usize, Move)> = killers.iter().cloned().enumerate().collect();
+        indexed_killers.sort_by(|(idx_a, a), (idx_b, b)| {
             let a_killer_score = self.get_killer_score(a);
             let b_killer_score = self.get_killer_score(b);
-            b_killer_score.cmp(&a_killer_score)
+            let score_cmp = b_killer_score.cmp(&a_killer_score);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                let move_cmp = self.compare_moves_directly(a, b);
+                if move_cmp != std::cmp::Ordering::Equal {
+                    move_cmp
+                } else {
+                    // Final tie-breaker: use original index
+                    idx_a.cmp(idx_b)
+                }
+            }
         });
+        *killers = indexed_killers.into_iter().map(|(_, m)| m).collect();
     }
 
     /// Order quiet moves using history heuristic
@@ -300,11 +385,25 @@ impl TranspositionMoveOrderer {
         _board: &BitboardBoard,
         _hints: &MoveOrderingHints,
     ) {
-        quiet_moves.sort_by(|a, b| {
+        // Use indexed approach to ensure total order even when moves are identical
+        let mut indexed_quiet: Vec<(usize, Move)> = quiet_moves.iter().cloned().enumerate().collect();
+        indexed_quiet.sort_by(|(idx_a, a), (idx_b, b)| {
             let a_history = self.get_history_score(a);
             let b_history = self.get_history_score(b);
-            b_history.cmp(&a_history)
+            let score_cmp = b_history.cmp(&a_history);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                let move_cmp = self.compare_moves_directly(a, b);
+                if move_cmp != std::cmp::Ordering::Equal {
+                    move_cmp
+                } else {
+                    // Final tie-breaker: use original index
+                    idx_a.cmp(idx_b)
+                }
+            }
         });
+        *quiet_moves = indexed_quiet.into_iter().map(|(_, m)| m).collect();
     }
 
     /// Order other moves
@@ -315,11 +414,25 @@ impl TranspositionMoveOrderer {
         _hints: &MoveOrderingHints,
     ) {
         // For other moves, use a combination of factors
-        other_moves.sort_by(|a, b| {
+        // Use indexed approach to ensure total order even when moves are identical
+        let mut indexed_other: Vec<(usize, Move)> = other_moves.iter().cloned().enumerate().collect();
+        indexed_other.sort_by(|(idx_a, a), (idx_b, b)| {
             let a_score = self.score_move_general(a);
             let b_score = self.score_move_general(b);
-            b_score.cmp(&a_score)
+            let score_cmp = b_score.cmp(&a_score);
+            if score_cmp != std::cmp::Ordering::Equal {
+                score_cmp
+            } else {
+                let move_cmp = self.compare_moves_directly(a, b);
+                if move_cmp != std::cmp::Ordering::Equal {
+                    move_cmp
+                } else {
+                    // Final tie-breaker: use original index
+                    idx_a.cmp(idx_b)
+                }
+            }
         });
+        *other_moves = indexed_other.into_iter().map(|(_, m)| m).collect();
     }
 
     /// Calculate MVV-LVA score for a capture move

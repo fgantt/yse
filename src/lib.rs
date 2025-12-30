@@ -124,6 +124,8 @@ impl ShogiEngine {
         engine.load_prefs();
         // Try to load default opening book if available
         engine.load_default_opening_book();
+        // Try to load trained NNUE weights if available
+        engine.load_trained_nnue_weights();
 
         if let Err(err) = engine.apply_pst_config() {
             crate::utils::telemetry::debug_log(&format!(
@@ -195,6 +197,41 @@ impl ShogiEngine {
         // If JSON loading fails, try to load from binary if available
         // This would be implemented when binary opening books are generated
         crate::utils::telemetry::debug_log("No default opening book available");
+    }
+
+    /// Try to load trained NNUE weights from nnue_weights_trained.json
+    /// This is called automatically during engine initialization
+    fn load_trained_nnue_weights(&mut self) {
+        if let Ok(mut search_engine_guard) = self.search_engine.lock() {
+            let evaluator = search_engine_guard.get_evaluator_mut();
+            
+            // Try to load trained weights from the current directory
+            match evaluator.enable_nnue_with_weights("nnue_weights_trained.json") {
+                Ok(()) => {
+                    println!("info string Loaded trained NNUE weights from nnue_weights_trained.json");
+                    crate::utils::telemetry::debug_log("✓ Loaded trained NNUE weights from nnue_weights_trained.json");
+                }
+                Err(e) => {
+                    // Silently fail - weights file may not exist, which is fine
+                    // Only log if in debug mode to avoid cluttering normal operation
+                    if self.debug_mode {
+                        crate::utils::telemetry::debug_log(&format!(
+                            "Could not load NNUE weights: {} (this is normal if weights file doesn't exist)",
+                            e
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    /// Check if NNUE evaluation is enabled
+    pub fn is_nnue_enabled(&self) -> bool {
+        if let Ok(search_engine_guard) = self.search_engine.lock() {
+            search_engine_guard.get_evaluator().is_nnue_enabled()
+        } else {
+            false
+        }
     }
 
     fn maybe_prefill_opening_book(&mut self) {
