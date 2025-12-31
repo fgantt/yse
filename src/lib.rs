@@ -206,9 +206,10 @@ impl ShogiEngine {
             let evaluator = search_engine_guard.get_evaluator_mut();
             
             // Try to load trained weights from the current directory
+            // Note: Status message is sent during 'isready' command, not here
             match evaluator.enable_nnue_with_weights("nnue_weights_trained.json") {
                 Ok(()) => {
-                    println!("info string Loaded trained NNUE weights from nnue_weights_trained.json");
+                    // Success - status will be reported during isready command
                     crate::utils::telemetry::debug_log("✓ Loaded trained NNUE weights from nnue_weights_trained.json");
                 }
                 Err(e) => {

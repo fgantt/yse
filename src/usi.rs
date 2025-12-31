@@ -207,7 +207,15 @@ impl UsiHandler {
     }
 
     fn handle_isready(&self) -> Vec<String> {
-        vec!["readyok".to_string()]
+        let mut response = Vec::new();
+        
+        // Send NNUE status during isready (standard USI practice for status messages)
+        if self.engine.is_nnue_enabled() {
+            response.push("info string NNUE evaluation enabled (using trained weights)".to_string());
+        }
+        
+        response.push("readyok".to_string());
+        response
     }
 }
 
