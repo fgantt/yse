@@ -13,6 +13,20 @@ use shogi_engine::types::board::CapturedPieces;
 use shogi_engine::BitboardBoard;
 use shogi_engine::moves::MoveGenerator;
 use std::time::Instant;
+use std::io::{self, Write};
+
+/// Format seconds into a human-readable time string (HH:MM:SS)
+fn format_time(seconds: u64) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    let secs = seconds % 60;
+    
+    if hours > 0 {
+        format!("{:02}:{:02}:{:02}", hours, minutes, secs)
+    } else {
+        format!("{:02}:{:02}", minutes, secs)
+    }
+}
 
 /// Play a self-play game and return training data
 fn play_self_play_game(
@@ -179,11 +193,11 @@ fn main() {
     // NOTE: For faster training, reduce search_depth (4-5), time_per_move_ms (200-300),
     //       and games_per_iteration (10-15). Use release mode for 2-3x speedup.
     let mut config = NNUETrainingConfig::default();
-    config.games_per_iteration = 15; // Balanced: good diversity, reasonable speed
-    config.iterations = 200; // More iterations for continued training
-    config.learning_rate = 0.01; // Reduced learning rate for more stable training (was 0.1)
+    config.games_per_iteration = 30; // Increased for more diverse training data
+    config.iterations = 700; // Extended training for better convergence
+    config.learning_rate = 0.005; // Lower learning rate for stability with deeper search and more games
     config.lambda = 0.7; // TD(λ) parameter
-    config.search_depth = 5; // Reduced from 6 for faster training (can increase to 6 for stronger play)
+    config.search_depth = 7; // Increased for stronger play during training
     config.time_per_move_ms = 300; // Reduced from 500 for faster training (can increase to 500 for stronger play)
     config.max_moves_per_game = 200; // Increased for longer games
     config.min_batch_size = 500; // Reduced batch size for more frequent updates
@@ -203,11 +217,38 @@ fn main() {
     let mut trainer = NNUETrainer::new(weights, config.clone());
 
     let start_time = Instant::now();
+    let mut iteration_times = Vec::new(); // Track iteration times for ETA calculation
 
     // Training loop
     for iteration in 0..config.iterations {
         let iter_start = Instant::now();
         let mut game_results = vec![0; 3]; // [wins, losses, draws]
+
+        // Calculate progress
+        let progress_pct = ((iteration + 1) as f64 / config.iterations as f64) * 100.0;
+        let elapsed = start_time.elapsed();
+        
+        // Calculate ETA based on average iteration time
+        let eta_seconds = if iteration > 0 && !iteration_times.is_empty() {
+            let avg_iter_time = iteration_times.iter().sum::<u64>() as f64 / iteration_times.len() as f64;
+            let remaining_iterations = config.iterations - (iteration + 1);
+            avg_iter_time * remaining_iterations as f64
+        } else {
+            0.0
+        };
+
+        // Format time strings
+        let elapsed_str = format_time(elapsed.as_secs());
+        let eta_str = if eta_seconds > 0.0 {
+            format_time(eta_seconds as u64)
+        } else {
+            "calculating...".to_string()
+        };
+
+        println!("\n{}", "=".repeat(80));
+        println!("Iteration {}/{} ({:.1}% complete)", iteration + 1, config.iterations, progress_pct);
+        println!("Time elapsed: {} | Estimated remaining: {}", elapsed_str, eta_str);
+        println!("{}", "-".repeat(80));
 
         // Get current weights from trainer
         let current_weights = trainer.get_weights().clone();
@@ -218,7 +259,7 @@ fn main() {
         search_engine.get_evaluator_mut().enable_nnue_with_weights_internal(current_weights.clone());
         
         // Play self-play games
-        for _game_num in 0..config.games_per_iteration {
+        for game_num in 0..config.games_per_iteration {
             let game = play_self_play_game(&mut search_engine, &mut evaluator, &current_weights, &config);
             
             // Count results
@@ -230,7 +271,14 @@ fn main() {
 
             // Add to trainer (this updates weights internally)
             trainer.add_training_game(game);
+            
+            // Show progress within iteration
+            if (game_num + 1) % 10 == 0 || (game_num + 1) == config.games_per_iteration {
+                print!("\r  Games: {}/{}", game_num + 1, config.games_per_iteration);
+                io::stdout().flush().unwrap();
+            }
         }
+        println!(); // New line after progress indicator
 
         // Update evaluator with latest weights after batch
         let new_weights = trainer.get_weights().clone();
@@ -239,12 +287,15 @@ fn main() {
 
         // Get training statistics
         let stats = trainer.get_stats();
-        let _iter_duration = iter_start.elapsed();
+        let iter_duration = iter_start.elapsed();
+        iteration_times.push(iter_duration.as_secs());
+        
+        // Keep only last 10 iteration times for ETA calculation
+        if iteration_times.len() > 10 {
+            iteration_times.remove(0);
+        }
 
-        println!(
-            "Iteration {}/{}: {} games (W:{} L:{} D:{}), {} positions, avg game: {:.1} moves",
-            iteration + 1,
-            config.iterations,
+        println!("  Results: {} games (W:{} L:{} D:{}), {} positions, avg game: {:.1} moves",
             config.games_per_iteration,
             game_results[0],
             game_results[1],
@@ -259,6 +310,7 @@ fn main() {
             stats.avg_weight_change,
             stats.max_weight_change
         );
+        println!("  Iteration time: {:.1}s", iter_duration.as_secs_f64());
         
         // Show if training is making progress
         if iteration > 0 && iteration % 10 == 0 {
@@ -293,8 +345,13 @@ fn main() {
     }
 
     let total_duration = start_time.elapsed();
-    println!("\n=== Training Complete ===");
-    println!("Total time: {:.2}s", total_duration.as_secs_f64());
+    println!("\n{}", "=".repeat(80));
+    println!("=== Training Complete ===");
+    println!("{}", "=".repeat(80));
+    println!("Total time: {} ({:.2} seconds)", format_time(total_duration.as_secs()), total_duration.as_secs_f64());
+    println!("Total iterations: {}", config.iterations);
+    println!("Total games: {}", config.iterations * config.games_per_iteration);
+    println!("Average time per iteration: {:.1}s", total_duration.as_secs_f64() / config.iterations as f64);
 
     // Save final weights
     let final_path = "nnue_weights_trained.json";
