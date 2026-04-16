@@ -37,7 +37,7 @@ flowchart TD
         QS_CHECK["In check?"]
         QS_GEN["Generate Captures<br/>+ Promotions"]
         QS_SEE["SEE ≥ 0?"]
-        QS_SEARCH["Delta/See Pruning"]
+        QS_SEARCH["Delta SEE Pruning"]
     end
     
     subgraph "Components"
