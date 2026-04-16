@@ -144,3 +144,7 @@ This document analyzes opportunities for vectorizing algorithms in the Shogi eng
 
 
 
+
+
+
+
