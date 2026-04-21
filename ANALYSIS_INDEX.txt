@@ -1,0 +1,315 @@
+================================================================================
+NNUE ANALYSIS DOCUMENTS - COMPLETE INDEX
+================================================================================
+
+Location: /Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue/
+
+4 comprehensive analysis documents + 1 index file
+
+================================================================================
+1. README_ANALYSIS.md (5.6 KB) - START HERE
+================================================================================
+Overview document - read this first!
+
+Contains:
+- Brief description of all 3 analysis documents
+- Quick diagnosis of the cascade failure
+- File locations (absolute paths)
+- Key metrics (what we know vs don't know)
+- Recommendations by urgency (STOP/START/FIX/OPTIMIZE)
+- 8-hour quick-start guide for fixes
+
+Best for:
+- Getting oriented (5 min read)
+- Understanding the big picture
+- Finding which document to read next
+- Quick reference for fix priorities
+
+================================================================================
+2. NNUE_DEEP_DIVE_ANALYSIS.md (18 KB) - DETAILED ANALYSIS
+================================================================================
+Comprehensive technical analysis of all failure areas
+
+Contains:
+1. Evaluation Calibration Issues (/ 256 scaling)
+2. Training Quality Issues (TD(λ) broken)
+3. Target Value Problems (bootstrap loop)
+4. Network Architecture Issues (2268→256→32→1)
+5. Weight Initialization Issues ([-128,128])
+6. Search Integration Missing
+7. Performance Measurement Missing
+
+For each issue:
+- Root cause analysis
+- Evidence from code
+- Impact on strength
+- Recommended fixes
+- Short/medium/long-term solutions
+
+Best for:
+- Understanding WHY each component fails
+- Deep technical understanding
+- Comprehensive view of problem scope
+- Detailed recommendations
+
+================================================================================
+3. NNUE_ISSUES_REFERENCE.txt (10 KB) - QUICK REFERENCE
+================================================================================
+Quick lookup guide with exact code locations
+
+Contains:
+- 7 issue categories
+- Exact file paths (absolute)
+- Exact line numbers
+- Problem statement
+- Evidence/documentation
+- Diagnostic checklist (0/10 passing)
+
+Organized by:
+- Issue 1: Evaluation Calibration
+- Issue 2: Training Quality - TD(λ)
+- Issue 3: Target Values
+- Issue 4: Network Architecture
+- Issue 5: Weight Initialization
+- Issue 6: Search Integration
+- Issue 7: Performance Measurement
+
+Best for:
+- Looking up specific issues
+- Finding code locations quickly
+- Checking diagnostic status
+- Reference while coding
+
+================================================================================
+4. NNUE_CODE_ISSUES_DETAILED.md (30 KB) - CODE EXAMPLES
+================================================================================
+Before/after code comparisons with detailed explanations
+
+Contains 5 critical issues with full code examples:
+
+Issue 1: Arbitrary Evaluation Scaling
+- Current code (broken)
+- Problems explained
+- Fixed code with comments
+- Key changes
+
+Issue 2: Broken TD(λ) Implementation
+- Current code (broken)
+- Problems explained
+- Fixed code with proper traces
+- Key changes
+
+Issue 3: Incomplete Backpropagation
+- Current code (broken)
+- Problems explained
+- Fixed code with full gradients
+- Key changes
+
+Issue 4: Bootstrap Problem
+- Current code (broken)
+- Problems explained
+- Fixed code using PST
+- Key changes
+
+Issue 5: Bad Weight Initialization
+- Current code (broken)
+- Problems explained
+- Fixed code using Xavier init
+- Key changes
+
+Best for:
+- Understanding code-level issues
+- Copy-paste reference for fixes
+- Learning proper implementations
+- Understanding the "what" and "why"
+
+================================================================================
+5. ANALYSIS_INDEX.txt (This File) - NAVIGATION GUIDE
+================================================================================
+You are reading this file!
+
+Use this to:
+- Navigate between documents
+- Understand document structure
+- Find the right document for your needs
+- Understand confidence levels
+
+================================================================================
+HOW TO USE THESE DOCUMENTS
+================================================================================
+
+For a 15-minute overview:
+1. Read this index (5 min)
+2. Read README_ANALYSIS.md (10 min)
+
+For a 1-hour deep dive:
+1. Read README_ANALYSIS.md (15 min)
+2. Read NNUE_DEEP_DIVE_ANALYSIS.md sections 1-3 (30 min)
+3. Skim NNUE_ISSUES_REFERENCE.txt (15 min)
+
+For coding fixes:
+1. Check NNUE_ISSUES_REFERENCE.txt for exact code locations
+2. Read relevant section in NNUE_CODE_ISSUES_DETAILED.md
+3. Copy fixed code as reference
+4. Implement in actual codebase
+
+For technical deep-dive:
+1. Read NNUE_DEEP_DIVE_ANALYSIS.md completely
+2. Cross-reference with NNUE_CODE_ISSUES_DETAILED.md
+3. Review code in actual repository
+4. Understand root causes
+
+================================================================================
+CRITICAL CODE LOCATIONS (Quick Reference)
+================================================================================
+
+Evaluation Scaling Problem:
+  File: src/evaluation/nnue.rs
+  Lines: 314-320
+  Issue: output / 256 (arbitrary, no activation)
+  Fix: Add tanh() activation
+
+TD(λ) Broken:
+  File: src/evaluation/nnue_training.rs
+  Lines: 144-189
+  Issue: No eligibility traces, no discount factor
+  Fix: Implement proper accumulation with γ=0.99
+
+Weight Updates Broken:
+  File: src/evaluation/nnue_training.rs
+  Lines: 232-333
+  Issue: Incomplete backprop, saturation
+  Fix: Full gradient computation
+
+Bootstrap Problem:
+  File: src/bin/nnue_trainer.rs
+  Lines: 253-273
+  Issue: Uses NNUE for self-play moves
+  Fix: Use PST for moves, train NNUE on results
+
+Weight Initialization:
+  File: src/evaluation/nnue.rs
+  Lines: 84-119
+  Issue: [-128,128] weights (4000x too large)
+  Fix: Xavier initialization
+
+NNUE Integration:
+  File: src/evaluation.rs
+  Lines: 519-526
+  Issue: NNUE behind flag, not used
+  Fix: Integrate into search
+
+================================================================================
+DOCUMENT RELATIONSHIP MAP
+================================================================================
+
+README_ANALYSIS.md
+├─ Overview of all documents
+├─ Cascade failure diagram
+├─ Fix recommendations by urgency
+└─ Quick-start 8-hour guide
+
+NNUE_DEEP_DIVE_ANALYSIS.md
+├─ Issue 1: Evaluation Calibration
+├─ Issue 2: Training Quality
+├─ Issue 3: Data Quality
+├─ Issue 4: Network Architecture
+├─ Issue 5: Weight Initialization
+├─ Issue 6: Search Integration
+├─ Issue 7: Performance Measurement
+└─ Recommendations
+
+NNUE_ISSUES_REFERENCE.txt
+├─ 7 Issue categories
+├─ File paths and line numbers
+├─ Problem statements
+├─ Evidence references
+└─ Diagnostic checklist
+
+NNUE_CODE_ISSUES_DETAILED.md
+├─ Issue 1: Code examples + explanation
+├─ Issue 2: Code examples + explanation
+├─ Issue 3: Code examples + explanation
+├─ Issue 4: Code examples + explanation
+└─ Issue 5: Code examples + explanation
+
+================================================================================
+CONFIDENCE LEVELS BY ISSUE
+================================================================================
+
+Issue 1 - Evaluation Scaling:      95% confidence (code explicitly shown)
+Issue 2 - TD(λ) Broken:           95% confidence (missing γ confirmed)
+Issue 3 - Incomplete Backprop:    90% confidence (code analysis clear)
+Issue 4 - Bootstrap Problem:      98% confidence (code explicitly uses NNUE)
+Issue 5 - Weight Initialization:  99% confidence (exact ranges shown)
+Issue 6 - Search Integration:     85% confidence (flags shown, integration unclear)
+Issue 7 - Performance Measurement: 100% confidence (no tests found)
+
+Overall Issues Found: 95% confidence
+Overall Root Causes: 90% confidence
+Overall Recommendations: 80% confidence
+Overall Strength Impact: 50% confidence (no actual test data)
+
+================================================================================
+KEY STATISTICS
+================================================================================
+
+Training Completed:
+- 700 iterations run
+- 21,000 games generated
+- ~175,000 positions processed
+- Final TD error: 0.000455 (good convergence)
+
+But No Validation:
+- ELO difference: UNKNOWN
+- Strength improvement: UNTESTED
+- Move quality: NO COMPARISON
+- Game records: NEVER SAVED
+
+Issues Found:
+- 7 major issue categories
+- 5 critical code problems
+- 1 missing infrastructure (tests)
+- 100% of training was potentially wasted
+
+Fixes Needed:
+- 1 hour: Weight initialization
+- 30 min: Add tanh activation
+- 1 hour: Disable bootstrap NNUE
+- 2 hours: Add ELO testing
+- 3.5 hours: Implement backprop
+Total: ~8 hours for critical fixes
+
+================================================================================
+SUMMARY: WHY NNUE FAILED
+================================================================================
+
+The NNUE implementation failed due to 7 interconnected failures:
+
+1. Arbitrary scaling (no activation)      → Search breaks
+2. Broken TD(λ) training                  → No learning
+3. Bootstrap loop (self-play with NNUE)   → Learning garbage
+4. Suboptimal architecture                → Limited capacity
+5. Weight initialization 4000x too large  → Saturation
+6. Not integrated into search             → No impact
+7. No strength tests                      → Unknown if working
+
+These combined to make NNUE useless:
+- Training converged (low TD error) but to wrong solution
+- Evaluations meaningless for search heuristics
+- Never actually improved move quality
+- No one measured to check if it worked
+
+================================================================================
+NEXT ACTION
+================================================================================
+
+1. Read README_ANALYSIS.md (start here!)
+2. Pick one document for your depth level
+3. Use NNUE_ISSUES_REFERENCE.txt for code locations
+4. Reference NNUE_CODE_ISSUES_DETAILED.md for fixes
+5. Implement fixes in priority order
+
+Good luck with the fixes!
+
+================================================================================
