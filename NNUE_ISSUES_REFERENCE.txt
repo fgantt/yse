@@ -1,0 +1,244 @@
+================================================================================
+NNUE IMPLEMENTATION - CRITICAL ISSUES SUMMARY WITH FILE LOCATIONS
+================================================================================
+
+1. EVALUATION CALIBRATION ISSUES
+────────────────────────────────────────────────────────────────────────────────
+
+Issue: Arbitrary evaluation scaling (/ 256) breaks search integration
+Location: src/evaluation/nnue.rs:314-320
+  - Output scaling has NO JUSTIFICATION
+  - Hidden layer 2 uses intermediate scaling: / 64
+  - Cascading scale factors misaligned
+  - Documented problem: docs/NNUE_SCALING_ISSUE.md (evolves / 16 → /400 → /256)
+
+Impact:
+  - Alpha-beta search assumes consistent evaluation scale
+  - Aspiration windows (±50cp) become ineffective
+  - Move ordering heuristics break
+  - Time management miscalibrates position difficulty
+
+Fix: Add tanh() activation + proper weight initialization
+  Current: output / 256 (arbitrary)
+  Needed: (output as f32 / 1000.0).tanh() * 200.0
+
+
+2. TRAINING QUALITY ISSUES - TD(λ) BROKEN
+────────────────────────────────────────────────────────────────────────────────
+
+Issue A: Missing Eligibility Traces
+Location: src/evaluation/nnue_training.rs:144-189 (compute_td_targets function)
+  - Proper TD(λ) requires per-weight eligibility traces
+  - Code has NO eligibility trace implementation
+  - Just does linear blend: next_value = λ * next_value + (1-λ) * current
+
+Issue B: Wrong TD Error Formula
+Location: src/evaluation/nnue_training.rs:174-180
+  - Missing discount factor γ (should be ~0.99)
+  - Uses stale network output for current_value
+  - Inconsistent tanh() conversion (/ 20000.0)
+  - Formula: δ = r + γ*V(s') - V(s) but code has NO γ
+
+Issue C: Incomplete Backpropagation
+Location: src/evaluation/nnue_training.rs:232-333 (update_weights_for_position)
+  - Output layer: gradient = error * (value / 64.0) [OK]
+  - Input layer: gradient *= 0.01 [100x smaller, arbitrary]
+  - Layer 2 to output: NEVER UPDATED
+  - saturating_add() silently clamps weights to [-32768, 32767]
+
+Issue D: No Regularization
+Location: src/evaluation/nnue_training.rs (all of it)
+  - No L1/L2 weight decay
+  - No gradient clipping
+  - No dropout or batch norm
+  - Weights saturate → training stops
+
+
+3. TARGET VALUE PROBLEM - BOOTSTRAP LOOP
+────────────────────────────────────────────────────────────────────────────────
+
+Issue: Training on NNUE play with NNUE evaluation (vicious cycle)
+Location: src/bin/nnue_trainer.rs:253-273
+  ```rust
+  evaluator.enable_nnue_with_weights_internal(current_weights.clone());
+  search_engine.get_evaluator_mut().enable_nnue_with_weights_internal(current_weights.clone());
+  let game = play_self_play_game(&mut search_engine, &mut evaluator, &current_weights, &config);
+  trainer.add_training_game(game);
+  ```
+
+The Problem:
+  - Iteration 1: Random weights → garbage play → train on garbage
+  - Iteration 2: Slightly-less-random weights → slightly-less-garbage → train
+  - ...
+  - Iteration 700: Locked-in biases, never learns real evaluation
+
+Evidence:
+  - Self-play depth: only 7 plies (very weak)
+  - Time per move: 300ms (also weak)
+  - No external oracle: No PST reference, no opening book, no tablebase
+
+What Should Happen:
+  - Self-play with STRONG evaluator (PST depth 10 or more)
+  - Mix: 50% opening book, 25% search-generated, 25% self-play
+  - Target value: game_outcome + search_depth_eval + tablebase_if_endgame
+
+
+4. NETWORK ARCHITECTURE ISSUES
+────────────────────────────────────────────────────────────────────────────────
+
+Issue A: Second layer too small
+Location: src/evaluation/nnue.rs:44-48
+  - Architecture: 2268 → 256 → 32 → 1
+  - First layer OK (256 neurons)
+  - Second layer TOO SMALL (32 neurons, should be 512-1024)
+  - Only 1 output (no hidden layer for combining features)
+
+Issue B: No output activation
+Location: src/evaluation/nnue.rs:308-312
+  ```rust
+  let mut output = weights.output_bias;
+  for (i, &value) in final_values.iter().enumerate() {
+      output += (value * weights.output_weights[i] as i32) / 64;
+  }
+  output / 256  // <- LINEAR OUTPUT, NO ACTIVATION
+  ```
+  - Should have tanh() to bound [-1, 1]
+  - Currently unbounded, explains scale explosion
+
+Issue C: ReLU dead neurons
+Location: src/evaluation/nnue.rs:276-283
+  - ReLU activation can lose information in dead neurons
+  - Better: ELU, GELU, or swish for shogi eval
+  - Shogi needs to model both positive and negative evals
+
+Issue D: No layer normalization
+Location: src/evaluation/nnue.rs (all layers)
+  - No normalization between layers
+  - Leads to internal covariate shift
+  - Gradients may vanish/explode
+
+
+5. WEIGHT INITIALIZATION ISSUES
+────────────────────────────────────────────────────────────────────────────────
+
+Issue: Weights initialized way too large
+Location: src/evaluation/nnue.rs:84-119
+  - Input weights: [-128, 128] (HUGE)
+  - Biases: [-1000, 1000] (HUGE)
+  - Proper initialization: weights ≈ ±√(2/fan_in) ≈ ±0.03
+  - Proper initialization: biases = 0 or N(0, 0.1)
+
+Impact:
+  - First forward pass naturally saturates i16 range
+  - Network immediately at worst case
+  - Vanishing/exploding gradients from start
+  - Training uphill battle
+
+
+6. SEARCH INTEGRATION MISSING
+────────────────────────────────────────────────────────────────────────────────
+
+Issue A: NNUE evaluation guarded by flag, not integrated
+Location: src/evaluation.rs:519-526
+  ```rust
+  if self.use_nnue {
+      if let Some(ref mut nnue) = self.nnue_evaluator {
+          let nnue_score = nnue.evaluate(board, player, captured_pieces);
+          return nnue_score;  // <- Returns without search using it
+      }
+  }
+  ```
+
+Issue B: NNUE never used in move ordering
+Location: src/search/search_engine.rs
+  - Killer moves use PST eval
+  - History heuristic uses PST eval
+  - Transposition table uses PST eval
+  - NNUE only evaluated at leaf nodes (marginal impact)
+
+Issue C: No comparison benchmarks
+Location: Searched entire codebase
+  - No A/B test infrastructure
+  - No handicap match results
+  - No ELO measurements
+  - No strength-tester NNUE integration
+
+
+7. MISSING PERFORMANCE MEASUREMENTS
+────────────────────────────────────────────────────────────────────────────────
+
+Expected Benchmarks (NOT FOUND):
+  - ELO difference: NNUE vs PST
+  - Time handicap: NNUE vs PST
+  - Move quality: NNUE vs PST
+  - Game records: NNUE vs PST
+
+Files claiming to have data (don't):
+  - docs/NNUE_INTEGRATION_COMPLETE.md: Says "ready for gameplay" but NO DATA
+  - examples/nnue_evaluate_trained.rs: Shows eval differences, NOT strength
+  - docs/performance/reports/README.md: Infrastructure only, no actual reports
+
+Actual data available:
+  - NNUE scaling: "before fix -12330cp, after fix -770cp" (still arbitrary!)
+  - Random weights: output_bias in [-1000, 1000]
+  - Trained weights: UNKNOWN (no comparison shown)
+
+
+================================================================================
+ABSOLUTE FILE PATHS FOR REFERENCE
+================================================================================
+
+/Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue/src/evaluation/nnue.rs
+  - Weight storage and forward pass
+  - Lines 44-48: Architecture definition
+  - Lines 84-119: Weight initialization (TOO LARGE)
+  - Lines 276-283: ReLU activation
+  - Lines 314-320: Output scaling (/ 256 arbitrary)
+
+/Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue/src/evaluation/nnue_training.rs
+  - Training loop and weight updates
+  - Lines 144-189: compute_td_targets (NO eligibility traces)
+  - Lines 232-333: update_weights_for_position (incomplete backprop)
+
+/Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue/src/bin/nnue_trainer.rs
+  - Self-play training
+  - Lines 32-142: play_self_play_game
+  - Lines 253-273: Bootstrap loop (uses NNUE weights for self-play)
+  - Lines 200-201: Weak search depth (7 plies only)
+
+/Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue/src/evaluation.rs
+  - PositionEvaluator main file
+  - Lines 519-526: evaluate() function (NNUE guarded by flag)
+  - Lines 89-116: PositionEvaluator struct
+
+/Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue/docs/NNUE_SCALING_ISSUE.md
+  - Documents arbitrary scaling changes
+  - Shows symptom (scores 26x larger) but not root cause
+
+/Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue/docs/NNUE_TRAINING_FIXES.md
+  - Claims fixes but only changes multipliers
+  - Not addressing fundamental issues
+
+/Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue/nnue_weights_trained.json
+  - 6.0 MB trained weight file
+  - Last updated: Jan 21 22:26
+  - Unknown actual quality (no strength test data)
+
+
+================================================================================
+QUICK DIAGNOSIS CHECKLIST
+================================================================================
+
+[ ] Evaluation scaling is arbitrary? YES - nnue.rs:320 uses / 256
+[ ] TD(λ) has eligibility traces? NO - nnue_training.rs:144-189
+[ ] TD error includes discount factor? NO - nnue_training.rs:172-180
+[ ] Backpropagation is complete? NO - nnue_training.rs:232-333
+[ ] Self-play uses external oracle? NO - nnue_trainer.rs:257
+[ ] Network has output activation? NO - nnue.rs:310-312
+[ ] Weight init is reasonable? NO - nnue.rs:84-119 ([-128,128] way too large)
+[ ] NNUE integrated in move ordering? NO - search_engine.rs (flags only)
+[ ] ELO measurements exist? NO - searched entire docs/
+[ ] Strength improvement verified? NO - no test data anywhere
+
+CONCLUSION: 0/10 - NNUE implementation is fundamentally broken
+
