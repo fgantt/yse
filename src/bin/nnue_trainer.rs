@@ -12,6 +12,7 @@ use shogi_engine::types::core::Player;
 use shogi_engine::types::board::CapturedPieces;
 use shogi_engine::BitboardBoard;
 use shogi_engine::moves::MoveGenerator;
+use rand::Rng;
 use std::time::Instant;
 use std::io::{self, Write};
 
@@ -28,12 +29,73 @@ fn format_time(seconds: u64) -> String {
     }
 }
 
+/// Play random legal moves to create a diverse starting position.
+///
+/// Returns the number of random moves played. The board, captured_pieces,
+/// current_player, and accumulator are all updated in place. This ensures
+/// each self-play game starts from a different position, providing diverse
+/// training data even when the PST evaluator is deterministic.
+fn play_random_opening(
+    board: &mut BitboardBoard,
+    captured_pieces: &mut CapturedPieces,
+    current_player: &mut Player,
+    accumulator: &mut NNUEAccumulator,
+    weights: &NNUEWeights,
+    random_plies: usize,
+) -> usize {
+    let move_generator = MoveGenerator::new();
+    let mut rng = rand::thread_rng();
+    let mut plies_played = 0;
+
+    // Play between 2 and random_plies random moves (variable per game for more diversity)
+    let actual_plies = if random_plies > 2 {
+        rng.gen_range(2..=random_plies)
+    } else {
+        random_plies
+    };
+
+    for _ in 0..actual_plies {
+        let legal_moves = move_generator.generate_legal_moves(board, *current_player, captured_pieces);
+        if legal_moves.is_empty() {
+            break;
+        }
+
+        // Pick a random legal move
+        let idx = rng.gen_range(0..legal_moves.len());
+        let mv = &legal_moves[idx];
+
+        // Update NNUE accumulator incrementally
+        let from_piece = mv.from.and_then(|pos| board.get_piece(pos));
+        let captured_piece = if mv.is_capture {
+            board.get_piece(mv.to)
+        } else {
+            None
+        };
+        if let Some(piece) = from_piece {
+            accumulator.update_move(mv.from, mv.to, piece, captured_piece, weights);
+        }
+
+        // Make the move
+        if let Some(captured) = board.make_move(mv) {
+            captured_pieces.add_piece(captured.piece_type, *current_player);
+        }
+
+        *current_player = current_player.opposite();
+        plies_played += 1;
+    }
+
+    plies_played
+}
+
 /// Play a self-play game and return training data.
 ///
 /// Uses PST evaluator for game play (strong, deterministic) while recording
 /// NNUE accumulator states for training. This breaks the bootstrap problem:
 /// the NNUE learns from PST evaluations (external oracle) rather than from
 /// its own weak, near-zero evaluations.
+///
+/// Each game begins with 2-8 random legal moves to ensure diverse starting
+/// positions, preventing all games from being identical.
 fn play_self_play_game(
     search_engine: &mut SearchEngine,
     pst_evaluator: &mut PositionEvaluator,
@@ -55,6 +117,18 @@ fn play_self_play_game(
 
     // Refresh accumulator for initial position
     accumulator.refresh(&board, weights);
+
+    // Play random opening moves for diverse starting positions.
+    // This prevents all games from being identical (PST is deterministic).
+    let random_plies = play_random_opening(
+        &mut board,
+        &mut captured_pieces,
+        &mut current_player,
+        &mut accumulator,
+        weights,
+        8, // Up to 8 random plies (4 moves per side)
+    );
+    move_count += random_plies;
 
     // Track position occurrences for 3-fold repetition detection
     let mut position_counts = std::collections::HashMap::<u64, u8>::new();
@@ -193,8 +267,10 @@ fn main() {
     // PST evaluator for self-play (teacher/oracle) - no NNUE
     let mut pst_evaluator = PositionEvaluator::new();
 
-    // Search engine uses PST evaluation for move selection (not NNUE)
-    let mut search_engine = SearchEngine::new(None, 1);
+    // Search engine uses PST evaluation for move selection (not NNUE).
+    // TT size of 64 MB allows deeper search to reach intended depth within time limits.
+    // (Previously 1 MB, which caused search to only reach depth 1.)
+    let mut search_engine = SearchEngine::new(None, 64);
 
     // Training configuration - optimized for continued training
     // Production training config after Phase 2 fixes.
@@ -204,9 +280,9 @@ fn main() {
     config.iterations = 100; // Enough to measure convergence
     config.learning_rate = 0.005; // Moderate learning rate
     config.lambda = 0.7; // TD(λ) parameter
-    config.search_depth = 5; // Deeper search for more varied, longer games
-    config.time_per_move_ms = 200; // Reasonable time per move
-    config.max_moves_per_game = 200; // Allow longer games
+    config.search_depth = 3; // Depth 3 for fast game generation (PST at depth 1-3 is sufficient)
+    config.time_per_move_ms = 50; // Fast per-move: prioritize more games over deeper search
+    config.max_moves_per_game = 150; // Cap game length to prevent very slow late-game positions
     config.min_batch_size = 100; // Update after accumulating enough positions
 
     println!("Training Configuration:");
@@ -218,6 +294,9 @@ fn main() {
     println!("  Search depth: {}", config.search_depth);
     println!("  Max moves per game: {}", config.max_moves_per_game);
     println!("  Min batch size: {}", config.min_batch_size);
+    println!("  Time per move: {} ms", config.time_per_move_ms);
+    println!("  TT size: 64 MB");
+    println!("  Random opening plies: 2-8");
     println!();
 
     // Create trainer
