@@ -28,10 +28,15 @@ fn format_time(seconds: u64) -> String {
     }
 }
 
-/// Play a self-play game and return training data
+/// Play a self-play game and return training data.
+///
+/// Uses PST evaluator for game play (strong, deterministic) while recording
+/// NNUE accumulator states for training. This breaks the bootstrap problem:
+/// the NNUE learns from PST evaluations (external oracle) rather than from
+/// its own weak, near-zero evaluations.
 fn play_self_play_game(
     search_engine: &mut SearchEngine,
-    evaluator: &mut PositionEvaluator,
+    pst_evaluator: &mut PositionEvaluator,
     weights: &NNUEWeights,
     config: &NNUETrainingConfig,
 ) -> TrainingGame {
@@ -40,24 +45,23 @@ fn play_self_play_game(
     let mut positions = Vec::new();
     let mut current_player = Player::Black;
     let mut move_count = 0;
-    
+
     // Track position hashes for repetition detection
     let mut hash_calculator = ShogiHashHandler::new_default();
 
-    // Create NNUE accumulator for tracking
+    // Create NNUE accumulator for tracking (student network)
     let (hidden_size_1, hidden_size_2) = weights.hidden_sizes();
     let mut accumulator = NNUEAccumulator::new(hidden_size_1, hidden_size_2);
-    
+
     // Refresh accumulator for initial position
     accumulator.refresh(&board, weights);
 
     // Track position occurrences for 3-fold repetition detection
     let mut position_counts = std::collections::HashMap::<u64, u8>::new();
-    
+
     while move_count < config.max_moves_per_game {
         // Check for game over
         if let Some(result) = check_game_over(&board, &captured_pieces, current_player) {
-            // Result is already in the correct format (from Black's perspective)
             return TrainingGame {
                 positions,
                 result,
@@ -69,48 +73,51 @@ fn play_self_play_game(
         let count = position_counts.entry(position_hash).or_insert(0);
         *count += 1;
         if *count >= 3 {
-            // 3-fold repetition detected - draw
             return TrainingGame {
                 positions,
                 result: GameResult::Draw,
             };
         }
 
-        // Evaluate current position
-        let evaluation = evaluator.evaluate(&board, current_player, &captured_pieces);
+        // Get PST evaluation (oracle/teacher) - this is the target NNUE should learn
+        let pst_eval = pst_evaluator.evaluate(&board, current_player, &captured_pieces);
+
+        // Also compute NNUE evaluation for the current position (student prediction)
+        let nnue_eval = accumulator.evaluate(weights);
 
         // Extract active features
         let active_features = extract_active_features(&board);
 
-        // Store position
+        // Store position with PST evaluation as training target and NNUE eval as current prediction
         positions.push(TrainingPosition {
             active_features,
             accumulator: accumulator.clone(),
-            evaluation,
+            evaluation: nnue_eval,      // NNUE's current prediction (student)
+            pst_evaluation: pst_eval,   // PST evaluation (teacher/oracle target)
             player: current_player,
-            move_made: None, // Will be set after move is made
+            move_made: None,
             outcome: None,
             td_target: None,
         });
 
-        // Get best move using iterative deepening search
+        // Search uses PST evaluator (not NNUE) for move selection
         let mut iterative_search = IterativeDeepening::new(config.search_depth, config.time_per_move_ms, None);
         let best_move = iterative_search.search(search_engine, &board, &captured_pieces, current_player);
-        
+
         if let Some((mv, _score)) = best_move {
             // Update last position's move
             if let Some(last_pos) = positions.last_mut() {
                 last_pos.move_made = Some(mv.clone());
             }
-            
-            // Update accumulator incrementally
+
+            // Update NNUE accumulator incrementally
             let from_piece = mv.from.and_then(|pos| board.get_piece(pos));
             let captured_piece = if mv.is_capture {
                 board.get_piece(mv.to)
             } else {
                 None
             };
-            
+
             if let Some(piece) = from_piece {
                 accumulator.update_move(
                     mv.from,
@@ -183,24 +190,24 @@ fn main() {
         }
     };
     
-    let mut evaluator = PositionEvaluator::new();
-    evaluator.enable_nnue_with_weights_internal(weights.clone());
+    // PST evaluator for self-play (teacher/oracle) - no NNUE
+    let mut pst_evaluator = PositionEvaluator::new();
 
-    // Create search engine
+    // Search engine uses PST evaluation for move selection (not NNUE)
     let mut search_engine = SearchEngine::new(None, 1);
 
     // Training configuration - optimized for continued training
-    // NOTE: For faster training, reduce search_depth (4-5), time_per_move_ms (200-300),
-    //       and games_per_iteration (10-15). Use release mode for 2-3x speedup.
+    // Production training config after Phase 2 fixes.
+    // PST evaluator plays self-play games; NNUE learns to predict PST evaluations.
     let mut config = NNUETrainingConfig::default();
-    config.games_per_iteration = 30; // Increased for more diverse training data
-    config.iterations = 700; // Extended training for better convergence
-    config.learning_rate = 0.005; // Lower learning rate for stability with deeper search and more games
+    config.games_per_iteration = 10; // Balanced: enough diversity without being slow
+    config.iterations = 100; // Enough to measure convergence
+    config.learning_rate = 0.005; // Moderate learning rate
     config.lambda = 0.7; // TD(λ) parameter
-    config.search_depth = 7; // Increased for stronger play during training
-    config.time_per_move_ms = 300; // Reduced from 500 for faster training (can increase to 500 for stronger play)
-    config.max_moves_per_game = 200; // Increased for longer games
-    config.min_batch_size = 500; // Reduced batch size for more frequent updates
+    config.search_depth = 5; // Deeper search for more varied, longer games
+    config.time_per_move_ms = 200; // Reasonable time per move
+    config.max_moves_per_game = 200; // Allow longer games
+    config.min_batch_size = 100; // Update after accumulating enough positions
 
     println!("Training Configuration:");
     println!("  Architecture: 256 -> 32 -> 1");
@@ -250,18 +257,16 @@ fn main() {
         println!("Time elapsed: {} | Estimated remaining: {}", elapsed_str, eta_str);
         println!("{}", "-".repeat(80));
 
-        // Get current weights from trainer
+        // Get current NNUE weights from trainer (for accumulator tracking during games)
         let current_weights = trainer.get_weights().clone();
-        
-        // Update evaluator with current weights
-        evaluator.enable_nnue_with_weights_internal(current_weights.clone());
-        // Also update search engine's evaluator
-        search_engine.get_evaluator_mut().enable_nnue_with_weights_internal(current_weights.clone());
-        
-        // Play self-play games
+
+        // Search engine uses PST evaluator (no NNUE) for move selection.
+        // This ensures games are meaningful and produce real wins/losses.
+
+        // Play self-play games using PST for moves, recording NNUE states for training
         for game_num in 0..config.games_per_iteration {
-            let game = play_self_play_game(&mut search_engine, &mut evaluator, &current_weights, &config);
-            
+            let game = play_self_play_game(&mut search_engine, &mut pst_evaluator, &current_weights, &config);
+
             // Count results
             match game.result {
                 GameResult::Win => game_results[0] += 1,
@@ -271,7 +276,7 @@ fn main() {
 
             // Add to trainer (this updates weights internally)
             trainer.add_training_game(game);
-            
+
             // Show progress within iteration
             if (game_num + 1) % 10 == 0 || (game_num + 1) == config.games_per_iteration {
                 print!("\r  Games: {}/{}", game_num + 1, config.games_per_iteration);
@@ -279,11 +284,6 @@ fn main() {
             }
         }
         println!(); // New line after progress indicator
-
-        // Update evaluator with latest weights after batch
-        let new_weights = trainer.get_weights().clone();
-        evaluator.enable_nnue_with_weights_internal(new_weights.clone());
-        search_engine.get_evaluator_mut().enable_nnue_with_weights_internal(new_weights);
 
         // Get training statistics
         let stats = trainer.get_stats();

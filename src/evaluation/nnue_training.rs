@@ -85,8 +85,10 @@ pub struct TrainingPosition {
     pub active_features: Vec<usize>,
     /// NNUE accumulator state (for efficient incremental updates)
     pub accumulator: NNUEAccumulator,
-    /// Position evaluation from NNUE
+    /// NNUE evaluation (student/current network prediction)
     pub evaluation: i32,
+    /// PST evaluation (teacher/oracle target) - external signal for supervised learning
+    pub pst_evaluation: i32,
     /// Player to move
     pub player: Player,
     /// Move made from this position
@@ -140,7 +142,17 @@ impl NNUETrainer {
         positions
     }
 
-    /// Compute TD(λ) targets for positions
+    /// Compute training targets for positions using PST evaluation as oracle.
+    ///
+    /// Uses a hybrid target: blend of PST evaluation (immediate position quality)
+    /// and game outcome (long-term correctness). This breaks the bootstrap problem
+    /// by using external signals rather than NNUE's own weak evaluation.
+    ///
+    /// Target formula per position:
+    ///   target = (1 - outcome_weight) * pst_normalized + outcome_weight * outcome_normalized
+    ///
+    /// Where outcome_weight increases for positions closer to the game end
+    /// (later positions are more strongly influenced by the known outcome).
     fn compute_td_targets(
         &self,
         positions: &mut [TrainingPosition],
@@ -150,41 +162,35 @@ impl NNUETrainer {
             return;
         }
 
-        // Convert final result to score from Black's perspective
-        let final_score = match final_result {
-            GameResult::Win => 1.0,      // Black wins
-            GameResult::Loss => -1.0,    // White wins
+        // Convert final result to value in [-1, 1] from Black's perspective
+        let outcome_value = match final_result {
+            GameResult::Win => 1.0_f32,   // Black wins
+            GameResult::Loss => -1.0,      // White wins (Black loses)
             GameResult::Draw => 0.0,
         };
 
         let n = positions.len();
-        
-        // TD(λ) computation with eligibility traces
-        // For simplicity, we use TD(0) approach with λ-weighted future values
-        let mut next_value = final_score;
 
-        for i in (0..n).rev() {
-            let player_score_multiplier = if positions[i].player == Player::Black { 1.0 } else { -1.0 };
-            
-            // Convert evaluation to [-1, 1] range (approximate, assuming max eval around 20000 centipawns)
-            let current_value = (positions[i].evaluation as f32 / 20000.0).tanh() * player_score_multiplier;
-            
-            // TD error: δ = r + γ*V(s') - V(s)
-            // For terminal: δ = final_outcome - V(s)
-            let td_error = if i == n - 1 {
-                // Terminal position
-                final_score * player_score_multiplier - current_value
-            } else {
-                // Non-terminal: use next position's value
-                next_value - current_value
-            };
+        for i in 0..n {
+            // Normalize PST evaluation to [-1, 1] range.
+            // PST evaluations are typically in [-2000, 2000] centipawns.
+            // tanh(eval / 600) maps this range smoothly to [-1, 1].
+            let pst_normalized = (positions[i].pst_evaluation as f32 / 600.0).tanh();
 
-            // TD(λ) update: V(s) += α * δ * e(s)
-            // For simplicity, we store the TD target directly
-            positions[i].td_target = Some(current_value + self.config.learning_rate * td_error);
+            // Outcome weight increases linearly from 0.1 at game start to 0.9 at game end.
+            // Earlier positions rely more on PST (immediate quality), later positions
+            // rely more on outcome (we know who actually won).
+            let progress = i as f32 / n.max(1) as f32;
+            let outcome_weight = 0.1 + 0.8 * progress;
 
-            // Update next_value using λ-weighting
-            next_value = self.config.lambda * next_value + (1.0 - self.config.lambda) * current_value;
+            // Blend PST evaluation with game outcome.
+            // PST eval is already from the perspective of the player to move,
+            // but outcome is from Black's perspective. Adjust outcome for player.
+            let player_mult = if positions[i].player == Player::Black { 1.0 } else { -1.0 };
+            let outcome_adjusted = outcome_value * player_mult;
+
+            let target = (1.0 - outcome_weight) * pst_normalized + outcome_weight * outcome_adjusted;
+            positions[i].td_target = Some(target);
         }
     }
 
@@ -227,48 +233,40 @@ impl NNUETrainer {
         self.stats.clone()
     }
 
-    /// Update weights for a single position using TD error
-    /// Returns (td_error, avg_weight_change, max_weight_change)
+    /// Update weights for a single position using supervised learning from PST oracle.
+    ///
+    /// Works in floating-point domain to avoid gradient truncation, then quantizes
+    /// accumulated updates back to integer weights. The target is in [-1, 1]
+    /// (blended PST eval + game outcome). NNUE prediction is mapped to the same
+    /// range via sigmoid(eval_cp / 400) where eval_cp is the centipawn output.
+    ///
+    /// Returns (error, avg_weight_change, max_weight_change).
     fn update_weights_for_position(&mut self, position: &TrainingPosition, target_value: f32) -> (f32, f32, f32) {
-        // Get current prediction
-        let current_prediction = (position.evaluation as f32 / 20000.0).tanh();
-        let player_multiplier = if position.player == Player::Black { 1.0 } else { -1.0 };
-        let predicted_value = current_prediction * player_multiplier;
-        
-        // TD error
-        let error = target_value - predicted_value;
         let learning_rate = self.config.learning_rate;
 
-        // Track weight changes
-        let mut total_change = 0.0;
-        let mut max_change: f32 = 0.0;
-        let mut change_count = 0;
-
-        // Update output layer weights (simplified gradient descent)
         let (hidden_size_1, _hidden_size_2) = self.weights.hidden_sizes();
 
-        // Compute activated hidden layer values
-        let mut hidden_1_activated = vec![0i32; hidden_size_1];
-        for (i, (&h, &bias)) in position.accumulator.hidden_1.iter()
-            .zip(self.weights.hidden_biases_1.iter())
-            .enumerate()
-        {
-            hidden_1_activated[i] = (h + bias).max(0);
-        }
+        // === Forward pass (floating point) ===
 
-        let final_values: Vec<i32> = if let Some(ref h2) = position.accumulator.hidden_2 {
-            // Second layer present
-            let h2_len = h2.len();
-            let mut h2_values = vec![0i32; h2_len];
-            if let (Some(ref w2), Some(ref b2)) = (self.weights.input_weights_2.as_ref(), self.weights.hidden_biases_2.as_ref()) {
+        // Hidden layer 1: ReLU(accumulator + bias)
+        let hidden_1_activated: Vec<f32> = position.accumulator.hidden_1.iter()
+            .zip(self.weights.hidden_biases_1.iter())
+            .map(|(&h, &bias)| (h + bias).max(0) as f32)
+            .collect();
+
+        // Hidden layer 2 (if present): ReLU(W2 * h1 + b2)
+        let final_values: Vec<f32> = if let Some(ref _h2) = position.accumulator.hidden_2 {
+            let biases_2 = self.weights.hidden_biases_2.as_ref().unwrap();
+            let h2_len = biases_2.len();
+            let mut h2_values = vec![0.0_f32; h2_len];
+            if let Some(ref w2) = self.weights.input_weights_2 {
                 for (i, &act_1) in hidden_1_activated.iter().enumerate() {
                     for (j, &weight) in w2[i].iter().enumerate() {
-                        h2_values[j] += (act_1 * weight as i32) / 64;
+                        h2_values[j] += act_1 * (weight as f32) / 64.0;
                     }
                 }
-                // Apply ReLU and bias
-                for (i, &bias) in b2.iter().enumerate() {
-                    h2_values[i] = (h2_values[i] + bias).max(0);
+                for (j, &bias) in biases_2.iter().enumerate() {
+                    h2_values[j] = (h2_values[j] + bias as f32).max(0.0);
                 }
             }
             h2_values
@@ -276,54 +274,210 @@ impl NNUETrainer {
             hidden_1_activated.clone()
         };
 
-        // Update output weights (gradient descent on output layer)
+        // Output: dot(final_values, output_weights) / 64 + output_bias
+        let mut raw_output: f32 = self.weights.output_bias as f32;
         for (i, &value) in final_values.iter().enumerate() {
             if i < self.weights.output_weights.len() {
-                let gradient = error * (value as f32 / 64.0);
-                // Use learning rate directly (removed 10x multiplier to prevent weight explosion)
-                let weight_update = (gradient * learning_rate) as i16;
-                let old_weight = self.weights.output_weights[i];
-                self.weights.output_weights[i] = self.weights.output_weights[i]
-                    .saturating_add(weight_update)
-                    .max(-32768)
-                    .min(32767);
-                let change = (self.weights.output_weights[i] - old_weight).abs() as f32;
-                total_change += change;
-                max_change = max_change.max(change);
-                change_count += 1;
+                raw_output += value * (self.weights.output_weights[i] as f32) / 64.0;
             }
         }
 
-        // Update output bias
-        let bias_gradient = error;
-        // Reduced multiplier from 160x to 10x to prevent bias explosion
-        let bias_update = (bias_gradient * learning_rate * 10.0) as i32;
-        let old_bias = self.weights.output_bias;
-        self.weights.output_bias += bias_update;
-        let change = (self.weights.output_bias - old_bias).abs() as f32;
-        total_change += change;
-        max_change = max_change.max(change);
-        change_count += 1;
+        // Scale to centipawns: output_cp = raw_output * 400 / 16320
+        let output_cp = raw_output * 400.0 / 16320.0;
 
-        // Update input-to-hidden weights (simplified - only for active features)
-        // This is a simplified update - full backpropagation would update all layers
+        // Map to [-1, 1] using sigmoid-like scaling: prediction = tanh(output_cp / 400)
+        // Using /400 instead of /600 gives a wider active gradient region for small evals.
+        let prediction = (output_cp / 400.0).tanh();
+
+        // === Backward pass ===
+
+        // Loss = 0.5 * (target - prediction)^2
+        // d(loss)/d(prediction) = -(target - prediction) = prediction - target
+        let error = target_value - prediction;
+
+        // d(prediction)/d(output_cp) = (1 - prediction^2) / 400
+        let tanh_deriv = (1.0 - prediction * prediction) / 400.0;
+
+        // d(output_cp)/d(raw_output) = 400 / 16320
+        let scale_deriv = 400.0 / 16320.0;
+
+        // d(loss)/d(raw_output) = -error * tanh_deriv * scale_deriv
+        // We want to MINIMIZE loss, so update = -d(loss)/d(w) = error * chain
+        let d_raw = error * tanh_deriv * scale_deriv;
+
+        // Track weight changes
+        let mut total_change = 0.0_f32;
+        let mut max_change = 0.0_f32;
+        let mut change_count = 0_usize;
+
+        // === Update output weights ===
+        // d(raw_output)/d(output_weight[i]) = final_values[i] / 64
+        for (i, &value) in final_values.iter().enumerate() {
+            if i < self.weights.output_weights.len() {
+                let gradient = d_raw * (value / 64.0);
+                // Scale up to make meaningful i16 updates.
+                // With typical gradient ~1e-5 and value ~10, gradient*lr ~5e-8.
+                // We need ~1e7 scaling to get integer-magnitude updates.
+                let update_f = gradient * learning_rate * 1e7;
+                let weight_update = update_f.clamp(-32000.0, 32000.0) as i16;
+                if weight_update != 0 {
+                    let old_weight = self.weights.output_weights[i];
+                    self.weights.output_weights[i] = old_weight.saturating_add(weight_update);
+                    let change = (self.weights.output_weights[i] - old_weight).abs() as f32;
+                    total_change += change;
+                    max_change = max_change.max(change);
+                    change_count += 1;
+                }
+            }
+        }
+
+        // === Update output bias ===
+        // d(raw_output)/d(output_bias) = 1
+        let bias_update_f = d_raw * learning_rate * 1e7;
+        let bias_update = bias_update_f.clamp(-2e9, 2e9) as i32;
+        if bias_update != 0 {
+            let old_bias = self.weights.output_bias;
+            self.weights.output_bias = old_bias.saturating_add(bias_update);
+            let change = (self.weights.output_bias - old_bias).abs() as f32;
+            total_change += change;
+            max_change = max_change.max(change);
+            change_count += 1;
+        }
+
+        // === Backprop to hidden layer 2 (if present) and then to input weights ===
+        // For the 2-layer network (256->32->1):
+        //   d(raw_output)/d(h2_activated[j]) = output_weights[j] / 64
+        //   d(h2_activated)/d(h2_pre) = 1 if h2_pre > 0 (ReLU)
+        //   d(h2_pre[j])/d(h1_activated[i]) = w2[i][j] / 64
+        //   d(h1_activated)/d(h1_pre) = 1 if h1_pre > 0 (ReLU)
+        //   d(h1_pre[i])/d(input_weight[f][i]) = 1 (for active feature f)
+
+        // Compute gradient at hidden layer 1
+        let mut d_hidden_1 = vec![0.0_f32; hidden_size_1];
+
+        if let Some(ref w2) = self.weights.input_weights_2 {
+            // Gradient flows through layer 2
+            let biases_2 = self.weights.hidden_biases_2.as_ref().unwrap();
+            let h2_len = biases_2.len();
+
+            // d(loss)/d(h2_activated[j]) = d_raw * output_weights[j] / 64
+            let d_h2: Vec<f32> = (0..h2_len)
+                .map(|j| {
+                    if j < self.weights.output_weights.len() {
+                        d_raw * (self.weights.output_weights[j] as f32 / 64.0)
+                    } else {
+                        0.0
+                    }
+                })
+                .collect();
+
+            // Recompute h2 pre-activation to check ReLU gate
+            let mut h2_pre = vec![0.0_f32; h2_len];
+            for (i, &act_1) in hidden_1_activated.iter().enumerate() {
+                for (j, &weight) in w2[i].iter().enumerate() {
+                    h2_pre[j] += act_1 * (weight as f32) / 64.0;
+                }
+            }
+            for (j, &bias) in biases_2.iter().enumerate() {
+                h2_pre[j] += bias as f32;
+            }
+
+            // d(loss)/d(h1_activated[i]) = sum_j(d_h2[j] * relu_gate[j] * w2[i][j] / 64)
+            for i in 0..hidden_size_1 {
+                for j in 0..h2_len {
+                    if h2_pre[j] > 0.0 {
+                        d_hidden_1[i] += d_h2[j] * (w2[i][j] as f32 / 64.0);
+                    }
+                }
+            }
+
+            // Also update layer 2 weights: w2[i][j]
+            if let Some(ref mut w2_mut) = self.weights.input_weights_2 {
+                for i in 0..hidden_size_1 {
+                    for j in 0..h2_len {
+                        if h2_pre[j] > 0.0 {
+                            let grad = d_h2[j] * (hidden_1_activated[i] / 64.0);
+                            let update_f = grad * learning_rate * 1e7;
+                            let weight_update = update_f.clamp(-32000.0, 32000.0) as i16;
+                            if weight_update != 0 {
+                                let old_w = w2_mut[i][j];
+                                w2_mut[i][j] = old_w.saturating_add(weight_update);
+                                let change = (w2_mut[i][j] - old_w).abs() as f32;
+                                total_change += change;
+                                max_change = max_change.max(change);
+                                change_count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Update layer 2 biases
+            if let Some(ref mut b2_mut) = self.weights.hidden_biases_2 {
+                for j in 0..h2_len {
+                    if h2_pre[j] > 0.0 {
+                        let bias_grad = d_h2[j];
+                        let update_f = bias_grad * learning_rate * 1e7;
+                        let update = update_f.clamp(-2e9, 2e9) as i32;
+                        if update != 0 {
+                            let old_b = b2_mut[j];
+                            b2_mut[j] = old_b.saturating_add(update);
+                            let change = (b2_mut[j] - old_b).abs() as f32;
+                            total_change += change;
+                            max_change = max_change.max(change);
+                            change_count += 1;
+                        }
+                    }
+                }
+            }
+        } else {
+            // No layer 2: gradient goes directly from output to hidden 1
+            for i in 0..hidden_size_1 {
+                if i < self.weights.output_weights.len() {
+                    d_hidden_1[i] = d_raw * (self.weights.output_weights[i] as f32 / 64.0);
+                }
+            }
+        }
+
+        // === Update input-to-hidden-1 weights (sparse: only active features) ===
+        // d(h1_pre[i])/d(input_weight[f][i]) = 1 for active feature f
+        // ReLU gate: only update if h1_pre > 0
         for &feature_idx in &position.active_features {
             if feature_idx < self.weights.input_weights_1.len() {
-                for (i, &hidden_val) in hidden_1_activated.iter().enumerate() {
-                    if hidden_val > 0 && i < self.weights.input_weights_1[feature_idx].len() {
-                        // Simplified gradient update - scale up for meaningful changes
-                        let gradient = error * (hidden_val as f32 / 64.0) * learning_rate * 0.01;
-                        let weight_update = gradient as i16;
-                        let old_weight = self.weights.input_weights_1[feature_idx][i];
-                        self.weights.input_weights_1[feature_idx][i] = self.weights.input_weights_1[feature_idx][i]
-                            .saturating_add(weight_update)
-                            .max(-32768)
-                            .min(32767);
-                        let change = (self.weights.input_weights_1[feature_idx][i] - old_weight).abs() as f32;
-                        total_change += change;
-                        max_change = max_change.max(change);
-                        change_count += 1;
+                for i in 0..hidden_size_1 {
+                    let h1_pre = position.accumulator.hidden_1[i] + self.weights.hidden_biases_1[i];
+                    if h1_pre > 0 && i < self.weights.input_weights_1[feature_idx].len() {
+                        let grad = d_hidden_1[i];
+                        // Smaller scaling for input weights (many features, don't want explosion)
+                        let update_f = grad * learning_rate * 1e6;
+                        let weight_update = update_f.clamp(-127.0, 127.0) as i16;
+                        if weight_update != 0 {
+                            let old_weight = self.weights.input_weights_1[feature_idx][i];
+                            self.weights.input_weights_1[feature_idx][i] = old_weight.saturating_add(weight_update);
+                            let change = (self.weights.input_weights_1[feature_idx][i] - old_weight).abs() as f32;
+                            total_change += change;
+                            max_change = max_change.max(change);
+                            change_count += 1;
+                        }
                     }
+                }
+            }
+        }
+
+        // === Update hidden-1 biases ===
+        for i in 0..hidden_size_1 {
+            let h1_pre = position.accumulator.hidden_1[i] + self.weights.hidden_biases_1[i];
+            if h1_pre > 0 {
+                let grad = d_hidden_1[i];
+                let update_f = grad * learning_rate * 1e6;
+                let update = update_f.clamp(-2e9, 2e9) as i32;
+                if update != 0 {
+                    let old_b = self.weights.hidden_biases_1[i];
+                    self.weights.hidden_biases_1[i] = old_b.saturating_add(update);
+                    let change = (self.weights.hidden_biases_1[i] - old_b).abs() as f32;
+                    total_change += change;
+                    max_change = max_change.max(change);
+                    change_count += 1;
                 }
             }
         }
