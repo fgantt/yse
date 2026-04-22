@@ -435,6 +435,62 @@ impl PositionEvaluator {
         }
     }
 
+    /// Push NNUE accumulator state and apply a move incrementally.
+    ///
+    /// Called by the search engine after `board.make_move_with_info()`.
+    /// This avoids a full O(81) accumulator refresh on every evaluation.
+    pub fn nnue_make_move(
+        &mut self,
+        from: Option<crate::types::core::Position>,
+        to: crate::types::core::Position,
+        moved_piece: crate::types::core::Piece,
+        original_piece: crate::types::core::Piece,
+        captured_piece: Option<crate::types::core::Piece>,
+        was_promotion: bool,
+    ) {
+        if let Some(ref mut nnue) = self.nnue_evaluator {
+            nnue.nnue_make_move(from, to, moved_piece, original_piece, captured_piece, was_promotion);
+        }
+    }
+
+    /// Pop NNUE accumulator state after unmaking a move.
+    ///
+    /// Called by the search engine after `board.unmake_move()`.
+    pub fn nnue_unmake_move(&mut self) {
+        if let Some(ref mut nnue) = self.nnue_evaluator {
+            nnue.nnue_unmake_move();
+        }
+    }
+
+    /// Refresh the NNUE accumulator for a new position.
+    ///
+    /// Called at the search root or when setting a new position.
+    pub fn nnue_refresh(&mut self, board: &BitboardBoard) {
+        if let Some(ref mut nnue) = self.nnue_evaluator {
+            nnue.refresh_accumulator(board);
+        }
+    }
+
+    /// Evaluate using NNUE incrementally (no full refresh).
+    ///
+    /// Returns the NNUE score if enabled and available, None otherwise.
+    /// Falls back to full refresh if the accumulator is out of sync.
+    pub fn evaluate_nnue_incremental(&mut self, board: &BitboardBoard) -> Option<i32> {
+        if self.use_nnue {
+            if let Some(ref mut nnue) = self.nnue_evaluator {
+                return Some(nnue.evaluate_incremental(board));
+            }
+        }
+        None
+    }
+
+    /// Invalidate the NNUE accumulator (marks it for full refresh).
+    pub fn nnue_invalidate(&mut self) {
+        if let Some(ref mut nnue) = self.nnue_evaluator {
+            nnue.invalidate();
+        }
+    }
+
     /// Extract raw feature values for tuning
     /// Returns a vector of unweighted feature values that can be used for
     /// automated tuning
@@ -516,11 +572,11 @@ impl PositionEvaluator {
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> i32 {
-        // Use NNUE if enabled and available
+        // Use NNUE if enabled and available.
+        // Prefer incremental evaluation (skips full refresh if accumulator is in sync).
         if self.use_nnue {
             if let Some(ref mut nnue) = self.nnue_evaluator {
-                let nnue_score = nnue.evaluate(board, player, captured_pieces);
-                // NNUE returns score from perspective of player, so adjust if needed
+                let nnue_score = nnue.evaluate_incremental(board);
                 return nnue_score;
             }
         }

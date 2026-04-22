@@ -514,3 +514,7 @@ required-features = ["simd"]
 name = "arm_neon_benchmarks"
 harness = false
 required-features = ["simd"]
+
+[[bench]]
+name = "nnue_speed_benchmarks"
+harness = false

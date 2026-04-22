@@ -2778,6 +2778,7 @@ impl SearchEngine {
 
             // Use move unmaking instead of board cloning
             let move_info = board.make_move_with_info(move_);
+            self.nnue_make_move(&move_info);
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
@@ -2821,6 +2822,7 @@ impl SearchEngine {
             );
 
             // Restore board state by unmaking the move
+            self.nnue_unmake_move();
             board.unmake_move(&move_info);
 
             if score > best_score_tracked {
@@ -3671,6 +3673,7 @@ impl SearchEngine {
 
             // Use move unmaking instead of board cloning
             let move_info = board.make_move_with_info(&move_);
+            self.nnue_make_move(&move_info);
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
@@ -3716,6 +3719,7 @@ impl SearchEngine {
             );
 
             // Restore board state by unmaking the move
+            self.nnue_unmake_move();
             board.unmake_move(&move_info);
 
             if score > best_score {
@@ -4238,6 +4242,7 @@ impl SearchEngine {
 
                 // Use move unmaking instead of board cloning
                 let move_info = board.make_move_with_info(move_);
+                self.nnue_make_move(&move_info);
                 let mut new_captured = captured_pieces.clone();
 
                 if let Some(ref captured) = move_info.captured_piece {
@@ -4285,6 +4290,7 @@ impl SearchEngine {
                 );
 
                 // Restore board state by unmaking the move
+                self.nnue_unmake_move();
                 board.unmake_move(&move_info);
 
                 if score > best_score {
@@ -4709,6 +4715,7 @@ impl SearchEngine {
 
             // Use move unmaking instead of board cloning
             let move_info = board.make_move_with_info(move_);
+            self.nnue_make_move(&move_info);
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
@@ -4751,6 +4758,7 @@ impl SearchEngine {
             );
 
             // Restore board state by unmaking the move
+            self.nnue_unmake_move();
             board.unmake_move(&move_info);
 
             // Check if move is promising enough for deeper probing
@@ -4820,6 +4828,7 @@ impl SearchEngine {
             // Use move unmaking instead of board cloning
             let converted_move = convert_move_from_all(&promising_move.move_);
             let move_info = board.make_move_with_info(&converted_move);
+            self.nnue_make_move(&move_info);
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
@@ -4862,6 +4871,7 @@ impl SearchEngine {
             );
 
             // Restore board state by unmaking the move
+            self.nnue_unmake_move();
             board.unmake_move(&move_info);
 
             // Calculate verification metrics
@@ -5825,6 +5835,7 @@ impl SearchEngine {
 
             // Use move unmaking instead of board cloning
             let move_info = board.make_move_with_info(&move_);
+            self.nnue_make_move(&move_info);
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
@@ -5864,6 +5875,7 @@ impl SearchEngine {
             crate::debug_utils::end_timing(&format!("move_eval_{}", move_index), "SEARCH_AT_DEPTH");
 
             // Restore board state by unmaking the move
+            self.nnue_unmake_move();
             board.unmake_move(&move_info);
 
             // Enhanced move evaluation logging
@@ -6909,6 +6921,7 @@ impl SearchEngine {
 
             // Use move unmaking instead of board cloning
             let move_info = board.make_move_with_info(move_);
+            self.nnue_make_move(&move_info);
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
@@ -6957,6 +6970,7 @@ impl SearchEngine {
             crate::debug_utils::end_timing(&format!("move_search_{}", move_index), "NEGAMAX");
 
             // Restore board state by unmaking the move
+            self.nnue_unmake_move();
             board.unmake_move(&move_info);
 
             log_move_eval!(
@@ -7717,6 +7731,7 @@ impl SearchEngine {
 
             // Use move unmaking instead of board cloning
             let move_info = board.make_move_with_info(&move_);
+            self.nnue_make_move(&move_info);
             let mut new_captured = captured_pieces.clone();
 
             if let Some(ref captured) = move_info.captured_piece {
@@ -7805,6 +7820,7 @@ impl SearchEngine {
             );
 
             // Restore board state by unmaking the move
+            self.nnue_unmake_move();
             board.unmake_move(&move_info);
 
             // log_move_eval!("QUIESCENCE", &move_.to_usi_string(), score,
@@ -8161,6 +8177,7 @@ impl SearchEngine {
     fn is_tablebase_move(&mut self, move_: &Move, board: &mut BitboardBoard) -> bool {
         // Use move unmaking instead of board cloning
         let move_info = board.make_move_with_info(move_);
+        self.nnue_make_move(&move_info);
         let mut temp_captured = CapturedPieces::new();
 
         if let Some(ref captured) = move_info.captured_piece {
@@ -8175,6 +8192,7 @@ impl SearchEngine {
         let cache_key =
             self.compute_tablebase_cache_key(board, &temp_captured, move_.player.opposite());
         if let Some(&cached) = self.tablebase_move_cache.get(&cache_key) {
+            self.nnue_unmake_move();
             board.unmake_move(&move_info);
             return cached;
         }
@@ -8194,6 +8212,7 @@ impl SearchEngine {
         self.tablebase_move_cache.insert(cache_key, result);
 
         // Restore board state by unmaking the move
+        self.nnue_unmake_move();
         board.unmake_move(&move_info);
 
         result
@@ -14018,6 +14037,47 @@ impl SearchEngine {
         false
     }
 
+    /// Update the NNUE accumulator after a move has been made on the board.
+    ///
+    /// Call this immediately after `board.make_move_with_info()` to keep the
+    /// NNUE accumulator in sync. The `move_info` provides all the information
+    /// needed for an incremental accumulator update (avoids full O(81) refresh).
+    #[inline]
+    pub fn nnue_make_move(&mut self, move_info: &crate::bitboards::MoveInfo) {
+        use crate::types::core::Piece;
+
+        let original_piece = Piece::new(move_info.original_piece_type, move_info.player);
+
+        // The moved piece after promotion
+        let moved_piece = if move_info.was_promotion {
+            if let Some(promoted_type) = move_info.original_piece_type.promoted_version() {
+                Piece::new(promoted_type, move_info.player)
+            } else {
+                original_piece
+            }
+        } else {
+            original_piece
+        };
+
+        self.evaluator.nnue_make_move(
+            move_info.from,
+            move_info.to,
+            moved_piece,
+            original_piece,
+            move_info.captured_piece,
+            move_info.was_promotion,
+        );
+    }
+
+    /// Restore the NNUE accumulator after unmaking a move.
+    ///
+    /// Call this immediately after `board.unmake_move()` to restore the
+    /// accumulator to its pre-move state.
+    #[inline]
+    pub fn nnue_unmake_move(&mut self) {
+        self.evaluator.nnue_unmake_move();
+    }
+
     /// Evaluate the current position statically
     /// Automatically uses cache if enabled in evaluator (Task 3.2.2)
     /// Task 3.0: Integrated automatic profiling
@@ -14458,6 +14518,11 @@ impl IterativeDeepening {
                 let _ = std::io::Write::flush(&mut std::io::stdout());
             }
         }
+
+        // Refresh NNUE accumulator at search root for incremental evaluation.
+        // This ensures the accumulator is in sync with the current board position
+        // before the make/unmake cycle begins in the search tree.
+        search_engine.evaluator.nnue_refresh(board);
 
         // Calculate initial static evaluation for aspiration window initialization
         let initial_static_eval = search_engine.evaluate_position(board, player, captured_pieces);
