@@ -23,7 +23,7 @@
 use crate::bitboards::BitboardBoard;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{Piece, PieceType, Player, Position};
-use rand::Rng;
+use rand_distr::{Distribution, Normal};
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufReader, BufWriter};
@@ -46,6 +46,17 @@ pub const DEFAULT_HIDDEN_SIZE_1: usize = 256;
 
 /// Default size of second hidden layer (0 means no second layer)
 pub const DEFAULT_HIDDEN_SIZE_2: usize = 32;
+
+// Stockfish-compatible quantization constants for output scaling.
+// These map the integer-domain network output to centipawns.
+/// Centipawn scale factor (maps network output range to evaluation range)
+const SCALE_FACTOR: i32 = 400;
+/// CReLU activation bound (practical maximum from hidden layer activations)
+const QUANTIZER_A: i32 = 255;
+/// Output layer scaling divisor (used in hidden-to-output computation)
+const QUANTIZER_B: i32 = 64;
+/// Combined divisor: QUANTIZER_A * QUANTIZER_B = 16320
+const FINAL_DIVISOR: i32 = QUANTIZER_A * QUANTIZER_B;
 
 /// Calculate feature index for a piece-square combination
 #[inline]
@@ -76,46 +87,78 @@ pub struct NNUEWeights {
 }
 
 impl NNUEWeights {
-    /// Create new weights with random initialization
+    /// Create new weights with random initialization.
+    ///
+    /// Uses small normal distribution (Stockfish-compatible) instead of uniform
+    /// [-128, 128] to prevent accumulator saturation. With sparse inputs
+    /// (~20/2268 active features), uniform [-128, 128] produces weight sums
+    /// of ~2000 per neuron, immediately saturating ReLU and killing gradients.
+    /// Normal(0, 0.01) with 100x quantization gives i16 weights in ~[-3, 3],
+    /// keeping accumulator sums small enough for learning.
     pub fn new(hidden_size_1: usize, hidden_size_2: usize) -> Self {
         let mut rng = rand::thread_rng();
+        let weight_dist = Normal::new(0.0, 0.01).unwrap();
+        let bias_dist = Normal::new(0.0, 10.0).unwrap();
 
-        // Initialize input-to-hidden-1 weights
+        // Initialize input-to-hidden-1 weights with small normal distribution
         let input_weights_1: Vec<Vec<i16>> = (0..NUM_NNUE_FEATURES)
             .map(|_| {
                 (0..hidden_size_1)
-                    .map(|_| rng.gen_range(-128..128))
+                    .map(|_| {
+                        let w: f64 = weight_dist.sample(&mut rng);
+                        (w * 100.0).clamp(-127.0, 127.0) as i16
+                    })
                     .collect()
             })
             .collect();
 
         let hidden_biases_1: Vec<i32> = (0..hidden_size_1)
-            .map(|_| rng.gen_range(-1000..1000))
+            .map(|_| {
+                let b: f64 = bias_dist.sample(&mut rng);
+                b.clamp(-32768.0, 32767.0) as i32
+            })
             .collect();
 
         let (input_weights_2, hidden_biases_2, output_weights) = if hidden_size_2 > 0 {
             let weights_2: Vec<Vec<i16>> = (0..hidden_size_1)
                 .map(|_| {
                     (0..hidden_size_2)
-                        .map(|_| rng.gen_range(-128..128))
+                        .map(|_| {
+                            let w: f64 = weight_dist.sample(&mut rng);
+                            (w * 100.0).clamp(-127.0, 127.0) as i16
+                        })
                         .collect()
                 })
                 .collect();
 
             let biases_2: Vec<i32> = (0..hidden_size_2)
-                .map(|_| rng.gen_range(-1000..1000))
+                .map(|_| {
+                    let b: f64 = bias_dist.sample(&mut rng);
+                    b.clamp(-32768.0, 32767.0) as i32
+                })
                 .collect();
 
             let output: Vec<i16> = (0..hidden_size_2)
-                .map(|_| rng.gen_range(-128..128))
+                .map(|_| {
+                    let w: f64 = weight_dist.sample(&mut rng);
+                    (w * 100.0).clamp(-127.0, 127.0) as i16
+                })
                 .collect();
 
             (Some(weights_2), Some(biases_2), output)
         } else {
             let output: Vec<i16> = (0..hidden_size_1)
-                .map(|_| rng.gen_range(-128..128))
+                .map(|_| {
+                    let w: f64 = weight_dist.sample(&mut rng);
+                    (w * 100.0).clamp(-127.0, 127.0) as i16
+                })
                 .collect();
             (None, None, output)
+        };
+
+        let output_bias = {
+            let b: f64 = bias_dist.sample(&mut rng);
+            b.clamp(-32768.0, 32767.0) as i32
         };
 
         Self {
@@ -124,7 +167,7 @@ impl NNUEWeights {
             input_weights_2,
             hidden_biases_2,
             output_weights,
-            output_bias: rng.gen_range(-1000..1000),
+            output_bias,
         }
     }
 
@@ -311,12 +354,13 @@ impl NNUEAccumulator {
             output += (value * weights.output_weights[i] as i32) / 64;
         }
 
-        // Scale output to reasonable evaluation range (centipawns)
-        // Using / 256 as a compromise that works for both existing trained weights and future training
-        // With reduced training multipliers (1x instead of 10x for weights, 10x instead of 160x for bias),
-        // future training will produce weights that work well with this scaling
-        // Existing weights trained with old multipliers may still be slightly large, but will improve with continued training
-        output / 256
+        // Stockfish-compatible quantization to centipawns:
+        //   output_cp = (raw_output * 400) / (255 * 64)
+        //
+        // This ensures network output naturally maps to a bounded centipawn
+        // range (typically [-300, 300]) compatible with search heuristics
+        // (aspiration windows, move ordering, time management).
+        (output * SCALE_FACTOR) / FINAL_DIVISOR
     }
 }
 

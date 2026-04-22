@@ -74,6 +74,7 @@ serde_yaml = "0.9"
 toml = "0.8"
 lru = "0.12"
 rand = { version = "0.8", features = ["getrandom"] }
+rand_distr = "0.4"
 getrandom = { version = "0.2", features = ["std"] }
 num_cpus = "1.0"
 rayon = "1.8"
