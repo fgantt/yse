@@ -195,6 +195,9 @@ fn play_one_game(
             ply,
         });
         usi_moves.push(mv.to_usi_string());
+        if mv.from.is_none() {
+            captured.remove_piece(mv.piece_type, player);
+        }
         if let Some(cap) = board.make_move(&mv) {
             captured.add_piece(cap.piece_type, player);
         }
@@ -292,6 +295,13 @@ fn play_one_game(
         let _ = legal;
 
         usi_moves.push(bestmove_str);
+        // Drops must remove the dropped piece from the player's hand; the
+        // board.make_move function does not touch captured_pieces state, and
+        // without this line drops would double-count the piece (once in hand
+        // because we never removed it, once on board because we placed it).
+        if mv.from.is_none() {
+            captured.remove_piece(mv.piece_type, player);
+        }
         if let Some(cap) = board.make_move(&mv) {
             captured.add_piece(cap.piece_type, player);
         }

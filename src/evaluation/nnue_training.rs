@@ -38,7 +38,21 @@ pub struct NNUETrainingConfig {
     pub noise_strength: f32,
     /// Minimum number of positions to accumulate before updating weights
     pub min_batch_size: usize,
+    /// Gradient scaling for output-layer weights/bias. The raw gradients
+    /// through tanh+quantization are tiny (~1e-5); the per-position update is
+    /// `grad * learning_rate * output_grad_scale`. Bigger = faster learning
+    /// but prone to i16 saturation. Default (1e7) is tuned for PST-imitation
+    /// training where error ≈ 0.001; teacher-target training wants ~1e4.
+    #[serde(default = "default_output_grad_scale")]
+    pub output_grad_scale: f32,
+    /// Gradient scaling for input-layer weights/bias. Default (1e6) is tuned
+    /// for PST; teacher-target training wants ~1e3.
+    #[serde(default = "default_input_grad_scale")]
+    pub input_grad_scale: f32,
 }
+
+fn default_output_grad_scale() -> f32 { 1e7 }
+fn default_input_grad_scale() -> f32 { 1e6 }
 
 impl Default for NNUETrainingConfig {
     fn default() -> Self {
@@ -53,6 +67,8 @@ impl Default for NNUETrainingConfig {
             add_noise: false,
             noise_strength: 0.1,
             min_batch_size: 1000,
+            output_grad_scale: default_output_grad_scale(),
+            input_grad_scale: default_input_grad_scale(),
         }
     }
 }
@@ -243,6 +259,8 @@ impl NNUETrainer {
     /// Returns (error, avg_weight_change, max_weight_change).
     fn update_weights_for_position(&mut self, position: &TrainingPosition, target_value: f32) -> (f32, f32, f32) {
         let learning_rate = self.config.learning_rate;
+        let output_scale = self.config.output_grad_scale;
+        let input_scale = self.config.input_grad_scale;
 
         let (hidden_size_1, _hidden_size_2) = self.weights.hidden_sizes();
 
@@ -318,7 +336,7 @@ impl NNUETrainer {
                 // Scale up to make meaningful i16 updates.
                 // With typical gradient ~1e-5 and value ~10, gradient*lr ~5e-8.
                 // We need ~1e7 scaling to get integer-magnitude updates.
-                let update_f = gradient * learning_rate * 1e7;
+                let update_f = gradient * learning_rate * output_scale;
                 let weight_update = update_f.clamp(-32000.0, 32000.0) as i16;
                 if weight_update != 0 {
                     let old_weight = self.weights.output_weights[i];
@@ -333,7 +351,7 @@ impl NNUETrainer {
 
         // === Update output bias ===
         // d(raw_output)/d(output_bias) = 1
-        let bias_update_f = d_raw * learning_rate * 1e7;
+        let bias_update_f = d_raw * learning_rate * output_scale;
         let bias_update = bias_update_f.clamp(-2e9, 2e9) as i32;
         if bias_update != 0 {
             let old_bias = self.weights.output_bias;
@@ -397,7 +415,7 @@ impl NNUETrainer {
                     for j in 0..h2_len {
                         if h2_pre[j] > 0.0 {
                             let grad = d_h2[j] * (hidden_1_activated[i] / 64.0);
-                            let update_f = grad * learning_rate * 1e7;
+                            let update_f = grad * learning_rate * output_scale;
                             let weight_update = update_f.clamp(-32000.0, 32000.0) as i16;
                             if weight_update != 0 {
                                 let old_w = w2_mut[i][j];
@@ -417,7 +435,7 @@ impl NNUETrainer {
                 for j in 0..h2_len {
                     if h2_pre[j] > 0.0 {
                         let bias_grad = d_h2[j];
-                        let update_f = bias_grad * learning_rate * 1e7;
+                        let update_f = bias_grad * learning_rate * output_scale;
                         let update = update_f.clamp(-2e9, 2e9) as i32;
                         if update != 0 {
                             let old_b = b2_mut[j];
@@ -449,7 +467,7 @@ impl NNUETrainer {
                     if h1_pre > 0 && i < self.weights.input_weights_1[feature_idx].len() {
                         let grad = d_hidden_1[i];
                         // Smaller scaling for input weights (many features, don't want explosion)
-                        let update_f = grad * learning_rate * 1e6;
+                        let update_f = grad * learning_rate * input_scale;
                         let weight_update = update_f.clamp(-127.0, 127.0) as i16;
                         if weight_update != 0 {
                             let old_weight = self.weights.input_weights_1[feature_idx][i];
@@ -469,7 +487,7 @@ impl NNUETrainer {
             let h1_pre = position.accumulator.hidden_1[i] + self.weights.hidden_biases_1[i];
             if h1_pre > 0 {
                 let grad = d_hidden_1[i];
-                let update_f = grad * learning_rate * 1e6;
+                let update_f = grad * learning_rate * input_scale;
                 let update = update_f.clamp(-2e9, 2e9) as i32;
                 if update != 0 {
                     let old_b = self.weights.hidden_biases_1[i];
@@ -484,6 +502,299 @@ impl NNUETrainer {
 
         let avg_change = if change_count > 0 { total_change / change_count as f32 } else { 0.0 };
         (error, avg_change, max_change)
+    }
+
+    /// Proper batched SGD: accumulate gradients across the whole batch in
+    /// f32, then apply one i16 update per weight at batch end. This avoids
+    /// two problems `train_batch` has:
+    ///   * per-position updates under ±0.5 round to zero in i16
+    ///   * per-position updates over ±1 accumulate to saturation within a
+    ///     single batch
+    /// With accumulation, we get a single aggregated gradient that's larger
+    /// in magnitude (because it's summed) but is applied only once, so
+    /// within-batch saturation can't happen.
+    pub fn train_batch_accumulated(&mut self, positions: &[TrainingPosition]) -> TrainingStats {
+        let (h1_size, _) = self.weights.hidden_sizes();
+        let num_features = self.weights.input_weights_1.len();
+        let h2_size = self
+            .weights
+            .hidden_biases_2
+            .as_ref()
+            .map(|b| b.len())
+            .unwrap_or(0);
+
+        let mut acc_output_w = vec![0.0_f32; self.weights.output_weights.len()];
+        let mut acc_output_b: f32 = 0.0;
+        let mut acc_w2: Vec<Vec<f32>> = self
+            .weights
+            .input_weights_2
+            .as_ref()
+            .map(|w2| w2.iter().map(|row| vec![0.0_f32; row.len()]).collect())
+            .unwrap_or_default();
+        let mut acc_b2: Vec<f32> = vec![0.0_f32; h2_size];
+        let mut acc_input_w: std::collections::HashMap<usize, Vec<f32>> =
+            std::collections::HashMap::new();
+        let mut acc_b1: Vec<f32> = vec![0.0_f32; h1_size];
+
+        let mut total_error = 0.0_f32;
+        let mut count = 0_usize;
+
+        for position in positions {
+            let target = match position.td_target {
+                Some(t) => t,
+                None => continue,
+            };
+
+            // Forward pass in f32.
+            let h1_pre: Vec<f32> = position
+                .accumulator
+                .hidden_1
+                .iter()
+                .zip(self.weights.hidden_biases_1.iter())
+                .map(|(&h, &b)| (h + b) as f32)
+                .collect();
+            let h1_act: Vec<f32> = h1_pre.iter().map(|&x| x.max(0.0)).collect();
+
+            let (h2_pre, final_values) = if let Some(ref w2) = self.weights.input_weights_2 {
+                let biases_2 = self.weights.hidden_biases_2.as_ref().unwrap();
+                let mut h2_pre = vec![0.0_f32; h2_size];
+                for (i, &a1) in h1_act.iter().enumerate() {
+                    for (j, &w) in w2[i].iter().enumerate() {
+                        h2_pre[j] += a1 * (w as f32) / 64.0;
+                    }
+                }
+                for (j, &b) in biases_2.iter().enumerate() {
+                    h2_pre[j] += b as f32;
+                }
+                let h2_act: Vec<f32> = h2_pre.iter().map(|&x| x.max(0.0)).collect();
+                (h2_pre, h2_act)
+            } else {
+                (Vec::new(), h1_act.clone())
+            };
+
+            let mut raw_output = self.weights.output_bias as f32;
+            for (i, &v) in final_values.iter().enumerate() {
+                if i < self.weights.output_weights.len() {
+                    raw_output += v * (self.weights.output_weights[i] as f32) / 64.0;
+                }
+            }
+            let output_cp = raw_output * 400.0 / 16320.0;
+            let prediction = (output_cp / 400.0).tanh();
+
+            let error = target - prediction;
+            total_error += error.abs();
+            count += 1;
+
+            let tanh_deriv = (1.0 - prediction * prediction) / 400.0;
+            let scale_deriv = 400.0 / 16320.0;
+            let d_raw = error * tanh_deriv * scale_deriv;
+
+            for (i, &v) in final_values.iter().enumerate() {
+                if i < acc_output_w.len() {
+                    acc_output_w[i] += d_raw * (v / 64.0);
+                }
+            }
+            acc_output_b += d_raw;
+
+            let d_h2: Vec<f32> = if h2_size > 0 {
+                (0..h2_size)
+                    .map(|j| {
+                        if j < self.weights.output_weights.len() {
+                            d_raw * (self.weights.output_weights[j] as f32 / 64.0)
+                        } else {
+                            0.0
+                        }
+                    })
+                    .collect()
+            } else {
+                Vec::new()
+            };
+
+            let mut d_h1 = vec![0.0_f32; h1_size];
+            if let Some(ref w2) = self.weights.input_weights_2 {
+                for i in 0..h1_size {
+                    for j in 0..h2_size {
+                        if h2_pre[j] > 0.0 {
+                            d_h1[i] += d_h2[j] * (w2[i][j] as f32 / 64.0);
+                        }
+                    }
+                }
+                for i in 0..h1_size {
+                    for j in 0..h2_size {
+                        if h2_pre[j] > 0.0 {
+                            acc_w2[i][j] += d_h2[j] * (h1_act[i] / 64.0);
+                        }
+                    }
+                }
+                for j in 0..h2_size {
+                    if h2_pre[j] > 0.0 {
+                        acc_b2[j] += d_h2[j];
+                    }
+                }
+            } else {
+                for i in 0..h1_size {
+                    if i < self.weights.output_weights.len() {
+                        d_h1[i] = d_raw * (self.weights.output_weights[i] as f32 / 64.0);
+                    }
+                }
+            }
+
+            for &feature_idx in &position.active_features {
+                if feature_idx >= num_features {
+                    continue;
+                }
+                let entry = acc_input_w
+                    .entry(feature_idx)
+                    .or_insert_with(|| vec![0.0_f32; h1_size]);
+                for i in 0..h1_size {
+                    if h1_pre[i] > 0.0 {
+                        entry[i] += d_h1[i];
+                    }
+                }
+            }
+            for i in 0..h1_size {
+                if h1_pre[i] > 0.0 {
+                    acc_b1[i] += d_h1[i];
+                }
+            }
+        }
+
+        // Apply accumulated gradients as ONE update per weight.
+        let lr = self.config.learning_rate;
+        let out_scale = self.config.output_grad_scale;
+        let in_scale = self.config.input_grad_scale;
+
+        let mut total_change = 0.0_f32;
+        let mut max_change: f32 = 0.0;
+        let mut change_count = 0_usize;
+
+        for i in 0..self.weights.output_weights.len() {
+            let update_f = acc_output_w[i] * lr * out_scale;
+            let update = update_f.clamp(-32000.0, 32000.0) as i16;
+            if update != 0 {
+                let old = self.weights.output_weights[i];
+                self.weights.output_weights[i] = old.saturating_add(update);
+                let ch = (self.weights.output_weights[i] - old).abs() as f32;
+                total_change += ch;
+                max_change = max_change.max(ch);
+                change_count += 1;
+            }
+        }
+        {
+            let update_f = acc_output_b * lr * out_scale;
+            let update = update_f.clamp(-2e9, 2e9) as i32;
+            if update != 0 {
+                let old = self.weights.output_bias;
+                self.weights.output_bias = old.saturating_add(update);
+                let ch = (self.weights.output_bias - old).abs() as f32;
+                total_change += ch;
+                max_change = max_change.max(ch);
+                change_count += 1;
+            }
+        }
+        if let Some(ref mut w2_mut) = self.weights.input_weights_2 {
+            for i in 0..h1_size {
+                for j in 0..h2_size {
+                    let update_f = acc_w2[i][j] * lr * out_scale;
+                    let update = update_f.clamp(-32000.0, 32000.0) as i16;
+                    if update != 0 {
+                        let old = w2_mut[i][j];
+                        w2_mut[i][j] = old.saturating_add(update);
+                        let ch = (w2_mut[i][j] - old).abs() as f32;
+                        total_change += ch;
+                        max_change = max_change.max(ch);
+                        change_count += 1;
+                    }
+                }
+            }
+        }
+        if let Some(ref mut b2_mut) = self.weights.hidden_biases_2 {
+            for j in 0..h2_size {
+                let update_f = acc_b2[j] * lr * out_scale;
+                let update = update_f.clamp(-2e9, 2e9) as i32;
+                if update != 0 {
+                    let old = b2_mut[j];
+                    b2_mut[j] = old.saturating_add(update);
+                    let ch = (b2_mut[j] - old).abs() as f32;
+                    total_change += ch;
+                    max_change = max_change.max(ch);
+                    change_count += 1;
+                }
+            }
+        }
+        for (&feature_idx, grads) in acc_input_w.iter() {
+            for i in 0..h1_size {
+                let update_f = grads[i] * lr * in_scale;
+                let update = update_f.clamp(-127.0, 127.0) as i16;
+                if update != 0 {
+                    let old = self.weights.input_weights_1[feature_idx][i];
+                    self.weights.input_weights_1[feature_idx][i] = old.saturating_add(update);
+                    let ch = (self.weights.input_weights_1[feature_idx][i] - old).abs() as f32;
+                    total_change += ch;
+                    max_change = max_change.max(ch);
+                    change_count += 1;
+                }
+            }
+        }
+        for i in 0..h1_size {
+            let update_f = acc_b1[i] * lr * in_scale;
+            let update = update_f.clamp(-2e9, 2e9) as i32;
+            if update != 0 {
+                let old = self.weights.hidden_biases_1[i];
+                self.weights.hidden_biases_1[i] = old.saturating_add(update);
+                let ch = (self.weights.hidden_biases_1[i] - old).abs() as f32;
+                total_change += ch;
+                max_change = max_change.max(ch);
+                change_count += 1;
+            }
+        }
+
+        let avg_change = if change_count > 0 {
+            total_change / change_count as f32
+        } else {
+            0.0
+        };
+
+        self.stats.positions_processed += positions.len();
+        self.stats.weight_updates += count;
+        if count > 0 {
+            self.stats.avg_td_error = total_error / count as f32;
+            self.stats.avg_weight_change = avg_change;
+            self.stats.max_weight_change = max_change;
+        }
+        self.stats.clone()
+    }
+
+    /// Run a single supervised-learning pass over a batch of positions whose
+    /// `td_target` is already set from an external source (e.g. a teacher-engine
+    /// corpus). Unlike `update_weights`, this does not queue positions or run
+    /// `compute_td_targets` — the caller is responsible for the target math.
+    pub fn train_batch(&mut self, positions: &[TrainingPosition]) -> TrainingStats {
+        let mut total_td_error = 0.0_f32;
+        let mut total_weight_change = 0.0_f32;
+        let mut max_weight_change: f32 = 0.0;
+        let mut weight_update_count = 0_usize;
+
+        for position in positions {
+            if let Some(td_target) = position.td_target {
+                let (td_error, weight_change, max_change) =
+                    self.update_weights_for_position(position, td_target);
+                total_td_error += td_error.abs();
+                total_weight_change += weight_change;
+                max_weight_change = max_weight_change.max(max_change);
+                weight_update_count += 1;
+            }
+        }
+
+        self.stats.positions_processed += positions.len();
+        self.stats.weight_updates += weight_update_count;
+        if weight_update_count > 0 {
+            self.stats.avg_td_error = total_td_error / weight_update_count as f32;
+            self.stats.avg_weight_change = total_weight_change / weight_update_count as f32;
+            self.stats.max_weight_change = max_weight_change;
+        }
+
+        self.stats.clone()
     }
 
     /// Get current weights

@@ -74,6 +74,10 @@ path = "src/bin/elo_tester.rs"
 name = "corpus-gen"
 path = "src/bin/corpus_gen.rs"
 
+[[bin]]
+name = "nnue-offline-trainer"
+path = "src/bin/nnue_offline_trainer.rs"
+
 [dependencies]
 dirs = "5"
 serde = { version = "1.0", features = ["derive"] }
