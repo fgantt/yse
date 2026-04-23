@@ -66,6 +66,14 @@ path = "src/bin/optimize_magic_numbers.rs"
 name = "pst-tuning-runner"
 path = "src/bin/pst_tuning_runner.rs"
 
+[[bin]]
+name = "elo-tester"
+path = "src/bin/elo_tester.rs"
+
+[[bin]]
+name = "corpus-gen"
+path = "src/bin/corpus_gen.rs"
+
 [dependencies]
 dirs = "5"
 serde = { version = "1.0", features = ["derive"] }

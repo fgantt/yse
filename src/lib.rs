@@ -44,6 +44,7 @@ pub mod patterns {
 }
 
 pub mod usi;
+pub mod usi_client;
 
 use evaluation::pst_loader::{PieceSquareTableConfig, PieceSquareTablePreset};
 use moves::*;
