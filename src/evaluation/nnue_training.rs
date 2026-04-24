@@ -122,10 +122,177 @@ pub struct TrainingGame {
     pub result: GameResult,
 }
 
+/// f32 shadow weights for gradient accumulation during training.
+///
+/// The canonical `NNUEWeights` are i16 (for cheap inference via
+/// `act * weight` on small ints). Training in the i16 domain hits two problems:
+///
+///   * per-position gradient updates of magnitude < 0.5 round to 0 — the input
+///     layer, where gradients are spread across many features, barely moves;
+///   * scaling the gradient up to cross the rounding threshold per position
+///     causes the same weight to saturate i16 within a single batch.
+///
+/// The fix, standard in nnue-pytorch / YaneuraOu trainers, is to maintain a
+/// full-precision f32 copy of every weight, apply gradient updates to the
+/// shadow (no rounding, no clamping), and re-quantize the shadow into the
+/// i16 `NNUEWeights` once per batch. Forward passes still read i16, so
+/// training numerics match inference.
+///
+/// Structure mirrors `NNUEWeights` exactly.
+#[derive(Debug, Clone)]
+pub struct ShadowWeights {
+    pub input_weights_1: Vec<Vec<f32>>,
+    pub hidden_biases_1: Vec<f32>,
+    pub input_weights_2: Option<Vec<Vec<f32>>>,
+    pub hidden_biases_2: Option<Vec<f32>>,
+    pub output_weights: Vec<f32>,
+    pub output_bias: f32,
+}
+
+impl ShadowWeights {
+    /// Build a shadow by casting each i16 weight to f32. This is the identity
+    /// map — the shadow initially represents exactly the same values as the
+    /// i16 weights, then drifts as training adds sub-unit f32 updates.
+    pub fn from_weights(weights: &NNUEWeights) -> Self {
+        Self {
+            input_weights_1: weights
+                .input_weights_1
+                .iter()
+                .map(|row| row.iter().map(|&w| w as f32).collect())
+                .collect(),
+            hidden_biases_1: weights
+                .hidden_biases_1
+                .iter()
+                .map(|&b| b as f32)
+                .collect(),
+            input_weights_2: weights.input_weights_2.as_ref().map(|w2| {
+                w2.iter()
+                    .map(|row| row.iter().map(|&w| w as f32).collect())
+                    .collect()
+            }),
+            hidden_biases_2: weights
+                .hidden_biases_2
+                .as_ref()
+                .map(|b2| b2.iter().map(|&b| b as f32).collect()),
+            output_weights: weights.output_weights.iter().map(|&w| w as f32).collect(),
+            output_bias: weights.output_bias as f32,
+        }
+    }
+
+    /// Render the shadow into canonical i16 weights via clamp + round-to-nearest.
+    ///
+    /// Input-layer weights use the conservative ±127 magnitude budget (fits in
+    /// the i8 sub-range of i16 — matches how `NNUEWeights::new` initialises);
+    /// hidden-2 and output weights use the full i16 range. Biases use the
+    /// full i32 range with a generous soft bound. Returns (total_abs_change,
+    /// max_abs_change, num_changed) so callers can populate `TrainingStats`.
+    pub fn quantize_into(&self, weights: &mut NNUEWeights) -> (f32, f32, usize) {
+        let mut total = 0.0_f32;
+        let mut max: f32 = 0.0;
+        let mut count = 0_usize;
+
+        for (feat_i, row) in self.input_weights_1.iter().enumerate() {
+            for (j, &w) in row.iter().enumerate() {
+                let old = weights.input_weights_1[feat_i][j];
+                let new = w.clamp(-127.0, 127.0).round() as i16;
+                if new != old {
+                    let ch = (new - old).abs() as f32;
+                    total += ch;
+                    if ch > max {
+                        max = ch;
+                    }
+                    count += 1;
+                    weights.input_weights_1[feat_i][j] = new;
+                }
+            }
+        }
+        for (i, &b) in self.hidden_biases_1.iter().enumerate() {
+            let old = weights.hidden_biases_1[i];
+            let new = b.clamp(-2.0e9, 2.0e9) as i32;
+            if new != old {
+                let ch = (new - old).abs() as f32;
+                total += ch;
+                if ch > max {
+                    max = ch;
+                }
+                count += 1;
+                weights.hidden_biases_1[i] = new;
+            }
+        }
+        if let (Some(shadow_w2), Some(ref mut w2_mut)) =
+            (self.input_weights_2.as_ref(), weights.input_weights_2.as_mut())
+        {
+            for (i, row) in shadow_w2.iter().enumerate() {
+                for (j, &w) in row.iter().enumerate() {
+                    let old = w2_mut[i][j];
+                    let new = w.clamp(-32767.0, 32767.0).round() as i16;
+                    if new != old {
+                        let ch = (new - old).abs() as f32;
+                        total += ch;
+                        if ch > max {
+                            max = ch;
+                        }
+                        count += 1;
+                        w2_mut[i][j] = new;
+                    }
+                }
+            }
+        }
+        if let (Some(shadow_b2), Some(ref mut b2_mut)) =
+            (self.hidden_biases_2.as_ref(), weights.hidden_biases_2.as_mut())
+        {
+            for (i, &b) in shadow_b2.iter().enumerate() {
+                let old = b2_mut[i];
+                let new = b.clamp(-2.0e9, 2.0e9) as i32;
+                if new != old {
+                    let ch = (new - old).abs() as f32;
+                    total += ch;
+                    if ch > max {
+                        max = ch;
+                    }
+                    count += 1;
+                    b2_mut[i] = new;
+                }
+            }
+        }
+        for (i, &w) in self.output_weights.iter().enumerate() {
+            let old = weights.output_weights[i];
+            let new = w.clamp(-32767.0, 32767.0).round() as i16;
+            if new != old {
+                let ch = (new - old).abs() as f32;
+                total += ch;
+                if ch > max {
+                    max = ch;
+                }
+                count += 1;
+                weights.output_weights[i] = new;
+            }
+        }
+        {
+            let old = weights.output_bias;
+            let new = self.output_bias.clamp(-2.0e9, 2.0e9) as i32;
+            if new != old {
+                let ch = (new - old).abs() as f32;
+                total += ch;
+                if ch > max {
+                    max = ch;
+                }
+                count += 1;
+                weights.output_bias = new;
+            }
+        }
+
+        (total, max, count)
+    }
+}
+
 /// NNUE Trainer
 pub struct NNUETrainer {
-    /// Current NNUE weights
+    /// Current NNUE weights (i16, what inference reads)
     weights: NNUEWeights,
+    /// f32 shadow weights for lossless gradient accumulation during training.
+    /// Re-quantized into `weights` once per batch in `train_batch_accumulated`.
+    shadow: ShadowWeights,
     /// Training configuration
     config: NNUETrainingConfig,
     /// Accumulated training positions
@@ -137,8 +304,10 @@ pub struct NNUETrainer {
 impl NNUETrainer {
     /// Create a new trainer with given weights and configuration
     pub fn new(weights: NNUEWeights, config: NNUETrainingConfig) -> Self {
+        let shadow = ShadowWeights::from_weights(&weights);
         Self {
             weights,
+            shadow,
             config,
             training_positions: VecDeque::new(),
             stats: TrainingStats::default(),
@@ -504,15 +673,18 @@ impl NNUETrainer {
         (error, avg_change, max_change)
     }
 
-    /// Proper batched SGD: accumulate gradients across the whole batch in
-    /// f32, then apply one i16 update per weight at batch end. This avoids
-    /// two problems `train_batch` has:
-    ///   * per-position updates under ±0.5 round to zero in i16
-    ///   * per-position updates over ±1 accumulate to saturation within a
-    ///     single batch
-    /// With accumulation, we get a single aggregated gradient that's larger
-    /// in magnitude (because it's summed) but is applied only once, so
-    /// within-batch saturation can't happen.
+    /// Batched SGD with f32 shadow weights.
+    ///
+    /// Forward pass reads the i16 `self.weights` (matching inference); gradient
+    /// accumulation is done in f32; the accumulated updates are added to the
+    /// f32 `self.shadow`; then `self.shadow` is re-quantized into `self.weights`
+    /// once per batch. This fixes the Session-7 blocker where sub-unit gradient
+    /// updates at the input layer rounded to zero in i16 and the network never
+    /// learned beyond the layer-2/output weights.
+    ///
+    /// Equivalent to: i16 weight = round(init_i16 + Σ_batches f32_grad_update),
+    /// so any gradient direction that's consistent across many batches
+    /// eventually crosses the quantization threshold and bumps the i16 weight.
     pub fn train_batch_accumulated(&mut self, positions: &[TrainingPosition]) -> TrainingStats {
         let (h1_size, _) = self.weights.hidden_sizes();
         let num_features = self.weights.input_weights_1.len();
@@ -659,95 +831,44 @@ impl NNUETrainer {
             }
         }
 
-        // Apply accumulated gradients as ONE update per weight.
+        // Apply accumulated gradients to the f32 shadow (no clamping, no
+        // rounding). Sub-i16-unit updates that would have rounded to zero in
+        // the old i16-direct path instead accumulate across batches here, and
+        // only cross into i16 when the shadow crosses a rounding threshold.
         let lr = self.config.learning_rate;
         let out_scale = self.config.output_grad_scale;
         let in_scale = self.config.input_grad_scale;
 
-        let mut total_change = 0.0_f32;
-        let mut max_change: f32 = 0.0;
-        let mut change_count = 0_usize;
+        for i in 0..self.shadow.output_weights.len() {
+            self.shadow.output_weights[i] += acc_output_w[i] * lr * out_scale;
+        }
+        self.shadow.output_bias += acc_output_b * lr * out_scale;
 
-        for i in 0..self.weights.output_weights.len() {
-            let update_f = acc_output_w[i] * lr * out_scale;
-            let update = update_f.clamp(-32000.0, 32000.0) as i16;
-            if update != 0 {
-                let old = self.weights.output_weights[i];
-                self.weights.output_weights[i] = old.saturating_add(update);
-                let ch = (self.weights.output_weights[i] - old).abs() as f32;
-                total_change += ch;
-                max_change = max_change.max(ch);
-                change_count += 1;
-            }
-        }
-        {
-            let update_f = acc_output_b * lr * out_scale;
-            let update = update_f.clamp(-2e9, 2e9) as i32;
-            if update != 0 {
-                let old = self.weights.output_bias;
-                self.weights.output_bias = old.saturating_add(update);
-                let ch = (self.weights.output_bias - old).abs() as f32;
-                total_change += ch;
-                max_change = max_change.max(ch);
-                change_count += 1;
-            }
-        }
-        if let Some(ref mut w2_mut) = self.weights.input_weights_2 {
+        if let Some(ref mut shadow_w2) = self.shadow.input_weights_2 {
             for i in 0..h1_size {
                 for j in 0..h2_size {
-                    let update_f = acc_w2[i][j] * lr * out_scale;
-                    let update = update_f.clamp(-32000.0, 32000.0) as i16;
-                    if update != 0 {
-                        let old = w2_mut[i][j];
-                        w2_mut[i][j] = old.saturating_add(update);
-                        let ch = (w2_mut[i][j] - old).abs() as f32;
-                        total_change += ch;
-                        max_change = max_change.max(ch);
-                        change_count += 1;
-                    }
+                    shadow_w2[i][j] += acc_w2[i][j] * lr * out_scale;
                 }
             }
         }
-        if let Some(ref mut b2_mut) = self.weights.hidden_biases_2 {
+        if let Some(ref mut shadow_b2) = self.shadow.hidden_biases_2 {
             for j in 0..h2_size {
-                let update_f = acc_b2[j] * lr * out_scale;
-                let update = update_f.clamp(-2e9, 2e9) as i32;
-                if update != 0 {
-                    let old = b2_mut[j];
-                    b2_mut[j] = old.saturating_add(update);
-                    let ch = (b2_mut[j] - old).abs() as f32;
-                    total_change += ch;
-                    max_change = max_change.max(ch);
-                    change_count += 1;
-                }
+                shadow_b2[j] += acc_b2[j] * lr * out_scale;
             }
         }
+
         for (&feature_idx, grads) in acc_input_w.iter() {
             for i in 0..h1_size {
-                let update_f = grads[i] * lr * in_scale;
-                let update = update_f.clamp(-127.0, 127.0) as i16;
-                if update != 0 {
-                    let old = self.weights.input_weights_1[feature_idx][i];
-                    self.weights.input_weights_1[feature_idx][i] = old.saturating_add(update);
-                    let ch = (self.weights.input_weights_1[feature_idx][i] - old).abs() as f32;
-                    total_change += ch;
-                    max_change = max_change.max(ch);
-                    change_count += 1;
-                }
+                self.shadow.input_weights_1[feature_idx][i] += grads[i] * lr * in_scale;
             }
         }
         for i in 0..h1_size {
-            let update_f = acc_b1[i] * lr * in_scale;
-            let update = update_f.clamp(-2e9, 2e9) as i32;
-            if update != 0 {
-                let old = self.weights.hidden_biases_1[i];
-                self.weights.hidden_biases_1[i] = old.saturating_add(update);
-                let ch = (self.weights.hidden_biases_1[i] - old).abs() as f32;
-                total_change += ch;
-                max_change = max_change.max(ch);
-                change_count += 1;
-            }
+            self.shadow.hidden_biases_1[i] += acc_b1[i] * lr * in_scale;
         }
+
+        // Render shadow → i16 once per batch. Stats reflect actual i16 delta.
+        let (total_change, max_change, change_count) =
+            self.shadow.quantize_into(&mut self.weights);
 
         let avg_change = if change_count > 0 {
             total_change / change_count as f32
@@ -802,9 +923,25 @@ impl NNUETrainer {
         &self.weights
     }
 
-    /// Get mutable reference to weights
+    /// Get mutable reference to weights.
+    ///
+    /// Note: external mutation leaves the f32 shadow out of sync. If callers
+    /// modify weights and then call `train_batch_accumulated`, the shadow-
+    /// driven update will be computed from stale values. Use
+    /// `resync_shadow_from_weights` afterwards to rebind.
     pub fn get_weights_mut(&mut self) -> &mut NNUEWeights {
         &mut self.weights
+    }
+
+    /// Rebuild the f32 shadow from the current i16 weights. Call after any
+    /// external mutation of weights (e.g. loading a checkpoint mid-training).
+    pub fn resync_shadow_from_weights(&mut self) {
+        self.shadow = ShadowWeights::from_weights(&self.weights);
+    }
+
+    /// Read-only access to the f32 shadow (for debugging / diagnostics).
+    pub fn get_shadow(&self) -> &ShadowWeights {
+        &self.shadow
     }
 
     /// Add training positions from a game

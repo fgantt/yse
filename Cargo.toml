@@ -78,6 +78,10 @@ path = "src/bin/corpus_gen.rs"
 name = "nnue-offline-trainer"
 path = "src/bin/nnue_offline_trainer.rs"
 
+[[bin]]
+name = "nnue-weight-diff"
+path = "src/bin/nnue_weight_diff.rs"
+
 [dependencies]
 dirs = "5"
 serde = { version = "1.0", features = ["derive"] }
