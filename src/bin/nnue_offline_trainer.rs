@@ -9,12 +9,15 @@
 //! features, refresh the accumulator, and supervise the student network
 //! against a blended target:
 //!
-//!     target = (1 - α) * tanh(eval_cp / 600) + α * outcome_to_move_pov
+//!     target = (1 - α) * tanh(eval_cp / target_eval_scale) + α * outcome_to_move_pov
 //!
 //! where `eval_cp` is already the teacher's evaluation from the to-move
 //! player's perspective (standard USI convention) and α (`--outcome-weight`)
 //! controls how strongly the actual game result overrides the per-ply eval
-//! (Stockfish-style hybrid).
+//! (Stockfish-style hybrid). `target_eval_scale` (default 600) controls how
+//! aggressively the target saturates; raising it (e.g. to 2400) keeps targets
+//! in the output range the network can reach when output weights are small.
+//! See docs/nnue-phase2/SESSION_LOG_008.md for background.
 
 use clap::Parser;
 use rand::rngs::StdRng;
@@ -88,6 +91,15 @@ struct Cli {
     /// from dominating the gradient.
     #[arg(long, default_value_t = 2000)]
     eval_clamp: i32,
+
+    /// Scale used in `tanh(eval_cp / scale)` when computing the supervised
+    /// target. Historic default 600. Session 8 showed this saturates targets
+    /// well outside the range the current PST-imitation output layer can
+    /// reach; 2400 keeps targets roughly in the achievable `prediction`
+    /// range. `0` selects a linear target (`eval/eval_clamp` clamped to
+    /// [-1, 1]) — useful for diagnostic runs where we want no saturation.
+    #[arg(long, default_value_t = 600.0)]
+    target_eval_scale: f32,
 
     /// Shuffle seed (0 = system entropy).
     #[arg(long, default_value_t = 1)]
@@ -194,10 +206,23 @@ fn board_from_sfen(sfen: &str) -> Option<BitboardBoard> {
 
 /// Compute the supervised target for a record, returning target in [-1, 1] from
 /// the to-move player's perspective.
-fn target_for(rec: &CorpusRecord, outcome_weight: f32, eval_clamp: i32) -> Option<f32> {
+///
+/// `target_eval_scale` controls the shape of the teacher term:
+///   * `scale > 0`: `teacher = tanh(clamped_eval / scale)` (historic behaviour).
+///   * `scale <= 0`: `teacher = clamped_eval / eval_clamp` (linear, no saturation).
+fn target_for(
+    rec: &CorpusRecord,
+    outcome_weight: f32,
+    eval_clamp: i32,
+    target_eval_scale: f32,
+) -> Option<f32> {
     let cp = rec.eval_cp?;
     let clamped = cp.max(-eval_clamp).min(eval_clamp);
-    let teacher = (clamped as f32 / 600.0).tanh();
+    let teacher = if target_eval_scale > 0.0 {
+        (clamped as f32 / target_eval_scale).tanh()
+    } else {
+        (clamped as f32 / eval_clamp as f32).clamp(-1.0, 1.0)
+    };
 
     let player_mult = if rec.player == Player::Black { 1.0_f32 } else { -1.0 };
     let outcome_tomove = rec.outcome as f32 * player_mult;
@@ -212,8 +237,9 @@ fn build_position(
     weights: &NNUEWeights,
     outcome_weight: f32,
     eval_clamp: i32,
+    target_eval_scale: f32,
 ) -> Option<TrainingPosition> {
-    let target = target_for(rec, outcome_weight, eval_clamp)?;
+    let target = target_for(rec, outcome_weight, eval_clamp, target_eval_scale)?;
     let board = board_from_sfen(&rec.sfen)?;
     let active_features = extract_active_features(&board);
     let (h1, h2) = weights.hidden_sizes();
@@ -247,6 +273,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  In  grad scale: {}", cli.input_grad_scale);
     println!("  Outcome weight: {}", cli.outcome_weight);
     println!("  Eval clamp:     {}", cli.eval_clamp);
+    println!(
+        "  Target scale:   {} ({})",
+        cli.target_eval_scale,
+        if cli.target_eval_scale > 0.0 {
+            "tanh(eval/scale)"
+        } else {
+            "linear clamped"
+        }
+    );
     println!("  Seed:           {}", cli.seed);
     println!();
 
@@ -303,6 +338,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 trainer.get_weights(),
                 cli.outcome_weight,
                 cli.eval_clamp,
+                cli.target_eval_scale,
             ) {
                 batch.push(pos);
             }

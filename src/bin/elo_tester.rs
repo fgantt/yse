@@ -49,9 +49,18 @@ struct Cli {
     #[arg(short, long, default_value_t = 3)]
     depth: u8,
 
-    /// Time per move in milliseconds
-    #[arg(long, default_value_t = 100)]
+    /// Time per move in milliseconds. Default 500 ms — Session 8 found that
+    /// 100-150 ms is *intrinsically* weight-blind at depth 3 because the
+    /// iterative-deepening search bails out before producing a scored PV
+    /// and both engines return `eval=0` for every move.
+    #[arg(long, default_value_t = 500)]
     time_ms: u32,
+
+    /// If set, disable the per-move time cutoff and let iterative deepening
+    /// run to the requested `--depth` for every move. Equivalent to passing
+    /// a very large `--time-ms` and recommended for weight-comparison runs.
+    #[arg(long)]
+    fixed_depth: bool,
 
     /// Max moves per game before declaring draw
     #[arg(long, default_value_t = 200)]
@@ -251,11 +260,17 @@ fn elo_ci95(wins: u32, draws: u32, losses: u32) -> f64 {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
+    let effective_time_ms: u32 = if cli.fixed_depth { u32::MAX } else { cli.time_ms };
+
     println!("=== NNUE vs PST ELO Tester ===");
     println!("  Weights:       {}", cli.nnue_weights);
     println!("  Games:         {}", cli.games);
     println!("  Depth:         {}", cli.depth);
-    println!("  Time/move:     {} ms", cli.time_ms);
+    if cli.fixed_depth {
+        println!("  Time/move:     fixed-depth (no cutoff)");
+    } else {
+        println!("  Time/move:     {} ms", cli.time_ms);
+    }
     println!("  Max moves:     {}", cli.max_moves);
     println!("  Random plies:  {}", cli.random_plies);
     println!("  TT size:       {} MB", cli.tt_mb);
@@ -301,7 +316,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &mut pst_engine,
             nnue_plays_black,
             cli.depth,
-            cli.time_ms,
+            effective_time_ms,
             cli.max_moves,
             cli.random_plies,
             &mut rng,
