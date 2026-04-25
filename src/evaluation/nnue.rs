@@ -52,11 +52,23 @@ pub const DEFAULT_HIDDEN_SIZE_2: usize = 32;
 /// Centipawn scale factor (maps network output range to evaluation range)
 const SCALE_FACTOR: i32 = 400;
 /// CReLU activation bound (practical maximum from hidden layer activations)
+#[allow(dead_code)]
 const QUANTIZER_A: i32 = 255;
 /// Output layer scaling divisor (used in hidden-to-output computation)
+#[allow(dead_code)]
 const QUANTIZER_B: i32 = 64;
-/// Combined divisor: QUANTIZER_A * QUANTIZER_B = 16320
-const FINAL_DIVISOR: i32 = QUANTIZER_A * QUANTIZER_B;
+/// Output mapping divisor: `cp = output * SCALE_FACTOR / OUTPUT_DIVISOR`,
+/// equivalently `prediction = tanh(raw_output / OUTPUT_DIVISOR)`.
+///
+/// Session 11 lowered this from `QUANTIZER_A * QUANTIZER_B = 16320` to 4080.
+/// At the old divisor the per-position contribution `Σ (h2_act · output_w) >> 6`
+/// (~±6350 in practice) only reached `tanh(6350/16320) ≈ 0.37` in prediction
+/// space — well below the supervised targets of ±0.69+ for decisive teacher
+/// evals at `target_eval_scale ∈ {600, 2400}`. Lowering the divisor 4× lets
+/// per-position variance reach `tanh(6350/4080) ≈ 0.85`, restoring the
+/// network's ability to learn position-discriminating cp values.
+/// See `docs/nnue-phase2/SESSION_LOG_011.md`.
+pub const OUTPUT_DIVISOR: i32 = 4080;
 
 /// Calculate feature index for a piece-square combination
 #[inline]
@@ -355,7 +367,7 @@ impl NNUEAccumulator {
                 output += (h2_activated * weights.output_weights[j] as i32) >> 6;
             }
 
-            (output * SCALE_FACTOR) / FINAL_DIVISOR
+            (output * SCALE_FACTOR) / OUTPUT_DIVISOR
         } else {
             // No second hidden layer: dot activated_1 with output_weights
             let mut output = weights.output_bias;
@@ -363,7 +375,7 @@ impl NNUEAccumulator {
                 output += (act * weight as i32) >> 6;
             }
 
-            (output * SCALE_FACTOR) / FINAL_DIVISOR
+            (output * SCALE_FACTOR) / OUTPUT_DIVISOR
         }
     }
 }

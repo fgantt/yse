@@ -113,6 +113,109 @@ struct Cli {
     /// Print extra per-batch diagnostics.
     #[arg(long)]
     verbose: bool,
+
+    /// Number of records to use for the per-epoch Pearson-r diagnostic that
+    /// measures how well the network's cp output linearly tracks the
+    /// teacher's `eval_cp`. Independent of `target_eval_scale` — directly
+    /// answers Session 10's "td_err is unreliable" issue. Set to 0 to skip.
+    #[arg(long, default_value_t = 5000)]
+    validate_sample: usize,
+}
+
+/// Compute Pearson correlation r between the network's cp evaluation and the
+/// teacher's `eval_cp` over the first `sample_size` records that have a
+/// non-null teacher eval. Pearson is invariant to linear scaling, so this is
+/// directly comparable across `target_eval_scale` and `OUTPUT_DIVISOR`
+/// settings — what it actually measures is whether the network *differentiates*
+/// positions in a way that lines up with the teacher.
+fn validation_pearson(
+    weights: &NNUEWeights,
+    records: &[CorpusRecord],
+    sample_size: usize,
+) -> Option<f32> {
+    if sample_size == 0 {
+        return None;
+    }
+    let (h1, h2) = weights.hidden_sizes();
+    let mut acc = NNUEAccumulator::new(h1, h2);
+
+    // Pearson is computed three ways to disentangle "the network can't learn"
+    // from "the network learned but in the wrong POV":
+    //   r_all  : all records, network output as-is vs to-move-POV teacher target
+    //   r_blk  : Black-to-move records only (POV agreement is automatic here)
+    //   r_wht  : White-to-move records, network output negated (assumes the
+    //            network produces a Black-POV evaluation)
+    // If r_blk or r_wht is materially > r_all, the network has learned a
+    // board-absolute mapping but the trainer's to-move target is mixing the
+    // signal across both colors. See Session 11 hand-off discussion.
+    let mut preds_blk: Vec<f32> = Vec::new();
+    let mut targets_blk: Vec<f32> = Vec::new();
+    let mut preds_wht: Vec<f32> = Vec::new();
+    let mut targets_wht: Vec<f32> = Vec::new();
+    let mut total = 0;
+    for rec in records.iter() {
+        if total >= sample_size {
+            break;
+        }
+        let teacher_cp = match rec.eval_cp {
+            Some(cp) => cp,
+            None => continue,
+        };
+        let board = match board_from_sfen(&rec.sfen) {
+            Some(b) => b,
+            None => continue,
+        };
+        acc.refresh(&board, weights);
+        let net_cp = acc.evaluate(weights) as f32;
+        match rec.player {
+            Player::Black => {
+                preds_blk.push(net_cp);
+                targets_blk.push(teacher_cp as f32);
+            }
+            Player::White => {
+                preds_wht.push(-net_cp);
+                targets_wht.push(teacher_cp as f32);
+            }
+        }
+        total += 1;
+    }
+    if total < 2 {
+        return None;
+    }
+    let mut preds_all: Vec<f32> = Vec::with_capacity(total);
+    let mut targets_all: Vec<f32> = Vec::with_capacity(total);
+    preds_all.extend(preds_blk.iter().copied());
+    preds_all.extend(preds_wht.iter().copied());
+    targets_all.extend(targets_blk.iter().copied());
+    targets_all.extend(targets_wht.iter().copied());
+    let r_all = pearson(&preds_all, &targets_all);
+    let r_blk = if preds_blk.len() >= 2 { pearson(&preds_blk, &targets_blk) } else { 0.0 };
+    let r_wht = if preds_wht.len() >= 2 { pearson(&preds_wht, &targets_wht) } else { 0.0 };
+    println!(
+        "    pearson  all={:+.3} (n={})  black-stm={:+.3} (n={})  white-stm-neg={:+.3} (n={})",
+        r_all, total, r_blk, preds_blk.len(), r_wht, preds_wht.len()
+    );
+    Some(r_all)
+}
+
+fn pearson(xs: &[f32], ys: &[f32]) -> f32 {
+    let n = xs.len() as f32;
+    let mean_x = xs.iter().sum::<f32>() / n;
+    let mean_y = ys.iter().sum::<f32>() / n;
+    let mut num = 0.0_f32;
+    let mut sx = 0.0_f32;
+    let mut sy = 0.0_f32;
+    for (&x, &y) in xs.iter().zip(ys.iter()) {
+        let dx = x - mean_x;
+        let dy = y - mean_y;
+        num += dx * dy;
+        sx += dx * dx;
+        sy += dy * dy;
+    }
+    if sx <= 0.0 || sy <= 0.0 {
+        return 0.0;
+    }
+    num / (sx.sqrt() * sy.sqrt())
 }
 
 #[derive(Debug, Clone)]
@@ -373,13 +476,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             0.0
         };
 
+        let pearson = validation_pearson(
+            trainer.get_weights(),
+            &records,
+            cli.validate_sample,
+        );
+        let pearson_str = match pearson {
+            Some(r) => format!(" pearson_r={:+.3}", r),
+            None => String::new(),
+        };
         println!(
-            "Epoch {:3}/{:3}: {:6} pos, {:4} batches, avg td_err={:.4}, t={:.1}s",
+            "Epoch {:3}/{:3}: {:6} pos, {:4} batches, avg td_err={:.4}{}, t={:.1}s",
             epoch + 1,
             total_epochs,
             total_positions,
             epoch_batches,
             epoch_avg_td,
+            pearson_str,
             epoch_start.elapsed().as_secs_f64()
         );
 

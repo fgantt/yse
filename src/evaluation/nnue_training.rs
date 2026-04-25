@@ -3,7 +3,14 @@
 //! This module implements self-play training for NNUE weights using TD(λ) learning.
 
 use crate::bitboards::BitboardBoard;
-use crate::evaluation::nnue::{NNUEAccumulator, NNUEWeights, feature_index};
+use crate::evaluation::nnue::{NNUEAccumulator, NNUEWeights, OUTPUT_DIVISOR, feature_index};
+
+/// f32 mirror of `OUTPUT_DIVISOR` from `nnue.rs` so the training-time
+/// `prediction = tanh(raw_output / OUTPUT_DIVISOR)` mapping stays in
+/// lock-step with inference. Session 11 lowered this from 16320 to 4080.
+const OUTPUT_DIVISOR_F32: f32 = OUTPUT_DIVISOR as f32;
+/// Centipawn scale factor (mirrors `SCALE_FACTOR` in nnue.rs).
+const SCALE_FACTOR_F32: f32 = 400.0;
 use crate::types::core::{Move, Player, Position};
 // GameResult is in lib.rs, we'll use a local enum
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -469,12 +476,11 @@ impl NNUETrainer {
             }
         }
 
-        // Scale to centipawns: output_cp = raw_output * 400 / 16320
-        let output_cp = raw_output * 400.0 / 16320.0;
+        // Scale to centipawns: output_cp = raw_output * SCALE_FACTOR / OUTPUT_DIVISOR
+        let output_cp = raw_output * SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
 
-        // Map to [-1, 1] using sigmoid-like scaling: prediction = tanh(output_cp / 400)
-        // Using /400 instead of /600 gives a wider active gradient region for small evals.
-        let prediction = (output_cp / 400.0).tanh();
+        // Map to [-1, 1]: prediction = tanh(output_cp / SCALE_FACTOR) = tanh(raw / OUTPUT_DIVISOR).
+        let prediction = (output_cp / SCALE_FACTOR_F32).tanh();
 
         // === Backward pass ===
 
@@ -482,11 +488,11 @@ impl NNUETrainer {
         // d(loss)/d(prediction) = -(target - prediction) = prediction - target
         let error = target_value - prediction;
 
-        // d(prediction)/d(output_cp) = (1 - prediction^2) / 400
-        let tanh_deriv = (1.0 - prediction * prediction) / 400.0;
+        // d(prediction)/d(output_cp) = (1 - prediction^2) / SCALE_FACTOR
+        let tanh_deriv = (1.0 - prediction * prediction) / SCALE_FACTOR_F32;
 
-        // d(output_cp)/d(raw_output) = 400 / 16320
-        let scale_deriv = 400.0 / 16320.0;
+        // d(output_cp)/d(raw_output) = SCALE_FACTOR / OUTPUT_DIVISOR
+        let scale_deriv = SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
 
         // d(loss)/d(raw_output) = -error * tanh_deriv * scale_deriv
         // We want to MINIMIZE loss, so update = -d(loss)/d(w) = error * chain
@@ -750,15 +756,15 @@ impl NNUETrainer {
                     raw_output += v * (self.weights.output_weights[i] as f32) / 64.0;
                 }
             }
-            let output_cp = raw_output * 400.0 / 16320.0;
-            let prediction = (output_cp / 400.0).tanh();
+            let output_cp = raw_output * SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
+            let prediction = (output_cp / SCALE_FACTOR_F32).tanh();
 
             let error = target - prediction;
             total_error += error.abs();
             count += 1;
 
-            let tanh_deriv = (1.0 - prediction * prediction) / 400.0;
-            let scale_deriv = 400.0 / 16320.0;
+            let tanh_deriv = (1.0 - prediction * prediction) / SCALE_FACTOR_F32;
+            let scale_deriv = SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
             let d_raw = error * tanh_deriv * scale_deriv;
 
             for (i, &v) in final_values.iter().enumerate() {
