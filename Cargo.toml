@@ -82,6 +82,10 @@ path = "src/bin/nnue_offline_trainer.rs"
 name = "nnue-weight-diff"
 path = "src/bin/nnue_weight_diff.rs"
 
+[[bin]]
+name = "nnue-init-symmetric"
+path = "src/bin/nnue_init_symmetric.rs"
+
 [dependencies]
 dirs = "5"
 serde = { version = "1.0", features = ["derive"] }
