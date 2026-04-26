@@ -56,10 +56,33 @@ pub struct NNUETrainingConfig {
     /// for PST; teacher-target training wants ~1e3.
     #[serde(default = "default_input_grad_scale")]
     pub input_grad_scale: f32,
+    /// If true, the training-time forward pass recomputes `h1_pre` from
+    /// `shadow.input_weights_1` (f32) over the position's active features
+    /// instead of reading `position.accumulator.hidden_1` (which was computed
+    /// from the i16 `weights.input_weights_1`). This eliminates the per-batch
+    /// quantize-then-readback round-trip on the input layer and is Session
+    /// 12's Experiment B for unblocking input-layer learning. Output and
+    /// hidden-2 layers continue to use i16 weights in the forward pass.
+    #[serde(default)]
+    pub f32_input_forward: bool,
+    /// Per-position loss multiplier applied when |teacher_eval_cp| exceeds
+    /// `decisive_threshold_cp`. The trainer's `pst_evaluation` field carries
+    /// the teacher's centipawn eval (the offline trainer wires it that way),
+    /// so this scales gradient magnitude on decisive positions. 1.0 = off
+    /// (default). 3.0 means decisive positions contribute 3× as much
+    /// gradient signal as non-decisive ones. Session 12's Experiment C.
+    #[serde(default = "default_decisive_weight")]
+    pub decisive_weight: f32,
+    /// |teacher_eval_cp| threshold above which a position is "decisive" for
+    /// the `decisive_weight` multiplier.
+    #[serde(default = "default_decisive_threshold_cp")]
+    pub decisive_threshold_cp: i32,
 }
 
 fn default_output_grad_scale() -> f32 { 1e7 }
 fn default_input_grad_scale() -> f32 { 1e6 }
+fn default_decisive_weight() -> f32 { 1.0 }
+fn default_decisive_threshold_cp() -> i32 { 500 }
 
 impl Default for NNUETrainingConfig {
     fn default() -> Self {
@@ -76,6 +99,9 @@ impl Default for NNUETrainingConfig {
             min_batch_size: 1000,
             output_grad_scale: default_output_grad_scale(),
             input_grad_scale: default_input_grad_scale(),
+            f32_input_forward: false,
+            decisive_weight: default_decisive_weight(),
+            decisive_threshold_cp: default_decisive_threshold_cp(),
         }
     }
 }
@@ -717,6 +743,10 @@ impl NNUETrainer {
         let mut total_error = 0.0_f32;
         let mut count = 0_usize;
 
+        let f32_input_forward = self.config.f32_input_forward;
+        let decisive_weight = self.config.decisive_weight;
+        let decisive_threshold_cp = self.config.decisive_threshold_cp;
+
         for position in positions {
             let target = match position.td_target {
                 Some(t) => t,
@@ -724,13 +754,38 @@ impl NNUETrainer {
             };
 
             // Forward pass in f32.
-            let h1_pre: Vec<f32> = position
-                .accumulator
-                .hidden_1
-                .iter()
-                .zip(self.weights.hidden_biases_1.iter())
-                .map(|(&h, &b)| (h + b) as f32)
-                .collect();
+            //
+            // Default path: read `position.accumulator.hidden_1` (i32, computed
+            // from the i16 input weights at refresh time) and add the i32 bias.
+            //
+            // f32-input-forward path (Session 12 Experiment B): recompute
+            // `h1_pre` from scratch using the f32 shadow `input_weights_1`
+            // and `hidden_biases_1`. This bypasses the i16 quantization that
+            // is applied to the input layer once per batch in
+            // `quantize_into`, so the forward pass during training sees the
+            // un-rounded weight values that subsequent gradient updates are
+            // accumulating into. Active features come straight from the
+            // `position.active_features` list the offline trainer populates.
+            let h1_pre: Vec<f32> = if f32_input_forward {
+                let mut v = self.shadow.hidden_biases_1.clone();
+                for &feat in &position.active_features {
+                    if feat < self.shadow.input_weights_1.len() {
+                        let row = &self.shadow.input_weights_1[feat];
+                        for (i, &w) in row.iter().enumerate() {
+                            v[i] += w;
+                        }
+                    }
+                }
+                v
+            } else {
+                position
+                    .accumulator
+                    .hidden_1
+                    .iter()
+                    .zip(self.weights.hidden_biases_1.iter())
+                    .map(|(&h, &b)| (h + b) as f32)
+                    .collect()
+            };
             let h1_act: Vec<f32> = h1_pre.iter().map(|&x| x.max(0.0)).collect();
 
             let (h2_pre, final_values) = if let Some(ref w2) = self.weights.input_weights_2 {
@@ -763,9 +818,27 @@ impl NNUETrainer {
             total_error += error.abs();
             count += 1;
 
+            // Session 12 Experiment C: scale gradient on decisive positions.
+            // The trainer sees `pst_evaluation` populated with the teacher's
+            // centipawn evaluation (the offline trainer wires it that way),
+            // so positions with |teacher cp| above `decisive_threshold_cp`
+            // contribute `decisive_weight` × the usual gradient. Multiplying
+            // `error` cascades through `d_raw` and all downstream gradient
+            // accumulators — equivalent to a per-position learning rate.
+            // total_error above is NOT reweighted, so the reported td_err
+            // remains directly comparable to runs with weight=1.0.
+            let decisive_mult = if decisive_weight != 1.0
+                && position.pst_evaluation.abs() > decisive_threshold_cp
+            {
+                decisive_weight
+            } else {
+                1.0
+            };
+            let weighted_error = error * decisive_mult;
+
             let tanh_deriv = (1.0 - prediction * prediction) / SCALE_FACTOR_F32;
             let scale_deriv = SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
-            let d_raw = error * tanh_deriv * scale_deriv;
+            let d_raw = weighted_error * tanh_deriv * scale_deriv;
 
             for (i, &v) in final_values.iter().enumerate() {
                 if i < acc_output_w.len() {

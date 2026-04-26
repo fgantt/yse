@@ -120,6 +120,29 @@ struct Cli {
     /// answers Session 10's "td_err is unreliable" issue. Set to 0 to skip.
     #[arg(long, default_value_t = 5000)]
     validate_sample: usize,
+
+    /// Session 12 Experiment B: training-time forward pass uses the f32
+    /// shadow `input_weights_1` instead of `position.accumulator.hidden_1`
+    /// (which is computed from the i16 weights). This bypasses the
+    /// once-per-batch i16 quantization on the input layer so the forward
+    /// pass sees the un-rounded weights that gradient updates are
+    /// accumulating into. Output and hidden-2 layers continue to use i16
+    /// in the forward pass.
+    #[arg(long)]
+    f32_input_forward: bool,
+
+    /// Session 12 Experiment C: per-position gradient multiplier applied
+    /// when |teacher_eval_cp| exceeds `--decisive-threshold-cp`. 1.0 = off
+    /// (default). 3.0 means decisive positions contribute 3× as much
+    /// gradient signal as non-decisive ones, compensating for the tanh
+    /// saturation that suppresses gradient on |target| close to 1.
+    #[arg(long, default_value_t = 1.0)]
+    decisive_weight: f32,
+
+    /// |teacher_eval_cp| threshold above which a position is "decisive" for
+    /// the `--decisive-weight` multiplier.
+    #[arg(long, default_value_t = 500)]
+    decisive_threshold_cp: i32,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -386,6 +409,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     );
     println!("  Seed:           {}", cli.seed);
+    println!("  f32 input fwd:  {}", cli.f32_input_forward);
+    println!(
+        "  Decisive wt:    {}× when |teacher cp| > {}",
+        cli.decisive_weight, cli.decisive_threshold_cp
+    );
     println!();
 
     let mut records = load_corpus(&cli.corpus, cli.skip_null_eval)?;
@@ -415,6 +443,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.learning_rate = cli.learning_rate;
     config.output_grad_scale = cli.output_grad_scale;
     config.input_grad_scale = cli.input_grad_scale;
+    config.f32_input_forward = cli.f32_input_forward;
+    config.decisive_weight = cli.decisive_weight;
+    config.decisive_threshold_cp = cli.decisive_threshold_cp;
     // min_batch_size is irrelevant here — we drive the batching ourselves
     // via train_batch, but set it so any stray add_training_game path
     // doesn't fire unexpectedly.
