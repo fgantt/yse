@@ -77,12 +77,26 @@ pub struct NNUETrainingConfig {
     /// the `decisive_weight` multiplier.
     #[serde(default = "default_decisive_threshold_cp")]
     pub decisive_threshold_cp: i32,
+    /// Session 13: switch the trainer's loss from `tanh(eval/scale) + L2` (over
+    /// targets in [-1,1]) to `sigmoid(eval/scale) + L2` (over targets in
+    /// [0,1]). The sigmoid derivative `p(1-p)` peaks at `p=0.5` rather than
+    /// vanishing at `p=±1`, removing the tanh-saturation bottleneck Session 12
+    /// localised. The offline trainer's `target_for` must be in matching
+    /// units; the CLI flag `--use-sigmoid-loss` toggles both.
+    #[serde(default)]
+    pub use_sigmoid_loss: bool,
+    /// cp scale used inside the sigmoid both for the teacher target and the
+    /// network prediction: `sigmoid(eval_cp / sigmoid_eval_scale)`. Stockfish
+    /// uses 410. Only meaningful when `use_sigmoid_loss = true`.
+    #[serde(default = "default_sigmoid_eval_scale")]
+    pub sigmoid_eval_scale: f32,
 }
 
 fn default_output_grad_scale() -> f32 { 1e7 }
 fn default_input_grad_scale() -> f32 { 1e6 }
 fn default_decisive_weight() -> f32 { 1.0 }
 fn default_decisive_threshold_cp() -> i32 { 500 }
+fn default_sigmoid_eval_scale() -> f32 { 410.0 }
 
 impl Default for NNUETrainingConfig {
     fn default() -> Self {
@@ -102,6 +116,8 @@ impl Default for NNUETrainingConfig {
             f32_input_forward: false,
             decisive_weight: default_decisive_weight(),
             decisive_threshold_cp: default_decisive_threshold_cp(),
+            use_sigmoid_loss: false,
+            sigmoid_eval_scale: default_sigmoid_eval_scale(),
         }
     }
 }
@@ -505,8 +521,15 @@ impl NNUETrainer {
         // Scale to centipawns: output_cp = raw_output * SCALE_FACTOR / OUTPUT_DIVISOR
         let output_cp = raw_output * SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
 
-        // Map to [-1, 1]: prediction = tanh(output_cp / SCALE_FACTOR) = tanh(raw / OUTPUT_DIVISOR).
-        let prediction = (output_cp / SCALE_FACTOR_F32).tanh();
+        // Session 13: prediction is either tanh over [-1,1] (legacy) or
+        // sigmoid over [0,1] (Session 13). Both share the rest of the pipeline.
+        let use_sigmoid_loss = self.config.use_sigmoid_loss;
+        let sigmoid_eval_scale = self.config.sigmoid_eval_scale;
+        let prediction = if use_sigmoid_loss {
+            1.0 / (1.0 + (-output_cp / sigmoid_eval_scale).exp())
+        } else {
+            (output_cp / SCALE_FACTOR_F32).tanh()
+        };
 
         // === Backward pass ===
 
@@ -514,15 +537,19 @@ impl NNUETrainer {
         // d(loss)/d(prediction) = -(target - prediction) = prediction - target
         let error = target_value - prediction;
 
-        // d(prediction)/d(output_cp) = (1 - prediction^2) / SCALE_FACTOR
-        let tanh_deriv = (1.0 - prediction * prediction) / SCALE_FACTOR_F32;
+        // d(prediction)/d(output_cp) is either tanh or sigmoid derivative.
+        let pred_deriv = if use_sigmoid_loss {
+            prediction * (1.0 - prediction) / sigmoid_eval_scale
+        } else {
+            (1.0 - prediction * prediction) / SCALE_FACTOR_F32
+        };
 
         // d(output_cp)/d(raw_output) = SCALE_FACTOR / OUTPUT_DIVISOR
         let scale_deriv = SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
 
-        // d(loss)/d(raw_output) = -error * tanh_deriv * scale_deriv
+        // d(loss)/d(raw_output) = -error * pred_deriv * scale_deriv
         // We want to MINIMIZE loss, so update = -d(loss)/d(w) = error * chain
-        let d_raw = error * tanh_deriv * scale_deriv;
+        let d_raw = error * pred_deriv * scale_deriv;
 
         // Track weight changes
         let mut total_change = 0.0_f32;
@@ -746,6 +773,8 @@ impl NNUETrainer {
         let f32_input_forward = self.config.f32_input_forward;
         let decisive_weight = self.config.decisive_weight;
         let decisive_threshold_cp = self.config.decisive_threshold_cp;
+        let use_sigmoid_loss = self.config.use_sigmoid_loss;
+        let sigmoid_eval_scale = self.config.sigmoid_eval_scale;
 
         for position in positions {
             let target = match position.td_target {
@@ -812,7 +841,15 @@ impl NNUETrainer {
                 }
             }
             let output_cp = raw_output * SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
-            let prediction = (output_cp / SCALE_FACTOR_F32).tanh();
+            // Session 13: prediction either tanh (legacy) over [-1,1] or
+            // sigmoid (new) over [0,1]. Both forms accept output_cp; tanh uses
+            // SCALE_FACTOR (=400) as its cp scale, sigmoid uses
+            // sigmoid_eval_scale (=410 by default).
+            let prediction = if use_sigmoid_loss {
+                1.0 / (1.0 + (-output_cp / sigmoid_eval_scale).exp())
+            } else {
+                (output_cp / SCALE_FACTOR_F32).tanh()
+            };
 
             let error = target - prediction;
             total_error += error.abs();
@@ -836,9 +873,17 @@ impl NNUETrainer {
             };
             let weighted_error = error * decisive_mult;
 
-            let tanh_deriv = (1.0 - prediction * prediction) / SCALE_FACTOR_F32;
+            // Session 13: chain rule for prediction → output_cp → raw_output.
+            //   tanh:    d(p)/d(output_cp) = (1 - p^2) / SCALE_FACTOR
+            //   sigmoid: d(p)/d(output_cp) = p(1 - p) / sigmoid_eval_scale
+            // d(output_cp)/d(raw_output) = SCALE_FACTOR / OUTPUT_DIVISOR.
+            let pred_deriv = if use_sigmoid_loss {
+                prediction * (1.0 - prediction) / sigmoid_eval_scale
+            } else {
+                (1.0 - prediction * prediction) / SCALE_FACTOR_F32
+            };
             let scale_deriv = SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
-            let d_raw = weighted_error * tanh_deriv * scale_deriv;
+            let d_raw = weighted_error * pred_deriv * scale_deriv;
 
             for (i, &v) in final_values.iter().enumerate() {
                 if i < acc_output_w.len() {

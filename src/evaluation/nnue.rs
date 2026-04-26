@@ -735,5 +735,49 @@ mod tests {
             score_after_unmake, score_before
         );
     }
+
+    /// Session 13 Issue-4 verification: with the actual trained weights file,
+    /// `acc.evaluate()` after a fresh refresh should produce the same cp value
+    /// as `NNUEEvaluator::evaluate_incremental()` on the same position.
+    /// Skipped if the weights file isn't present in the worktree.
+    #[test]
+    fn test_eval_paths_agree_on_trained_weights() {
+        use crate::bitboards::BitboardBoard;
+        use std::path::Path;
+        let weights_path = "nnue_weights_trained.json";
+        if !Path::new(weights_path).exists() {
+            eprintln!("skipping: {} not found", weights_path);
+            return;
+        }
+        let weights = NNUEWeights::load(weights_path).expect("load weights");
+        let fens = [
+            ("startpos", "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1"),
+            (
+                "mid-game",
+                "ln1gk2nl/1r4gb1/p1ppp1spp/1p3pp2/9/2P2PP2/PPBPPSP1P/1G3GSR1/LN2K2NL b - 1",
+            ),
+            ("black-winning", "4k4/9/4S4/9/9/9/9/9/4K4 b GGBB 1"),
+        ];
+        for (name, fen) in fens.iter() {
+            let (board, _p, _cap) = BitboardBoard::from_fen(fen).expect("from_fen");
+
+            // Path A: diagnostic — fresh accumulator, refresh, evaluate
+            let (h1, h2) = weights.hidden_sizes();
+            let mut acc = NNUEAccumulator::new(h1, h2);
+            acc.refresh(&board, &weights);
+            let path_a = acc.evaluate(&weights);
+
+            // Path B: search-time — NNUEEvaluator + evaluate_incremental
+            let mut evaluator = NNUEEvaluator::from_weights(weights.clone());
+            let path_b = evaluator.evaluate_incremental(&board);
+
+            println!("  {:<14} path_a={:>+6}  path_b={:>+6}", name, path_a, path_b);
+            assert_eq!(
+                path_a, path_b,
+                "{}: diagnostic acc.evaluate ({}) != search-time evaluate_incremental ({})",
+                name, path_a, path_b
+            );
+        }
+    }
 }
 

@@ -143,6 +143,23 @@ struct Cli {
     /// the `--decisive-weight` multiplier.
     #[arg(long, default_value_t = 500)]
     decisive_threshold_cp: i32,
+
+    /// Session 13: switch the trainer's target/loss from
+    /// `tanh(eval/target_eval_scale) + L2` (over targets in [-1,1]) to
+    /// `sigmoid(eval/sigmoid_eval_scale) + L2` (over targets in [0,1]).
+    /// Sigmoid's `p(1-p)` derivative peaks at `p=0.5` rather than vanishing at
+    /// the extremes, removing the tanh-saturation bottleneck Session 12
+    /// localised. When this flag is on, `--target-eval-scale` controls the cp
+    /// scale of the teacher sigmoid only via `--sigmoid-eval-scale`; the
+    /// outcome-weight blend uses {0, 0.5, 1} instead of {-1, 0, +1}.
+    #[arg(long)]
+    use_sigmoid_loss: bool,
+
+    /// cp scale used inside the sigmoid (both teacher target and network
+    /// prediction): `sigmoid(eval_cp / sigmoid_eval_scale)`. 410 is
+    /// Stockfish's default. Only meaningful when `--use-sigmoid-loss` is set.
+    #[arg(long, default_value_t = 410.0)]
+    sigmoid_eval_scale: f32,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -330,31 +347,45 @@ fn board_from_sfen(sfen: &str) -> Option<BitboardBoard> {
     BitboardBoard::from_fen(sfen).ok().map(|(board, _p, _cap)| board)
 }
 
-/// Compute the supervised target for a record, returning target in [-1, 1] from
-/// the to-move player's perspective.
+/// Compute the supervised target for a record, returning a target in either
+/// [-1, 1] (legacy tanh path) or [0, 1] (Session 13 sigmoid path), from the
+/// to-move player's perspective.
 ///
-/// `target_eval_scale` controls the shape of the teacher term:
-///   * `scale > 0`: `teacher = tanh(clamped_eval / scale)` (historic behaviour).
+/// `target_eval_scale` controls the shape of the legacy teacher term:
+///   * `scale > 0`: `teacher = tanh(clamped_eval / scale)`.
 ///   * `scale <= 0`: `teacher = clamped_eval / eval_clamp` (linear, no saturation).
+///
+/// When `use_sigmoid` is true, the target is `sigmoid(clamped_eval / sigmoid_eval_scale)`
+/// blended with `outcome_to_move ∈ {-1, 0, 1}` re-mapped to `{0, 0.5, 1}` and
+/// clamped to [0, 1]. The trainer's prediction map must be in matching units.
 fn target_for(
     rec: &CorpusRecord,
     outcome_weight: f32,
     eval_clamp: i32,
     target_eval_scale: f32,
+    use_sigmoid: bool,
+    sigmoid_eval_scale: f32,
 ) -> Option<f32> {
     let cp = rec.eval_cp?;
     let clamped = cp.max(-eval_clamp).min(eval_clamp);
-    let teacher = if target_eval_scale > 0.0 {
-        (clamped as f32 / target_eval_scale).tanh()
-    } else {
-        (clamped as f32 / eval_clamp as f32).clamp(-1.0, 1.0)
-    };
-
     let player_mult = if rec.player == Player::Black { 1.0_f32 } else { -1.0 };
     let outcome_tomove = rec.outcome as f32 * player_mult;
 
-    let t = (1.0 - outcome_weight) * teacher + outcome_weight * outcome_tomove;
-    Some(t.clamp(-1.0, 1.0))
+    if use_sigmoid {
+        let teacher = 1.0 / (1.0 + (-clamped as f32 / sigmoid_eval_scale).exp());
+        // {-1, 0, 1} → {0, 0.5, 1} so a draw maps to the sigmoid centre.
+        let outcome_01 = (outcome_tomove + 1.0) * 0.5;
+        let t = (1.0 - outcome_weight) * teacher + outcome_weight * outcome_01;
+        Some(t.clamp(0.0, 1.0))
+    } else {
+        let teacher = if target_eval_scale > 0.0 {
+            (clamped as f32 / target_eval_scale).tanh()
+        } else {
+            (clamped as f32 / eval_clamp as f32).clamp(-1.0, 1.0)
+        };
+        let t = (1.0 - outcome_weight) * teacher + outcome_weight * outcome_tomove;
+        Some(t.clamp(-1.0, 1.0))
+    }
 }
 
 /// Build a TrainingPosition from a corpus record (assumes target can be computed).
@@ -364,8 +395,17 @@ fn build_position(
     outcome_weight: f32,
     eval_clamp: i32,
     target_eval_scale: f32,
+    use_sigmoid: bool,
+    sigmoid_eval_scale: f32,
 ) -> Option<TrainingPosition> {
-    let target = target_for(rec, outcome_weight, eval_clamp, target_eval_scale)?;
+    let target = target_for(
+        rec,
+        outcome_weight,
+        eval_clamp,
+        target_eval_scale,
+        use_sigmoid,
+        sigmoid_eval_scale,
+    )?;
     let board = board_from_sfen(&rec.sfen)?;
     let active_features = extract_active_features(&board);
     let (h1, h2) = weights.hidden_sizes();
@@ -414,6 +454,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "  Decisive wt:    {}× when |teacher cp| > {}",
         cli.decisive_weight, cli.decisive_threshold_cp
     );
+    if cli.use_sigmoid_loss {
+        println!(
+            "  Loss:           sigmoid(eval/{}) + L2 on [0,1] target (Session 13)",
+            cli.sigmoid_eval_scale
+        );
+    } else {
+        println!("  Loss:           tanh + L2 on [-1,1] target (legacy)");
+    }
     println!();
 
     let mut records = load_corpus(&cli.corpus, cli.skip_null_eval)?;
@@ -446,6 +494,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.f32_input_forward = cli.f32_input_forward;
     config.decisive_weight = cli.decisive_weight;
     config.decisive_threshold_cp = cli.decisive_threshold_cp;
+    config.use_sigmoid_loss = cli.use_sigmoid_loss;
+    config.sigmoid_eval_scale = cli.sigmoid_eval_scale;
     // min_batch_size is irrelevant here — we drive the batching ourselves
     // via train_batch, but set it so any stray add_training_game path
     // doesn't fire unexpectedly.
@@ -473,6 +523,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cli.outcome_weight,
                 cli.eval_clamp,
                 cli.target_eval_scale,
+                cli.use_sigmoid_loss,
+                cli.sigmoid_eval_scale,
             ) {
                 batch.push(pos);
             }
