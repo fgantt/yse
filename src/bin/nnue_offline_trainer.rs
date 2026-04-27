@@ -174,6 +174,30 @@ struct Cli {
     /// is a clean A/B against the Session 13 baseline.
     #[arg(long)]
     use_stm_feature: bool,
+
+    /// Session 15: replace the per-batch SGD update with Adam (sparse over
+    /// active input-feature rows). When set, the per-step update on each
+    /// shadow weight is `lr * m_hat / (sqrt(v_hat) + epsilon)`, which removes
+    /// the per-layer magnitude bias that the `--output-grad-scale` /
+    /// `--input-grad-scale` knobs were compensating for under SGD. Recommended
+    /// config under Adam: `--learning-rate 0.05 --output-grad-scale 1.0
+    /// --input-grad-scale 1.0` (Adam absorbs the scale; the SGD bumped 5×
+    /// recommendation from Session 14 is unnecessary here).
+    #[arg(long)]
+    use_adam: bool,
+
+    /// Adam first-moment decay (β1). Standard 0.9. Only meaningful when
+    /// `--use-adam` is set.
+    #[arg(long, default_value_t = 0.9)]
+    adam_beta1: f32,
+
+    /// Adam second-moment decay (β2). Standard 0.999.
+    #[arg(long, default_value_t = 0.999)]
+    adam_beta2: f32,
+
+    /// Adam denominator stabiliser (ε). Standard 1e-8.
+    #[arg(long, default_value_t = 1e-8)]
+    adam_epsilon: f32,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -494,6 +518,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "  STM feature:    {} (Session 14)",
         if cli.use_stm_feature { "ON (active for Black-to-move)" } else { "off" }
     );
+    if cli.use_adam {
+        println!(
+            "  Optimiser:      Adam (β1={}, β2={}, ε={}) (Session 15)",
+            cli.adam_beta1, cli.adam_beta2, cli.adam_epsilon
+        );
+    } else {
+        println!("  Optimiser:      SGD (per-layer grad-scale)");
+    }
     println!();
 
     let mut records = load_corpus(&cli.corpus, cli.skip_null_eval)?;
@@ -528,6 +560,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.decisive_threshold_cp = cli.decisive_threshold_cp;
     config.use_sigmoid_loss = cli.use_sigmoid_loss;
     config.sigmoid_eval_scale = cli.sigmoid_eval_scale;
+    config.use_adam = cli.use_adam;
+    config.adam_beta1 = cli.adam_beta1;
+    config.adam_beta2 = cli.adam_beta2;
+    config.adam_epsilon = cli.adam_epsilon;
     // min_batch_size is irrelevant here — we drive the batching ourselves
     // via train_batch, but set it so any stray add_training_game path
     // doesn't fire unexpectedly.

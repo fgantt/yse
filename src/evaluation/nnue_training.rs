@@ -92,6 +92,26 @@ pub struct NNUETrainingConfig {
     /// uses 410. Only meaningful when `use_sigmoid_loss = true`.
     #[serde(default = "default_sigmoid_eval_scale")]
     pub sigmoid_eval_scale: f32,
+    /// Session 15: replace per-position SGD updates on the f32 shadow with
+    /// Adam-style first/second moment estimates. The grad-scale knobs become
+    /// largely irrelevant under Adam (the sqrt(v) normalisation removes the
+    /// per-layer-magnitude bias the SGD knobs were compensating for), so under
+    /// `use_adam = true` the recommended config uses a single `learning_rate`
+    /// in the i16-shadow scale (≈ 0.05–0.5) and `output_grad_scale = input_grad_scale = 1.0`.
+    /// Sparse update: only feature rows that appeared in this batch get an
+    /// `m / v / w` update — feature rows with no gradient this step retain
+    /// their previous `m, v`. Bias correction uses the global step counter.
+    #[serde(default)]
+    pub use_adam: bool,
+    /// Adam first-moment decay (β1). Standard default 0.9.
+    #[serde(default = "default_adam_beta1")]
+    pub adam_beta1: f32,
+    /// Adam second-moment decay (β2). Standard default 0.999.
+    #[serde(default = "default_adam_beta2")]
+    pub adam_beta2: f32,
+    /// Adam denominator stabiliser (ε). Standard default 1e-8.
+    #[serde(default = "default_adam_epsilon")]
+    pub adam_epsilon: f32,
 }
 
 fn default_output_grad_scale() -> f32 { 1e7 }
@@ -99,6 +119,9 @@ fn default_input_grad_scale() -> f32 { 1e6 }
 fn default_decisive_weight() -> f32 { 1.0 }
 fn default_decisive_threshold_cp() -> i32 { 500 }
 fn default_sigmoid_eval_scale() -> f32 { 410.0 }
+fn default_adam_beta1() -> f32 { 0.9 }
+fn default_adam_beta2() -> f32 { 0.999 }
+fn default_adam_epsilon() -> f32 { 1e-8 }
 
 impl Default for NNUETrainingConfig {
     fn default() -> Self {
@@ -120,6 +143,10 @@ impl Default for NNUETrainingConfig {
             decisive_threshold_cp: default_decisive_threshold_cp(),
             use_sigmoid_loss: false,
             sigmoid_eval_scale: default_sigmoid_eval_scale(),
+            use_adam: false,
+            adam_beta1: default_adam_beta1(),
+            adam_beta2: default_adam_beta2(),
+            adam_epsilon: default_adam_epsilon(),
         }
     }
 }
@@ -337,6 +364,78 @@ impl ShadowWeights {
     }
 }
 
+/// Session 15: Adam optimiser state. Mirrors `ShadowWeights` shape with two
+/// f32 tensors per parameter (first-moment `m`, second-moment `v`), plus a
+/// global step counter for bias correction. Sparse-update semantics: input
+/// rows that have no gradient in a given batch keep their existing `m, v`
+/// rather than decaying — this is the "lazy" / sparse-Adam variant standard
+/// in nnue-pytorch / YaneuraOu trainers.
+#[derive(Debug, Clone)]
+pub struct AdamState {
+    pub input_weights_1_m: Vec<Vec<f32>>,
+    pub input_weights_1_v: Vec<Vec<f32>>,
+    pub hidden_biases_1_m: Vec<f32>,
+    pub hidden_biases_1_v: Vec<f32>,
+    pub input_weights_2_m: Option<Vec<Vec<f32>>>,
+    pub input_weights_2_v: Option<Vec<Vec<f32>>>,
+    pub hidden_biases_2_m: Option<Vec<f32>>,
+    pub hidden_biases_2_v: Option<Vec<f32>>,
+    pub output_weights_m: Vec<f32>,
+    pub output_weights_v: Vec<f32>,
+    pub output_bias_m: f32,
+    pub output_bias_v: f32,
+    pub step: u64,
+}
+
+impl AdamState {
+    /// Allocate zero-initialised m/v buffers shaped like the shadow.
+    pub fn from_shadow(shadow: &ShadowWeights) -> Self {
+        let zeros_2d = |w: &Vec<Vec<f32>>| -> Vec<Vec<f32>> {
+            w.iter().map(|r| vec![0.0_f32; r.len()]).collect()
+        };
+        Self {
+            input_weights_1_m: zeros_2d(&shadow.input_weights_1),
+            input_weights_1_v: zeros_2d(&shadow.input_weights_1),
+            hidden_biases_1_m: vec![0.0; shadow.hidden_biases_1.len()],
+            hidden_biases_1_v: vec![0.0; shadow.hidden_biases_1.len()],
+            input_weights_2_m: shadow.input_weights_2.as_ref().map(zeros_2d),
+            input_weights_2_v: shadow.input_weights_2.as_ref().map(zeros_2d),
+            hidden_biases_2_m: shadow.hidden_biases_2.as_ref().map(|b| vec![0.0; b.len()]),
+            hidden_biases_2_v: shadow.hidden_biases_2.as_ref().map(|b| vec![0.0; b.len()]),
+            output_weights_m: vec![0.0; shadow.output_weights.len()],
+            output_weights_v: vec![0.0; shadow.output_weights.len()],
+            output_bias_m: 0.0,
+            output_bias_v: 0.0,
+            step: 0,
+        }
+    }
+}
+
+/// One Adam update step on a single scalar shadow weight. Updates `m`, `v`,
+/// then applies the bias-corrected `m_hat / (sqrt(v_hat) + eps)` step scaled
+/// by `lr`. Caller is responsible for incrementing the global step counter
+/// before invoking this for all weights in a batch.
+#[inline]
+fn adam_apply(
+    shadow_w: &mut f32,
+    m: &mut f32,
+    v: &mut f32,
+    grad: f32,
+    lr: f32,
+    beta1: f32,
+    beta2: f32,
+    eps: f32,
+    t: u64,
+) {
+    *m = beta1 * *m + (1.0 - beta1) * grad;
+    *v = beta2 * *v + (1.0 - beta2) * grad * grad;
+    let bc1 = 1.0 - beta1.powi(t as i32);
+    let bc2 = 1.0 - beta2.powi(t as i32);
+    let m_hat = *m / bc1;
+    let v_hat = *v / bc2;
+    *shadow_w += lr * m_hat / (v_hat.sqrt() + eps);
+}
+
 /// NNUE Trainer
 pub struct NNUETrainer {
     /// Current NNUE weights (i16, what inference reads)
@@ -344,6 +443,8 @@ pub struct NNUETrainer {
     /// f32 shadow weights for lossless gradient accumulation during training.
     /// Re-quantized into `weights` once per batch in `train_batch_accumulated`.
     shadow: ShadowWeights,
+    /// Session 15: Adam optimiser state (None when SGD path is in use).
+    adam: Option<AdamState>,
     /// Training configuration
     config: NNUETrainingConfig,
     /// Accumulated training positions
@@ -356,9 +457,15 @@ impl NNUETrainer {
     /// Create a new trainer with given weights and configuration
     pub fn new(weights: NNUEWeights, config: NNUETrainingConfig) -> Self {
         let shadow = ShadowWeights::from_weights(&weights);
+        let adam = if config.use_adam {
+            Some(AdamState::from_shadow(&shadow))
+        } else {
+            None
+        };
         Self {
             weights,
             shadow,
+            adam,
             config,
             training_positions: VecDeque::new(),
             stats: TrainingStats::default(),
@@ -964,32 +1071,151 @@ impl NNUETrainer {
         let lr = self.config.learning_rate;
         let out_scale = self.config.output_grad_scale;
         let in_scale = self.config.input_grad_scale;
+        let use_adam = self.config.use_adam;
 
-        for i in 0..self.shadow.output_weights.len() {
-            self.shadow.output_weights[i] += acc_output_w[i] * lr * out_scale;
-        }
-        self.shadow.output_bias += acc_output_b * lr * out_scale;
+        if use_adam {
+            // Session 15: Adam path. The grad-scale multipliers from the SGD
+            // path are still applied to the gradient before m/v accumulation
+            // — this lets the bumped-grad recommendation Session 14 found
+            // optimal for sigmoid+stm carry over for fair A/B comparison
+            // (1e5/1e5 grad scales bumped 5× to surface meaningful learning
+            // signal under SGD). Adam's sqrt(v) normalisation will mostly
+            // cancel the per-layer-magnitude difference, so the effective
+            // step under Adam is `≈ lr * sign(g)` regardless of the grad
+            // scale. Recommended config when use_adam=true:
+            //   --learning-rate 0.05  --output-grad-scale 1.0  --input-grad-scale 1.0
+            // (or any equivalent — Adam absorbs the scale).
+            let beta1 = self.config.adam_beta1;
+            let beta2 = self.config.adam_beta2;
+            let eps = self.config.adam_epsilon;
+            let adam = self
+                .adam
+                .as_mut()
+                .expect("AdamState should be allocated when use_adam=true");
+            adam.step += 1;
+            let t = adam.step;
 
-        if let Some(ref mut shadow_w2) = self.shadow.input_weights_2 {
-            for i in 0..h1_size {
-                for j in 0..h2_size {
-                    shadow_w2[i][j] += acc_w2[i][j] * lr * out_scale;
+            for i in 0..self.shadow.output_weights.len() {
+                adam_apply(
+                    &mut self.shadow.output_weights[i],
+                    &mut adam.output_weights_m[i],
+                    &mut adam.output_weights_v[i],
+                    acc_output_w[i] * out_scale,
+                    lr,
+                    beta1,
+                    beta2,
+                    eps,
+                    t,
+                );
+            }
+            adam_apply(
+                &mut self.shadow.output_bias,
+                &mut adam.output_bias_m,
+                &mut adam.output_bias_v,
+                acc_output_b * out_scale,
+                lr,
+                beta1,
+                beta2,
+                eps,
+                t,
+            );
+
+            if let (Some(ref mut shadow_w2), Some(ref mut adam_w2_m), Some(ref mut adam_w2_v)) = (
+                self.shadow.input_weights_2.as_mut(),
+                adam.input_weights_2_m.as_mut(),
+                adam.input_weights_2_v.as_mut(),
+            ) {
+                for i in 0..h1_size {
+                    for j in 0..h2_size {
+                        adam_apply(
+                            &mut shadow_w2[i][j],
+                            &mut adam_w2_m[i][j],
+                            &mut adam_w2_v[i][j],
+                            acc_w2[i][j] * out_scale,
+                            lr,
+                            beta1,
+                            beta2,
+                            eps,
+                            t,
+                        );
+                    }
                 }
             }
-        }
-        if let Some(ref mut shadow_b2) = self.shadow.hidden_biases_2 {
-            for j in 0..h2_size {
-                shadow_b2[j] += acc_b2[j] * lr * out_scale;
+            if let (Some(ref mut shadow_b2), Some(ref mut adam_b2_m), Some(ref mut adam_b2_v)) = (
+                self.shadow.hidden_biases_2.as_mut(),
+                adam.hidden_biases_2_m.as_mut(),
+                adam.hidden_biases_2_v.as_mut(),
+            ) {
+                for j in 0..h2_size {
+                    adam_apply(
+                        &mut shadow_b2[j],
+                        &mut adam_b2_m[j],
+                        &mut adam_b2_v[j],
+                        acc_b2[j] * out_scale,
+                        lr,
+                        beta1,
+                        beta2,
+                        eps,
+                        t,
+                    );
+                }
             }
-        }
 
-        for (&feature_idx, grads) in acc_input_w.iter() {
-            for i in 0..h1_size {
-                self.shadow.input_weights_1[feature_idx][i] += grads[i] * lr * in_scale;
+            for (&feature_idx, grads) in acc_input_w.iter() {
+                for i in 0..h1_size {
+                    adam_apply(
+                        &mut self.shadow.input_weights_1[feature_idx][i],
+                        &mut adam.input_weights_1_m[feature_idx][i],
+                        &mut adam.input_weights_1_v[feature_idx][i],
+                        grads[i] * in_scale,
+                        lr,
+                        beta1,
+                        beta2,
+                        eps,
+                        t,
+                    );
+                }
             }
-        }
-        for i in 0..h1_size {
-            self.shadow.hidden_biases_1[i] += acc_b1[i] * lr * in_scale;
+            for i in 0..h1_size {
+                adam_apply(
+                    &mut self.shadow.hidden_biases_1[i],
+                    &mut adam.hidden_biases_1_m[i],
+                    &mut adam.hidden_biases_1_v[i],
+                    acc_b1[i] * in_scale,
+                    lr,
+                    beta1,
+                    beta2,
+                    eps,
+                    t,
+                );
+            }
+        } else {
+            for i in 0..self.shadow.output_weights.len() {
+                self.shadow.output_weights[i] += acc_output_w[i] * lr * out_scale;
+            }
+            self.shadow.output_bias += acc_output_b * lr * out_scale;
+
+            if let Some(ref mut shadow_w2) = self.shadow.input_weights_2 {
+                for i in 0..h1_size {
+                    for j in 0..h2_size {
+                        shadow_w2[i][j] += acc_w2[i][j] * lr * out_scale;
+                    }
+                }
+            }
+            if let Some(ref mut shadow_b2) = self.shadow.hidden_biases_2 {
+                for j in 0..h2_size {
+                    shadow_b2[j] += acc_b2[j] * lr * out_scale;
+                }
+            }
+
+            for (&feature_idx, grads) in acc_input_w.iter() {
+                for i in 0..h1_size {
+                    self.shadow.input_weights_1[feature_idx][i] += grads[i] * lr * in_scale;
+                }
+            }
+            for i in 0..h1_size {
+                self.shadow.hidden_biases_1[i] += acc_b1[i] * lr * in_scale;
+            }
         }
 
         // Render shadow → i16 once per batch. Stats reflect actual i16 delta.
