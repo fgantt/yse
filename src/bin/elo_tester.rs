@@ -85,6 +85,16 @@ struct Cli {
     /// Verbose per-move output
     #[arg(long)]
     verbose: bool,
+
+    /// Session 14: enable the side-to-move feature on the loaded NNUE
+    /// weights. The feature occupies row `STM_FEATURE_INDEX` in
+    /// `input_weights_1` and is active for Black-to-move positions. Set
+    /// this when loading weights trained with `nnue-offline-trainer
+    /// --use-stm-feature`; pre-Session-14 weights have a zero stm row,
+    /// so leaving this off keeps backward compatibility. The flag is
+    /// ignored for the PST engine.
+    #[arg(long)]
+    use_stm_feature: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -284,6 +294,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let eval: &mut PositionEvaluator = nnue_engine.get_evaluator_mut();
         eval.enable_nnue_with_weights(&cli.nnue_weights)?;
         assert!(eval.is_nnue_enabled(), "NNUE should be enabled after loading");
+        if cli.use_stm_feature {
+            eval.nnue_set_use_stm_feature(true);
+            println!("  STM feature:   ON (Session 14)");
+        }
     }
 
     // Build PST engine: NNUE explicitly disabled.

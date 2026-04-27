@@ -26,7 +26,8 @@ use rand::SeedableRng;
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::nnue::{NNUEAccumulator, NNUEWeights};
 use shogi_engine::evaluation::nnue_training::{
-    extract_active_features, NNUETrainer, NNUETrainingConfig, TrainingPosition,
+    extract_active_features, extract_active_features_with_stm, NNUETrainer,
+    NNUETrainingConfig, TrainingPosition,
 };
 use shogi_engine::types::core::Player;
 use std::fs::File;
@@ -160,6 +161,19 @@ struct Cli {
     /// Stockfish's default. Only meaningful when `--use-sigmoid-loss` is set.
     #[arg(long, default_value_t = 410.0)]
     sigmoid_eval_scale: f32,
+
+    /// Session 14: enable the side-to-move feature. When set, the trainer
+    /// activates a single binary input feature at `STM_FEATURE_INDEX`
+    /// (= `NUM_NNUE_FEATURES`) for Black-to-move positions and leaves it
+    /// inactive for White-to-move positions. This gives the network a colour-
+    /// asymmetric signal that the per-square piece features alone cannot
+    /// produce, testing the Session 13 hand-off hypothesis that the bottleneck
+    /// is structural (feature representation) rather than gradient flow.
+    /// Pre-Session-14 weight files (rows = `NUM_NNUE_FEATURES`) are padded on
+    /// load with a zero stm row, so loading them and then enabling this flag
+    /// is a clean A/B against the Session 13 baseline.
+    #[arg(long)]
+    use_stm_feature: bool,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -172,6 +186,7 @@ fn validation_pearson(
     weights: &NNUEWeights,
     records: &[CorpusRecord],
     sample_size: usize,
+    use_stm_feature: bool,
 ) -> Option<f32> {
     if sample_size == 0 {
         return None;
@@ -205,7 +220,11 @@ fn validation_pearson(
             Some(b) => b,
             None => continue,
         };
-        acc.refresh(&board, weights);
+        if use_stm_feature {
+            acc.refresh_with_stm(&board, rec.player, weights);
+        } else {
+            acc.refresh(&board, weights);
+        }
         let net_cp = acc.evaluate(weights) as f32;
         match rec.player {
             Player::Black => {
@@ -397,6 +416,7 @@ fn build_position(
     target_eval_scale: f32,
     use_sigmoid: bool,
     sigmoid_eval_scale: f32,
+    use_stm_feature: bool,
 ) -> Option<TrainingPosition> {
     let target = target_for(
         rec,
@@ -407,10 +427,18 @@ fn build_position(
         sigmoid_eval_scale,
     )?;
     let board = board_from_sfen(&rec.sfen)?;
-    let active_features = extract_active_features(&board);
+    let active_features = if use_stm_feature {
+        extract_active_features_with_stm(&board, rec.player)
+    } else {
+        extract_active_features(&board)
+    };
     let (h1, h2) = weights.hidden_sizes();
     let mut accumulator = NNUEAccumulator::new(h1, h2);
-    accumulator.refresh(&board, weights);
+    if use_stm_feature {
+        accumulator.refresh_with_stm(&board, rec.player, weights);
+    } else {
+        accumulator.refresh(&board, weights);
+    }
     let nnue_eval = accumulator.evaluate(weights);
     Some(TrainingPosition {
         active_features,
@@ -462,6 +490,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         println!("  Loss:           tanh + L2 on [-1,1] target (legacy)");
     }
+    println!(
+        "  STM feature:    {} (Session 14)",
+        if cli.use_stm_feature { "ON (active for Black-to-move)" } else { "off" }
+    );
     println!();
 
     let mut records = load_corpus(&cli.corpus, cli.skip_null_eval)?;
@@ -525,6 +557,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cli.target_eval_scale,
                 cli.use_sigmoid_loss,
                 cli.sigmoid_eval_scale,
+                cli.use_stm_feature,
             ) {
                 batch.push(pos);
             }
@@ -563,6 +596,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             trainer.get_weights(),
             &records,
             cli.validate_sample,
+            cli.use_stm_feature,
         );
         let pearson_str = match pearson {
             Some(r) => format!(" pearson_r={:+.3}", r),

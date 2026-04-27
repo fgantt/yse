@@ -464,10 +464,20 @@ impl PositionEvaluator {
 
     /// Refresh the NNUE accumulator for a new position.
     ///
-    /// Called at the search root or when setting a new position.
-    pub fn nnue_refresh(&mut self, board: &BitboardBoard) {
+    /// Called at the search root or when setting a new position. The
+    /// `side_to_move` argument is consulted only when the loaded NNUE has
+    /// the Session-14 stm feature enabled; otherwise it is ignored.
+    pub fn nnue_refresh(&mut self, board: &BitboardBoard, side_to_move: Player) {
         if let Some(ref mut nnue) = self.nnue_evaluator {
-            nnue.refresh_accumulator(board);
+            nnue.refresh_accumulator(board, side_to_move);
+        }
+    }
+
+    /// Enable or disable the Session-14 side-to-move feature on the loaded
+    /// NNUE network. No effect if NNUE is not enabled.
+    pub fn nnue_set_use_stm_feature(&mut self, on: bool) {
+        if let Some(ref mut nnue) = self.nnue_evaluator {
+            nnue.set_use_stm_feature(on);
         }
     }
 

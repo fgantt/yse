@@ -14522,7 +14522,7 @@ impl IterativeDeepening {
         // Refresh NNUE accumulator at search root for incremental evaluation.
         // This ensures the accumulator is in sync with the current board position
         // before the make/unmake cycle begins in the search tree.
-        search_engine.evaluator.nnue_refresh(board);
+        search_engine.evaluator.nnue_refresh(board, player);
 
         // Calculate initial static evaluation for aspiration window initialization
         let initial_static_eval = search_engine.evaluate_position(board, player, captured_pieces);

@@ -3,7 +3,9 @@
 //! This module implements self-play training for NNUE weights using TD(λ) learning.
 
 use crate::bitboards::BitboardBoard;
-use crate::evaluation::nnue::{NNUEAccumulator, NNUEWeights, OUTPUT_DIVISOR, feature_index};
+use crate::evaluation::nnue::{
+    NNUEAccumulator, NNUEWeights, OUTPUT_DIVISOR, STM_FEATURE_INDEX, feature_index,
+};
 
 /// f32 mirror of `OUTPUT_DIVISOR` from `nnue.rs` so the training-time
 /// `prediction = tanh(raw_output / OUTPUT_DIVISOR)` mapping stays in
@@ -1095,10 +1097,10 @@ impl NNUETrainer {
     }
 }
 
-/// Extract active features from a board position
+/// Extract active features from a board position (no side-to-move feature).
 pub fn extract_active_features(board: &BitboardBoard) -> Vec<usize> {
     let mut features = Vec::new();
-    
+
     for row in 0..9 {
         for col in 0..9 {
             let pos = Position::new(row, col);
@@ -1109,6 +1111,20 @@ pub fn extract_active_features(board: &BitboardBoard) -> Vec<usize> {
             }
         }
     }
-    
+
+    features
+}
+
+/// Session 14: extract active features and additionally activate the
+/// side-to-move feature when `stm == Black`. The side-to-move feature
+/// occupies index `STM_FEATURE_INDEX` (= `NUM_NNUE_FEATURES`).
+pub fn extract_active_features_with_stm(
+    board: &BitboardBoard,
+    stm: Player,
+) -> Vec<usize> {
+    let mut features = extract_active_features(board);
+    if stm == Player::Black {
+        features.push(STM_FEATURE_INDEX);
+    }
     features
 }

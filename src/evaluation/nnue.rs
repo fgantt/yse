@@ -38,8 +38,18 @@ const NUM_PIECE_TYPES: usize = 14;
 /// Number of players
 const NUM_PLAYERS: usize = 2;
 
-/// Total number of NNUE features
+/// Number of piece-square features (the original 2 × 14 × 81 design).
 pub const NUM_NNUE_FEATURES: usize = NUM_PLAYERS * NUM_PIECE_TYPES * NUM_SQUARES;
+
+/// Session 14: index of the side-to-move feature. The feature is active (i.e.
+/// added to the accumulator) when the position is Black-to-move and inactive
+/// when White-to-move. Using a single binary feature rather than two
+/// complementary ones because the accumulator's input weights row is a free
+/// parameter that can absorb either sign of bias on its own.
+pub const STM_FEATURE_INDEX: usize = NUM_NNUE_FEATURES;
+
+/// Total number of input features including the side-to-move feature.
+pub const NUM_NNUE_FEATURES_TOTAL: usize = NUM_NNUE_FEATURES + 1;
 
 /// Default size of first hidden layer
 pub const DEFAULT_HIDDEN_SIZE_1: usize = 256;
@@ -112,8 +122,11 @@ impl NNUEWeights {
         let weight_dist = Normal::new(0.0, 0.01).unwrap();
         let bias_dist = Normal::new(0.0, 10.0).unwrap();
 
-        // Initialize input-to-hidden-1 weights with small normal distribution
-        let input_weights_1: Vec<Vec<i16>> = (0..NUM_NNUE_FEATURES)
+        // Initialize input-to-hidden-1 weights with small normal distribution.
+        // Session 14: the row at STM_FEATURE_INDEX represents the side-to-move
+        // feature — initialised with the same distribution as piece-square
+        // rows, so the network starts colour-symmetric.
+        let input_weights_1: Vec<Vec<i16>> = (0..NUM_NNUE_FEATURES_TOTAL)
             .map(|_| {
                 (0..hidden_size_1)
                     .map(|_| {
@@ -183,14 +196,29 @@ impl NNUEWeights {
         }
     }
 
-    /// Load weights from file
+    /// Load weights from file.
+    ///
+    /// Session 14: pre-Session-14 weight files have `NUM_NNUE_FEATURES` rows
+    /// in `input_weights_1` (no side-to-move feature). We pad them up to
+    /// `NUM_NNUE_FEATURES_TOTAL` with a zero row so the loaded network is
+    /// numerically identical to its pre-Session-14 form, while exposing a
+    /// trainable stm feature for the offline trainer.
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, NNUEError> {
         let file = File::open(path)?;
         let reader = BufReader::new(file);
         let file_data: NNUEWeightFile = serde_json::from_reader(reader)?;
 
+        let mut input_weights_1 = file_data.input_weights_1;
+        if input_weights_1.len() == NUM_NNUE_FEATURES {
+            let row_len = input_weights_1
+                .first()
+                .map(|r| r.len())
+                .unwrap_or(DEFAULT_HIDDEN_SIZE_1);
+            input_weights_1.push(vec![0i16; row_len]);
+        }
+
         Ok(Self {
-            input_weights_1: file_data.input_weights_1,
+            input_weights_1,
             hidden_biases_1: file_data.hidden_biases_1,
             input_weights_2: file_data.input_weights_2,
             hidden_biases_2: file_data.hidden_biases_2,
@@ -263,7 +291,9 @@ impl NNUEAccumulator {
         }
     }
 
-    /// Refresh accumulator from scratch for a position
+    /// Refresh accumulator from scratch for a position (no side-to-move
+    /// feature). Backward-compat path used by the engine search and any
+    /// caller that doesn't track stm.
     pub fn refresh(&mut self, board: &BitboardBoard, weights: &NNUEWeights) {
         // Reset accumulator
         self.hidden_1.fill(0);
@@ -278,6 +308,25 @@ impl NNUEAccumulator {
                 if let Some(piece) = board.get_piece(pos) {
                     self.add_piece(piece, pos, weights);
                 }
+            }
+        }
+    }
+
+    /// Refresh accumulator and additionally activate the Session-14
+    /// side-to-move feature when `stm == Black`. Used by the offline trainer
+    /// (Pearson-r diagnostic, supervised training pass) so the network sees a
+    /// colour-asymmetric input. Pre-Session-14 weight files have a zero stm
+    /// row so this is a no-op for them.
+    pub fn refresh_with_stm(
+        &mut self,
+        board: &BitboardBoard,
+        stm: Player,
+        weights: &NNUEWeights,
+    ) {
+        self.refresh(board, weights);
+        if stm == Player::Black && STM_FEATURE_INDEX < weights.input_weights_1.len() {
+            for (i, &w) in weights.input_weights_1[STM_FEATURE_INDEX].iter().enumerate() {
+                self.hidden_1[i] += w as i32;
             }
         }
     }
@@ -402,6 +451,11 @@ pub struct NNUEEvaluator {
     /// Whether the accumulator needs a full refresh (out of sync with board).
     /// Set to true initially and after any operation that invalidates the state.
     needs_refresh: bool,
+    /// Session 14: when true, the accumulator activates the side-to-move
+    /// feature (Black-to-move) and `nnue_make_move` toggles its contribution
+    /// after every move. Off by default; enabled by callers loading
+    /// stm-trained weights (e.g. elo-tester via `--use-stm-feature`).
+    use_stm_feature: bool,
 }
 
 impl NNUEEvaluator {
@@ -415,6 +469,7 @@ impl NNUEEvaluator {
             accumulator_stack: Vec::with_capacity(128), // Typical max search depth
             enabled: true,
             needs_refresh: true,
+            use_stm_feature: false,
         }
     }
 
@@ -428,6 +483,7 @@ impl NNUEEvaluator {
             accumulator_stack: Vec::with_capacity(128),
             enabled: true,
             needs_refresh: true,
+            use_stm_feature: false,
         }
     }
 
@@ -435,6 +491,24 @@ impl NNUEEvaluator {
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, NNUEError> {
         let weights = NNUEWeights::load(path)?;
         Ok(Self::from_weights(weights))
+    }
+
+    /// Toggle Session 14's side-to-move feature on this evaluator. When
+    /// enabled, full-refresh paths use `refresh_with_stm` and
+    /// `nnue_make_move` toggles the stm row contribution after each move.
+    /// Callers loading stm-trained weights set this; pre-Session-14
+    /// weights leave it off (default).
+    pub fn set_use_stm_feature(&mut self, on: bool) {
+        self.use_stm_feature = on;
+        // The accumulator's hidden_1 may have been built without the stm
+        // bit; force a full refresh on the next eval to keep state coherent.
+        self.needs_refresh = true;
+        self.accumulator_stack.clear();
+    }
+
+    /// Whether the side-to-move feature is enabled on this evaluator.
+    pub fn use_stm_feature(&self) -> bool {
+        self.use_stm_feature
     }
 
     /// Evaluate a position (full refresh - legacy path).
@@ -445,15 +519,21 @@ impl NNUEEvaluator {
     pub fn evaluate(
         &mut self,
         board: &BitboardBoard,
-        _player: Player,
+        player: Player,
         _captured_pieces: &CapturedPieces,
     ) -> i32 {
         if !self.enabled {
             return 0;
         }
 
-        // Refresh accumulator from current board position
-        self.accumulator.refresh(board, &self.weights);
+        // Refresh accumulator from current board position. With the stm
+        // feature enabled, `player` is interpreted as the side-to-move and
+        // the stm row contribution is folded into hidden_1 for Black-to-move.
+        if self.use_stm_feature {
+            self.accumulator.refresh_with_stm(board, player, &self.weights);
+        } else {
+            self.accumulator.refresh(board, &self.weights);
+        }
         self.needs_refresh = false;
 
         // Evaluate using accumulator
@@ -475,6 +555,11 @@ impl NNUEEvaluator {
         }
 
         if self.needs_refresh {
+            // With the stm feature on, the fallback refresh has no caller-
+            // provided side-to-move; we leave the stm bit off and let the
+            // next stm-aware refresh (root-level `refresh_accumulator_with_stm`)
+            // re-establish it. This branch should be rare in practice — search
+            // root always performs a stm-aware refresh.
             self.accumulator.refresh(board, &self.weights);
             self.needs_refresh = false;
         }
@@ -526,6 +611,27 @@ impl NNUEEvaluator {
         } else {
             self.accumulator.add_piece(original_piece, to, &self.weights);
         }
+
+        // Session 14: toggle the side-to-move feature contribution.
+        // Before the move, stm == moved_piece.player. After the move, stm
+        // flips. The stm-Black feature is active iff stm == Black, so:
+        //   moved by Black → stm row was active, now inactive: subtract row.
+        //   moved by White → stm row was inactive, now active: add row.
+        if self.use_stm_feature && STM_FEATURE_INDEX < self.weights.input_weights_1.len() {
+            let stm_row = &self.weights.input_weights_1[STM_FEATURE_INDEX];
+            match original_piece.player {
+                Player::Black => {
+                    for (i, &w) in stm_row.iter().enumerate() {
+                        self.accumulator.hidden_1[i] -= w as i32;
+                    }
+                }
+                Player::White => {
+                    for (i, &w) in stm_row.iter().enumerate() {
+                        self.accumulator.hidden_1[i] += w as i32;
+                    }
+                }
+            }
+        }
     }
 
     /// Pop accumulator state after unmaking a move.
@@ -549,11 +655,17 @@ impl NNUEEvaluator {
     ///
     /// Called when the board state changes outside of the make/unmake cycle
     /// (e.g., new game, setting position from FEN, at search root).
-    pub fn refresh_accumulator(&mut self, board: &BitboardBoard) {
+    /// `side_to_move` is consulted only when the stm feature is enabled
+    /// (Session 14). Pre-Session-14 callers may pass any value.
+    pub fn refresh_accumulator(&mut self, board: &BitboardBoard, side_to_move: Player) {
         if !self.enabled {
             return;
         }
-        self.accumulator.refresh(board, &self.weights);
+        if self.use_stm_feature {
+            self.accumulator.refresh_with_stm(board, side_to_move, &self.weights);
+        } else {
+            self.accumulator.refresh(board, &self.weights);
+        }
         self.accumulator_stack.clear();
         self.needs_refresh = false;
     }
@@ -574,7 +686,8 @@ impl NNUEEvaluator {
         self.accumulator.update_move(from, to, moved_piece, captured_piece, &self.weights);
     }
 
-    /// Refresh accumulator for a new position (full refresh)
+    /// Refresh accumulator for a new position (full refresh).
+    /// Stm-unaware variant kept for backward compat with non-search callers.
     pub fn refresh_position(&mut self, board: &BitboardBoard) {
         if !self.enabled {
             return;
@@ -655,7 +768,7 @@ mod tests {
     #[test]
     fn test_nnue_weights() {
         let weights = NNUEWeights::new(256, 32);
-        assert_eq!(weights.input_weights_1.len(), NUM_NNUE_FEATURES);
+        assert_eq!(weights.input_weights_1.len(), NUM_NNUE_FEATURES_TOTAL);
         assert_eq!(weights.hidden_biases_1.len(), 256);
         assert_eq!(weights.hidden_biases_2.as_ref().unwrap().len(), 32);
         assert_eq!(weights.output_weights.len(), 32);
@@ -681,7 +794,7 @@ mod tests {
 
         // Evaluate the starting position with a full refresh
         let mut evaluator = NNUEEvaluator::from_weights(weights.clone());
-        evaluator.refresh_accumulator(&board);
+        evaluator.refresh_accumulator(&board, Player::Black);
         let score_before = evaluator.evaluate_incremental(&board);
 
         // Make a move incrementally
@@ -713,9 +826,10 @@ mod tests {
         );
         let score_incremental = evaluator.evaluate_incremental(&board);
 
-        // Now do a full refresh on the same position for comparison
+        // Now do a full refresh on the same position for comparison.
+        // After Black's first move, side-to-move is White.
         let mut fresh_evaluator = NNUEEvaluator::from_weights(weights.clone());
-        fresh_evaluator.refresh_accumulator(&board);
+        fresh_evaluator.refresh_accumulator(&board, Player::White);
         let score_full_refresh = fresh_evaluator.evaluate_incremental(&board);
 
         assert_eq!(
@@ -733,6 +847,91 @@ mod tests {
             score_before, score_after_unmake,
             "Score after unmake ({}) should match original ({})",
             score_after_unmake, score_before
+        );
+    }
+
+    /// Session 14: with the side-to-move feature enabled, the incremental
+    /// `nnue_make_move` toggle must keep the accumulator's `hidden_1` in sync
+    /// with what a stm-aware full refresh would produce after the move.
+    #[test]
+    fn test_stm_incremental_matches_full_refresh() {
+        use crate::bitboards::BitboardBoard;
+        use crate::moves::MoveGenerator;
+        use crate::types::board::CapturedPieces;
+
+        // Construct weights with a deliberately large stm row so the toggle
+        // has measurable effect on the accumulator's pre-ReLU values
+        // (random init at sigma=0.01 produces a near-zero output that masks
+        // the stm contribution after the int divisor).
+        let mut weights = NNUEWeights::new(256, 32);
+        for (i, w) in weights.input_weights_1[STM_FEATURE_INDEX].iter_mut().enumerate() {
+            *w = if i % 2 == 0 { 100 } else { -100 };
+        }
+
+        let mut board = BitboardBoard::new();
+        let captured_pieces = CapturedPieces::new();
+
+        // Black-to-move start: stm-aware refresh should activate the stm row.
+        let mut evaluator = NNUEEvaluator::from_weights(weights.clone());
+        evaluator.set_use_stm_feature(true);
+        evaluator.refresh_accumulator(&board, Player::Black);
+        let score_black_to_move = evaluator.evaluate_incremental(&board);
+        // Verify the accumulator actually shows the stm contribution by
+        // comparing the raw hidden_1 against an stm-off accumulator.
+        let mut stmless = NNUEEvaluator::from_weights(weights.clone());
+        stmless.refresh_accumulator(&board, Player::Black);
+        assert_ne!(
+            evaluator.accumulator.hidden_1, stmless.accumulator.hidden_1,
+            "stm-on and stm-off accumulators should differ when the stm row is non-zero"
+        );
+
+        // Make a move; side-to-move should flip to White, stm row goes off.
+        let move_gen = MoveGenerator::new();
+        let legal_moves =
+            move_gen.generate_legal_moves(&board, Player::Black, &captured_pieces);
+        assert!(!legal_moves.is_empty());
+        let mv = &legal_moves[0];
+        let move_info = board.make_move_with_info(mv);
+
+        let original_piece = Piece::new(move_info.original_piece_type, move_info.player);
+        let moved_piece = if move_info.was_promotion {
+            move_info
+                .original_piece_type
+                .promoted_version()
+                .map(|pt| Piece::new(pt, move_info.player))
+                .unwrap_or(original_piece)
+        } else {
+            original_piece
+        };
+        evaluator.nnue_make_move(
+            move_info.from,
+            move_info.to,
+            moved_piece,
+            original_piece,
+            move_info.captured_piece,
+            move_info.was_promotion,
+        );
+        let score_incremental = evaluator.evaluate_incremental(&board);
+
+        // Full refresh from scratch with stm = White.
+        let mut fresh = NNUEEvaluator::from_weights(weights.clone());
+        fresh.set_use_stm_feature(true);
+        fresh.refresh_accumulator(&board, Player::White);
+        let score_full_refresh = fresh.evaluate_incremental(&board);
+        assert_eq!(
+            score_incremental, score_full_refresh,
+            "stm-aware incremental ({}) must match full refresh ({}) after Black's move",
+            score_incremental, score_full_refresh
+        );
+
+        // Unmake — stm flips back to Black.
+        evaluator.nnue_unmake_move();
+        board.unmake_move(&move_info);
+        let score_after_unmake = evaluator.evaluate_incremental(&board);
+        assert_eq!(
+            score_after_unmake, score_black_to_move,
+            "score after unmake ({}) must restore the pre-move stm-on score ({})",
+            score_after_unmake, score_black_to_move
         );
     }
 
