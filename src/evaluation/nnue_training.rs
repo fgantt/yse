@@ -4,8 +4,10 @@
 
 use crate::bitboards::BitboardBoard;
 use crate::evaluation::nnue::{
-    NNUEAccumulator, NNUEWeights, OUTPUT_DIVISOR, STM_FEATURE_INDEX, feature_index,
+    NNUEAccumulator, NNUEWeights, OUTPUT_DIVISOR, STM_FEATURE_INDEX,
+    STM_FEATURE_INDEX_HALFKP, feature_index, feature_index_halfkp,
 };
+use crate::types::core::PieceType;
 
 /// f32 mirror of `OUTPUT_DIVISOR` from `nnue.rs` so the training-time
 /// `prediction = tanh(raw_output / OUTPUT_DIVISOR)` mapping stays in
@@ -1354,3 +1356,63 @@ pub fn extract_active_features_with_stm(
     }
     features
 }
+
+/// Session 16: HalfKP feature extraction. Each piece-square contribution is
+/// indexed by `feature_index_halfkp(own_king_sq, ...)`, where `own_king_sq`
+/// is the square of the side-to-move's king. Returns an empty vector for
+/// (illegal) king-less positions; the caller should skip those records.
+pub fn extract_active_features_halfkp(
+    board: &BitboardBoard,
+    stm: Player,
+) -> Vec<usize> {
+    let own_king_sq = match find_own_king(board, stm) {
+        Some(sq) => sq,
+        None => return Vec::new(),
+    };
+    let mut features = Vec::new();
+    for row in 0..9 {
+        for col in 0..9 {
+            let pos = Position::new(row, col);
+            if let Some(piece) = board.get_piece(pos) {
+                let sq_idx = pos.to_u8();
+                features.push(feature_index_halfkp(
+                    own_king_sq,
+                    piece.player,
+                    piece.piece_type,
+                    sq_idx,
+                ));
+            }
+        }
+    }
+    features
+}
+
+/// Session 16: HalfKP extraction + side-to-move feature flag. The stm
+/// feature for HalfKP lives at `STM_FEATURE_INDEX_HALFKP`
+/// (= `NUM_NNUE_FEATURES_HALFKP`).
+pub fn extract_active_features_halfkp_with_stm(
+    board: &BitboardBoard,
+    stm: Player,
+) -> Vec<usize> {
+    let mut features = extract_active_features_halfkp(board, stm);
+    if !features.is_empty() && stm == Player::Black {
+        features.push(STM_FEATURE_INDEX_HALFKP);
+    }
+    features
+}
+
+#[inline]
+fn find_own_king(board: &BitboardBoard, player: Player) -> Option<u8> {
+    for row in 0..9 {
+        for col in 0..9 {
+            let pos = Position::new(row, col);
+            if let Some(piece) = board.get_piece(pos) {
+                if piece.player == player && piece.piece_type == PieceType::King {
+                    return Some(pos.to_u8());
+                }
+            }
+        }
+    }
+    None
+}
+

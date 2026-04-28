@@ -26,8 +26,9 @@ use rand::SeedableRng;
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::nnue::{NNUEAccumulator, NNUEWeights};
 use shogi_engine::evaluation::nnue_training::{
-    extract_active_features, extract_active_features_with_stm, NNUETrainer,
-    NNUETrainingConfig, TrainingPosition,
+    extract_active_features, extract_active_features_halfkp,
+    extract_active_features_halfkp_with_stm, extract_active_features_with_stm,
+    NNUETrainer, NNUETrainingConfig, TrainingPosition,
 };
 use shogi_engine::types::core::Player;
 use std::fs::File;
@@ -198,6 +199,20 @@ struct Cli {
     /// Adam denominator stabiliser (ε). Standard 1e-8.
     #[arg(long, default_value_t = 1e-8)]
     adam_epsilon: f32,
+
+    /// Session 16: switch the input encoding from the flat
+    /// `(side × piece_type × square) = 2 × 14 × 81 = 2268`-feature space to
+    /// the HalfKP-style `(own_king_sq × side × piece_type × square)` space
+    /// (≈ 81× larger, 183_708 + 1 stm row = 183_709 input rows). The
+    /// per-position active-feature count stays in the ~38 range — only the
+    /// row indexing changes — so training time per epoch is only modestly
+    /// higher than the flat path. Fresh init only: pre-Session-16 weight
+    /// files have the wrong feature space and cannot be loaded under this
+    /// flag. Recommended pairing: `--use-stm-feature --use-sigmoid-loss
+    /// --use-adam --learning-rate 0.05` (the empirically-supported
+    /// fresh-init Adam recipe from Session 15).
+    #[arg(long)]
+    use_halfkp: bool,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -211,6 +226,7 @@ fn validation_pearson(
     records: &[CorpusRecord],
     sample_size: usize,
     use_stm_feature: bool,
+    use_halfkp: bool,
 ) -> Option<f32> {
     if sample_size == 0 {
         return None;
@@ -244,7 +260,9 @@ fn validation_pearson(
             Some(b) => b,
             None => continue,
         };
-        if use_stm_feature {
+        if use_halfkp {
+            acc.refresh_halfkp(&board, rec.player, weights, use_stm_feature);
+        } else if use_stm_feature {
             acc.refresh_with_stm(&board, rec.player, weights);
         } else {
             acc.refresh(&board, weights);
@@ -432,6 +450,7 @@ fn target_for(
 }
 
 /// Build a TrainingPosition from a corpus record (assumes target can be computed).
+#[allow(clippy::too_many_arguments)]
 fn build_position(
     rec: &CorpusRecord,
     weights: &NNUEWeights,
@@ -441,6 +460,7 @@ fn build_position(
     use_sigmoid: bool,
     sigmoid_eval_scale: f32,
     use_stm_feature: bool,
+    use_halfkp: bool,
 ) -> Option<TrainingPosition> {
     let target = target_for(
         rec,
@@ -451,14 +471,30 @@ fn build_position(
         sigmoid_eval_scale,
     )?;
     let board = board_from_sfen(&rec.sfen)?;
-    let active_features = if use_stm_feature {
+    let active_features = if use_halfkp {
+        if use_stm_feature {
+            extract_active_features_halfkp_with_stm(&board, rec.player)
+        } else {
+            extract_active_features_halfkp(&board, rec.player)
+        }
+    } else if use_stm_feature {
         extract_active_features_with_stm(&board, rec.player)
     } else {
         extract_active_features(&board)
     };
+    // Skip records whose own king is missing (HalfKP returns empty in that
+    // case; non-halfkp paths don't depend on a king and produce features
+    // for any board). The trainer's per-batch path silently skips empty
+    // active_features but the network still learns nothing from it, so
+    // we drop the record outright.
+    if use_halfkp && active_features.is_empty() {
+        return None;
+    }
     let (h1, h2) = weights.hidden_sizes();
     let mut accumulator = NNUEAccumulator::new(h1, h2);
-    if use_stm_feature {
+    if use_halfkp {
+        accumulator.refresh_halfkp(&board, rec.player, weights, use_stm_feature);
+    } else if use_stm_feature {
         accumulator.refresh_with_stm(&board, rec.player, weights);
     } else {
         accumulator.refresh(&board, weights);
@@ -518,6 +554,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "  STM feature:    {} (Session 14)",
         if cli.use_stm_feature { "ON (active for Black-to-move)" } else { "off" }
     );
+    println!(
+        "  HalfKP:         {} (Session 16)",
+        if cli.use_halfkp { "ON (own_king_sq × side × piece_type × sq)" } else { "off" }
+    );
     if cli.use_adam {
         println!(
             "  Optimiser:      Adam (β1={}, β2={}, ε={}) (Session 15)",
@@ -543,11 +583,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let initial_weights = match &cli.init_weights {
         Some(p) => {
             println!("Loading initial weights from {}", p.display());
-            NNUEWeights::load(p)?
+            let w = NNUEWeights::load(p)?;
+            if cli.use_halfkp
+                && w.input_weights_1.len()
+                    != shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_HALFKP_TOTAL
+            {
+                return Err(format!(
+                    "--use-halfkp requires HalfKP-sized weights (rows = {}); loaded file has {} rows",
+                    shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_HALFKP_TOTAL,
+                    w.input_weights_1.len()
+                )
+                .into());
+            }
+            w
         }
         None => {
-            println!("Initialising fresh random weights");
-            NNUEWeights::new(cli.hidden_1, cli.hidden_2)
+            if cli.use_halfkp {
+                println!(
+                    "Initialising fresh random HalfKP weights ({} input rows)",
+                    shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_HALFKP_TOTAL
+                );
+                NNUEWeights::new_halfkp(cli.hidden_1, cli.hidden_2)
+            } else {
+                println!("Initialising fresh random weights");
+                NNUEWeights::new(cli.hidden_1, cli.hidden_2)
+            }
         }
     };
 
@@ -594,6 +654,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cli.use_sigmoid_loss,
                 cli.sigmoid_eval_scale,
                 cli.use_stm_feature,
+                cli.use_halfkp,
             ) {
                 batch.push(pos);
             }
@@ -633,6 +694,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             &records,
             cli.validate_sample,
             cli.use_stm_feature,
+            cli.use_halfkp,
         );
         let pearson_str = match pearson {
             Some(r) => format!(" pearson_r={:+.3}", r),
