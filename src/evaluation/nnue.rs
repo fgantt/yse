@@ -568,6 +568,17 @@ pub struct NNUEEvaluator {
     /// after every move. Off by default; enabled by callers loading
     /// stm-trained weights (e.g. elo-tester via `--use-stm-feature`).
     use_stm_feature: bool,
+    /// Session 17: when true, refresh paths use `refresh_halfkp` (king-square
+    /// conditioned features) and `nnue_make_move` falls back to a full
+    /// refresh on every move (since the side-to-move flip re-indexes all
+    /// features). The accumulator stack still snapshots `hidden_1` so unmake
+    /// is O(1).
+    use_halfkp: bool,
+    /// Session 17: side-to-move at the position the accumulator currently
+    /// represents. Maintained by `refresh_accumulator`, `evaluate`,
+    /// `nnue_make_move`, and `nnue_unmake_move`. Used by `evaluate_incremental`
+    /// when the `use_halfkp` fallback path needs to run a full refresh.
+    current_stm: Player,
 }
 
 impl NNUEEvaluator {
@@ -582,6 +593,8 @@ impl NNUEEvaluator {
             enabled: true,
             needs_refresh: true,
             use_stm_feature: false,
+            use_halfkp: false,
+            current_stm: Player::Black,
         }
     }
 
@@ -596,6 +609,8 @@ impl NNUEEvaluator {
             enabled: true,
             needs_refresh: true,
             use_stm_feature: false,
+            use_halfkp: false,
+            current_stm: Player::Black,
         }
     }
 
@@ -623,6 +638,23 @@ impl NNUEEvaluator {
         self.use_stm_feature
     }
 
+    /// Session 17: toggle HalfKP feature space on this evaluator. When
+    /// enabled, refresh paths use `refresh_halfkp` and `nnue_make_move`
+    /// triggers a full refresh on next evaluate (since stm flip re-indexes
+    /// every feature). Callers loading HalfKP-trained weights set this;
+    /// pre-Session-16 weight files leave it off. The hidden_1 snapshot stack
+    /// is still used so unmake is O(1).
+    pub fn set_use_halfkp(&mut self, on: bool) {
+        self.use_halfkp = on;
+        self.needs_refresh = true;
+        self.accumulator_stack.clear();
+    }
+
+    /// Whether HalfKP feature space is enabled on this evaluator.
+    pub fn use_halfkp(&self) -> bool {
+        self.use_halfkp
+    }
+
     /// Evaluate a position (full refresh - legacy path).
     ///
     /// This performs a full O(81) piece scan to rebuild the accumulator.
@@ -641,11 +673,17 @@ impl NNUEEvaluator {
         // Refresh accumulator from current board position. With the stm
         // feature enabled, `player` is interpreted as the side-to-move and
         // the stm row contribution is folded into hidden_1 for Black-to-move.
-        if self.use_stm_feature {
+        // Session 17: under HalfKP, the refresh is conditioned on the
+        // to-move's own king square.
+        if self.use_halfkp {
+            self.accumulator
+                .refresh_halfkp(board, player, &self.weights, self.use_stm_feature);
+        } else if self.use_stm_feature {
             self.accumulator.refresh_with_stm(board, player, &self.weights);
         } else {
             self.accumulator.refresh(board, &self.weights);
         }
+        self.current_stm = player;
         self.needs_refresh = false;
 
         // Evaluate using accumulator
@@ -667,12 +705,20 @@ impl NNUEEvaluator {
         }
 
         if self.needs_refresh {
-            // With the stm feature on, the fallback refresh has no caller-
-            // provided side-to-move; we leave the stm bit off and let the
-            // next stm-aware refresh (root-level `refresh_accumulator_with_stm`)
-            // re-establish it. This branch should be rare in practice — search
-            // root always performs a stm-aware refresh.
-            self.accumulator.refresh(board, &self.weights);
+            // Session 17: HalfKP fallback uses the tracked `current_stm` to
+            // re-anchor the refresh on the to-move's own king square. For
+            // flat features without stm, fallback to the legacy refresh path.
+            // With the stm feature on (without HalfKP), the fallback refresh
+            // has no caller-provided side-to-move; we leave the stm bit off
+            // and let the next stm-aware refresh re-establish it. This branch
+            // should be rare in practice — search root always performs a
+            // stm-aware refresh.
+            if self.use_halfkp {
+                self.accumulator
+                    .refresh_halfkp(board, self.current_stm, &self.weights, self.use_stm_feature);
+            } else {
+                self.accumulator.refresh(board, &self.weights);
+            }
             self.needs_refresh = false;
         }
 
@@ -705,6 +751,17 @@ impl NNUEEvaluator {
 
         // Save current hidden_1 state to stack
         self.accumulator_stack.push(self.accumulator.hidden_1.clone());
+
+        // Session 17: HalfKP — every move flips the side-to-move, which
+        // changes `own_king_sq` and re-indexes ALL features. There is no
+        // valid incremental update; force a full refresh on next evaluate.
+        // The hidden_1 snapshot above lets unmake_move restore the previous
+        // state in O(1) without re-refreshing.
+        if self.use_halfkp {
+            self.needs_refresh = true;
+            self.current_stm = original_piece.player.opposite();
+            return;
+        }
 
         // Remove piece from source square (if board move, not drop)
         if let Some(from_sq) = from {
@@ -744,6 +801,8 @@ impl NNUEEvaluator {
                 }
             }
         }
+
+        self.current_stm = original_piece.player.opposite();
     }
 
     /// Pop accumulator state after unmaking a move.
@@ -757,6 +816,12 @@ impl NNUEEvaluator {
 
         if let Some(prev_hidden_1) = self.accumulator_stack.pop() {
             self.accumulator.hidden_1 = prev_hidden_1;
+            // Session 17: under HalfKP, make_move forced a refresh on the
+            // post-move state but the popped snapshot is the valid pre-move
+            // accumulator — clear needs_refresh so the next evaluate uses
+            // the restored state directly.
+            self.needs_refresh = false;
+            self.current_stm = self.current_stm.opposite();
         } else {
             // Stack underflow — mark as needing refresh
             self.needs_refresh = true;
@@ -773,11 +838,19 @@ impl NNUEEvaluator {
         if !self.enabled {
             return;
         }
-        if self.use_stm_feature {
+        if self.use_halfkp {
+            self.accumulator.refresh_halfkp(
+                board,
+                side_to_move,
+                &self.weights,
+                self.use_stm_feature,
+            );
+        } else if self.use_stm_feature {
             self.accumulator.refresh_with_stm(board, side_to_move, &self.weights);
         } else {
             self.accumulator.refresh(board, &self.weights);
         }
+        self.current_stm = side_to_move;
         self.accumulator_stack.clear();
         self.needs_refresh = false;
     }
@@ -1107,6 +1180,92 @@ mod tests {
         assert!(
             diff_count > 0 || true,
             "stm-on/off accumulators identical (rare with random init)"
+        );
+    }
+
+    /// Session 17: with HalfKP enabled on `NNUEEvaluator`, the make/unmake
+    /// stack must keep the accumulator's `hidden_1` consistent with what a
+    /// fresh `refresh_halfkp` would produce on the same board state. Since
+    /// every move flips the side-to-move (and re-indexes every HalfKP
+    /// feature), `nnue_make_move` is implemented as snapshot-then-force-
+    /// refresh and `nnue_unmake_move` pops the snapshot. This test exercises
+    /// both paths.
+    #[test]
+    fn test_halfkp_incremental_matches_full_refresh() {
+        use crate::bitboards::BitboardBoard;
+        use crate::moves::MoveGenerator;
+        use crate::types::board::CapturedPieces;
+
+        // Construct HalfKP-sized weights with deliberately large stm-row
+        // entries so the stm bit makes a measurable contribution.
+        let mut weights = NNUEWeights::new_halfkp(256, 32);
+        for (i, w) in weights.input_weights_1[STM_FEATURE_INDEX_HALFKP]
+            .iter_mut()
+            .enumerate()
+        {
+            *w = if i % 2 == 0 { 100 } else { -100 };
+        }
+
+        let mut board = BitboardBoard::new();
+        let captured_pieces = CapturedPieces::new();
+
+        let mut evaluator = NNUEEvaluator::from_weights(weights.clone());
+        evaluator.set_use_halfkp(true);
+        evaluator.set_use_stm_feature(true);
+        evaluator.refresh_accumulator(&board, Player::Black);
+        let score_black_to_move = evaluator.evaluate_incremental(&board);
+
+        // Make a Black move; side-to-move flips to White and own_king_sq
+        // re-anchors on the white king.
+        let move_gen = MoveGenerator::new();
+        let legal = move_gen.generate_legal_moves(&board, Player::Black, &captured_pieces);
+        assert!(!legal.is_empty(), "starting position has legal moves");
+        let mv = &legal[0];
+        let move_info = board.make_move_with_info(mv);
+
+        let original_piece = Piece::new(move_info.original_piece_type, move_info.player);
+        let moved_piece = if move_info.was_promotion {
+            move_info
+                .original_piece_type
+                .promoted_version()
+                .map(|pt| Piece::new(pt, move_info.player))
+                .unwrap_or(original_piece)
+        } else {
+            original_piece
+        };
+        evaluator.nnue_make_move(
+            move_info.from,
+            move_info.to,
+            moved_piece,
+            original_piece,
+            move_info.captured_piece,
+            move_info.was_promotion,
+        );
+        let score_incremental = evaluator.evaluate_incremental(&board);
+
+        // Independent reference: fresh evaluator, refresh from scratch with
+        // HalfKP + stm on, side-to-move = White after Black's move.
+        let mut fresh = NNUEEvaluator::from_weights(weights.clone());
+        fresh.set_use_halfkp(true);
+        fresh.set_use_stm_feature(true);
+        fresh.refresh_accumulator(&board, Player::White);
+        let score_full_refresh = fresh.evaluate_incremental(&board);
+
+        assert_eq!(
+            score_incremental, score_full_refresh,
+            "HalfKP incremental ({}) must match full refresh ({}) after Black's move",
+            score_incremental, score_full_refresh
+        );
+
+        // Unmake — the popped hidden_1 snapshot should restore the pre-move
+        // black-to-move state exactly.
+        evaluator.nnue_unmake_move();
+        board.unmake_move(&move_info);
+        let score_after_unmake = evaluator.evaluate_incremental(&board);
+        assert_eq!(
+            score_after_unmake, score_black_to_move,
+            "HalfKP score after unmake ({}) must restore the pre-move score ({})",
+            score_after_unmake, score_black_to_move
         );
     }
 

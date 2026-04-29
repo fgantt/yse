@@ -95,6 +95,15 @@ struct Cli {
     /// ignored for the PST engine.
     #[arg(long)]
     use_stm_feature: bool,
+
+    /// Session 17: enable HalfKP feature space on the loaded NNUE weights.
+    /// Set when loading weights trained with `nnue-offline-trainer
+    /// --use-halfkp` (input rows = `NUM_NNUE_FEATURES_HALFKP_TOTAL`).
+    /// HalfKP triggers a full accumulator refresh on every move (since stm
+    /// flip re-indexes all features), so the search-time eval cost is
+    /// higher than flat features. Ignored for the PST engine.
+    #[arg(long)]
+    use_halfkp: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -297,6 +306,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if cli.use_stm_feature {
             eval.nnue_set_use_stm_feature(true);
             println!("  STM feature:   ON (Session 14)");
+        }
+        if cli.use_halfkp {
+            eval.nnue_set_use_halfkp(true);
+            println!("  HalfKP:        ON (Session 17 — own_king_sq × side × piece × sq)");
         }
     }
 

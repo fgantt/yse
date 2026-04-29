@@ -481,6 +481,16 @@ impl PositionEvaluator {
         }
     }
 
+    /// Session 17: enable or disable HalfKP feature space on the loaded NNUE
+    /// network. Set when loading HalfKP-trained weights (e.g.
+    /// `nnue-offline-trainer --use-halfkp`); pre-Session-16 weights leave
+    /// it off. No effect if NNUE is not enabled.
+    pub fn nnue_set_use_halfkp(&mut self, on: bool) {
+        if let Some(ref mut nnue) = self.nnue_evaluator {
+            nnue.set_use_halfkp(on);
+        }
+    }
+
     /// Evaluate using NNUE incrementally (no full refresh).
     ///
     /// Returns the NNUE score if enabled and available, None otherwise.
