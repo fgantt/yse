@@ -254,17 +254,33 @@ impl NNUEWeights {
         }
     }
 
-    /// Load weights from file.
+    /// Load weights from file. Dispatches by extension: `.bin` → bincode,
+    /// anything else (including `.json`) → JSON.
     ///
     /// Session 14: pre-Session-14 weight files have `NUM_NNUE_FEATURES` rows
     /// in `input_weights_1` (no side-to-move feature). We pad them up to
     /// `NUM_NNUE_FEATURES_TOTAL` with a zero row so the loaded network is
     /// numerically identical to its pre-Session-14 form, while exposing a
     /// trainable stm feature for the offline trainer.
+    ///
+    /// Session 18: `.bin` files are bincode-encoded. The on-disk struct is
+    /// the same `NNUEWeightFile`, so JSON ↔ binary round-trips bit-exactly.
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, NNUEError> {
-        let file = File::open(path)?;
-        let reader = BufReader::new(file);
-        let file_data: NNUEWeightFile = serde_json::from_reader(reader)?;
+        let path = path.as_ref();
+        let file_data: NNUEWeightFile = if path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("bin"))
+            .unwrap_or(false)
+        {
+            let file = File::open(path)?;
+            let reader = BufReader::new(file);
+            bincode::deserialize_from(reader)?
+        } else {
+            let file = File::open(path)?;
+            let reader = BufReader::new(file);
+            serde_json::from_reader(reader)?
+        };
 
         let mut input_weights_1 = file_data.input_weights_1;
         if input_weights_1.len() == NUM_NNUE_FEATURES {
@@ -285,8 +301,10 @@ impl NNUEWeights {
         })
     }
 
-    /// Save weights to file
+    /// Save weights to file. Dispatches by extension: `.bin` → bincode,
+    /// anything else (including `.json`) → JSON pretty-printed.
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), NNUEError> {
+        let path = path.as_ref();
         let file = File::create(path)?;
         let writer = BufWriter::new(file);
 
@@ -299,7 +317,16 @@ impl NNUEWeights {
             output_bias: self.output_bias,
         };
 
-        serde_json::to_writer_pretty(writer, &file_data)?;
+        if path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("bin"))
+            .unwrap_or(false)
+        {
+            bincode::serialize_into(writer, &file_data)?;
+        } else {
+            serde_json::to_writer_pretty(writer, &file_data)?;
+        }
         Ok(())
     }
 
@@ -927,6 +954,9 @@ pub enum NNUEError {
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("Bincode error: {0}")]
+    Bincode(#[from] bincode::Error),
 
     #[error("Invalid weight file format")]
     InvalidFormat,

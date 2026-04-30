@@ -86,11 +86,19 @@ path = "src/bin/nnue_weight_diff.rs"
 name = "nnue-init-symmetric"
 path = "src/bin/nnue_init_symmetric.rs"
 
+[[bin]]
+name = "nnue-convert-weights"
+path = "src/bin/nnue_convert_weights.rs"
+
 [dependencies]
 dirs = "5"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.9"
+# Session 18: binary weights format. 437 MB HalfKP JSON load takes ~30 s on cold cache.
+# `bincode` round-trips the existing serde-derived NNUEWeightFile struct as a packed
+# little-endian binary blob (~5–10× shrink vs pretty-printed JSON, ~10× faster to load).
+bincode = "1.3"
 toml = "0.8"
 lru = "0.12"
 rand = { version = "0.8", features = ["getrandom"] }

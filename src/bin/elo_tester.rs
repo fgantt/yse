@@ -1,9 +1,11 @@
-//! NNUE vs PST ELO Tester (Phase 4 validation)
+//! NNUE vs PST / NNUE vs NNUE ELO Tester (Phase 4 validation)
 //!
 //! Plays N head-to-head games between two engine configurations built on top
 //! of the same SearchEngine / IterativeDeepening stack:
 //!   * Engine A: NNUE-enabled (loads a trained weights file)
-//!   * Engine B: PST-only   (NNUE disabled)
+//!   * Engine B: PST-only   (NNUE disabled)              -- default mode
+//!     OR
+//!   * Engine B: NNUE-enabled (loads `--nnue-weights-b`) -- Session 18 head-to-head mode
 //!
 //! Colors alternate each game. Each game begins from a shared random opening
 //! (seeded) so both sides face the same start, but each game's opening is
@@ -16,6 +18,14 @@
 //!     cargo run --release --bin elo-tester -- \
 //!         --nnue-weights nnue_weights_trained.json \
 //!         --games 40 --depth 3 --time-ms 100 --seed 42
+//!
+//!     # Session 18 NNUE-vs-NNUE head-to-head:
+//!     cargo run --release --bin elo-tester -- \
+//!         --nnue-weights /tmp/s16_halfkp_adam_fresh_30e.json \
+//!             --use-stm-feature --use-halfkp \
+//!         --nnue-weights-b /tmp/s15_adam_stm_fresh_30e.json \
+//!             --use-stm-feature-b \
+//!         --games 30 --depth 3 --time-ms 500 --seed 46
 
 use clap::Parser;
 use rand::rngs::StdRng;
@@ -104,21 +114,47 @@ struct Cli {
     /// higher than flat features. Ignored for the PST engine.
     #[arg(long)]
     use_halfkp: bool,
+
+    /// Session 18: optional path to a second NNUE weights file. When set,
+    /// engine B is built as a second NNUE engine (instead of PST), enabling
+    /// head-to-head NNUE-vs-NNUE matches (e.g. HalfKP vs flat-feature). The
+    /// CSV outcome labels switch from `nnue_win`/`pst_win` to `a_win`/`b_win`
+    /// in this mode. When unset, behaviour is identical to Session 17.
+    #[arg(long)]
+    nnue_weights_b: Option<String>,
+
+    /// Session 18: enable the side-to-move feature on engine B's NNUE weights
+    /// (only meaningful when `--nnue-weights-b` is set).
+    #[arg(long)]
+    use_stm_feature_b: bool,
+
+    /// Session 18: enable HalfKP feature space on engine B's NNUE weights
+    /// (only meaningful when `--nnue-weights-b` is set).
+    #[arg(long)]
+    use_halfkp_b: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Outcome {
+    /// Engine A wins (the engine loaded with `--nnue-weights`).
     NnueWin,
+    /// Engine B wins (PST in default mode, second NNUE in Session 18 head-to-head).
     PstWin,
     Draw,
 }
 
 impl Outcome {
-    fn as_str(self) -> &'static str {
-        match self {
-            Outcome::NnueWin => "nnue_win",
-            Outcome::PstWin => "pst_win",
-            Outcome::Draw => "draw",
+    /// Stable CSV label.
+    /// In NNUE-vs-PST mode: `nnue_win` / `pst_win` / `draw` (backwards compatible
+    /// with Sessions 14–17 outputs).
+    /// In NNUE-vs-NNUE head-to-head mode: `a_win` / `b_win` / `draw`.
+    fn as_str(self, head_to_head: bool) -> &'static str {
+        match (self, head_to_head) {
+            (Outcome::NnueWin, false) => "nnue_win",
+            (Outcome::PstWin, false) => "pst_win",
+            (Outcome::NnueWin, true) => "a_win",
+            (Outcome::PstWin, true) => "b_win",
+            (Outcome::Draw, _) => "draw",
         }
     }
 }
@@ -152,7 +188,8 @@ fn play_random_opening(
 /// Play a single game. Returns (outcome, move_count).
 ///
 /// Both engines are given a fresh copy of the same random opening position.
-/// Which color NNUE plays is controlled by `nnue_plays_black`.
+/// Which color engine A plays is controlled by `nnue_plays_black`.
+/// `head_to_head` only affects the verbose move-printer's engine label.
 #[allow(clippy::too_many_arguments)]
 fn play_game(
     nnue_engine: &mut SearchEngine,
@@ -164,6 +201,7 @@ fn play_game(
     random_plies: u8,
     rng: &mut StdRng,
     verbose: bool,
+    head_to_head: bool,
 ) -> (Outcome, u32) {
     let mut board = BitboardBoard::new();
     let mut captured = CapturedPieces::new();
@@ -217,11 +255,18 @@ fn play_game(
         match best {
             Some((mv, score)) => {
                 if verbose {
+                    let engine_label = if head_to_head {
+                        if nnue_to_move { "A" } else { "B" }
+                    } else if nnue_to_move {
+                        "NNUE"
+                    } else {
+                        "PST "
+                    };
                     println!(
                         "  move {:3} {:?} ({}): {} eval={}",
                         move_count + 1,
                         player,
-                        if nnue_to_move { "NNUE" } else { "PST " },
+                        engine_label,
                         mv.to_usi_string(),
                         score
                     );
@@ -280,9 +325,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     let effective_time_ms: u32 = if cli.fixed_depth { u32::MAX } else { cli.time_ms };
+    let head_to_head = cli.nnue_weights_b.is_some();
 
-    println!("=== NNUE vs PST ELO Tester ===");
-    println!("  Weights:       {}", cli.nnue_weights);
+    if head_to_head {
+        println!("=== NNUE-vs-NNUE Head-to-Head ELO Tester (Session 18) ===");
+    } else {
+        println!("=== NNUE vs PST ELO Tester ===");
+    }
+    println!("  Engine A:      NNUE  weights = {}", cli.nnue_weights);
+    if let Some(b) = &cli.nnue_weights_b {
+        println!("  Engine B:      NNUE  weights = {}", b);
+    } else {
+        println!("  Engine B:      PST   (NNUE disabled)");
+    }
     println!("  Games:         {}", cli.games);
     println!("  Depth:         {}", cli.depth);
     if cli.fixed_depth {
@@ -297,7 +352,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Output CSV:    {}", cli.output);
     println!();
 
-    // Build NNUE engine: PositionEvaluator with NNUE weights loaded.
+    // Build engine A: PositionEvaluator with NNUE weights loaded.
     let mut nnue_engine = SearchEngine::new(None, cli.tt_mb);
     {
         let eval: &mut PositionEvaluator = nnue_engine.get_evaluator_mut();
@@ -305,20 +360,39 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert!(eval.is_nnue_enabled(), "NNUE should be enabled after loading");
         if cli.use_stm_feature {
             eval.nnue_set_use_stm_feature(true);
-            println!("  STM feature:   ON (Session 14)");
+            println!("  A STM feature: ON (Session 14)");
         }
         if cli.use_halfkp {
             eval.nnue_set_use_halfkp(true);
-            println!("  HalfKP:        ON (Session 17 — own_king_sq × side × piece × sq)");
+            println!("  A HalfKP:      ON (Session 17 — own_king_sq × side × piece × sq)");
         }
     }
 
-    // Build PST engine: NNUE explicitly disabled.
+    // Build engine B: PST in default mode, or a second NNUE in head-to-head mode.
     let mut pst_engine = SearchEngine::new(None, cli.tt_mb);
     {
         let eval: &mut PositionEvaluator = pst_engine.get_evaluator_mut();
-        eval.disable_nnue();
-        assert!(!eval.is_nnue_enabled(), "NNUE should be disabled on PST engine");
+        if let Some(weights_b) = &cli.nnue_weights_b {
+            eval.enable_nnue_with_weights(weights_b)?;
+            assert!(
+                eval.is_nnue_enabled(),
+                "Engine B's NNUE should be enabled after loading --nnue-weights-b"
+            );
+            if cli.use_stm_feature_b {
+                eval.nnue_set_use_stm_feature(true);
+                println!("  B STM feature: ON (Session 18)");
+            }
+            if cli.use_halfkp_b {
+                eval.nnue_set_use_halfkp(true);
+                println!("  B HalfKP:      ON (Session 18)");
+            }
+        } else {
+            eval.disable_nnue();
+            assert!(
+                !eval.is_nnue_enabled(),
+                "NNUE should be disabled on PST engine"
+            );
+        }
     }
 
     let mut rng = if cli.seed == 0 {
@@ -332,7 +406,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut losses: u32 = 0;
 
     let mut csv = File::create(&cli.output)?;
-    writeln!(csv, "game,nnue_color,outcome,moves")?;
+    let csv_color_header = if head_to_head { "a_color" } else { "nnue_color" };
+    writeln!(csv, "game,{},outcome,moves", csv_color_header)?;
+
+    let game_log_label = if head_to_head { "A" } else { "NNUE" };
 
     let start = Instant::now();
     for g in 0..cli.games {
@@ -348,6 +425,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cli.random_plies,
             &mut rng,
             cli.verbose,
+            head_to_head,
         );
         match outcome {
             Outcome::NnueWin => wins += 1,
@@ -358,10 +436,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let elo = elo_from_score(wins, draws, losses);
         let ci = elo_ci95(wins, draws, losses);
         println!(
-            "Game {:3}/{:3}: NNUE={:5} moves={:3} t={:.1}s | W:{} D:{} L:{} ELO:{:+.1} ± {:.1}",
+            "Game {:3}/{:3}: {}={:6} moves={:3} t={:.1}s | W:{} D:{} L:{} ELO:{:+.1} ± {:.1}",
             g + 1,
             cli.games,
-            outcome.as_str(),
+            game_log_label,
+            outcome.as_str(head_to_head),
             moves,
             game_start.elapsed().as_secs_f64(),
             wins,
@@ -372,7 +451,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
 
         let color = if nnue_plays_black { "black" } else { "white" };
-        writeln!(csv, "{},{},{},{}", g + 1, color, outcome.as_str(), moves)?;
+        writeln!(csv, "{},{},{},{}", g + 1, color, outcome.as_str(head_to_head), moves)?;
         csv.flush()?;
     }
 
@@ -384,7 +463,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!();
     println!("=== FINAL RESULTS ===");
     println!("  Games:   {}", total);
-    println!("  NNUE:    {} wins, {} draws, {} losses", wins, draws, losses);
+    let winner_label = if head_to_head { "A    " } else { "NNUE " };
+    println!("  {}:   {} wins, {} draws, {} losses", winner_label, wins, draws, losses);
     println!(
         "  Score:   {:.3}",
         if total == 0 {
