@@ -132,6 +132,19 @@ struct Cli {
     /// (only meaningful when `--nnue-weights-b` is set).
     #[arg(long)]
     use_halfkp_b: bool,
+
+    /// Session 19: enable pieces-in-hand thermometer features on engine A's
+    /// NNUE weights. Set when loading weights trained with
+    /// `nnue-offline-trainer --use-hand-features`. Pads the loaded weights
+    /// with zero rows up to the hand-feature target if needed. Ignored for
+    /// the PST engine.
+    #[arg(long)]
+    use_hand_features: bool,
+
+    /// Session 19: enable pieces-in-hand thermometer features on engine B's
+    /// NNUE weights (only meaningful when `--nnue-weights-b` is set).
+    #[arg(long)]
+    use_hand_features_b: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -366,6 +379,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eval.nnue_set_use_halfkp(true);
             println!("  A HalfKP:      ON (Session 17 — own_king_sq × side × piece × sq)");
         }
+        if cli.use_hand_features {
+            eval.nnue_set_use_hand_features(true);
+            println!("  A Hand features: ON (Session 19 — thermometer 38×2)");
+        }
     }
 
     // Build engine B: PST in default mode, or a second NNUE in head-to-head mode.
@@ -385,6 +402,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if cli.use_halfkp_b {
                 eval.nnue_set_use_halfkp(true);
                 println!("  B HalfKP:      ON (Session 18)");
+            }
+            if cli.use_hand_features_b {
+                eval.nnue_set_use_hand_features(true);
+                println!("  B Hand features: ON (Session 19)");
             }
         } else {
             eval.disable_nnue();

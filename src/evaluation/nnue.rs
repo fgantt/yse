@@ -61,6 +61,47 @@ pub const NUM_NNUE_FEATURES_HALFKP: usize = NUM_SQUARES * NUM_NNUE_FEATURES;
 pub const STM_FEATURE_INDEX_HALFKP: usize = NUM_NNUE_FEATURES_HALFKP;
 pub const NUM_NNUE_FEATURES_HALFKP_TOTAL: usize = NUM_NNUE_FEATURES_HALFKP + 1;
 
+/// Session 19: pieces-in-hand thermometer encoding. For each of the seven
+/// hand-eligible piece types we reserve `MAX_HAND_COUNT[type]` binary features
+/// per side. Feature `(player, piece_type, k)` is active when the player has
+/// `>= k` of `piece_type` in hand. Each capture/drop is a single feature
+/// toggle (add level c+1 on capture, remove level c on drop), so incremental
+/// updates stay O(1).
+///
+/// Total per side = 18 + 4 + 4 + 4 + 4 + 2 + 2 = 38; both sides = 76 features.
+/// The features are appended *after* the existing piece-square + stm rows in
+/// both flat and HalfKP feature spaces — they are NOT king-conditioned even
+/// under HalfKP (the SESSION_LOG_018_Evaluation flagged king-conditioned hand
+/// as too high-dimensional for the current ~67K corpus). See
+/// `docs/nnue-phase2/SESSION_LOG_019.md`.
+pub const NUM_HAND_PIECE_TYPES: usize = 7;
+pub const HAND_PIECE_TYPES: [PieceType; NUM_HAND_PIECE_TYPES] = [
+    PieceType::Pawn,
+    PieceType::Lance,
+    PieceType::Knight,
+    PieceType::Silver,
+    PieceType::Gold,
+    PieceType::Bishop,
+    PieceType::Rook,
+];
+pub const MAX_HAND_COUNT: [u8; NUM_HAND_PIECE_TYPES] = [18, 4, 4, 4, 4, 2, 2];
+const HAND_TYPE_OFFSET: [usize; NUM_HAND_PIECE_TYPES] = [0, 18, 22, 26, 30, 34, 36];
+pub const NUM_HAND_FEATURES_PER_SIDE: usize = 38;
+pub const NUM_HAND_FEATURES: usize = 2 * NUM_HAND_FEATURES_PER_SIDE;
+
+/// Hand-feature base index in the flat feature space (i.e. immediately after
+/// `STM_FEATURE_INDEX`).
+pub const HAND_FEATURE_BASE_FLAT: usize = NUM_NNUE_FEATURES_TOTAL;
+/// Total flat feature count when hand features are enabled.
+pub const NUM_NNUE_FEATURES_WITH_HAND_TOTAL: usize =
+    NUM_NNUE_FEATURES_TOTAL + NUM_HAND_FEATURES;
+/// Hand-feature base index in the HalfKP feature space (immediately after
+/// `STM_FEATURE_INDEX_HALFKP`).
+pub const HAND_FEATURE_BASE_HALFKP: usize = NUM_NNUE_FEATURES_HALFKP_TOTAL;
+/// Total HalfKP feature count when hand features are enabled.
+pub const NUM_NNUE_FEATURES_HALFKP_WITH_HAND_TOTAL: usize =
+    NUM_NNUE_FEATURES_HALFKP_TOTAL + NUM_HAND_FEATURES;
+
 /// Default size of first hidden layer
 pub const DEFAULT_HIDDEN_SIZE_1: usize = 256;
 
@@ -112,6 +153,49 @@ pub fn feature_index_halfkp(
     square: u8,
 ) -> usize {
     own_king_sq as usize * NUM_NNUE_FEATURES + feature_index(player, piece_type, square)
+}
+
+/// Session 19: map a hand-eligible piece type to its index in the
+/// thermometer encoding. Returns `None` for King and promoted pieces (which
+/// cannot exist in hand — promoted pieces revert to base type on capture).
+#[inline]
+pub fn hand_piece_type_index(piece_type: PieceType) -> Option<usize> {
+    match piece_type {
+        PieceType::Pawn => Some(0),
+        PieceType::Lance => Some(1),
+        PieceType::Knight => Some(2),
+        PieceType::Silver => Some(3),
+        PieceType::Gold => Some(4),
+        PieceType::Bishop => Some(5),
+        PieceType::Rook => Some(6),
+        _ => None,
+    }
+}
+
+/// Session 19: hand-feature index for `(player, piece_type, k)` where `k` is
+/// 1-indexed. Returns `None` if `piece_type` cannot be in hand or `k` is
+/// outside `[1, MAX_HAND_COUNT[piece_type]]`. `base` is `HAND_FEATURE_BASE_FLAT`
+/// for the flat space or `HAND_FEATURE_BASE_HALFKP` for the HalfKP space.
+#[inline]
+pub fn hand_feature_index(
+    base: usize,
+    player: Player,
+    piece_type: PieceType,
+    k: u8,
+) -> Option<usize> {
+    let type_idx = hand_piece_type_index(piece_type)?;
+    if k == 0 || k > MAX_HAND_COUNT[type_idx] {
+        return None;
+    }
+    let player_idx = match player {
+        Player::Black => 0,
+        Player::White => 1,
+    };
+    Some(
+        base + player_idx * NUM_HAND_FEATURES_PER_SIDE
+            + HAND_TYPE_OFFSET[type_idx]
+            + (k as usize - 1),
+    )
 }
 
 /// Session 16: locate the king of `player` on the board. Returns `None`
@@ -470,6 +554,80 @@ impl NNUEAccumulator {
         }
     }
 
+    /// Session 19: fold the thermometer hand-feature contributions into
+    /// `hidden_1`. For each `(player, piece_type)` with a non-zero hand count,
+    /// activates levels `1..=count`. `base` selects flat
+    /// (`HAND_FEATURE_BASE_FLAT`) or HalfKP (`HAND_FEATURE_BASE_HALFKP`)
+    /// indexing. Idempotently no-ops on a feature row that is past
+    /// `weights.input_weights_1.len()` (e.g. loading a pre-Session-19 weight
+    /// file with hand features turned on but the rows not padded yet).
+    pub fn add_hand_contributions(
+        &mut self,
+        captured: &CapturedPieces,
+        weights: &NNUEWeights,
+        base: usize,
+    ) {
+        for &player in &[Player::Black, Player::White] {
+            for type_idx in 0..NUM_HAND_PIECE_TYPES {
+                let piece_type = HAND_PIECE_TYPES[type_idx];
+                let count = captured.count(piece_type, player) as u8;
+                let cap = MAX_HAND_COUNT[type_idx];
+                let active_levels = count.min(cap);
+                for k in 1..=active_levels {
+                    if let Some(feat) = hand_feature_index(base, player, piece_type, k) {
+                        if feat < weights.input_weights_1.len() {
+                            for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
+                                self.hidden_1[i] += w as i32;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Session 19: add a single hand-thermometer level to the accumulator.
+    /// Called from `nnue_make_move` on capture (the new top level after the
+    /// hand count increments) and from `nnue_unmake_move` after an unmake of
+    /// a drop (restoring the level removed by the original drop).
+    pub fn add_hand_level(
+        &mut self,
+        weights: &NNUEWeights,
+        base: usize,
+        player: Player,
+        piece_type: PieceType,
+        k: u8,
+    ) {
+        if let Some(feat) = hand_feature_index(base, player, piece_type, k) {
+            if feat < weights.input_weights_1.len() {
+                for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
+                    self.hidden_1[i] += w as i32;
+                }
+            }
+        }
+    }
+
+    /// Session 19: remove a single hand-thermometer level from the
+    /// accumulator. Called from `nnue_make_move` on drop (the level being
+    /// retired as the count decrements) and from `nnue_unmake_move` after an
+    /// unmake of a capture (removing the level the original capture added).
+    pub fn remove_hand_level(
+        &mut self,
+        weights: &NNUEWeights,
+        base: usize,
+        player: Player,
+        piece_type: PieceType,
+        k: u8,
+    ) {
+        if let Some(feat) = hand_feature_index(base, player, piece_type, k) {
+            if feat < weights.input_weights_1.len() {
+                for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
+                    self.hidden_1[i] -= w as i32;
+                }
+            }
+        }
+    }
+
     /// Add a piece's contribution to the accumulator
     pub fn add_piece(&mut self, piece: Piece, square: Position, weights: &NNUEWeights) {
         let square_idx = square.to_u8();
@@ -585,6 +743,12 @@ pub struct NNUEEvaluator {
     /// Stack of accumulator hidden_1 states for make/unmake during search.
     /// Each entry is a snapshot of hidden_1 before a make_move.
     accumulator_stack: Vec<Vec<i32>>,
+    /// Session 19: parallel stack of `hand_counts` snapshots, pushed alongside
+    /// `accumulator_stack` so `nnue_unmake_move` can restore the pre-move
+    /// counts without recomputing them from the move info (which the unmake
+    /// API does not receive). Empty when hand features are off, but pushed
+    /// unconditionally so the stacks stay length-aligned.
+    hand_counts_stack: Vec<[[u8; NUM_HAND_PIECE_TYPES]; 2]>,
     /// Whether NNUE is enabled
     enabled: bool,
     /// Whether the accumulator needs a full refresh (out of sync with board).
@@ -606,6 +770,19 @@ pub struct NNUEEvaluator {
     /// `nnue_make_move`, and `nnue_unmake_move`. Used by `evaluate_incremental`
     /// when the `use_halfkp` fallback path needs to run a full refresh.
     current_stm: Player,
+    /// Session 19: when true, the accumulator additionally folds in
+    /// thermometer hand-feature contributions (76 binary features:
+    /// `(player, piece_type, k)` active iff player has `>= k` in hand).
+    /// `nnue_make_move` and `nnue_unmake_move` keep `hand_counts` in sync
+    /// and emit single-feature add/remove updates per capture/drop.
+    use_hand_features: bool,
+    /// Session 19: per-side counts of each hand-eligible piece type currently
+    /// held in hand at the position the accumulator represents. Indexed by
+    /// `[player_idx][hand_piece_type_index]`. Maintained by the refresh paths
+    /// (which seed it from `CapturedPieces`) and by `nnue_make_move` /
+    /// `nnue_unmake_move` (which adjust it for capture/drop). Used to compute
+    /// which thermometer level to toggle on each ply.
+    hand_counts: [[u8; NUM_HAND_PIECE_TYPES]; 2],
 }
 
 impl NNUEEvaluator {
@@ -617,11 +794,14 @@ impl NNUEEvaluator {
             weights,
             accumulator,
             accumulator_stack: Vec::with_capacity(128), // Typical max search depth
+            hand_counts_stack: Vec::with_capacity(128),
             enabled: true,
             needs_refresh: true,
             use_stm_feature: false,
             use_halfkp: false,
             current_stm: Player::Black,
+            use_hand_features: false,
+            hand_counts: [[0; NUM_HAND_PIECE_TYPES]; 2],
         }
     }
 
@@ -633,11 +813,14 @@ impl NNUEEvaluator {
             weights,
             accumulator,
             accumulator_stack: Vec::with_capacity(128),
+            hand_counts_stack: Vec::with_capacity(128),
             enabled: true,
             needs_refresh: true,
             use_stm_feature: false,
             use_halfkp: false,
             current_stm: Player::Black,
+            use_hand_features: false,
+            hand_counts: [[0; NUM_HAND_PIECE_TYPES]; 2],
         }
     }
 
@@ -658,6 +841,7 @@ impl NNUEEvaluator {
         // bit; force a full refresh on the next eval to keep state coherent.
         self.needs_refresh = true;
         self.accumulator_stack.clear();
+        self.hand_counts_stack.clear();
     }
 
     /// Whether the side-to-move feature is enabled on this evaluator.
@@ -675,11 +859,89 @@ impl NNUEEvaluator {
         self.use_halfkp = on;
         self.needs_refresh = true;
         self.accumulator_stack.clear();
+        self.hand_counts_stack.clear();
     }
 
     /// Whether HalfKP feature space is enabled on this evaluator.
     pub fn use_halfkp(&self) -> bool {
         self.use_halfkp
+    }
+
+    /// Session 19: toggle pieces-in-hand features on this evaluator. When
+    /// enabled, the refresh paths additionally fold the thermometer hand
+    /// features into `hidden_1`, and `nnue_make_move`/`nnue_unmake_move`
+    /// emit single-feature add/remove updates per capture/drop. Forces a
+    /// refresh on the next evaluate so the hand contribution lines up with
+    /// the live `CapturedPieces`.
+    ///
+    /// Loading a pre-Session-19 weight file (with rows = `NUM_NNUE_FEATURES_TOTAL`
+    /// or `NUM_NNUE_FEATURES_HALFKP_TOTAL`) and enabling this flag pads the
+    /// `input_weights_1` matrix with `NUM_HAND_FEATURES` zero rows so the
+    /// hand-feature rows are addressable. Pre-Session-19 weights with hand
+    /// features off remain bit-exact.
+    pub fn set_use_hand_features(&mut self, on: bool) {
+        self.use_hand_features = on;
+        if on {
+            self.pad_for_hand_features();
+        }
+        self.needs_refresh = true;
+        self.accumulator_stack.clear();
+        self.hand_counts_stack.clear();
+    }
+
+    /// Whether pieces-in-hand features are enabled on this evaluator.
+    pub fn use_hand_features(&self) -> bool {
+        self.use_hand_features
+    }
+
+    /// Session 19: hand-feature base index for the active feature space
+    /// (flat or HalfKP).
+    fn hand_feature_base(&self) -> usize {
+        if self.use_halfkp {
+            HAND_FEATURE_BASE_HALFKP
+        } else {
+            HAND_FEATURE_BASE_FLAT
+        }
+    }
+
+    /// Session 19: pad `input_weights_1` with zero rows up to the hand-feature
+    /// total for whichever feature space is active. No-op if rows are already
+    /// at or above the target. Pre-Session-19 flat weights (2269 rows) get
+    /// padded to 2345; pre-Session-19 HalfKP weights (183709 rows) get padded
+    /// to 183785. Existing rows are left untouched.
+    fn pad_for_hand_features(&mut self) {
+        let target = if self.use_halfkp {
+            NUM_NNUE_FEATURES_HALFKP_WITH_HAND_TOTAL
+        } else {
+            NUM_NNUE_FEATURES_WITH_HAND_TOTAL
+        };
+        let current = self.weights.input_weights_1.len();
+        if current >= target {
+            return;
+        }
+        let row_len = self
+            .weights
+            .input_weights_1
+            .first()
+            .map(|r| r.len())
+            .unwrap_or(DEFAULT_HIDDEN_SIZE_1);
+        for _ in current..target {
+            self.weights.input_weights_1.push(vec![0i16; row_len]);
+        }
+    }
+
+    /// Session 19: seed `hand_counts` from `captured`, clamped to the
+    /// thermometer caps. Called by the refresh paths so subsequent
+    /// `nnue_make_move`/`nnue_unmake_move` calls have an accurate baseline.
+    fn set_hand_counts_from(&mut self, captured: &CapturedPieces) {
+        for player_idx in 0..2 {
+            let player = if player_idx == 0 { Player::Black } else { Player::White };
+            for type_idx in 0..NUM_HAND_PIECE_TYPES {
+                let piece_type = HAND_PIECE_TYPES[type_idx];
+                let raw = captured.count(piece_type, player) as u8;
+                self.hand_counts[player_idx][type_idx] = raw.min(MAX_HAND_COUNT[type_idx]);
+            }
+        }
     }
 
     /// Evaluate a position (full refresh - legacy path).
@@ -691,7 +953,7 @@ impl NNUEEvaluator {
         &mut self,
         board: &BitboardBoard,
         player: Player,
-        _captured_pieces: &CapturedPieces,
+        captured_pieces: &CapturedPieces,
     ) -> i32 {
         if !self.enabled {
             return 0;
@@ -701,7 +963,9 @@ impl NNUEEvaluator {
         // feature enabled, `player` is interpreted as the side-to-move and
         // the stm row contribution is folded into hidden_1 for Black-to-move.
         // Session 17: under HalfKP, the refresh is conditioned on the
-        // to-move's own king square.
+        // to-move's own king square. Session 19: with hand features on,
+        // append the thermometer hand-feature contributions and seed
+        // `hand_counts` for incremental tracking.
         if self.use_halfkp {
             self.accumulator
                 .refresh_halfkp(board, player, &self.weights, self.use_stm_feature);
@@ -709,6 +973,11 @@ impl NNUEEvaluator {
             self.accumulator.refresh_with_stm(board, player, &self.weights);
         } else {
             self.accumulator.refresh(board, &self.weights);
+        }
+        if self.use_hand_features {
+            self.accumulator
+                .add_hand_contributions(captured_pieces, &self.weights, self.hand_feature_base());
+            self.set_hand_counts_from(captured_pieces);
         }
         self.current_stm = player;
         self.needs_refresh = false;
@@ -746,10 +1015,38 @@ impl NNUEEvaluator {
             } else {
                 self.accumulator.refresh(board, &self.weights);
             }
+            // Session 19: rebuild thermometer hand-feature contributions from
+            // the cached `hand_counts` (kept in sync via nnue_make_move /
+            // nnue_unmake_move). Re-seeding from a `CapturedPieces` is not
+            // possible here because `evaluate_incremental` does not take one;
+            // the cached counts were last set by a refresh that did, plus any
+            // capture/drop deltas applied by make/unmake since.
+            if self.use_hand_features {
+                self.add_hand_contributions_from_counts();
+            }
             self.needs_refresh = false;
         }
 
         self.accumulator.evaluate(&self.weights)
+    }
+
+    /// Session 19: fold the thermometer hand-feature contributions into
+    /// `hidden_1` using the evaluator's cached `hand_counts`. Used by the
+    /// `needs_refresh` fallback in `evaluate_incremental`, where we have no
+    /// `CapturedPieces` to consult directly.
+    fn add_hand_contributions_from_counts(&mut self) {
+        let base = self.hand_feature_base();
+        for player_idx in 0..2 {
+            let player = if player_idx == 0 { Player::Black } else { Player::White };
+            for type_idx in 0..NUM_HAND_PIECE_TYPES {
+                let piece_type = HAND_PIECE_TYPES[type_idx];
+                let count = self.hand_counts[player_idx][type_idx];
+                for k in 1..=count {
+                    self.accumulator
+                        .add_hand_level(&self.weights, base, player, piece_type, k);
+                }
+            }
+        }
     }
 
     /// Push accumulator state and apply a move incrementally.
@@ -778,6 +1075,49 @@ impl NNUEEvaluator {
 
         // Save current hidden_1 state to stack
         self.accumulator_stack.push(self.accumulator.hidden_1.clone());
+        // Session 19: also save the pre-move hand_counts so unmake can restore
+        // them. Pushed unconditionally to keep the stack length aligned with
+        // accumulator_stack (independent of whether `use_hand_features` is on).
+        self.hand_counts_stack.push(self.hand_counts);
+
+        // Session 19: update cached `hand_counts` for capture/drop. Promoted
+        // captures revert to base type in hand. Tracked unconditionally so
+        // the state stays valid if `use_hand_features` is toggled later; the
+        // accumulator-level updates below are gated on `use_hand_features`.
+        let mover = original_piece.player;
+        let mover_idx = match mover {
+            Player::Black => 0,
+            Player::White => 1,
+        };
+        let hand_base = self.hand_feature_base();
+        let captured_hand_type =
+            captured_piece.and_then(|c| c.piece_type.unpromoted_version().or(Some(c.piece_type)));
+        let dropped_hand_type =
+            if from.is_none() { hand_piece_type_index(original_piece.piece_type).map(|_| original_piece.piece_type) } else { None };
+
+        if let Some(c_type) = captured_hand_type {
+            if let Some(t_idx) = hand_piece_type_index(c_type) {
+                let new_count =
+                    (self.hand_counts[mover_idx][t_idx] + 1).min(MAX_HAND_COUNT[t_idx]);
+                if self.use_hand_features && new_count > self.hand_counts[mover_idx][t_idx] {
+                    self.accumulator
+                        .add_hand_level(&self.weights, hand_base, mover, c_type, new_count);
+                }
+                self.hand_counts[mover_idx][t_idx] = new_count;
+            }
+        }
+        if let Some(d_type) = dropped_hand_type {
+            if let Some(t_idx) = hand_piece_type_index(d_type) {
+                let prev = self.hand_counts[mover_idx][t_idx];
+                if prev > 0 {
+                    if self.use_hand_features {
+                        self.accumulator
+                            .remove_hand_level(&self.weights, hand_base, mover, d_type, prev);
+                    }
+                    self.hand_counts[mover_idx][t_idx] = prev - 1;
+                }
+            }
+        }
 
         // Session 17: HalfKP — every move flips the side-to-move, which
         // changes `own_king_sq` and re-indexes ALL features. There is no
@@ -843,6 +1183,11 @@ impl NNUEEvaluator {
 
         if let Some(prev_hidden_1) = self.accumulator_stack.pop() {
             self.accumulator.hidden_1 = prev_hidden_1;
+            // Session 19: restore the pre-move hand_counts. Pop unconditionally
+            // (the stacks are kept length-aligned in nnue_make_move).
+            if let Some(prev_hand) = self.hand_counts_stack.pop() {
+                self.hand_counts = prev_hand;
+            }
             // Session 17: under HalfKP, make_move forced a refresh on the
             // post-move state but the popped snapshot is the valid pre-move
             // accumulator — clear needs_refresh so the next evaluate uses
@@ -861,7 +1206,15 @@ impl NNUEEvaluator {
     /// (e.g., new game, setting position from FEN, at search root).
     /// `side_to_move` is consulted only when the stm feature is enabled
     /// (Session 14). Pre-Session-14 callers may pass any value.
-    pub fn refresh_accumulator(&mut self, board: &BitboardBoard, side_to_move: Player) {
+    /// Session 19: `captured_pieces` is folded into the accumulator when the
+    /// hand feature flag is on, and is otherwise ignored — pre-Session-19
+    /// callers may pass any (e.g. `&CapturedPieces::new()`).
+    pub fn refresh_accumulator(
+        &mut self,
+        board: &BitboardBoard,
+        side_to_move: Player,
+        captured_pieces: &CapturedPieces,
+    ) {
         if !self.enabled {
             return;
         }
@@ -877,8 +1230,17 @@ impl NNUEEvaluator {
         } else {
             self.accumulator.refresh(board, &self.weights);
         }
+        if self.use_hand_features {
+            self.accumulator.add_hand_contributions(
+                captured_pieces,
+                &self.weights,
+                self.hand_feature_base(),
+            );
+            self.set_hand_counts_from(captured_pieces);
+        }
         self.current_stm = side_to_move;
         self.accumulator_stack.clear();
+        self.hand_counts_stack.clear();
         self.needs_refresh = false;
     }
 
@@ -913,6 +1275,7 @@ impl NNUEEvaluator {
     pub fn invalidate(&mut self) {
         self.needs_refresh = true;
         self.accumulator_stack.clear();
+        self.hand_counts_stack.clear();
     }
 
     /// Check if the accumulator needs a full refresh
@@ -1009,7 +1372,7 @@ mod tests {
 
         // Evaluate the starting position with a full refresh
         let mut evaluator = NNUEEvaluator::from_weights(weights.clone());
-        evaluator.refresh_accumulator(&board, Player::Black);
+        evaluator.refresh_accumulator(&board, Player::Black, &captured_pieces);
         let score_before = evaluator.evaluate_incremental(&board);
 
         // Make a move incrementally
@@ -1044,7 +1407,7 @@ mod tests {
         // Now do a full refresh on the same position for comparison.
         // After Black's first move, side-to-move is White.
         let mut fresh_evaluator = NNUEEvaluator::from_weights(weights.clone());
-        fresh_evaluator.refresh_accumulator(&board, Player::White);
+        fresh_evaluator.refresh_accumulator(&board, Player::White, &captured_pieces);
         let score_full_refresh = fresh_evaluator.evaluate_incremental(&board);
 
         assert_eq!(
@@ -1089,12 +1452,12 @@ mod tests {
         // Black-to-move start: stm-aware refresh should activate the stm row.
         let mut evaluator = NNUEEvaluator::from_weights(weights.clone());
         evaluator.set_use_stm_feature(true);
-        evaluator.refresh_accumulator(&board, Player::Black);
+        evaluator.refresh_accumulator(&board, Player::Black, &captured_pieces);
         let score_black_to_move = evaluator.evaluate_incremental(&board);
         // Verify the accumulator actually shows the stm contribution by
         // comparing the raw hidden_1 against an stm-off accumulator.
         let mut stmless = NNUEEvaluator::from_weights(weights.clone());
-        stmless.refresh_accumulator(&board, Player::Black);
+        stmless.refresh_accumulator(&board, Player::Black, &captured_pieces);
         assert_ne!(
             evaluator.accumulator.hidden_1, stmless.accumulator.hidden_1,
             "stm-on and stm-off accumulators should differ when the stm row is non-zero"
@@ -1131,7 +1494,7 @@ mod tests {
         // Full refresh from scratch with stm = White.
         let mut fresh = NNUEEvaluator::from_weights(weights.clone());
         fresh.set_use_stm_feature(true);
-        fresh.refresh_accumulator(&board, Player::White);
+        fresh.refresh_accumulator(&board, Player::White, &captured_pieces);
         let score_full_refresh = fresh.evaluate_incremental(&board);
         assert_eq!(
             score_incremental, score_full_refresh,
@@ -1242,7 +1605,7 @@ mod tests {
         let mut evaluator = NNUEEvaluator::from_weights(weights.clone());
         evaluator.set_use_halfkp(true);
         evaluator.set_use_stm_feature(true);
-        evaluator.refresh_accumulator(&board, Player::Black);
+        evaluator.refresh_accumulator(&board, Player::Black, &captured_pieces);
         let score_black_to_move = evaluator.evaluate_incremental(&board);
 
         // Make a Black move; side-to-move flips to White and own_king_sq
@@ -1278,7 +1641,7 @@ mod tests {
         let mut fresh = NNUEEvaluator::from_weights(weights.clone());
         fresh.set_use_halfkp(true);
         fresh.set_use_stm_feature(true);
-        fresh.refresh_accumulator(&board, Player::White);
+        fresh.refresh_accumulator(&board, Player::White, &captured_pieces);
         let score_full_refresh = fresh.evaluate_incremental(&board);
 
         assert_eq!(
@@ -1341,6 +1704,181 @@ mod tests {
                 name, path_a, path_b
             );
         }
+    }
+
+    /// Session 19: hand-feature index sanity. Verifies layout and that the
+    /// flat and HalfKP base offsets do not overlap with their respective
+    /// piece-square + stm regions.
+    #[test]
+    fn test_hand_feature_index_layout() {
+        // Black, Pawn, level 1 → first hand feature in flat space
+        let i_blk_p1 = hand_feature_index(HAND_FEATURE_BASE_FLAT, Player::Black, PieceType::Pawn, 1)
+            .expect("Black/Pawn/1 valid");
+        assert_eq!(i_blk_p1, HAND_FEATURE_BASE_FLAT);
+        // White, Rook, max level 2
+        let i_wht_r2 = hand_feature_index(HAND_FEATURE_BASE_FLAT, Player::White, PieceType::Rook, 2)
+            .expect("White/Rook/2 valid");
+        // Last hand feature occupies the topmost index < NUM_NNUE_FEATURES_WITH_HAND_TOTAL.
+        assert_eq!(i_wht_r2, NUM_NNUE_FEATURES_WITH_HAND_TOTAL - 1);
+        // Out-of-range level returns None.
+        assert!(hand_feature_index(HAND_FEATURE_BASE_FLAT, Player::Black, PieceType::Pawn, 19).is_none());
+        // Out-of-range level for Bishop (cap = 2) returns None.
+        assert!(hand_feature_index(HAND_FEATURE_BASE_FLAT, Player::Black, PieceType::Bishop, 3).is_none());
+        // Promoted pieces return None — they revert to base on capture.
+        assert!(hand_feature_index(HAND_FEATURE_BASE_FLAT, Player::Black, PieceType::PromotedPawn, 1).is_none());
+        // King returns None.
+        assert!(hand_feature_index(HAND_FEATURE_BASE_FLAT, Player::Black, PieceType::King, 1).is_none());
+        // HalfKP base is the HalfKP-totals offset and disjoint from flat.
+        let i_halfkp = hand_feature_index(HAND_FEATURE_BASE_HALFKP, Player::Black, PieceType::Pawn, 1)
+            .expect("HalfKP Black/Pawn/1 valid");
+        assert_eq!(i_halfkp, HAND_FEATURE_BASE_HALFKP);
+        assert!(i_halfkp > NUM_NNUE_FEATURES_WITH_HAND_TOTAL);
+    }
+
+    /// Session 19: capture-to-hand incremental update must match a full
+    /// refresh that includes the post-move CapturedPieces. This is the
+    /// load-bearing test for the hand-feature add-level path in nnue_make_move.
+    #[test]
+    fn test_hand_features_capture_matches_full_refresh() {
+        use crate::bitboards::BitboardBoard;
+        use crate::types::board::CapturedPieces;
+
+        // Construct flat-feature weights padded for hand features, with a
+        // deliberately large hand row so the contribution is measurable.
+        let mut weights = NNUEWeights::new(256, 32);
+        let row_len = weights.input_weights_1[0].len();
+        while weights.input_weights_1.len() < NUM_NNUE_FEATURES_WITH_HAND_TOTAL {
+            weights.input_weights_1.push(vec![0i16; row_len]);
+        }
+        // Activate the (Black, Pawn, level 1) row to a large value so any
+        // mismatch between incremental and full-refresh is measurable.
+        let target_row =
+            hand_feature_index(HAND_FEATURE_BASE_FLAT, Player::Black, PieceType::Pawn, 1)
+                .expect("valid hand index");
+        for (i, w) in weights.input_weights_1[target_row].iter_mut().enumerate() {
+            *w = if i % 2 == 0 { 100 } else { -100 };
+        }
+
+        // Position: a Black pawn capturing a White pawn. Use a hand-friendly
+        // FEN so we can verify the refresh paths without depending on
+        // generated moves landing on a capture.
+        let fen = "9/9/9/4p4/4P4/9/9/9/4K3 b - 1";
+        let (board, _p, _cap) = BitboardBoard::from_fen(fen).expect("from_fen");
+        let mut captured = CapturedPieces::new();
+
+        // Path A: refresh on the pre-move position, then call nnue_make_move
+        // simulating Black pawn (5,4) capturing White pawn (3,4).
+        let mut evaluator = NNUEEvaluator::from_weights(weights.clone());
+        evaluator.set_use_hand_features(true);
+        evaluator.refresh_accumulator(&board, Player::Black, &captured);
+        let pre_score = evaluator.evaluate_incremental(&board);
+
+        // Make a virtual capturing move: Black pawn (5,4) → (3,4), captures White pawn.
+        // We update both board and captured_pieces in lockstep with the engine.
+        let from = Position::new(5, 4);
+        let to = Position::new(3, 4);
+        let pawn_black = Piece::new(PieceType::Pawn, Player::Black);
+        let pawn_white = Piece::new(PieceType::Pawn, Player::White);
+        evaluator.nnue_make_move(
+            Some(from),
+            to,
+            pawn_black,
+            pawn_black,
+            Some(pawn_white),
+            false,
+        );
+        // Mirror on the board state so a fresh refresh sees the post-move position.
+        let mut post_board = board.clone();
+        post_board.remove_piece(from);
+        post_board.remove_piece(to);
+        post_board.place_piece(pawn_black, to);
+        captured.add_piece(PieceType::Pawn, Player::Black);
+        let inc_score = evaluator.evaluate_incremental(&post_board);
+
+        // Path B: fresh evaluator, refresh from the post-move position with hand state.
+        let mut fresh = NNUEEvaluator::from_weights(weights.clone());
+        fresh.set_use_hand_features(true);
+        fresh.refresh_accumulator(&post_board, Player::White, &captured);
+        let full_score = fresh.evaluate_incremental(&post_board);
+
+        assert_eq!(
+            inc_score, full_score,
+            "hand-feature incremental ({}) must match full refresh ({}) after capture; pre-move was {}",
+            inc_score, full_score, pre_score
+        );
+
+        // Unmake should restore the pre-move score, since the snapshot path
+        // also rolls back hand_counts via hand_counts_stack.
+        evaluator.nnue_unmake_move();
+        let unmake_score = evaluator.evaluate_incremental(&board);
+        assert_eq!(
+            unmake_score, pre_score,
+            "hand-feature unmake ({}) must restore pre-capture score ({})",
+            unmake_score, pre_score
+        );
+    }
+
+    /// Session 19: drop incremental update must match a full refresh after
+    /// the corresponding hand-count decrement. Dual to the capture test.
+    #[test]
+    fn test_hand_features_drop_matches_full_refresh() {
+        use crate::bitboards::BitboardBoard;
+        use crate::types::board::CapturedPieces;
+
+        // Same padded weights with a large (Black, Silver, level 1) row.
+        let mut weights = NNUEWeights::new(256, 32);
+        let row_len = weights.input_weights_1[0].len();
+        while weights.input_weights_1.len() < NUM_NNUE_FEATURES_WITH_HAND_TOTAL {
+            weights.input_weights_1.push(vec![0i16; row_len]);
+        }
+        let target_row =
+            hand_feature_index(HAND_FEATURE_BASE_FLAT, Player::Black, PieceType::Silver, 1)
+                .expect("valid hand index");
+        for (i, w) in weights.input_weights_1[target_row].iter_mut().enumerate() {
+            *w = if i % 2 == 0 { 100 } else { -100 };
+        }
+
+        // Position: empty board with kings + Black has a Silver in hand.
+        let fen = "9/9/9/9/9/9/9/9/4K3 b S 1";
+        let (board, _p, captured_pre) = BitboardBoard::from_fen(fen).expect("from_fen");
+        assert_eq!(captured_pre.count(PieceType::Silver, Player::Black), 1);
+
+        let mut evaluator = NNUEEvaluator::from_weights(weights.clone());
+        evaluator.set_use_hand_features(true);
+        evaluator.refresh_accumulator(&board, Player::Black, &captured_pre);
+        let pre_score = evaluator.evaluate_incremental(&board);
+
+        // Drop the Silver to (4,4): from = None, captured = None.
+        let to = Position::new(4, 4);
+        let silver_black = Piece::new(PieceType::Silver, Player::Black);
+        evaluator.nnue_make_move(None, to, silver_black, silver_black, None, false);
+        // Mirror on board + captured.
+        let mut post_board = board.clone();
+        post_board.place_piece(silver_black, to);
+        let mut captured_post = captured_pre.clone();
+        captured_post.remove_piece(PieceType::Silver, Player::Black);
+        let inc_score = evaluator.evaluate_incremental(&post_board);
+
+        // Fresh refresh with the new hand state.
+        let mut fresh = NNUEEvaluator::from_weights(weights.clone());
+        fresh.set_use_hand_features(true);
+        fresh.refresh_accumulator(&post_board, Player::White, &captured_post);
+        let full_score = fresh.evaluate_incremental(&post_board);
+
+        assert_eq!(
+            inc_score, full_score,
+            "hand-feature drop incremental ({}) must match full refresh ({})",
+            inc_score, full_score
+        );
+
+        // Unmake should restore both the accumulator and hand_counts.
+        evaluator.nnue_unmake_move();
+        let unmake_score = evaluator.evaluate_incremental(&board);
+        assert_eq!(
+            unmake_score, pre_score,
+            "hand-feature unmake of drop ({}) must restore pre-drop score ({})",
+            unmake_score, pre_score
+        );
     }
 }
 

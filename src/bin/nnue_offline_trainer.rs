@@ -24,12 +24,17 @@ use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use shogi_engine::bitboards::BitboardBoard;
-use shogi_engine::evaluation::nnue::{NNUEAccumulator, NNUEWeights};
+use shogi_engine::evaluation::nnue::{
+    HAND_FEATURE_BASE_FLAT, HAND_FEATURE_BASE_HALFKP, NNUEAccumulator, NNUEWeights,
+};
 use shogi_engine::evaluation::nnue_training::{
     extract_active_features, extract_active_features_halfkp,
-    extract_active_features_halfkp_with_stm, extract_active_features_with_stm,
-    NNUETrainer, NNUETrainingConfig, TrainingPosition,
+    extract_active_features_halfkp_with_hand, extract_active_features_halfkp_with_stm,
+    extract_active_features_halfkp_with_stm_and_hand, extract_active_features_with_hand,
+    extract_active_features_with_stm, extract_active_features_with_stm_and_hand, NNUETrainer,
+    NNUETrainingConfig, TrainingPosition,
 };
+use shogi_engine::types::board::CapturedPieces;
 use shogi_engine::types::core::Player;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -54,11 +59,16 @@ struct Cli {
     #[arg(long, default_value_t = 32)]
     hidden_2: usize,
 
-    /// Where to save the trained weights.
-    #[arg(long, default_value = "nnue_weights_yaneura_trained.json")]
+    /// Where to save the trained weights. Session 19: default extension is
+    /// `.bin` (bincode, ~5× smaller and ~10× faster to load than `.json`);
+    /// pass an explicit `.json` path if a JSON file is needed for inspection.
+    /// `NNUEWeights::save` selects the format from the path's extension.
+    #[arg(long, default_value = "nnue_weights_yaneura_trained.bin")]
     output_weights: PathBuf,
 
-    /// Also save a checkpoint every N epochs (pattern: <stem>_epoch_N.json).
+    /// Also save a checkpoint every N epochs. The checkpoint path is
+    /// `<output stem>_epoch_N.<output ext>` (i.e. `.bin` by default,
+    /// matching `--output-weights`).
     #[arg(long, default_value_t = 10)]
     checkpoint_every: u32,
 
@@ -213,6 +223,16 @@ struct Cli {
     /// fresh-init Adam recipe from Session 15).
     #[arg(long)]
     use_halfkp: bool,
+
+    /// Session 19: enable pieces-in-hand thermometer features. Adds 76 binary
+    /// inputs (38 per side: P=18, L=4, N=4, S=4, G=4, B=2, R=2 levels) where
+    /// `(player, piece_type, k)` is active iff player has `>= k` of that
+    /// type in hand. Features are appended after the stm feature in either
+    /// flat (rows = 2_345) or HalfKP (rows = 183_785) feature spaces. Fresh
+    /// init only when row count needs to grow — pre-Session-19 weight files
+    /// load with their existing rows and the trainer pads with zeros.
+    #[arg(long)]
+    use_hand_features: bool,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -227,12 +247,14 @@ fn validation_pearson(
     sample_size: usize,
     use_stm_feature: bool,
     use_halfkp: bool,
+    use_hand_features: bool,
 ) -> Option<f32> {
     if sample_size == 0 {
         return None;
     }
     let (h1, h2) = weights.hidden_sizes();
     let mut acc = NNUEAccumulator::new(h1, h2);
+    let hand_base = if use_halfkp { HAND_FEATURE_BASE_HALFKP } else { HAND_FEATURE_BASE_FLAT };
 
     // Pearson is computed three ways to disentangle "the network can't learn"
     // from "the network learned but in the wrong POV":
@@ -256,7 +278,7 @@ fn validation_pearson(
             Some(cp) => cp,
             None => continue,
         };
-        let board = match board_from_sfen(&rec.sfen) {
+        let (board, captured) = match board_from_sfen(&rec.sfen) {
             Some(b) => b,
             None => continue,
         };
@@ -266,6 +288,9 @@ fn validation_pearson(
             acc.refresh_with_stm(&board, rec.player, weights);
         } else {
             acc.refresh(&board, weights);
+        }
+        if use_hand_features {
+            acc.add_hand_contributions(&captured, weights, hand_base);
         }
         let net_cp = acc.evaluate(weights) as f32;
         match rec.player {
@@ -403,9 +428,11 @@ fn load_corpus(path: &Path, skip_null_eval: bool) -> std::io::Result<Vec<CorpusR
 }
 
 /// Parse the SFEN produced by `BitboardBoard::to_fen` (3 fields: board, side,
-/// hand). Our `BitboardBoard::from_fen` already handles this.
-fn board_from_sfen(sfen: &str) -> Option<BitboardBoard> {
-    BitboardBoard::from_fen(sfen).ok().map(|(board, _p, _cap)| board)
+/// hand). Our `BitboardBoard::from_fen` already handles this. Session 19:
+/// returns the parsed `CapturedPieces` alongside the board so the trainer's
+/// hand-feature path has the data it needs.
+fn board_from_sfen(sfen: &str) -> Option<(BitboardBoard, CapturedPieces)> {
+    BitboardBoard::from_fen(sfen).ok().map(|(board, _p, cap)| (board, cap))
 }
 
 /// Compute the supervised target for a record, returning a target in either
@@ -461,6 +488,7 @@ fn build_position(
     sigmoid_eval_scale: f32,
     use_stm_feature: bool,
     use_halfkp: bool,
+    use_hand_features: bool,
 ) -> Option<TrainingPosition> {
     let target = target_for(
         rec,
@@ -470,13 +498,21 @@ fn build_position(
         use_sigmoid,
         sigmoid_eval_scale,
     )?;
-    let board = board_from_sfen(&rec.sfen)?;
+    let (board, captured) = board_from_sfen(&rec.sfen)?;
     let active_features = if use_halfkp {
-        if use_stm_feature {
+        if use_hand_features && use_stm_feature {
+            extract_active_features_halfkp_with_stm_and_hand(&board, rec.player, &captured)
+        } else if use_hand_features {
+            extract_active_features_halfkp_with_hand(&board, rec.player, &captured)
+        } else if use_stm_feature {
             extract_active_features_halfkp_with_stm(&board, rec.player)
         } else {
             extract_active_features_halfkp(&board, rec.player)
         }
+    } else if use_hand_features && use_stm_feature {
+        extract_active_features_with_stm_and_hand(&board, rec.player, &captured)
+    } else if use_hand_features {
+        extract_active_features_with_hand(&board, &captured)
     } else if use_stm_feature {
         extract_active_features_with_stm(&board, rec.player)
     } else {
@@ -492,12 +528,16 @@ fn build_position(
     }
     let (h1, h2) = weights.hidden_sizes();
     let mut accumulator = NNUEAccumulator::new(h1, h2);
+    let hand_base = if use_halfkp { HAND_FEATURE_BASE_HALFKP } else { HAND_FEATURE_BASE_FLAT };
     if use_halfkp {
         accumulator.refresh_halfkp(&board, rec.player, weights, use_stm_feature);
     } else if use_stm_feature {
         accumulator.refresh_with_stm(&board, rec.player, weights);
     } else {
         accumulator.refresh(&board, weights);
+    }
+    if use_hand_features {
+        accumulator.add_hand_contributions(&captured, weights, hand_base);
     }
     let nnue_eval = accumulator.evaluate(weights);
     Some(TrainingPosition {
@@ -558,6 +598,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "  HalfKP:         {} (Session 16)",
         if cli.use_halfkp { "ON (own_king_sq × side × piece_type × sq)" } else { "off" }
     );
+    println!(
+        "  Hand features:  {} (Session 19)",
+        if cli.use_hand_features {
+            "ON (thermometer 38 levels × 2 sides = 76)"
+        } else {
+            "off"
+        }
+    );
     if cli.use_adam {
         println!(
             "  Optimiser:      Adam (β1={}, β2={}, ε={}) (Session 15)",
@@ -580,33 +628,81 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         StdRng::seed_from_u64(cli.seed)
     };
 
+    let target_rows = match (cli.use_halfkp, cli.use_hand_features) {
+        (true, true) => {
+            shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_HALFKP_WITH_HAND_TOTAL
+        }
+        (true, false) => shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_HALFKP_TOTAL,
+        (false, true) => {
+            shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_WITH_HAND_TOTAL
+        }
+        (false, false) => shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_TOTAL,
+    };
     let initial_weights = match &cli.init_weights {
         Some(p) => {
             println!("Loading initial weights from {}", p.display());
-            let w = NNUEWeights::load(p)?;
+            let mut w = NNUEWeights::load(p)?;
             if cli.use_halfkp
                 && w.input_weights_1.len()
-                    != shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_HALFKP_TOTAL
+                    < shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_HALFKP_TOTAL
             {
                 return Err(format!(
-                    "--use-halfkp requires HalfKP-sized weights (rows = {}); loaded file has {} rows",
+                    "--use-halfkp requires HalfKP-sized weights (rows >= {}); loaded file has {} rows",
                     shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_HALFKP_TOTAL,
                     w.input_weights_1.len()
                 )
                 .into());
+            }
+            // Session 19: pad to the hand-feature target with zero rows so
+            // the appended hand-feature region is addressable. Pre-Session-19
+            // files keep their existing weights bit-exact for the original
+            // feature region.
+            let current = w.input_weights_1.len();
+            if cli.use_hand_features && current < target_rows {
+                let row_len = w
+                    .input_weights_1
+                    .first()
+                    .map(|r| r.len())
+                    .unwrap_or(cli.hidden_1);
+                println!(
+                    "  Padding loaded weights from {} to {} rows for hand features (76 zero rows)",
+                    current, target_rows
+                );
+                for _ in current..target_rows {
+                    w.input_weights_1.push(vec![0i16; row_len]);
+                }
             }
             w
         }
         None => {
             if cli.use_halfkp {
                 println!(
-                    "Initialising fresh random HalfKP weights ({} input rows)",
-                    shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_HALFKP_TOTAL
+                    "Initialising fresh random HalfKP weights ({} input rows{})",
+                    target_rows,
+                    if cli.use_hand_features { " incl. hand features" } else { "" }
                 );
-                NNUEWeights::new_halfkp(cli.hidden_1, cli.hidden_2)
+                let mut w = NNUEWeights::new_halfkp(cli.hidden_1, cli.hidden_2);
+                if cli.use_hand_features {
+                    let row_len = cli.hidden_1;
+                    while w.input_weights_1.len() < target_rows {
+                        w.input_weights_1.push(vec![0i16; row_len]);
+                    }
+                }
+                w
             } else {
-                println!("Initialising fresh random weights");
-                NNUEWeights::new(cli.hidden_1, cli.hidden_2)
+                println!(
+                    "Initialising fresh random flat weights ({} input rows{})",
+                    target_rows,
+                    if cli.use_hand_features { " incl. hand features" } else { "" }
+                );
+                let mut w = NNUEWeights::new(cli.hidden_1, cli.hidden_2);
+                if cli.use_hand_features {
+                    let row_len = cli.hidden_1;
+                    while w.input_weights_1.len() < target_rows {
+                        w.input_weights_1.push(vec![0i16; row_len]);
+                    }
+                }
+                w
             }
         }
     };
@@ -655,6 +751,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cli.sigmoid_eval_scale,
                 cli.use_stm_feature,
                 cli.use_halfkp,
+                cli.use_hand_features,
             ) {
                 batch.push(pos);
             }
@@ -695,6 +792,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cli.validate_sample,
             cli.use_stm_feature,
             cli.use_halfkp,
+            cli.use_hand_features,
         );
         let pearson_str = match pearson {
             Some(r) => format!(" pearson_r={:+.3}", r),
@@ -714,7 +812,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if cli.checkpoint_every > 0 && (epoch + 1) % cli.checkpoint_every == 0 {
             let stem = cli.output_weights.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "nnue_weights".into());
             let parent = cli.output_weights.parent().unwrap_or(Path::new("."));
-            let ckpt = parent.join(format!("{}_epoch_{}.json", stem, epoch + 1));
+            // Session 19: preserve the output extension (default `.bin`) for
+            // checkpoints — previously hard-coded to `.json`, which silently
+            // wrote JSON checkpoints even when the final output was bincode.
+            let ext = cli
+                .output_weights
+                .extension()
+                .map(|e| e.to_string_lossy().into_owned())
+                .unwrap_or_else(|| "bin".into());
+            let ckpt = parent.join(format!("{}_epoch_{}.{}", stem, epoch + 1, ext));
             trainer.get_weights().save(&ckpt)?;
             println!("  checkpoint -> {}", ckpt.display());
         }

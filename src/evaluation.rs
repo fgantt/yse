@@ -467,9 +467,16 @@ impl PositionEvaluator {
     /// Called at the search root or when setting a new position. The
     /// `side_to_move` argument is consulted only when the loaded NNUE has
     /// the Session-14 stm feature enabled; otherwise it is ignored.
-    pub fn nnue_refresh(&mut self, board: &BitboardBoard, side_to_move: Player) {
+    /// Session 19: `captured_pieces` is folded into the accumulator when
+    /// the Session-19 hand-features flag is on; otherwise ignored.
+    pub fn nnue_refresh(
+        &mut self,
+        board: &BitboardBoard,
+        side_to_move: Player,
+        captured_pieces: &crate::types::board::CapturedPieces,
+    ) {
         if let Some(ref mut nnue) = self.nnue_evaluator {
-            nnue.refresh_accumulator(board, side_to_move);
+            nnue.refresh_accumulator(board, side_to_move, captured_pieces);
         }
     }
 
@@ -488,6 +495,16 @@ impl PositionEvaluator {
     pub fn nnue_set_use_halfkp(&mut self, on: bool) {
         if let Some(ref mut nnue) = self.nnue_evaluator {
             nnue.set_use_halfkp(on);
+        }
+    }
+
+    /// Session 19: enable or disable pieces-in-hand thermometer features on
+    /// the loaded NNUE network. Set when loading hand-feature-trained
+    /// weights (e.g. `nnue-offline-trainer --use-hand-features`); pre-Session-19
+    /// weights leave it off. No effect if NNUE is not enabled.
+    pub fn nnue_set_use_hand_features(&mut self, on: bool) {
+        if let Some(ref mut nnue) = self.nnue_evaluator {
+            nnue.set_use_hand_features(on);
         }
     }
 

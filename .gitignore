@@ -31,3 +31,14 @@ check_output.txt
 check_warnings.txt
 check_warnings_*.txt
 test_results.txt
+
+# Session 19: NNUE weight files at repo root other than the canonical
+# `nnue_weights_trained.json` (referenced by lib.rs auto-load + the
+# `test_eval_paths_agree_on_trained_weights` test). The trainer emits
+# checkpoints to the repo root by default; this prevents them from sprawling
+# into git status. Pre-Session-19 sprawl is archived under `weights/archive/`.
+nnue_weights_*.bin
+nnue_weights_*.json
+!nnue_weights_trained.json
+elo_results.csv
+nnue_corpus_*.jsonl

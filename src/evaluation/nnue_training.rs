@@ -4,9 +4,11 @@
 
 use crate::bitboards::BitboardBoard;
 use crate::evaluation::nnue::{
-    NNUEAccumulator, NNUEWeights, OUTPUT_DIVISOR, STM_FEATURE_INDEX,
-    STM_FEATURE_INDEX_HALFKP, feature_index, feature_index_halfkp,
+    HAND_FEATURE_BASE_FLAT, HAND_FEATURE_BASE_HALFKP, HAND_PIECE_TYPES, MAX_HAND_COUNT,
+    NNUEAccumulator, NNUEWeights, NUM_HAND_PIECE_TYPES, OUTPUT_DIVISOR, STM_FEATURE_INDEX,
+    STM_FEATURE_INDEX_HALFKP, feature_index, feature_index_halfkp, hand_feature_index,
 };
+use crate::types::board::CapturedPieces;
 use crate::types::core::PieceType;
 
 /// f32 mirror of `OUTPUT_DIVISOR` from `nnue.rs` so the training-time
@@ -1398,6 +1400,84 @@ pub fn extract_active_features_halfkp_with_stm(
     if !features.is_empty() && stm == Player::Black {
         features.push(STM_FEATURE_INDEX_HALFKP);
     }
+    features
+}
+
+/// Session 19: append the active hand-thermometer feature indices for
+/// `captured` to `features`, using `base` to select the flat or HalfKP
+/// hand-feature region. For each `(player, piece_type)`, levels `1..=count`
+/// are activated up to the per-type cap in `MAX_HAND_COUNT`.
+pub fn extend_with_hand_features(
+    features: &mut Vec<usize>,
+    captured: &CapturedPieces,
+    base: usize,
+) {
+    for &player in &[Player::Black, Player::White] {
+        for type_idx in 0..NUM_HAND_PIECE_TYPES {
+            let piece_type = HAND_PIECE_TYPES[type_idx];
+            let count = captured.count(piece_type, player) as u8;
+            let cap = MAX_HAND_COUNT[type_idx];
+            let active_levels = count.min(cap);
+            for k in 1..=active_levels {
+                if let Some(feat) = hand_feature_index(base, player, piece_type, k) {
+                    features.push(feat);
+                }
+            }
+        }
+    }
+}
+
+/// Session 19: flat-feature extraction with side-to-move + pieces-in-hand.
+/// Stm bit (when Black-to-move) and hand-thermometer levels are appended to
+/// the piece-square features.
+pub fn extract_active_features_with_stm_and_hand(
+    board: &BitboardBoard,
+    stm: Player,
+    captured: &CapturedPieces,
+) -> Vec<usize> {
+    let mut features = extract_active_features_with_stm(board, stm);
+    extend_with_hand_features(&mut features, captured, HAND_FEATURE_BASE_FLAT);
+    features
+}
+
+/// Session 19: flat-feature extraction with pieces-in-hand only (no stm).
+pub fn extract_active_features_with_hand(
+    board: &BitboardBoard,
+    captured: &CapturedPieces,
+) -> Vec<usize> {
+    let mut features = extract_active_features(board);
+    extend_with_hand_features(&mut features, captured, HAND_FEATURE_BASE_FLAT);
+    features
+}
+
+/// Session 19: HalfKP extraction with side-to-move + pieces-in-hand. Hand
+/// features live at `HAND_FEATURE_BASE_HALFKP` (= `NUM_NNUE_FEATURES_HALFKP_TOTAL`).
+/// Returns an empty vector when the side-to-move's king is missing (the
+/// caller must skip the record), matching `extract_active_features_halfkp`.
+pub fn extract_active_features_halfkp_with_stm_and_hand(
+    board: &BitboardBoard,
+    stm: Player,
+    captured: &CapturedPieces,
+) -> Vec<usize> {
+    let mut features = extract_active_features_halfkp_with_stm(board, stm);
+    if features.is_empty() {
+        return features;
+    }
+    extend_with_hand_features(&mut features, captured, HAND_FEATURE_BASE_HALFKP);
+    features
+}
+
+/// Session 19: HalfKP extraction with pieces-in-hand only (no stm).
+pub fn extract_active_features_halfkp_with_hand(
+    board: &BitboardBoard,
+    stm: Player,
+    captured: &CapturedPieces,
+) -> Vec<usize> {
+    let mut features = extract_active_features_halfkp(board, stm);
+    if features.is_empty() {
+        return features;
+    }
+    extend_with_hand_features(&mut features, captured, HAND_FEATURE_BASE_HALFKP);
     features
 }
 
