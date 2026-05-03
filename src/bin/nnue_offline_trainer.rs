@@ -256,18 +256,26 @@ fn validation_pearson(
     let mut acc = NNUEAccumulator::new(h1, h2);
     let hand_base = if use_halfkp { HAND_FEATURE_BASE_HALFKP } else { HAND_FEATURE_BASE_FLAT };
 
-    // Pearson is computed three ways to disentangle "the network can't learn"
-    // from "the network learned but in the wrong POV":
-    //   r_all  : all records, network output as-is vs to-move-POV teacher target
-    //   r_blk  : Black-to-move records only (POV agreement is automatic here)
-    //   r_wht  : White-to-move records, network output negated (assumes the
-    //            network produces a Black-POV evaluation)
-    // If r_blk or r_wht is materially > r_all, the network has learned a
-    // board-absolute mapping but the trainer's to-move target is mixing the
-    // signal across both colors. See Session 11 hand-off discussion.
+    // Pearson is computed in two POV-aggregation modes plus per-stratum, so the
+    // diagnostic is mode-independent across networks that converge to either
+    // fixed point of the loss landscape:
+    //   r_all_abs : all records, White-stm network output negated and pooled
+    //               with Black-stm. Correct when the network is board-absolute
+    //               (positive cp = good for Black), as in Sessions 14-17.
+    //   r_all_pov : all records, White-stm network output un-negated and pooled
+    //               with Black-stm. Correct when the network is to-move-POV
+    //               (positive cp = good for the side to move), as in Session 19.
+    //   r_blk     : Black-stm records only. Insensitive to network POV (Black-stm
+    //               teacher target equals network output for either convention).
+    //   r_wht_neg : White-stm records, network output negated. Highest when the
+    //               network is board-absolute.
+    //   r_wht_pov : White-stm records, network output un-negated. Highest when
+    //               the network is to-move-POV.
+    // The headline number reported and returned is whichever of (r_all_abs,
+    // r_all_pov) has larger magnitude — see S19 Issue 6.
     let mut preds_blk: Vec<f32> = Vec::new();
     let mut targets_blk: Vec<f32> = Vec::new();
-    let mut preds_wht: Vec<f32> = Vec::new();
+    let mut preds_wht_pov: Vec<f32> = Vec::new();
     let mut targets_wht: Vec<f32> = Vec::new();
     let mut total = 0;
     for rec in records.iter() {
@@ -299,7 +307,7 @@ fn validation_pearson(
                 targets_blk.push(teacher_cp as f32);
             }
             Player::White => {
-                preds_wht.push(-net_cp);
+                preds_wht_pov.push(net_cp);
                 targets_wht.push(teacher_cp as f32);
             }
         }
@@ -308,20 +316,32 @@ fn validation_pearson(
     if total < 2 {
         return None;
     }
-    let mut preds_all: Vec<f32> = Vec::with_capacity(total);
+    let mut preds_all_pov: Vec<f32> = Vec::with_capacity(total);
+    let mut preds_all_abs: Vec<f32> = Vec::with_capacity(total);
     let mut targets_all: Vec<f32> = Vec::with_capacity(total);
-    preds_all.extend(preds_blk.iter().copied());
-    preds_all.extend(preds_wht.iter().copied());
+    preds_all_pov.extend(preds_blk.iter().copied());
+    preds_all_pov.extend(preds_wht_pov.iter().copied());
+    preds_all_abs.extend(preds_blk.iter().copied());
+    preds_all_abs.extend(preds_wht_pov.iter().map(|p| -p));
     targets_all.extend(targets_blk.iter().copied());
     targets_all.extend(targets_wht.iter().copied());
-    let r_all = pearson(&preds_all, &targets_all);
+    let r_all_pov = pearson(&preds_all_pov, &targets_all);
+    let r_all_abs = pearson(&preds_all_abs, &targets_all);
     let r_blk = if preds_blk.len() >= 2 { pearson(&preds_blk, &targets_blk) } else { 0.0 };
-    let r_wht = if preds_wht.len() >= 2 { pearson(&preds_wht, &targets_wht) } else { 0.0 };
+    let r_wht_pov = if preds_wht_pov.len() >= 2 { pearson(&preds_wht_pov, &targets_wht) } else { 0.0 };
+    let r_wht_neg = -r_wht_pov; // pearson is sign-flip-equivariant for one-sided negation
+    let (r_all_best, pov_label) = if r_all_pov.abs() >= r_all_abs.abs() {
+        (r_all_pov, "to-move-POV")
+    } else {
+        (r_all_abs, "board-absolute")
+    };
     println!(
-        "    pearson  all={:+.3} (n={})  black-stm={:+.3} (n={})  white-stm-neg={:+.3} (n={})",
-        r_all, total, r_blk, preds_blk.len(), r_wht, preds_wht.len()
+        "    pearson  all={:+.3} ({}) [abs={:+.3} pov={:+.3}]  black-stm={:+.3} (n={})  white-stm-neg={:+.3}  white-stm-pov={:+.3} (n={})",
+        r_all_best, pov_label, r_all_abs, r_all_pov,
+        r_blk, preds_blk.len(),
+        r_wht_neg, r_wht_pov, preds_wht_pov.len()
     );
-    Some(r_all)
+    Some(r_all_best)
 }
 
 fn pearson(xs: &[f32], ys: &[f32]) -> f32 {
