@@ -202,3 +202,61 @@ fn perft_from_start_position_deep() {
         assert_eq!(got, want, "perft({depth})");
     }
 }
+
+fn total_pieces(b: &BitboardBoard, c: &shogi_engine::types::board::CapturedPieces) -> usize {
+    use shogi_engine::types::core::Position;
+    let on_board = (0..81u8).filter(|&s| b.get_piece(Position::from_u8(s)).is_some()).count();
+    on_board + c.black.len() + c.white.len()
+}
+
+/// A drop must take the piece out of the mover's hand.
+#[test]
+fn drop_removes_the_piece_from_hand() {
+    let (mut b, stm, mut c) = BitboardBoard::from_fen("4k4/9/9/9/9/9/9/9/4K4 b P 1").unwrap();
+    let mg = MoveGenerator::new();
+    let drop = mg
+        .generate_legal_moves(&b, stm, &c)
+        .into_iter()
+        .find(|m| m.from.is_none())
+        .expect("a pawn drop");
+    b.make_move_with_hand(&drop, &mut c);
+    assert_eq!(c.count(shogi_engine::types::core::PieceType::Pawn, Player::Black), 0);
+    assert!(
+        MoveGenerator::new().generate_legal_moves(&b, Player::Black, &c).iter().all(|m| m.from.is_some()),
+        "no drops once the hand is empty"
+    );
+}
+
+/// Random legal games must conserve material: 40 pieces between board and
+/// hands at every ply, with both kings on the board. Before make_move_with_hand
+/// the game loops never removed dropped pieces, so hands only grew.
+#[test]
+fn random_games_conserve_pieces() {
+    use shogi_engine::types::core::{PieceType, Position};
+    let mg = MoveGenerator::new();
+    let mut state: u64 = 0x1234_5678_9ABC_DEF1;
+    let mut drops = 0;
+    for game in 0..40 {
+        let (mut b, mut stm, mut c) =
+            BitboardBoard::from_fen("lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1").unwrap();
+        for ply in 0..160 {
+            let legal = mg.generate_legal_moves(&b, stm, &c);
+            if legal.is_empty() {
+                break;
+            }
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let mv = &legal[(state >> 33) as usize % legal.len()];
+            if mv.from.is_none() {
+                drops += 1;
+            }
+            b.make_move_with_hand(mv, &mut c);
+            stm = stm.opposite();
+            let kings = (0..81u8)
+                .filter(|&s| matches!(b.get_piece(Position::from_u8(s)), Some(p) if p.piece_type == PieceType::King))
+                .count();
+            assert_eq!(total_pieces(&b, &c), 40, "game {game} ply {ply}: {}", b.to_fen(stm, &c));
+            assert_eq!(kings, 2, "game {game} ply {ply}: {}", b.to_fen(stm, &c));
+        }
+    }
+    assert!(drops > 50, "random games should include plenty of drops, saw {drops}");
+}

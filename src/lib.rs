@@ -699,9 +699,7 @@ impl ShogiEngine {
                     let mut temp_board = self.board.clone();
                     let mut temp_captured = self.captured_pieces.clone();
                     
-                    if let Some(captured) = temp_board.make_move(&move_) {
-                        temp_captured.add_piece(captured.piece_type, move_.player);
-                    }
+                    temp_board.make_move_with_hand(&move_, &mut temp_captured);
                     
                     let king_in_check = temp_board.is_king_in_check(move_.player, &temp_captured);
                     if king_in_check {
@@ -996,10 +994,7 @@ impl ShogiEngine {
             for move_str in &parts[start_index..] {
                 match Move::from_usi_string(move_str, self.current_player, &self.board) {
                     Ok(mv) => {
-                        if let Some(captured) = self.board.make_move(&mv) {
-                            self.captured_pieces
-                                .add_piece(captured.piece_type, self.current_player);
-                        }
+                        self.board.make_move_with_hand(&mv, &mut self.captured_pieces);
                         self.current_player = self.current_player.opposite();
                     }
                     Err(e) => {

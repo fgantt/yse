@@ -268,9 +268,9 @@ impl KingRookVsKingSolver {
         temp_move.is_capture =
             matches!(board.get_piece(move_.to), Some(p) if p.player != move_.player);
 
-        if let Some(captured_piece) = temp_board.make_move(&temp_move) {
-            temp_captured.add_piece(captured_piece.piece_type, move_.player);
-        } else if temp_move.is_capture {
+        if temp_board.make_move_with_hand(&temp_move, &mut temp_captured).is_none()
+            && temp_move.is_capture
+        {
             return false;
         }
 

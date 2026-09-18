@@ -203,9 +203,7 @@ fn play_self_play_game(
             }
 
             // Make move
-            if let Some(captured) = board.make_move(&mv) {
-                captured_pieces.add_piece(captured.piece_type, current_player);
-            }
+            board.make_move_with_hand(&mv, &mut captured_pieces);
 
             current_player = current_player.opposite();
             move_count += 1;

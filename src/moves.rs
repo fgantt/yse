@@ -741,9 +741,7 @@ impl MoveGenerator {
             let mut temp_board = board.clone();
             let mut temp_captured = captured_pieces.clone();
 
-            if let Some(captured) = temp_board.make_move(&move_) {
-                temp_captured.add_piece(captured.piece_type, player);
-            }
+            temp_board.make_move_with_hand(&move_, &mut temp_captured);
 
             // Check if this move gives check to the opponent
             if temp_board.is_king_in_check(opponent, &temp_captured) {

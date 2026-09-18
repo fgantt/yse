@@ -493,6 +493,25 @@ impl BitboardBoard {
         is_bit_set(occupied, position)
     }
 
+    /// Make `move_` and update `captured` (the hands) to match: a drop removes the
+    /// piece from the mover's hand, a capture adds the (unpromoted) piece to it.
+    /// Returns the captured piece, if any.
+    ///
+    /// Callers used to call `make_move` and only handle the capture, so dropped
+    /// pieces never left the hand and could be dropped again indefinitely —
+    /// in elo-tester games, in the USI engine's `position ... moves` replay, and
+    /// in several other game loops. Use this wherever a hand is being tracked.
+    pub fn make_move_with_hand(&mut self, move_: &Move, captured: &mut CapturedPieces) -> Option<Piece> {
+        if move_.from.is_none() {
+            captured.remove_piece(move_.piece_type, move_.player);
+        }
+        let cap = self.make_move(move_);
+        if let Some(c) = cap {
+            captured.add_piece(c.piece_type, move_.player);
+        }
+        cap
+    }
+
     pub fn make_move(&mut self, move_: &Move) -> Option<Piece> {
         let mut captured_piece = None;
         if let Some(from) = move_.from {

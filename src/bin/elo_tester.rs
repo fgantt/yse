@@ -201,9 +201,7 @@ fn play_random_opening(
         }
         let idx = rng.gen_range(0..legal.len());
         let mv = legal[idx].clone();
-        if let Some(cap) = board.make_move(&mv) {
-            captured.add_piece(cap.piece_type, *player);
-        }
+        board.make_move_with_hand(&mv, captured);
         *player = player.opposite();
         plies += 1;
     }
@@ -296,9 +294,21 @@ fn play_game(
                         score
                     );
                 }
-                if let Some(cap) = board.make_move(&mv) {
-                    captured.add_piece(cap.piece_type, player);
-                }
+                board.make_move_with_hand(&mv, &mut captured);
+                // Guard against harness bugs corrupting the game: shogi conserves
+                // all 40 pieces between the board and the hands. A game loop that
+                // never removed dropped pieces from the hand once played every
+                // bake-off in this project with inexhaustible drops.
+                let on_board = (0..81u8)
+                    .filter(|&s| board.get_piece(shogi_engine::types::core::Position::from_u8(s)).is_some())
+                    .count();
+                assert_eq!(
+                    on_board + captured.black.len() + captured.white.len(),
+                    40,
+                    "piece count not conserved after {}: {}",
+                    mv.to_usi_string(),
+                    board.to_fen(player.opposite(), &captured)
+                );
                 player = player.opposite();
                 move_count += 1;
             }

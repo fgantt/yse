@@ -383,11 +383,9 @@ impl EnhancedSearchEngine {
                     pv.push(best_move.clone());
 
                     // Make the move to continue the PV
-                    let captured = current_board.make_move(&best_move);
-                    if let Some(captured_piece) = captured {
-                        current_captured
-                            .add_piece(captured_piece.piece_type, captured_piece.player);
-                    }
+                    // Credits the capturer; this previously credited the captured
+                    // piece's former owner, and never removed dropped pieces.
+                    current_board.make_move_with_hand(&best_move, &mut current_captured);
                     current_player = current_player.opposite();
                 } else {
                     break;
