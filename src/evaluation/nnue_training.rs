@@ -944,16 +944,25 @@ impl NNUETrainer {
             };
             let h1_act: Vec<f32> = h1_pre.iter().map(|&x| x.max(0.0)).collect();
 
+            // NOTE: this forward pass is duplicated in
+            // `update_weights_for_position`, which the *online* TD(λ) trainer uses.
+            // The offline trainer only ever reaches this one. Any change to the
+            // arithmetic here must be mirrored there, and vice versa — editing one
+            // silently leaves the other alone.
+            //
+            // `/ 64.0` is hoisted out of the inner loop to mirror the engine's
+            // single `>> 6`. In f32 that is the same value either way; the engine
+            // is where the per-term *floor* lived (audit Finding 3).
             let (h2_pre, final_values) = if let Some(ref w2) = self.weights.input_weights_2 {
                 let biases_2 = self.weights.hidden_biases_2.as_ref().unwrap();
                 let mut h2_pre = vec![0.0_f32; h2_size];
                 for (i, &a1) in h1_act.iter().enumerate() {
                     for (j, &w) in w2[i].iter().enumerate() {
-                        h2_pre[j] += a1 * (w as f32) / 64.0;
+                        h2_pre[j] += a1 * (w as f32);
                     }
                 }
                 for (j, &b) in biases_2.iter().enumerate() {
-                    h2_pre[j] += b as f32;
+                    h2_pre[j] = h2_pre[j] / 64.0 + b as f32;
                 }
                 let h2_act: Vec<f32> = h2_pre.iter().map(|&x| x.max(0.0)).collect();
                 (h2_pre, h2_act)
@@ -961,12 +970,13 @@ impl NNUETrainer {
                 (Vec::new(), h1_act.clone())
             };
 
-            let mut raw_output = self.weights.output_bias as f32;
+            let mut dot = 0.0_f32;
             for (i, &v) in final_values.iter().enumerate() {
                 if i < self.weights.output_weights.len() {
-                    raw_output += v * (self.weights.output_weights[i] as f32) / 64.0;
+                    dot += v * (self.weights.output_weights[i] as f32);
                 }
             }
+            let raw_output = self.weights.output_bias as f32 + dot / 64.0;
             let output_cp = raw_output * SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
             // Session 13: prediction either tanh (legacy) over [-1,1] or
             // sigmoid (new) over [0,1]. Both forms accept output_cp; tanh uses

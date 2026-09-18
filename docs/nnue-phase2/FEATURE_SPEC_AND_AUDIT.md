@@ -230,19 +230,48 @@ the *gradient* that is computed on the wrong function.
 **Fix**: accumulate full precision and shift once at the end, in both paths; or have the trainer
 replicate the engine's integer arithmetic exactly in its forward pass.
 
-### Finding 4 — Quantisation scheme is internally inconsistent (moderate)
+### Finding 4 — REVISED: the ±127 clamp never binds; the real problem is range utilisation
 
-`input_weights_1` is clamped to **±127** — the Stockfish i8 convention, which is sound *because*
-Stockfish pairs it with a **clipped** ReLU that bounds activations to [0, 127]. This implementation
-uses a plain unclipped ReLU (`nnue.rs:687`, `:712` — `.max(0)` with no `.min()`), and then uses
-±32767 for the later layers, compensating with the per-term `>> 6` shifts of Finding 3.
+The original reading was that `input_weights_1`'s ±127 clamp is Stockfish's i8 convention adopted
+without the clipped ReLU that justifies it (this implementation uses plain `.max(0)` with no upper
+bound, at `nnue.rs` in `NNUEAccumulator::evaluate`). That is still true as stated, but **measuring the
+trained weights shows it is not the constraint** — so the "add clipped ReLU" fix would have been
+effort spent on a non-problem.
 
-The i8 input range was adopted without the activation clamp that justifies it. Activations reach
-~5000 (40 active features × 127), so the `>> 6` shifts are load-bearing for overflow safety — which
-is why they are applied per-term rather than once, which is what causes Finding 3.
+Measured on `weights/session21/nnue_weights_s21_pov_final.bin`:
 
-**Fix**: adopt clipped ReLU with a documented activation scale, then derive the shift amounts from
-it rather than choosing them to avoid overflow.
+| Tensor | clamp | at clamp | max abs | p99 abs | zero | distinct values used |
+|---|---|---|---|---|---|---|
+| `input_weights_1` | ±127 | **0.00%** | 76 | 16 | 23.1% | 102 |
+| `input_weights_2` | ±32767 | 0.00% | 143 | 119 | 21.8% | 94 |
+| `output_weights` | ±32767 | 0.00% | 42 | 42 | 21.9% | **11** |
+| `hidden_biases_1` | ±32767 | 0.00% | 32 | 31 | 5.5% | 53 |
+| `hidden_biases_2` | ±32767 | 0.00% | 31 | — | 0.0% | 21 |
+
+`input_weights_1` magnitude distribution: 23.1% are exactly 0, 40.4% in 1–4, 35.6% in 5–16, 0.9% in
+17–63, and **two** weights out of 600 320 exceed 63. Nothing is clamped.
+
+The actual problem is the opposite of the original diagnosis: **every tensor uses a tiny fraction of
+its quantisation range, so the effective precision is ~5 bits where 8–15 are available.**
+`output_weights` is the worst case — 32 numbers drawn from **11 distinct values**, max magnitude 42
+against a ±32767 range. At that granularity one quantisation step is a ~3% relative change in an
+output-layer weight, which is a hard floor on how finely the network can combine hidden features.
+
+This is a scale-allocation problem, not a range problem. Because the network computes
+`((h1 · W2) >> 6 · Wout) >> 6`, multiplying one layer's weights by *k* and dividing the next layer's
+shift accordingly leaves the output unchanged — the split of scale between layers is a free
+reparameterisation, and it is currently set so that all three tensors sit near the bottom of their
+range. The `>> 6` divisors appear to have been chosen rather than derived.
+
+**Proposed fix** (untested): reduce the shift amounts (e.g. `>> 3`), letting the weights converge ~8×
+larger and buying ~3 bits of effective resolution per layer, with the fresh-init scale raised to
+match. Worth testing because the metric can now detect it: retrain and compare held-out
+`pearson[clamp]`.
+
+**Caution before attempting it**: the `/ 64.0` factor appears in ~15 places across the trainer's
+forward *and backward* passes, in two separate implementations (see Finding 6). Getting one of them
+wrong silently corrupts gradients rather than failing loudly. This wants a single shared constant
+introduced first, plus a finite-difference gradient check, before the value is changed.
 
 ### Finding 5 — The test suite cannot detect any of the above (process)
 
@@ -261,6 +290,24 @@ Two further weaknesses in `test_eval_paths_agree_on_trained_weights`:
 three spaces, hand-eligibility rules, trainer/engine extraction parity, mirror invariance, and
 trainer/engine arithmetic agreement. Two of its eight tests fail today — deliberately; they are
 Findings 2 and 3.
+
+### Finding 6 — The trainer has two forward/backward implementations (moderate)
+
+`nnue_training.rs` implements the forward and backward pass **twice**:
+
+- `update_weights_for_position` (~line 592) — used by the *online* TD(λ) trainer (`nnue_trainer`),
+  which `CLAUDE.md` describes as largely superseded.
+- `train_batch_accumulated` (~line 874) — the **only** path `nnue-offline-trainer` reaches, and
+  therefore the one behind every result in Sessions 7–21.
+
+Nothing marks which is live. This bit during this audit: the Finding 3 fix was first applied to
+`update_weights_for_position`, a path the offline trainer never calls. No harm resulted — the real
+defect was engine-side, and the live path's per-term f32 division is mathematically identical to the
+hoisted form — but a change with actual semantics would have appeared to land while doing nothing.
+Both are now consistent and cross-referenced in comments.
+
+This is the same class of hazard as Finding 5: a plausible-looking edit that silently does not affect
+what runs.
 
 ---
 
