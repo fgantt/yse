@@ -298,6 +298,52 @@ un-normalised perspective predicts.
 
 ---
 
+## Part 3b — Perspective Normalisation Result (2026-09-17)
+
+`--use-pov-features` added to the trainer: when White is to move the board is rotated 180° and piece
+colours swapped, so a position and its mirror produce identical features. It supersedes
+`--use-stm-feature` (the bit is constant once normalised, and a colour-conditional bit would undo the
+symmetry). Flat space only; rejected together with `--use-halfkp`, whose `own_king_sq` would also need
+mirroring.
+
+Same recipe and seed as the Part 3 baseline, substituting `--use-pov-features` for
+`--use-stm-feature`. Held-out games:
+
+| Held-out metric | Baseline (colour-absolute + stm) | POV normalised | |
+|---|---|---|---|
+| `pearson[clamp]` best | +0.449 (epoch 30) | **+0.618 (epoch 10)** | **+38%** |
+| `pearson[clamp]` at epoch 30 | +0.449 | +0.603 | +34% |
+| `spearman[raw]` at epoch 30 | +0.383 | +0.580 | +51% |
+| legacy `pearson[raw]` | +0.351 | +0.490 | |
+
+Per-epoch, the gap is stark:
+
+```
+epoch      1      2      3      5     10     15     20     25     30
+baseline  0.102  0.238  0.331  0.366  0.436  0.438  0.443  0.446  0.449
+POV       0.437  0.532  0.577  0.608  0.618  0.614  0.608  0.609  0.603
+```
+
+**POV reaches at epoch 1 what the baseline needs 30 epochs to reach.** It peaks at epoch 10 and then
+declines slightly — so 30 epochs is not merely wasteful here, it is mildly harmful. Early stopping at
+~10 epochs is the right default, which also cuts training wall to ~27 s.
+
+Mirror invariance is now exact:
+`tests/nnue_semantics.rs::mirrored_position_evaluates_identically_under_pov` passes, and
+`colour_absolute_encoding_is_not_mirror_invariant` pins the legacy behaviour so the cost stays visible.
+
+One caution on reading the per-stratum split. It moved from 0.525/0.378 (Black/White) to
+0.540/0.664, i.e. it flipped sign rather than collapsing to zero. This is **not** residual network
+asymmetry — under POV the network applies one identical function to both, which the mirror test
+proves exactly. The two strata are different *sets of positions*, and the corpus's own to-move-POV
+eval distribution is asymmetric (mean +727 on Black-to-move plies vs −457 on White-to-move). The
+per-stratum numbers therefore reflect distributional difficulty, not encoding asymmetry. The mirror
+test, not the stratum split, is the symmetry check from here on.
+
+Best weights: `weights/session21/nnue_weights_s21_pov_epoch_10.bin`.
+
+---
+
 ## Part 4 — Recommended Sequence
 
 **Done** — Findings 1 and 1b are fixed and the re-baseline in Part 3 is the new reference point.
@@ -306,14 +352,14 @@ and it measures generalisation.
 
 Remaining, in priority order:
 
-1. **Add perspective normalisation** (Finding 2). Now the highest-EV change, and the re-baseline
-   sharpened the case for it: the held-out Black/White split of 0.525 / 0.378 is a direct measurement
-   of the cost. Mirror the square (`square → 80 - square`) and swap piece colour when White is to
-   move, in both extraction implementations plus the incremental accumulator. Expected to roughly
-   double effective training data and make colour symmetry exact rather than learned. Invalidates all
-   existing weight files — acceptable, since every post-Session-14 network was lost with `/tmp` and
-   `nnue_weights_trained.json` predates the stm feature. `tests/nnue_semantics.rs::
-   mirrored_position_evaluates_identically` is the acceptance test.
+1. ~~**Add perspective normalisation**~~ — **done**, see Part 3b. Held-out `pearson[clamp]` 0.449 →
+   0.618. Still outstanding on this axis: the **engine-side** path. The trainer does a full refresh
+   per position so it needed no incremental support, but under POV every feature re-indexes when the
+   side to move flips, exactly as HalfKP does today. Options are (a) full refresh per move, which is
+   what HalfKP already accepts, or (b) dual accumulators — one per perspective, each incrementally
+   updatable — which is the "HalfKP-pp" the earlier docs kept deferring. Option (b) is now clearly
+   worth the 250-odd LoC, because it is no longer speculative: the eval gain is measured. Until one of
+   these lands, POV weights cannot be used in search or bake-offs.
 2. **Attack overfitting** (Part 3, conclusion 2). 0.928 training vs 0.449 held-out is the binding
    constraint, and it is now measurable. Cheap levers first, since training is ~80 s: L2 /
    weight decay, early stopping on held-out r (it plateaus at epoch 10, so 30 epochs is 3× wasted

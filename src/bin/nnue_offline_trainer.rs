@@ -30,7 +30,8 @@ use shogi_engine::evaluation::nnue::{
 use shogi_engine::evaluation::nnue_training::{
     extract_active_features, extract_active_features_halfkp,
     extract_active_features_halfkp_with_hand, extract_active_features_halfkp_with_stm,
-    extract_active_features_halfkp_with_stm_and_hand, extract_active_features_with_hand,
+    extract_active_features_halfkp_with_stm_and_hand, extract_active_features_pov,
+    extract_active_features_pov_with_hand, extract_active_features_with_hand,
     extract_active_features_with_stm, extract_active_features_with_stm_and_hand, NNUETrainer,
     NNUETrainingConfig, TrainingPosition,
 };
@@ -233,6 +234,21 @@ struct Cli {
     /// load with their existing rows and the trainer pads with zeros.
     #[arg(long)]
     use_hand_features: bool,
+
+    /// Normalise features to the side-to-move's perspective: when White is to
+    /// move, rotate the board 180° and swap piece colours so that a position and
+    /// its colour-mirror produce identical features. Without this the encoding is
+    /// colour-absolute while the target is to-move-POV, so the network must learn
+    /// each colour as an independent problem from half the corpus — measured as a
+    /// held-out Pearson split of 0.525 (Black) vs 0.378 (White).
+    ///
+    /// Supersedes `--use-stm-feature` (the bit becomes constant once normalised,
+    /// and a colour-conditional bit would undo the symmetry). Flat space only for
+    /// now; rejected together with `--use-halfkp`.
+    ///
+    /// See `docs/nnue-phase2/FEATURE_SPEC_AND_AUDIT.md` Finding 2.
+    #[arg(long)]
+    use_pov_features: bool,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -249,6 +265,7 @@ fn validation_pearson(
     use_halfkp: bool,
     use_hand_features: bool,
     eval_clamp: i32,
+    use_pov: bool,
 ) -> Option<f32> {
     if sample_size == 0 {
         return None;
@@ -300,7 +317,9 @@ fn validation_pearson(
             Some(b) => b,
             None => continue,
         };
-        if use_halfkp {
+        if use_pov {
+            acc.refresh_pov(&board, rec.player, weights);
+        } else if use_halfkp {
             acc.refresh_halfkp(&board, rec.player, weights, use_stm_feature);
         } else if use_stm_feature {
             acc.refresh_with_stm(&board, rec.player, weights);
@@ -308,7 +327,11 @@ fn validation_pearson(
             acc.refresh(&board, weights);
         }
         if use_hand_features {
-            acc.add_hand_contributions(&captured, weights, hand_base);
+            if use_pov {
+                acc.add_hand_contributions_pov(&captured, rec.player, weights, hand_base);
+            } else {
+                acc.add_hand_contributions(&captured, weights, hand_base);
+            }
         }
         let net_cp = acc.evaluate(weights) as f32;
         let clamped = teacher_cp.max(-eval_clamp).min(eval_clamp);
@@ -598,6 +621,7 @@ fn build_position(
     use_stm_feature: bool,
     use_halfkp: bool,
     use_hand_features: bool,
+    use_pov: bool,
 ) -> Option<TrainingPosition> {
     let target = target_for(
         rec,
@@ -608,7 +632,15 @@ fn build_position(
         sigmoid_eval_scale,
     )?;
     let (board, captured) = board_from_sfen(&rec.sfen)?;
-    let active_features = if use_halfkp {
+    let active_features = if use_pov {
+        // Perspective normalisation supersedes the stm bit: the mover is always
+        // "Black" in the normalised frame, so the bit carries no information.
+        if use_hand_features {
+            extract_active_features_pov_with_hand(&board, rec.player, &captured)
+        } else {
+            extract_active_features_pov(&board, rec.player)
+        }
+    } else if use_halfkp {
         if use_hand_features && use_stm_feature {
             extract_active_features_halfkp_with_stm_and_hand(&board, rec.player, &captured)
         } else if use_hand_features {
@@ -638,7 +670,9 @@ fn build_position(
     let (h1, h2) = weights.hidden_sizes();
     let mut accumulator = NNUEAccumulator::new(h1, h2);
     let hand_base = if use_halfkp { HAND_FEATURE_BASE_HALFKP } else { HAND_FEATURE_BASE_FLAT };
-    if use_halfkp {
+    if use_pov {
+        accumulator.refresh_pov(&board, rec.player, weights);
+    } else if use_halfkp {
         accumulator.refresh_halfkp(&board, rec.player, weights, use_stm_feature);
     } else if use_stm_feature {
         accumulator.refresh_with_stm(&board, rec.player, weights);
@@ -646,7 +680,11 @@ fn build_position(
         accumulator.refresh(&board, weights);
     }
     if use_hand_features {
-        accumulator.add_hand_contributions(&captured, weights, hand_base);
+        if use_pov {
+            accumulator.add_hand_contributions_pov(&captured, rec.player, weights, hand_base);
+        } else {
+            accumulator.add_hand_contributions(&captured, weights, hand_base);
+        }
     }
     let nnue_eval = accumulator.evaluate(weights);
     Some(TrainingPosition {
@@ -724,6 +762,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("  Optimiser:      SGD (per-layer grad-scale)");
     }
     println!();
+
+    if cli.use_pov_features && cli.use_halfkp {
+        return Err(
+            "--use-pov-features is flat-space only for now; HalfKP would also need its \
+             own_king_sq mirrored. Run them separately."
+                .into(),
+        );
+    }
+    if cli.use_pov_features && cli.use_stm_feature {
+        println!(
+            "note: --use-stm-feature is ignored under --use-pov-features (the mover is always \
+             \"Black\" in the normalised frame, so the bit is constant)"
+        );
+    }
 
     let all_records = load_corpus(&cli.corpus, cli.skip_null_eval)?;
     println!("Loaded {} records", all_records.len());
@@ -880,6 +932,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cli.use_stm_feature,
                 cli.use_halfkp,
                 cli.use_hand_features,
+                cli.use_pov_features,
             ) {
                 batch.push(pos);
             }
@@ -922,6 +975,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cli.use_halfkp,
             cli.use_hand_features,
             cli.eval_clamp,
+            cli.use_pov_features,
         );
         let pearson_str = match pearson {
             Some(r) => format!(" r_clamp={:+.3}", r),

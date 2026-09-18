@@ -155,6 +155,58 @@ pub fn feature_index_halfkp(
     own_king_sq as usize * NUM_NNUE_FEATURES + feature_index(player, piece_type, square)
 }
 
+/// Re-express `(player, square)` in the side-to-move's frame. When Black is to
+/// move the board frame already *is* the mover's frame; when White is to move,
+/// rotate the board 180° (`square → 80 - square`, since `square = row * 9 + col`)
+/// and swap the piece's colour.
+///
+/// After this transform `Player::Black` means "the mover's piece" and
+/// `Player::White` means "the opponent's piece" — the index is perspective-
+/// relative rather than colour-absolute.
+#[inline]
+pub fn to_mover_frame(stm: Player, player: Player, square: u8) -> (Player, u8) {
+    match stm {
+        Player::Black => (player, square),
+        Player::White => (player.opposite(), 80 - square),
+    }
+}
+
+/// Perspective-normalised flat feature index.
+///
+/// The training target is to-move-POV, so a position and its 180° colour-mirror
+/// have the same value. Under the colour-absolute [`feature_index`] those two
+/// positions share *zero* active indices, forcing the network to learn each
+/// colour as an independent problem from half the corpus. This index makes them
+/// map to identical features, so every training example teaches both colours and
+/// colour symmetry holds by construction.
+///
+/// See `docs/nnue-phase2/FEATURE_SPEC_AND_AUDIT.md` Finding 2.
+#[inline]
+pub fn feature_index_pov(
+    stm: Player,
+    player: Player,
+    piece_type: PieceType,
+    square: u8,
+) -> usize {
+    let (p, sq) = to_mover_frame(stm, player, square);
+    feature_index(p, piece_type, sq)
+}
+
+/// Perspective-normalised hand-feature index: the holder is recorded as mover or
+/// opponent rather than as Black or White. No square is involved, so only the
+/// colour is remapped.
+#[inline]
+pub fn hand_feature_index_pov(
+    base: usize,
+    stm: Player,
+    player: Player,
+    piece_type: PieceType,
+    k: u8,
+) -> Option<usize> {
+    let holder = if stm == Player::Black { player } else { player.opposite() };
+    hand_feature_index(base, holder, piece_type, k)
+}
+
 /// Session 19: map a hand-eligible piece type to its index in the
 /// thermometer encoding. Returns `None` for King and promoted pieces (which
 /// cannot exist in hand — promoted pieces revert to base type on capture).
@@ -561,6 +613,56 @@ impl NNUEAccumulator {
     /// indexing. Idempotently no-ops on a feature row that is past
     /// `weights.input_weights_1.len()` (e.g. loading a pre-Session-19 weight
     /// file with hand features turned on but the rows not padded yet).
+    /// Perspective-normalised refresh: accumulate every piece at its
+    /// [`feature_index_pov`] row. Unlike [`Self::refresh_with_stm`] this emits no
+    /// side-to-move bit — after normalisation the mover is always "Black" in the
+    /// feature frame, so such a bit would be constant (and re-introducing a
+    /// colour-conditional bit would undo the symmetry this provides).
+    pub fn refresh_pov(&mut self, board: &BitboardBoard, stm: Player, weights: &NNUEWeights) {
+        self.hidden_1.fill(0);
+        if let Some(ref mut h2) = self.hidden_2 {
+            h2.fill(0);
+        }
+        for sq in 0..81u8 {
+            let pos = Position::from_u8(sq);
+            if let Some(piece) = board.get_piece(pos) {
+                let feat = feature_index_pov(stm, piece.player, piece.piece_type, sq);
+                if feat < weights.input_weights_1.len() {
+                    for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
+                        self.hidden_1[i] += w as i32;
+                    }
+                }
+            }
+        }
+    }
+
+    /// Perspective-normalised counterpart of [`Self::add_hand_contributions`]:
+    /// the holder is recorded as mover or opponent rather than Black or White.
+    pub fn add_hand_contributions_pov(
+        &mut self,
+        captured: &CapturedPieces,
+        stm: Player,
+        weights: &NNUEWeights,
+        base: usize,
+    ) {
+        for &player in &[Player::Black, Player::White] {
+            for type_idx in 0..NUM_HAND_PIECE_TYPES {
+                let piece_type = HAND_PIECE_TYPES[type_idx];
+                let count = captured.count(piece_type, player) as u8;
+                let active_levels = count.min(MAX_HAND_COUNT[type_idx]);
+                for k in 1..=active_levels {
+                    if let Some(feat) = hand_feature_index_pov(base, stm, player, piece_type, k) {
+                        if feat < weights.input_weights_1.len() {
+                            for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
+                                self.hidden_1[i] += w as i32;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn add_hand_contributions(
         &mut self,
         captured: &CapturedPieces,

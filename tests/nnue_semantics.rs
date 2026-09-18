@@ -100,6 +100,13 @@ fn eval_flat_stm(board: &BitboardBoard, stm: Player, weights: &NNUEWeights) -> i
     acc.evaluate(weights)
 }
 
+fn eval_pov(board: &BitboardBoard, stm: Player, weights: &NNUEWeights) -> i32 {
+    let (h1, h2) = weights.hidden_sizes();
+    let mut acc = NNUEAccumulator::new(h1, h2);
+    acc.refresh_pov(board, stm, weights);
+    acc.evaluate(weights)
+}
+
 // ---------------------------------------------------------------------------
 // Index-space integrity. These should pass; they pin the layout against drift.
 // ---------------------------------------------------------------------------
@@ -243,23 +250,21 @@ fn trainer_feature_extraction_matches_engine_refresh() {
 // fails this, and must learn the two colours as independent problems.
 // ---------------------------------------------------------------------------
 
+const MIRROR_FENS: [&str; 3] = [
+    "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+    "ln1gk2nl/1r4gb1/p1ppp1spp/1p3pp2/9/2P2PP2/PPBPPSP1P/1G3GSR1/LN2K2NL b - 1",
+    "4k4/9/4S4/9/9/9/9/9/4K4 b - 1",
+];
+
 #[test]
-#[ignore = "Finding 2: features are board-absolute with no perspective normalisation, so a \
-            position and its mirror share zero feature indices. See \
-            docs/nnue-phase2/FEATURE_SPEC_AND_AUDIT.md. Remove this attribute when fixed."]
-fn mirrored_position_evaluates_identically() {
+fn mirrored_position_evaluates_identically_under_pov() {
     let weights = det_weights(NUM_NNUE_FEATURES_TOTAL, 16, 8);
-    let fens = [
-        "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
-        "ln1gk2nl/1r4gb1/p1ppp1spp/1p3pp2/9/2P2PP2/PPBPPSP1P/1G3GSR1/LN2K2NL b - 1",
-        "4k4/9/4S4/9/9/9/9/9/4K4 b - 1",
-    ];
-    for fen in fens {
+    for fen in MIRROR_FENS {
         let (board, stm, _cap) = BitboardBoard::from_fen(fen).expect("from_fen");
         let mirrored = mirror_board(&board);
 
-        let direct = eval_flat_stm(&board, stm, &weights);
-        let flipped = eval_flat_stm(&mirrored, stm.opposite(), &weights);
+        let direct = eval_pov(&board, stm, &weights);
+        let flipped = eval_pov(&mirrored, stm.opposite(), &weights);
 
         assert_eq!(
             direct, flipped,
@@ -268,6 +273,28 @@ fn mirrored_position_evaluates_identically() {
             direct, flipped, fen
         );
     }
+}
+
+/// Pins the defect the POV encoding exists to fix, so that if someone points the
+/// engine back at the colour-absolute path the cost is visible rather than silent.
+#[test]
+fn colour_absolute_encoding_is_not_mirror_invariant() {
+    let weights = det_weights(NUM_NNUE_FEATURES_TOTAL, 16, 8);
+    let mut any_differs = false;
+    for fen in MIRROR_FENS {
+        let (board, stm, _cap) = BitboardBoard::from_fen(fen).expect("from_fen");
+        let mirrored = mirror_board(&board);
+        if eval_flat_stm(&board, stm, &weights) != eval_flat_stm(&mirrored, stm.opposite(), &weights)
+        {
+            any_differs = true;
+        }
+    }
+    assert!(
+        any_differs,
+        "expected the colour-absolute encoding to break mirror invariance; if this now \
+         passes, the legacy path has gained perspective normalisation and this test \
+         (and Finding 2) should be retired"
+    );
 }
 
 // ---------------------------------------------------------------------------

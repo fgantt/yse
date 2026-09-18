@@ -6,7 +6,8 @@ use crate::bitboards::BitboardBoard;
 use crate::evaluation::nnue::{
     HAND_FEATURE_BASE_FLAT, HAND_FEATURE_BASE_HALFKP, HAND_PIECE_TYPES, MAX_HAND_COUNT,
     NNUEAccumulator, NNUEWeights, NUM_HAND_PIECE_TYPES, OUTPUT_DIVISOR, STM_FEATURE_INDEX,
-    STM_FEATURE_INDEX_HALFKP, feature_index, feature_index_halfkp, hand_feature_index,
+    STM_FEATURE_INDEX_HALFKP, feature_index, feature_index_halfkp, feature_index_pov,
+    hand_feature_index, hand_feature_index_pov,
 };
 use crate::types::board::CapturedPieces;
 use crate::types::core::PieceType;
@@ -1478,6 +1479,46 @@ pub fn extract_active_features_halfkp_with_hand(
         return features;
     }
     extend_with_hand_features(&mut features, captured, HAND_FEATURE_BASE_HALFKP);
+    features
+}
+
+/// Perspective-normalised flat extraction. Emits no side-to-move bit: after
+/// normalisation the mover is always "Black" in the feature frame, so the bit
+/// would be constant, and a colour-conditional bit would undo the symmetry.
+/// See `docs/nnue-phase2/FEATURE_SPEC_AND_AUDIT.md` Finding 2.
+pub fn extract_active_features_pov(board: &BitboardBoard, stm: Player) -> Vec<usize> {
+    let mut features = Vec::new();
+    for sq in 0..81u8 {
+        let pos = Position::from_u8(sq);
+        if let Some(piece) = board.get_piece(pos) {
+            features.push(feature_index_pov(stm, piece.player, piece.piece_type, sq));
+        }
+    }
+    features
+}
+
+/// Perspective-normalised flat extraction plus the pieces-in-hand thermometer,
+/// with the hand holder also expressed as mover/opponent.
+pub fn extract_active_features_pov_with_hand(
+    board: &BitboardBoard,
+    stm: Player,
+    captured: &CapturedPieces,
+) -> Vec<usize> {
+    let mut features = extract_active_features_pov(board, stm);
+    for &player in &[Player::Black, Player::White] {
+        for type_idx in 0..NUM_HAND_PIECE_TYPES {
+            let piece_type = HAND_PIECE_TYPES[type_idx];
+            let count = captured.count(piece_type, player) as u8;
+            let active_levels = count.min(MAX_HAND_COUNT[type_idx]);
+            for k in 1..=active_levels {
+                if let Some(feat) =
+                    hand_feature_index_pov(HAND_FEATURE_BASE_FLAT, stm, player, piece_type, k)
+                {
+                    features.push(feat);
+                }
+            }
+        }
+    }
     features
 }
 
