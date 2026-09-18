@@ -175,3 +175,100 @@ practice is captures and promotions at every ply, checks at most at the first, n
 **Deployment consequence**: `usi-engine` auto-loads `nnue_weights_trained.json` (Session 3,
 colour-absolute) with no feature flags, and it now scores every leaf. Weight files carry no feature-set
 metadata. Task 12.
+
+---
+
+## Update — Rules, Quiescence, Harness, Deployment
+
+Continuing in the agreed order (bounded quiescence → bake-off → deployment) surfaced defects below
+the evaluation layer. Every game this engine has played, including every bake-off, was affected.
+
+### Shogi rules in move generation (commit `afc7343`)
+
+Found because a mate-in-1 test failed: the king was allowed to capture a pawn-defended gold.
+
+| Defect | Cause |
+|---|---|
+| **Knights moved and attacked backwards** | attack table used row +2 for Black, which advances toward row 0 |
+| **Dragons and horses moved one step, like kings** | generators read them from static tables, which can only hold the steps |
+| **Pawns and lances never attacked** — no pawn/lance checks, kings could enter/capture defended squares | `AttackTables` had no entry for them; fell through to an empty set |
+
+Three pre-existing `bitboards::` failures pointed at this and were never followed up; they encoded
+wrong geometry and are corrected. **Perft from the start position now matches the published values
+at depths 1–5** (30 / 900 / 25,470 / 719,731 / 19,861,490 — depth 5 is the first with drops), and
+`attacks_match_move_destinations_for_every_piece` covers every piece, colour and square.
+
+### Bounded quiescence (same commit)
+
+Quiescence searched every capture, every check including drops, and quiet threats at every ply.
+Now captures and promotions at every ply, checks at the first ply only, no quiet moves; in check it
+searches all evasions (no stand-pat) and returns mate when there are none. 30 positions at depth 2:
+classical 381 s → 20 s, POV NNUE 137 s → 12 s. Mate-in-1 is found at depth 1.
+
+### Dropped pieces never left the hand (commit `0750ec4`)
+
+Game loops added captures to the hand but never removed dropped pieces, so hands only grew and a
+piece could be dropped indefinitely. A live bake-off game was found holding ~15 bishops.
+
+- **elo-tester** — every bake-off in this project was played with inexhaustible drops.
+- **usi-engine `position ... moves`** — after a real game's first drop the engine believes the piece
+  is still in hand and can play an illegal phantom drop.
+- Also the online trainer's self-play, three tablebase solvers, check-detection temp boards, and
+  search_integration's PV extension (which also credited captures to the wrong player).
+
+All now use `BitboardBoard::make_move_with_hand`. `corpus-gen` was already correct, so the training
+corpus is unaffected. `elo-tester` now asserts 40-piece conservation after every move.
+
+**Consequence: every bake-off result recorded in Sessions 5–22 is void.** They were played under
+wrong piece movement, wrong check rules, and unlimited drops, by both sides.
+
+### NNUE deployment (commit `3ca91da`)
+
+- **Self-describing weight files** (v2: magic header + `NNUEFeatureSet` + weights). Loading one
+  configures the evaluator; legacy files still load, without metadata. The trainer writes v2;
+  `nnue-convert-weights --feature-set` stamps existing files.
+- **USI options** `UseNNUE` and `NNUEFile` (default `nnue/default.bin`). A network is used only if
+  its file declares a feature set; otherwise classical evaluation, with the reason on `isready`.
+- **`setoption USI_Hash` silently dropped NNUE** (it rebuilds the search engine); now re-applied.
+- **Parallel workers searched with classical evaluation** while the main thread used NNUE (fresh
+  evaluators in `ParallelSearchEngine` contexts and YBWC thread-local engines). Workers now get the
+  main engine's network, keyed by network id.
+
+### The network barely values material
+
+`eval-correlation` scores evaluators against the teacher on the trainer's held-out games:
+
+| held-out | pearson[clamp] | spearman[raw] | slope vs teacher |
+|---|---|---|---|
+| classical (tapered) | +0.644 | +0.580 | 0.42 |
+| POV network | +0.641 | +0.593 | 0.33 |
+| baseline network (stm+hand) | +0.471 | +0.420 | 0.25 |
+
+The POV network ties the classical evaluator on held-out correlation. But removing one opponent piece:
+
+| piece | classical gain | network gain |
+|---|---|---|
+| pawn | +130 | **+1** |
+| lance | +296 | +47 |
+| rook | +988 | **+191** |
+| dragon | +1,302 | +423 |
+| promoted lance | +506 | **−25** |
+
+The corpus is 67K positions from strong-engine games, where material rarely hangs, so the network
+learned to rank quiet positions but not what pieces are worth. The search spends most of its time in
+positions right after captures, where that is fatal: in the pre-harness-fix match the network lost
+1–17 to classical at fixed depth 2. (That match was on the broken harness; re-run in progress.)
+
+This is the main obstacle to a full NNUE engine. Options, for a decision:
+1. **Material-residual training** — the network predicts `teacher − material`, and evaluation is
+   `material + network`. Exact material values for free; the network spends its capacity on position.
+2. **PSQT bypass** — the modern NNUE design (HalfKAv2): a linear piece-square path summed into the
+   output, initialised to material values and trained with the rest.
+3. **More, and more varied, training data** — positions from our own search (after captures, with
+   imbalances) labelled by the teacher. Needed eventually regardless; `corpus-gen` exists.
+
+### Still open
+
+Task 5 (time budget overrun inside an iteration), Task 8 (magic tables), Task 10 (IntegratedEvaluator,
+now opt-in), Task 13 (search speed: depth 3 ~6 s/position; `go depth 3` reported depth 4), residual
+1/16 search asymmetry at depth 2, 3 pre-existing tablebase checkmate-detection test failures.
