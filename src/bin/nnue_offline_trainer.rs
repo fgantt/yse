@@ -275,6 +275,12 @@ struct Cli {
     /// Learning rate for the PSQT path, in centipawns per Adam step. 0 freezes it.
     #[arg(long, default_value_t = 0.0)]
     psqt_lr: f32,
+
+    /// Train only on quiet positions: drop records where the side to move is in
+    /// check or the teacher's move was a capture. Validation still uses every
+    /// held-out record, so scores stay comparable with runs without the filter.
+    #[arg(long)]
+    skip_noisy: bool,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -502,6 +508,62 @@ struct CorpusRecord {
     /// adjacent plies of one game are near-identical positions, so a record-level
     /// split would leak training positions into validation and inflate the score.
     game_id: u32,
+    ply: u32,
+    /// The move played from this position was random, not the teacher's
+    /// (`corpus-gen --random-move-prob`), so the next record says nothing about
+    /// the teacher's best move here.
+    random_move: bool,
+    /// Set by [`noisy_flags`] under `--skip-noisy`.
+    noisy: bool,
+}
+
+/// Hand-piece count of `player` in an SFEN's hand field (`-` for none).
+fn hand_count(sfen: &str, player: Player) -> u32 {
+    let hand = sfen.split_whitespace().nth(2).unwrap_or("-");
+    let (mut total, mut n) = (0u32, 0u32);
+    for c in hand.chars() {
+        if let Some(d) = c.to_digit(10) {
+            n = n * 10 + d;
+            continue;
+        }
+        let owner = if c.is_ascii_uppercase() { Player::Black } else { Player::White };
+        if c != '-' && owner == player {
+            total += n.max(1);
+        }
+        n = 0;
+    }
+    total
+}
+
+/// Records whose position is not quiet: the side to move is in check, or the
+/// teacher's move from it was a capture (the mover's hand grew by the next ply).
+///
+/// A static evaluator is only asked about quiet positions (quiescence resolves
+/// captures first), and in a non-quiet position the teacher's score already
+/// includes the capture about to happen, which the material on the board does
+/// not show. Training on such positions teaches the network to discount
+/// material. Standard NNUE trainers skip them for the same reason.
+fn noisy_flags(records: &[CorpusRecord]) -> Vec<bool> {
+    let mut noisy = vec![false; records.len()];
+    for i in 0..records.len() {
+        let r = &records[i];
+        if let Some((board, captured)) = board_from_sfen(&r.sfen) {
+            if board.is_king_in_check(r.player, &captured) {
+                noisy[i] = true;
+                continue;
+            }
+        }
+        if let Some(next) = records.get(i + 1) {
+            if !r.random_move
+                && next.game_id == r.game_id
+                && next.ply == r.ply + 1
+                && hand_count(&next.sfen, r.player) > hand_count(&r.sfen, r.player)
+            {
+                noisy[i] = true;
+            }
+        }
+    }
+    noisy
 }
 
 /// Scan a JSON object for the given "key":... value, returning the raw token
@@ -552,7 +614,12 @@ fn parse_jsonl_line(line: &str) -> Option<CorpusRecord> {
         .unwrap_or(gid_raw.len());
     let game_id = gid_raw[..gid_end].trim().parse::<u32>().ok()?;
 
-    Some(CorpusRecord { sfen, player, eval_cp, outcome, game_id })
+    let ply = find_field(line, "ply")
+        .and_then(|v| v.trim().split(|c| c == ',' || c == '}').next()?.trim().parse().ok())
+        .unwrap_or(0);
+    let random_move = find_field(line, "random_move").map_or(false, |v| v.trim_start().starts_with("true"));
+
+    Some(CorpusRecord { sfen, player, eval_cp, outcome, game_id, ply, random_move, noisy: false })
 }
 
 fn load_corpus(path: &Path, skip_null_eval: bool) -> std::io::Result<Vec<CorpusRecord>> {
@@ -803,7 +870,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         );
     }
 
-    let all_records = load_corpus(&cli.corpus, cli.skip_null_eval)?;
+    let mut all_records = load_corpus(&cli.corpus, cli.skip_null_eval)?;
+    if cli.skip_noisy {
+        let flags = noisy_flags(&all_records);
+        for (r, f) in all_records.iter_mut().zip(flags) {
+            r.noisy = f;
+        }
+    }
     println!("Loaded {} records", all_records.len());
     if all_records.is_empty() {
         return Err("no usable records in corpus".into());
@@ -814,9 +887,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // the split — a record-level split leaks near-identical positions into
     // validation and reports a training-fit score as if it were generalisation.
     const VALIDATION_GAME_STRIDE: u32 = 20;
-    let (mut records, val_records): (Vec<_>, Vec<_>) = all_records
+    let (mut records, val_records): (Vec<_>, Vec<_>) = std::mem::take(&mut all_records)
         .into_iter()
         .partition(|r| r.game_id % VALIDATION_GAME_STRIDE != 0);
+    if cli.skip_noisy {
+        let before = records.len();
+        records.retain(|r| !r.noisy);
+        println!(
+            "  Quiet filter: dropped {} of {} training records (in check, or teacher captured)",
+            before - records.len(),
+            before
+        );
+    }
     if val_records.is_empty() {
         return Err("validation split is empty — corpus has too few distinct games".into());
     }
