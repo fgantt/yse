@@ -353,13 +353,15 @@ and it measures generalisation.
 Remaining, in priority order:
 
 1. ~~**Add perspective normalisation**~~ — **done**, see Part 3b. Held-out `pearson[clamp]` 0.449 →
-   0.618. Still outstanding on this axis: the **engine-side** path. The trainer does a full refresh
-   per position so it needed no incremental support, but under POV every feature re-indexes when the
-   side to move flips, exactly as HalfKP does today. Options are (a) full refresh per move, which is
-   what HalfKP already accepts, or (b) dual accumulators — one per perspective, each incrementally
-   updatable — which is the "HalfKP-pp" the earlier docs kept deferring. Option (b) is now clearly
-   worth the 250-odd LoC, because it is no longer speculative: the eval gain is measured. Until one of
-   these lands, POV weights cannot be used in search or bake-offs.
+   0.618. The engine-side path is done too: **dual accumulators** (one per perspective, each with fixed
+   indexing so both stay incrementally updatable; a stm flip only changes which is read). This is the
+   "HalfKP-pp" shape the earlier docs kept deferring on ROI grounds, and it avoids the per-move full
+   refresh HalfKP accepts — so a depth-sensitive bake-off will not be biased against NNUE by refresh
+   cost. `--use-pov-features[-b]` is wired through `elo-tester`. Verified by four tests including
+   per-ply incremental-vs-full-refresh agreement and trainer-vs-engine POV extraction parity.
+
+   Not yet done on this axis: **HalfKP under POV** (its `own_king_sq` also needs mirroring), and
+   `usi-engine` exposure for shipped builds.
 2. **Attack overfitting** (Part 3, conclusion 2). 0.928 training vs 0.449 held-out is the binding
    constraint, and it is now measurable. Cheap levers first, since training is ~80 s: L2 /
    weight decay, early stopping on held-out r (it plateaus at epoch 10, so 30 epochs is 3× wasted
