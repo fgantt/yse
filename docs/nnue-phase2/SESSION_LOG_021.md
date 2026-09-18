@@ -93,6 +93,56 @@ the case for HalfKP-pp and wider layers: they would make it worse.
 
 ---
 
+## Bake-Off Results — and Why the Harness Cannot Resolve Them
+
+**Arm A — POV vs retrained baseline NNUE** (90 games, depth 3 / 500 ms, seed 50):
+**19W – 49D – 22L, ELO −11.6 ± 48.8.** A null result. The held-out eval gain (0.471 → 0.641) did not
+show up head-to-head. It does rule out large effects: the 95% CI's upper bound is about +37 ELO.
+
+Colour asymmetry is gone, as expected from exact mirror invariance: POV scored −7.7 ± 66.8 as Black
+and −15.5 ± 72.0 as White, both within noise. (Compare S20's 5W-2L / 3W-6L split.)
+
+**Arm B — POV vs PST** (90 games, seed 51): *in progress at time of writing; +78.5 ± 62.0 after 54
+games* — in line with the historical vs-PST arm. Final numbers to be appended.
+
+**The harness is the bottleneck, not the eval.** Parsing all 8,150 searched moves in Arm A's log:
+
+| Observation | Measurement |
+|---|---|
+| Final depth reached | depth 1: 3.8% · **depth 2: 83.5%** · depth 3: 12.7% |
+| Nodes per move | median 2,894 · p90 12,769 |
+| Search speed | **~1,500–2,700 nodes/s**, both engines |
+| Depth-1 iteration time | p10/p50/p90 = 100/108/110 ms at a median **70 nodes** — fixed overhead |
+| Depth-2 iteration time | p50 **2,093 ms**, p90 5,321 ms — the 500 ms budget is not enforced |
+| Odd/even score swing (depth-1 → final) | NNUE **+1,210 cp**, PST **+553 cp** |
+
+So the "depth 3 / 500 ms" bake-off is in practice a **time-overrunning, mostly depth-2, few-thousand-
+node** search. That also explains the wall clock (~183 s per game).
+
+Two further consequences:
+
+- **Search-level parity artifact.** Both evaluators swing hundreds of cp between odd and even depth,
+  so it is not purely the network — though NNUE amplifies it (+1,210 vs +553). NNUE's final-depth
+  scores average **+872 cp** in games where PST's average −127, i.e. it is systematically optimistic
+  at even depth. Plausible contributors, not yet verified: a truncated or miscalibrated quiescence
+  search (the opponent's capture at an odd leaf never gets answered), and a residual to-move bias in
+  the eval (the teacher's own to-move-POV mean is about +135 cp).
+- **Resolution.** A large eval difference (any NNUE vs PST) survives this; a finer one (two NNUEs of
+  different quality) is swamped. That is consistent with every NNUE-vs-PST bake-off since S14 coming
+  back positive and every NNUE-vs-NNUE bake-off (S18, S20 A, S21 A) coming back null.
+
+This is the same shape of problem as Finding 1: **the measuring instrument, not the thing measured,
+has been the binding constraint.** Until search reaches its nominal depth at a sane node rate,
+bake-offs cannot say whether eval-quality improvements convert to strength.
+
+Candidate causes for the ~100 ms fixed overhead, to check first: per-move transposition-table
+allocation/clearing (32 MB), per-move evaluator or weight re-initialisation (the log prints `info
+string Using NNUE evaluation` on every move), and time checks that only run between iterations.
+Also note `nnue_make_move` heap-allocates a `Vec` snapshot of `hidden_1` on every move (twice under
+POV) — minor next to the above, but it is on the hot path.
+
+---
+
 ## Work Completed
 
 | # | Change | Commit |
@@ -185,10 +235,14 @@ unnoticed. Same blind spot as Finding 5, one level up.
 
 ## Next Session Plan (Session 22)
 
-**Prerequisite**: read the two 90-game bake-off results (`weights/session21/bakeoff_*.csv`), launched
-at the end of this session — POV vs the retrained baseline (seed 50) and POV vs PST (seed 51).
+**Priority 0 — Fix the bake-off harness.** See "Bake-Off Results" above. Find the ~100 ms fixed
+per-search overhead, enforce the time budget inside iterations, and get node rates to something
+plausible. Then re-run Arm A. Until this lands, no bake-off can tell whether an eval improvement
+converts to strength, so it gates everything below that ends in a bake-off. Also investigate the
+odd/even score swing (+553 cp with PST, +1,210 with NNUE) — likely quiescence.
 
-**Priority 1 — Attack overfitting.** Now the binding constraint and, for the first time, measurable.
+**Priority 1 — Attack overfitting.** Still the binding constraint on eval quality, and measurable
+with held-out r independently of the harness, so it can proceed in parallel with Priority 0. Now the binding constraint and, for the first time, measurable.
 Cheap levers first, since training is ~45 s: L2 / weight decay, dropout. Note POV already delivered a
 2× effective-data increase, so re-measure before assuming corpus expansion is needed — its payoff can
 now be verified rather than argued.
@@ -215,8 +269,9 @@ S18-Eval from the saturated metric.
 
 **Session Lead**: Claude (AI)
 **Status**: Audit complete; four fixes landed across `508b4d8`, `cfa57bc`, `8109e02`, `f6dc97a`.
-Held-out `pearson[clamp]` 0.449 → 0.641. Two 90-game bake-offs running at sign-off.
-**Ready for next session**: Yes, once the bake-offs report.
+Held-out `pearson[clamp]` 0.449 → 0.641. Head-to-head vs the baseline NNUE: −11.6 ± 48.8 (null),
+with strong evidence the bake-off harness cannot resolve differences of this size.
+**Ready for next session**: Yes. Start with Priority 0 (the harness).
 **Comments**:
 1. **Every gain this session is held-out eval quality, not measured ELO.** The bake-off is the
    unconverted step. Do not describe 0.641 as a strength result.
