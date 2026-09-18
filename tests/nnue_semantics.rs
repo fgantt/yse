@@ -65,6 +65,7 @@ fn det_weights(num_features: usize, h1: usize, h2: usize) -> NNUEWeights {
         hidden_biases_2: Some(hidden_biases_2),
         output_weights,
         output_bias: 0,
+        psqt: Vec::new(),
     }
 }
 
@@ -426,4 +427,94 @@ fn mirrored_hand_is_symmetric() {
     assert_eq!(mirrored.count(PieceType::Pawn, Player::White), 2);
     assert_eq!(mirrored.count(PieceType::Rook, Player::Black), 1);
     assert_eq!(mirrored.count(PieceType::Pawn, Player::Black), 0);
+}
+
+// ---------------------------------------------------------------------------
+// PSQT path. Checked against a material count computed here from the board and
+// hands, not through any feature index.
+// ---------------------------------------------------------------------------
+
+/// Material from `stm`'s side, counted directly: board pieces at their own
+/// (promoted) value, hand pieces at their base value, kings at zero.
+fn material_balance(board: &BitboardBoard, captured: &CapturedPieces, stm: Player) -> i32 {
+    use shogi_engine::evaluation::nnue::MATERIAL_VALUES;
+    let sign = |p: Player| if p == stm { 1 } else { -1 };
+    let mut total = 0;
+    for sq in 0..81u8 {
+        if let Some(piece) = board.get_piece(Position::from_u8(sq)) {
+            total += sign(piece.player) * MATERIAL_VALUES[piece.piece_type.as_index()];
+        }
+    }
+    for &player in &[Player::Black, Player::White] {
+        for &pt in HAND_PIECE_TYPES.iter() {
+            total += sign(player) * captured.count(pt, player) as i32 * MATERIAL_VALUES[pt.as_index()];
+        }
+    }
+    total
+}
+
+/// A network whose layers are all zero, so its output is the PSQT path alone.
+fn material_only_weights() -> NNUEWeights {
+    let (h1, h2) = (8, 4);
+    NNUEWeights {
+        input_weights_1: vec![vec![0; h1]; NUM_NNUE_FEATURES_WITH_HAND_TOTAL],
+        hidden_biases_1: vec![0; h1],
+        input_weights_2: Some(vec![vec![0; h2]; h1]),
+        hidden_biases_2: Some(vec![0; h2]),
+        output_weights: vec![0; h2],
+        output_bias: 0,
+        psqt: NNUEWeights::material_psqt(NUM_NNUE_FEATURES_WITH_HAND_TOTAL),
+    }
+}
+
+const MATERIAL_FENS: &[&str] = &[
+    "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+    "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1",
+    // Black has taken a bishop and a pawn; White holds a pawn.
+    "lnsgkgsnl/1r7/pppp1pppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w BPp 1",
+    // Promoted pieces on the board, several pieces in hand on both sides.
+    "4k4/9/4+P4/9/2+B3+R2/9/9/9/4K4 b 2G3Pr2s 1",
+    "4k4/9/4+P4/9/2+B3+R2/9/9/9/4K4 w 2G3Pr2s 1",
+];
+
+/// With the network zeroed, the POV evaluation must equal the material balance
+/// from the side to move, including pieces in hand and promoted pieces.
+#[test]
+fn material_psqt_scores_material_from_the_movers_side() {
+    let weights = material_only_weights();
+    for fen in MATERIAL_FENS {
+        let (board, stm, captured) = BitboardBoard::from_fen(fen).expect("from_fen");
+        let (h1, h2) = weights.hidden_sizes();
+        let mut acc = NNUEAccumulator::new(h1, h2);
+        acc.refresh_pov(&board, stm, &weights);
+        acc.add_hand_contributions_pov(&captured, stm, &weights, HAND_FEATURE_BASE_FLAT);
+        assert_eq!(acc.evaluate(&weights), material_balance(&board, &captured, stm), "{fen}");
+    }
+}
+
+/// The engine evaluator (dual accumulators) must agree
+/// with the material count, and a v3 file must round-trip the PSQT vector.
+#[test]
+fn material_psqt_survives_save_load_and_the_engine_evaluator() {
+    use shogi_engine::evaluation::nnue::{NNUEEvaluator, NNUEFeatureSet};
+    let weights = material_only_weights();
+    let path = std::env::temp_dir().join(format!("nnue_psqt_{}.bin", std::process::id()));
+    weights.save_with_features(&path, NNUEFeatureSet::parse("pov,hand").unwrap()).unwrap();
+    let (loaded, fs) = NNUEWeights::load_with_features(&path).unwrap();
+    let _ = std::fs::remove_file(&path);
+    assert_eq!(loaded.psqt, weights.psqt);
+    assert_eq!(fs, Some(NNUEFeatureSet::parse("pov,hand").unwrap()));
+
+    let mut ev = NNUEEvaluator::from_weights(loaded);
+    ev.apply_feature_set(fs.unwrap());
+    for fen in MATERIAL_FENS {
+        let (board, stm, captured) = BitboardBoard::from_fen(fen).expect("from_fen");
+        assert_eq!(
+            ev.evaluate_for(&board, stm, &captured),
+            material_balance(&board, &captured, stm),
+            "{fen}"
+        );
+    }
+    // The legacy format cannot hold a PSQT vector, so it must refuse.
+    assert!(weights.save(std::env::temp_dir().join("nnue_psqt_legacy.bin")).is_err());
 }

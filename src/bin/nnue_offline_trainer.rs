@@ -258,6 +258,23 @@ struct Cli {
     /// worse network than it passed through.
     #[arg(long, default_value_t = 0)]
     early_stop_patience: u32,
+
+    /// Give the network a PSQT path initialised to material values: a centipawn
+    /// value per input feature, summed over the active features and added to the
+    /// output. Requires `--use-pov-features`.
+    ///
+    /// With `--psqt-lr 0` (the default) the path stays frozen at material, so the
+    /// network learns only `teacher - material`. That is the point: trained on
+    /// the teacher score alone, the network learned almost no material (removing
+    /// an opponent's pawn gained it +1 cp, a rook +191), because strong-engine
+    /// games rarely leave material hanging, and it gave pieces away in play.
+    /// Ignored when `--init-weights` already has a PSQT path.
+    #[arg(long)]
+    psqt_material: bool,
+
+    /// Learning rate for the PSQT path, in centipawns per Adam step. 0 freezes it.
+    #[arg(long, default_value_t = 0.0)]
+    psqt_lr: f32,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -910,6 +927,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     };
 
+    let mut initial_weights = initial_weights;
+    if cli.psqt_material && initial_weights.psqt.is_empty() {
+        if !cli.use_pov_features {
+            return Err("--psqt-material needs --use-pov-features (material is scored from the \
+                        mover's side, which only the POV encoding expresses)"
+                .into());
+        }
+        initial_weights.psqt = NNUEWeights::material_psqt(initial_weights.input_weights_1.len());
+    }
+    println!(
+        "  PSQT path:    {}",
+        match (initial_weights.psqt.is_empty(), cli.psqt_lr > 0.0) {
+            (true, _) => "none".to_string(),
+            (false, false) => "frozen".to_string(),
+            (false, true) => format!("trained, lr {} cp/step", cli.psqt_lr),
+        }
+    );
+
     let mut config = NNUETrainingConfig::default();
     config.learning_rate = cli.learning_rate;
     config.output_grad_scale = cli.output_grad_scale;
@@ -923,6 +958,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.adam_beta1 = cli.adam_beta1;
     config.adam_beta2 = cli.adam_beta2;
     config.adam_epsilon = cli.adam_epsilon;
+    config.psqt_learning_rate = cli.psqt_lr;
     // min_batch_size is irrelevant here — we drive the batching ourselves
     // via train_batch, but set it so any stray add_training_game path
     // doesn't fire unexpectedly.

@@ -117,6 +117,12 @@ pub struct NNUETrainingConfig {
     /// Adam denominator stabiliser (ε). Standard default 1e-8.
     #[serde(default = "default_adam_epsilon")]
     pub adam_epsilon: f32,
+    /// Learning rate for the PSQT path ([`NNUEWeights::psqt`]), in centipawns
+    /// per step under Adam. 0 freezes it, so a network initialised with
+    /// material values learns only the residual `teacher - material`. Ignored
+    /// for networks without a PSQT path.
+    #[serde(default)]
+    pub psqt_learning_rate: f32,
 }
 
 fn default_output_grad_scale() -> f32 { 1e7 }
@@ -152,6 +158,7 @@ impl Default for NNUETrainingConfig {
             adam_beta1: default_adam_beta1(),
             adam_beta2: default_adam_beta2(),
             adam_epsilon: default_adam_epsilon(),
+            psqt_learning_rate: 0.0,
         }
     }
 }
@@ -230,6 +237,7 @@ pub struct ShadowWeights {
     pub hidden_biases_2: Option<Vec<f32>>,
     pub output_weights: Vec<f32>,
     pub output_bias: f32,
+    pub psqt: Vec<f32>,
 }
 
 impl ShadowWeights {
@@ -259,6 +267,7 @@ impl ShadowWeights {
                 .map(|b2| b2.iter().map(|&b| b as f32).collect()),
             output_weights: weights.output_weights.iter().map(|&w| w as f32).collect(),
             output_bias: weights.output_bias as f32,
+            psqt: weights.psqt.iter().map(|&v| v as f32).collect(),
         }
     }
 
@@ -364,6 +373,16 @@ impl ShadowWeights {
                 weights.output_bias = new;
             }
         }
+        for (i, &v) in self.psqt.iter().enumerate() {
+            let new = v.round() as i32;
+            if new != weights.psqt[i] {
+                let ch = (new - weights.psqt[i]).abs() as f32;
+                total += ch;
+                max = max.max(ch);
+                count += 1;
+                weights.psqt[i] = new;
+            }
+        }
 
         (total, max, count)
     }
@@ -389,6 +408,8 @@ pub struct AdamState {
     pub output_weights_v: Vec<f32>,
     pub output_bias_m: f32,
     pub output_bias_v: f32,
+    pub psqt_m: Vec<f32>,
+    pub psqt_v: Vec<f32>,
     pub step: u64,
 }
 
@@ -411,6 +432,8 @@ impl AdamState {
             output_weights_v: vec![0.0; shadow.output_weights.len()],
             output_bias_m: 0.0,
             output_bias_v: 0.0,
+            psqt_m: vec![0.0; shadow.psqt.len()],
+            psqt_v: vec![0.0; shadow.psqt.len()],
             step: 0,
         }
     }
@@ -589,6 +612,9 @@ impl NNUETrainer {
     /// range via sigmoid(eval_cp / 400) where eval_cp is the centipawn output.
     ///
     /// Returns (error, avg_weight_change, max_weight_change).
+    ///
+    /// Does not model the PSQT path ([`NNUEWeights::psqt`]); only the offline
+    /// trainer's `train_batch_accumulated` does.
     fn update_weights_for_position(&mut self, position: &TrainingPosition, target_value: f32) -> (f32, f32, f32) {
         let learning_rate = self.config.learning_rate;
         let output_scale = self.config.output_grad_scale;
@@ -893,6 +919,8 @@ impl NNUETrainer {
         let mut acc_input_w: std::collections::HashMap<usize, Vec<f32>> =
             std::collections::HashMap::new();
         let mut acc_b1: Vec<f32> = vec![0.0_f32; h1_size];
+        let psqt_trainable = self.config.psqt_learning_rate > 0.0 && !self.shadow.psqt.is_empty();
+        let mut acc_psqt: std::collections::HashMap<usize, f32> = std::collections::HashMap::new();
 
         let mut total_error = 0.0_f32;
         let mut count = 0_usize;
@@ -977,7 +1005,15 @@ impl NNUETrainer {
                 }
             }
             let raw_output = self.weights.output_bias as f32 + dot / 64.0;
-            let output_cp = raw_output * SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
+            // The PSQT path adds straight to the output in centipawns, as in the
+            // engine's `NNUEAccumulator::evaluate`. Read from the f32 shadow so
+            // that sub-centipawn updates are seen before they round.
+            let psqt_cp: f32 = position
+                .active_features
+                .iter()
+                .filter_map(|&f| self.shadow.psqt.get(f))
+                .sum();
+            let output_cp = raw_output * SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32 + psqt_cp;
             // Session 13: prediction either tanh (legacy) over [-1,1] or
             // sigmoid (new) over [0,1]. Both forms accept output_cp; tanh uses
             // SCALE_FACTOR (=400) as its cp scale, sigmoid uses
@@ -1021,6 +1057,14 @@ impl NNUETrainer {
             };
             let scale_deriv = SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
             let d_raw = weighted_error * pred_deriv * scale_deriv;
+            // d(output_cp)/d(psqt[f]) = 1 for every active feature.
+            if psqt_trainable {
+                for &f in &position.active_features {
+                    if f < self.shadow.psqt.len() {
+                        *acc_psqt.entry(f).or_insert(0.0) += weighted_error * pred_deriv;
+                    }
+                }
+            }
 
             for (i, &v) in final_values.iter().enumerate() {
                 if i < acc_output_w.len() {
@@ -1217,6 +1261,20 @@ impl NNUETrainer {
                     t,
                 );
             }
+            let psqt_lr = self.config.psqt_learning_rate;
+            for (&f, &g) in acc_psqt.iter() {
+                adam_apply(
+                    &mut self.shadow.psqt[f],
+                    &mut adam.psqt_m[f],
+                    &mut adam.psqt_v[f],
+                    g,
+                    psqt_lr,
+                    beta1,
+                    beta2,
+                    eps,
+                    t,
+                );
+            }
         } else {
             for i in 0..self.shadow.output_weights.len() {
                 self.shadow.output_weights[i] += acc_output_w[i] * lr * out_scale;
@@ -1243,6 +1301,9 @@ impl NNUETrainer {
             }
             for i in 0..h1_size {
                 self.shadow.hidden_biases_1[i] += acc_b1[i] * lr * in_scale;
+            }
+            for (&f, &g) in acc_psqt.iter() {
+                self.shadow.psqt[f] += g * self.config.psqt_learning_rate;
             }
         }
 

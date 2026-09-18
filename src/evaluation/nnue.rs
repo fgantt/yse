@@ -282,9 +282,75 @@ pub struct NNUEWeights {
     pub output_weights: Vec<i16>,
     /// Output bias
     pub output_bias: i32,
+    /// PSQT path: one centipawn value per input feature, summed over the active
+    /// features and added to the network's output. Empty for networks without
+    /// one.
+    ///
+    /// This is the linear bypass of modern NNUE designs: material and simple
+    /// piece-square terms go straight to the output instead of having to be
+    /// rediscovered through two ReLU layers. Initialised from material values
+    /// ([`Self::material_psqt`]) and either frozen, so that the network learns
+    /// only the residual `teacher - material`, or trained along with the rest.
+    pub psqt: Vec<i32>,
 }
 
+/// Centipawn material values for the PSQT initialisation, indexed by
+/// `PieceType::as_index()`. The teacher corpus is YaneuraOu's, so these are
+/// YaneuraOu's values, putting the PSQT path and the teacher on one scale.
+pub const MATERIAL_VALUES: [i32; NUM_PIECE_TYPES] =
+    // P    L    N    S    G    B    R    K  +P   +L   +N   +S   +B   +R
+    [90, 315, 405, 495, 540, 855, 990, 0, 540, 540, 540, 540, 945, 1395];
+
+/// Every piece type, in `as_index()` order.
+const ALL_PIECE_TYPES: [PieceType; NUM_PIECE_TYPES] = [
+    PieceType::Pawn,
+    PieceType::Lance,
+    PieceType::Knight,
+    PieceType::Silver,
+    PieceType::Gold,
+    PieceType::Bishop,
+    PieceType::Rook,
+    PieceType::King,
+    PieceType::PromotedPawn,
+    PieceType::PromotedLance,
+    PieceType::PromotedKnight,
+    PieceType::PromotedSilver,
+    PieceType::PromotedBishop,
+    PieceType::PromotedRook,
+];
+
 impl NNUEWeights {
+    /// A PSQT vector that scores material from the mover's side, for the
+    /// perspective-normalised flat feature space (with hand features appended at
+    /// [`HAND_FEATURE_BASE_FLAT`]): `+value` for each of the mover's pieces on
+    /// the board and in hand, `-value` for each of the opponent's. Each hand
+    /// thermometer level counts one piece. `num_rows` is the network's input row
+    /// count; the side-to-move row, unused under POV, scores zero.
+    pub fn material_psqt(num_rows: usize) -> Vec<i32> {
+        let mut psqt = vec![0i32; num_rows];
+        for (side, sign) in [(Player::Black, 1), (Player::White, -1)] {
+            for pt in ALL_PIECE_TYPES {
+                for sq in 0..NUM_SQUARES as u8 {
+                    let f = feature_index(side, pt, sq);
+                    if f < num_rows {
+                        psqt[f] = sign * MATERIAL_VALUES[pt.as_index()];
+                    }
+                }
+            }
+            for pt in HAND_PIECE_TYPES {
+                let t = hand_piece_type_index(pt).unwrap();
+                for k in 1..=MAX_HAND_COUNT[t] {
+                    if let Some(f) = hand_feature_index(HAND_FEATURE_BASE_FLAT, side, pt, k) {
+                        if f < num_rows {
+                            psqt[f] = sign * MATERIAL_VALUES[pt.as_index()];
+                        }
+                    }
+                }
+            }
+        }
+        psqt
+    }
+
     /// Create new weights with random initialization.
     ///
     /// Uses small normal distribution (Stockfish-compatible) instead of uniform
@@ -416,6 +482,7 @@ impl NNUEWeights {
             hidden_biases_2,
             output_weights,
             output_bias,
+            psqt: Vec::new(),
         }
     }
 
@@ -447,7 +514,13 @@ impl NNUEWeights {
             .unwrap_or(false);
         let (file_data, features): (NNUEWeightFile, Option<NNUEFeatureSet>) = if is_bin {
             let bytes = std::fs::read(path)?;
-            if let Some(rest) = bytes.strip_prefix(NNUE_BIN_MAGIC_V2) {
+            if let Some(rest) = bytes.strip_prefix(NNUE_BIN_MAGIC_V3) {
+                let (fs, w, psqt): (NNUEFeatureSet, NNUEWeightFile, Vec<i32>) =
+                    bincode::deserialize(rest)?;
+                let mut weights = Self::from_file_data(w);
+                weights.psqt = psqt;
+                return Ok((weights, Some(fs)));
+            } else if let Some(rest) = bytes.strip_prefix(NNUE_BIN_MAGIC_V2) {
                 let (fs, w): (NNUEFeatureSet, NNUEWeightFile) = bincode::deserialize(rest)?;
                 (w, Some(fs))
             } else {
@@ -457,7 +530,9 @@ impl NNUEWeights {
             let value: serde_json::Value = serde_json::from_reader(BufReader::new(File::open(path)?))?;
             if value.get("feature_set").is_some() && value.get("weights").is_some() {
                 let v2: NNUEWeightFileV2Json = serde_json::from_value(value)?;
-                (v2.weights, Some(v2.feature_set))
+                let mut weights = Self::from_file_data(v2.weights);
+                weights.psqt = v2.psqt;
+                return Ok((weights, Some(v2.feature_set)));
             } else {
                 (serde_json::from_value(value)?, None)
             }
@@ -482,12 +557,19 @@ impl NNUEWeights {
             hidden_biases_2: file_data.hidden_biases_2,
             output_weights: file_data.output_weights,
             output_bias: file_data.output_bias,
+            psqt: Vec::new(),
         }
     }
 
     /// Save weights to file. Dispatches by extension: `.bin` → bincode,
     /// anything else (including `.json`) → JSON pretty-printed.
+    ///
+    /// The legacy format has nowhere to put a PSQT vector, so a network with one
+    /// is refused rather than written without it; use [`Self::save_with_features`].
     pub fn save<P: AsRef<Path>>(&self, path: P) -> Result<(), NNUEError> {
+        if !self.psqt.is_empty() {
+            return Err(NNUEError::InvalidFormat);
+        }
         let path = path.as_ref();
         let file = File::create(path)?;
         let writer = BufWriter::new(file);
@@ -539,10 +621,19 @@ impl NNUEWeights {
         let mut writer = BufWriter::new(File::create(path)?);
         if is_bin {
             use std::io::Write;
-            writer.write_all(NNUE_BIN_MAGIC_V2)?;
-            bincode::serialize_into(writer, &(features, file_data))?;
+            if self.psqt.is_empty() {
+                writer.write_all(NNUE_BIN_MAGIC_V2)?;
+                bincode::serialize_into(writer, &(features, file_data))?;
+            } else {
+                writer.write_all(NNUE_BIN_MAGIC_V3)?;
+                bincode::serialize_into(writer, &(features, file_data, &self.psqt))?;
+            }
         } else {
-            let v2 = NNUEWeightFileV2Json { feature_set: features, weights: file_data };
+            let v2 = NNUEWeightFileV2Json {
+                feature_set: features,
+                weights: file_data,
+                psqt: self.psqt.clone(),
+            };
             serde_json::to_writer_pretty(writer, &v2)?;
         }
         Ok(())
@@ -610,11 +701,18 @@ impl std::fmt::Display for NNUEFeatureSet {
 /// of a bare `NNUEWeightFile` and still load, with no feature set.
 const NNUE_BIN_MAGIC_V2: &[u8] = b"SHOGINNUE2";
 
+/// Magic prefix of v3 binary weight files: v2 plus a PSQT vector, i.e. a
+/// bincode-encoded `(NNUEFeatureSet, NNUEWeightFile, Vec<i32>)`. Written only
+/// for networks that have a PSQT path, so files without one stay v2.
+const NNUE_BIN_MAGIC_V3: &[u8] = b"SHOGINNUE3";
+
 /// v2 JSON weight file: `{ "feature_set": {...}, "weights": {...} }`.
 #[derive(Serialize, Deserialize)]
 struct NNUEWeightFileV2Json {
     feature_set: NNUEFeatureSet,
     weights: NNUEWeightFile,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    psqt: Vec<i32>,
 }
 
 /// Serializable weight file format
@@ -636,6 +734,9 @@ pub struct NNUEAccumulator {
     pub hidden_1: Vec<i32>,
     /// Accumulated values for hidden layer 2 (if present): [hidden_size_2]
     pub hidden_2: Option<Vec<i32>>,
+    /// Sum of [`NNUEWeights::psqt`] over the active features, in centipawns.
+    /// Zero for networks without a PSQT path.
+    pub psqt: i32,
     /// Size of hidden layer 1 (used internally)
     #[allow(dead_code)]
     hidden_size_1: usize,
@@ -650,9 +751,51 @@ impl NNUEAccumulator {
         Self {
             hidden_1: vec![0; hidden_size_1],
             hidden_2: if hidden_size_2 > 0 { Some(vec![0; hidden_size_2]) } else { None },
+            psqt: 0,
             hidden_size_1,
             hidden_size_2,
         }
+    }
+
+    /// Activate input feature `feat`: add its row to hidden layer 1 and its PSQT
+    /// value to the PSQT sum. Every accumulator update goes through this and
+    /// [`Self::sub_feature`], so the two paths cannot drift apart. Rows past the
+    /// end of the weights are ignored (a file without hand rows, say).
+    #[inline]
+    pub fn add_feature(&mut self, feat: usize, weights: &NNUEWeights) {
+        if let Some(row) = weights.input_weights_1.get(feat) {
+            for (h, &w) in self.hidden_1.iter_mut().zip(row) {
+                *h += w as i32;
+            }
+            if let Some(&v) = weights.psqt.get(feat) {
+                self.psqt += v;
+            }
+        }
+    }
+
+    /// Deactivate input feature `feat`; the inverse of [`Self::add_feature`].
+    #[inline]
+    pub fn sub_feature(&mut self, feat: usize, weights: &NNUEWeights) {
+        if let Some(row) = weights.input_weights_1.get(feat) {
+            for (h, &w) in self.hidden_1.iter_mut().zip(row) {
+                *h -= w as i32;
+            }
+            if let Some(&v) = weights.psqt.get(feat) {
+                self.psqt -= v;
+            }
+        }
+    }
+
+    /// The state `nnue_make_move` saves for unmake: hidden layer 1 and the PSQT
+    /// sum. Hidden layer 2 is recomputed at evaluation and needs no saving.
+    pub fn snapshot(&self) -> (Vec<i32>, i32) {
+        (self.hidden_1.clone(), self.psqt)
+    }
+
+    /// Restore a [`Self::snapshot`].
+    pub fn restore(&mut self, (hidden_1, psqt): (Vec<i32>, i32)) {
+        self.hidden_1 = hidden_1;
+        self.psqt = psqt;
     }
 
     /// Refresh accumulator from scratch for a position (no side-to-move
@@ -661,6 +804,7 @@ impl NNUEAccumulator {
     pub fn refresh(&mut self, board: &BitboardBoard, weights: &NNUEWeights) {
         // Reset accumulator
         self.hidden_1.fill(0);
+        self.psqt = 0;
         if let Some(ref mut h2) = self.hidden_2 {
             h2.fill(0);
         }
@@ -689,9 +833,7 @@ impl NNUEAccumulator {
     ) {
         self.refresh(board, weights);
         if stm == Player::Black && STM_FEATURE_INDEX < weights.input_weights_1.len() {
-            for (i, &w) in weights.input_weights_1[STM_FEATURE_INDEX].iter().enumerate() {
-                self.hidden_1[i] += w as i32;
-            }
+            self.add_feature(STM_FEATURE_INDEX, weights);
         }
     }
 
@@ -710,6 +852,7 @@ impl NNUEAccumulator {
         with_stm: bool,
     ) {
         self.hidden_1.fill(0);
+        self.psqt = 0;
         if let Some(ref mut h2) = self.hidden_2 {
             h2.fill(0);
         }
@@ -729,9 +872,7 @@ impl NNUEAccumulator {
                         sq_idx,
                     );
                     if feat < weights.input_weights_1.len() {
-                        for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
-                            self.hidden_1[i] += w as i32;
-                        }
+                        self.add_feature(feat, weights);
                     }
                 }
             }
@@ -740,12 +881,7 @@ impl NNUEAccumulator {
             && stm == Player::Black
             && STM_FEATURE_INDEX_HALFKP < weights.input_weights_1.len()
         {
-            for (i, &w) in weights.input_weights_1[STM_FEATURE_INDEX_HALFKP]
-                .iter()
-                .enumerate()
-            {
-                self.hidden_1[i] += w as i32;
-            }
+            self.add_feature(STM_FEATURE_INDEX_HALFKP, weights);
         }
     }
 
@@ -763,6 +899,7 @@ impl NNUEAccumulator {
     /// colour-conditional bit would undo the symmetry this provides).
     pub fn refresh_pov(&mut self, board: &BitboardBoard, stm: Player, weights: &NNUEWeights) {
         self.hidden_1.fill(0);
+        self.psqt = 0;
         if let Some(ref mut h2) = self.hidden_2 {
             h2.fill(0);
         }
@@ -771,9 +908,7 @@ impl NNUEAccumulator {
             if let Some(piece) = board.get_piece(pos) {
                 let feat = feature_index_pov(stm, piece.player, piece.piece_type, sq);
                 if feat < weights.input_weights_1.len() {
-                    for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
-                        self.hidden_1[i] += w as i32;
-                    }
+                    self.add_feature(feat, weights);
                 }
             }
         }
@@ -796,9 +931,7 @@ impl NNUEAccumulator {
                 for k in 1..=active_levels {
                     if let Some(feat) = hand_feature_index_pov(base, stm, player, piece_type, k) {
                         if feat < weights.input_weights_1.len() {
-                            for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
-                                self.hidden_1[i] += w as i32;
-                            }
+                            self.add_feature(feat, weights);
                         }
                     }
                 }
@@ -821,9 +954,7 @@ impl NNUEAccumulator {
                 for k in 1..=active_levels {
                     if let Some(feat) = hand_feature_index(base, player, piece_type, k) {
                         if feat < weights.input_weights_1.len() {
-                            for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
-                                self.hidden_1[i] += w as i32;
-                            }
+                            self.add_feature(feat, weights);
                         }
                     }
                 }
@@ -845,9 +976,7 @@ impl NNUEAccumulator {
     ) {
         if let Some(feat) = hand_feature_index(base, player, piece_type, k) {
             if feat < weights.input_weights_1.len() {
-                for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
-                    self.hidden_1[i] += w as i32;
-                }
+                self.add_feature(feat, weights);
             }
         }
     }
@@ -866,9 +995,7 @@ impl NNUEAccumulator {
     ) {
         if let Some(feat) = hand_feature_index(base, player, piece_type, k) {
             if feat < weights.input_weights_1.len() {
-                for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
-                    self.hidden_1[i] -= w as i32;
-                }
+                self.sub_feature(feat, weights);
             }
         }
     }
@@ -887,9 +1014,7 @@ impl NNUEAccumulator {
     ) {
         let feat = feature_index_pov(frame, piece.player, piece.piece_type, square.to_u8());
         if feat < weights.input_weights_1.len() {
-            for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
-                self.hidden_1[i] += w as i32;
-            }
+            self.add_feature(feat, weights);
         }
     }
 
@@ -903,9 +1028,7 @@ impl NNUEAccumulator {
     ) {
         let feat = feature_index_pov(frame, piece.player, piece.piece_type, square.to_u8());
         if feat < weights.input_weights_1.len() {
-            for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
-                self.hidden_1[i] -= w as i32;
-            }
+            self.sub_feature(feat, weights);
         }
     }
 
@@ -921,9 +1044,7 @@ impl NNUEAccumulator {
     ) {
         if let Some(feat) = hand_feature_index_pov(base, frame, player, piece_type, k) {
             if feat < weights.input_weights_1.len() {
-                for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
-                    self.hidden_1[i] += w as i32;
-                }
+                self.add_feature(feat, weights);
             }
         }
     }
@@ -940,9 +1061,7 @@ impl NNUEAccumulator {
     ) {
         if let Some(feat) = hand_feature_index_pov(base, frame, player, piece_type, k) {
             if feat < weights.input_weights_1.len() {
-                for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
-                    self.hidden_1[i] -= w as i32;
-                }
+                self.sub_feature(feat, weights);
             }
         }
     }
@@ -952,9 +1071,7 @@ impl NNUEAccumulator {
         let feature_idx = feature_index(piece.player, piece.piece_type, square_idx);
 
         // Accumulate into hidden layer 1
-        for (i, &weight) in weights.input_weights_1[feature_idx].iter().enumerate() {
-            self.hidden_1[i] += weight as i32;
-        }
+        self.add_feature(feature_idx, weights);
     }
 
     /// Remove a piece's contribution from the accumulator
@@ -963,9 +1080,7 @@ impl NNUEAccumulator {
         let feature_idx = feature_index(piece.player, piece.piece_type, square_idx);
 
         // Remove from hidden layer 1
-        for (i, &weight) in weights.input_weights_1[feature_idx].iter().enumerate() {
-            self.hidden_1[i] -= weight as i32;
-        }
+        self.sub_feature(feature_idx, weights);
     }
 
     /// Update accumulator for a move
@@ -1047,7 +1162,7 @@ impl NNUEAccumulator {
             }
             let output = weights.output_bias + (dot >> 6) as i32;
 
-            (output * SCALE_FACTOR) / OUTPUT_DIVISOR
+            (output * SCALE_FACTOR) / OUTPUT_DIVISOR + self.psqt
         } else {
             // No second hidden layer: dot activated_1 with output_weights
             let mut dot: i64 = 0;
@@ -1056,7 +1171,7 @@ impl NNUEAccumulator {
             }
             let output = weights.output_bias + (dot >> 6) as i32;
 
-            (output * SCALE_FACTOR) / OUTPUT_DIVISOR
+            (output * SCALE_FACTOR) / OUTPUT_DIVISOR + self.psqt
         }
     }
 }
@@ -1077,7 +1192,7 @@ pub struct NNUEEvaluator {
     accumulator: NNUEAccumulator,
     /// Stack of accumulator hidden_1 states for make/unmake during search.
     /// Each entry is a snapshot of hidden_1 before a make_move.
-    accumulator_stack: Vec<Vec<i32>>,
+    accumulator_stack: Vec<(Vec<i32>, i32)>,
     /// Session 19: parallel stack of `hand_counts` snapshots, pushed alongside
     /// `accumulator_stack` so `nnue_unmake_move` can restore the pre-move
     /// counts without recomputing them from the move info (which the unmake
@@ -1133,7 +1248,7 @@ pub struct NNUEEvaluator {
     accumulator_white: NNUEAccumulator,
     /// Snapshot stack for `accumulator_white`, pushed and popped in lockstep with
     /// `accumulator_stack` so unmake stays O(1).
-    accumulator_stack_white: Vec<Vec<i32>>,
+    accumulator_stack_white: Vec<(Vec<i32>, i32)>,
     /// Verification mode: on every `evaluate_for`, also evaluate the position
     /// from scratch and compare. Catches a desynchronised accumulator — a board
     /// change that bypassed the make/unmake hooks — which otherwise silently
@@ -1769,9 +1884,9 @@ impl NNUEEvaluator {
             // always pops, and skipping the push here used to make it pop the
             // snapshot belonging to an *earlier* move. Recording the occupancy as
             // unknown makes the next `evaluate_for` rebuild.
-            self.accumulator_stack.push(self.accumulator.hidden_1.clone());
+            self.accumulator_stack.push(self.accumulator.snapshot());
             if self.use_pov {
-                self.accumulator_stack_white.push(self.accumulator_white.hidden_1.clone());
+                self.accumulator_stack_white.push(self.accumulator_white.snapshot());
             }
             self.hand_counts_stack.push(self.hand_counts);
             self.synced_occ_stack.push(None);
@@ -1781,9 +1896,9 @@ impl NNUEEvaluator {
         }
 
         // Save current hidden_1 state to stack
-        self.accumulator_stack.push(self.accumulator.hidden_1.clone());
+        self.accumulator_stack.push(self.accumulator.snapshot());
         if self.use_pov {
-            self.accumulator_stack_white.push(self.accumulator_white.hidden_1.clone());
+            self.accumulator_stack_white.push(self.accumulator_white.snapshot());
         }
         // Session 19: also save the pre-move hand_counts so unmake can restore
         // them. Pushed unconditionally to keep the stack length aligned with
@@ -1929,19 +2044,10 @@ impl NNUEEvaluator {
         // flips. The stm-Black feature is active iff stm == Black, so:
         //   moved by Black → stm row was active, now inactive: subtract row.
         //   moved by White → stm row was inactive, now active: add row.
-        if self.use_stm_feature && STM_FEATURE_INDEX < self.weights.input_weights_1.len() {
-            let stm_row = &self.weights.input_weights_1[STM_FEATURE_INDEX];
+        if self.use_stm_feature {
             match original_piece.player {
-                Player::Black => {
-                    for (i, &w) in stm_row.iter().enumerate() {
-                        self.accumulator.hidden_1[i] -= w as i32;
-                    }
-                }
-                Player::White => {
-                    for (i, &w) in stm_row.iter().enumerate() {
-                        self.accumulator.hidden_1[i] += w as i32;
-                    }
-                }
+                Player::Black => self.accumulator.sub_feature(STM_FEATURE_INDEX, &self.weights),
+                Player::White => self.accumulator.add_feature(STM_FEATURE_INDEX, &self.weights),
             }
         }
 
@@ -1957,15 +2063,15 @@ impl NNUEEvaluator {
             return;
         }
 
-        if let Some(prev_hidden_1) = self.accumulator_stack.pop() {
-            self.accumulator.hidden_1 = prev_hidden_1;
+        if let Some(prev) = self.accumulator_stack.pop() {
+            self.accumulator.restore(prev);
             // The two stacks are pushed together, so a missing White snapshot is
             // unreachable unless POV was toggled mid-search. Rebuild in that case
             // rather than evaluating a stale White frame.
             let white_restored = if self.use_pov {
                 match self.accumulator_stack_white.pop() {
                     Some(prev_white) => {
-                        self.accumulator_white.hidden_1 = prev_white;
+                        self.accumulator_white.restore(prev_white);
                         true
                     }
                     None => false,

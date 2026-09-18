@@ -236,8 +236,17 @@ fn write_random_pov_weights() -> std::path::PathBuf {
         hidden_biases_2: Some((0..h2).map(|_| next(-10, 10)).collect()),
         output_weights: (0..h2).map(|_| next(-64, 64) as i16).collect(),
         output_bias: 0,
+        psqt: Vec::new(),
     };
-    w.save(&path).expect("save random weights");
+    // A PSQT path too (material plus noise), so every test below also covers its
+    // incremental updates, perspective and symmetry.
+    let mut w = w;
+    w.psqt = NNUEWeights::material_psqt(NUM_NNUE_FEATURES_WITH_HAND_TOTAL)
+        .into_iter()
+        .map(|v| v + next(-30, 30))
+        .collect();
+    let fs = shogi_engine::evaluation::nnue::NNUEFeatureSet::parse("pov,hand").unwrap();
+    w.save_with_features(&path, fs).expect("save random weights");
     path
 }
 
