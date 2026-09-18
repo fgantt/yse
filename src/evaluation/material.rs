@@ -31,7 +31,6 @@ use crate::evaluation::material_value_loader::MaterialValueLoader;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{PieceType, Player, Position};
 use crate::types::evaluation::TaperedScore;
-use crate::utils::telemetry::debug_log;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::io::Read;
@@ -412,7 +411,7 @@ pub struct MaterialEvaluator {
 impl MaterialEvaluator {
     fn select_value_set(config: &MaterialEvaluationConfig) -> MaterialValueSet {
         MaterialValueLoader::load(config).unwrap_or_else(|err| {
-            debug_log(&format!(
+            crate::debug_log_fast!(&format!(
                 "[MaterialEvaluator] Failed to load external value set: {}. Falling back to {} \
                  preset.",
                 err,

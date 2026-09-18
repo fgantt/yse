@@ -602,35 +602,64 @@ impl GeometricAnalysis {
 /// without explicitly creating an optimizer instance.
 pub struct GlobalOptimizer;
 
+// The scans below used to build a fresh `BitScanningOptimizer` on every call:
+// clone the platform capabilities, allocate and initialise a `Mutex`, lock it to
+// bump a strategy counter that nothing ever read, then destroy it. These sit on
+// the move-generation and attack-detection hot path, and that per-call overhead
+// dominated search profiles (the engine ran at ~2k nodes/s). The integer
+// intrinsics compute the same functions and compile to one or two instructions
+// on both x86_64 and aarch64; `tests::global_optimizer_matches_adaptive`
+// checks the equivalence.
 impl GlobalOptimizer {
-    /// Get the default optimizer instance
-    pub fn get() -> BitScanningOptimizer {
-        BitScanningOptimizer::new()
+    /// Shared optimizer for the operations that still need one. Built once.
+    pub fn get() -> &'static BitScanningOptimizer {
+        static INSTANCE: std::sync::OnceLock<BitScanningOptimizer> = std::sync::OnceLock::new();
+        INSTANCE.get_or_init(BitScanningOptimizer::new)
     }
 
-    /// Population count using the best available algorithm
+    /// Population count.
+    #[inline]
     pub fn popcount(bb: Bitboard) -> u32 {
-        Self::get().popcount(bb)
+        bb.to_u128().count_ones()
     }
 
-    /// Bit scan forward using the best available algorithm
+    /// Index of the least significant set bit.
+    #[inline]
     pub fn bit_scan_forward(bb: Bitboard) -> Option<u8> {
-        Self::get().bit_scan_forward(bb)
+        let v = bb.to_u128();
+        if v == 0 {
+            None
+        } else {
+            Some(v.trailing_zeros() as u8)
+        }
     }
 
-    /// Bit scan reverse using the best available algorithm
+    /// Index of the most significant set bit.
+    #[inline]
     pub fn bit_scan_reverse(bb: Bitboard) -> Option<u8> {
-        Self::get().bit_scan_reverse(bb)
+        let v = bb.to_u128();
+        if v == 0 {
+            None
+        } else {
+            Some((127 - v.leading_zeros()) as u8)
+        }
     }
 
-    /// Get all bit positions using the best available algorithm
+    /// All set-bit indices, ascending.
     pub fn get_all_bit_positions(bb: Bitboard) -> Vec<u8> {
-        Self::get().get_all_bit_positions(bb)
+        let mut v = bb.to_u128();
+        let mut out = Vec::with_capacity(v.count_ones() as usize);
+        while v != 0 {
+            out.push(v.trailing_zeros() as u8);
+            v &= v - 1;
+        }
+        out
     }
 
-    /// Analyze bitboard using the best available algorithms
+    /// (popcount, first set bit, last set bit).
+    #[inline]
     pub fn analyze_bitboard(bb: Bitboard) -> (u32, Option<u8>, Option<u8>) {
-        Self::get().analyze_bitboard(bb)
+        (Self::popcount(bb), Self::bit_scan_forward(bb), Self::bit_scan_reverse(bb))
     }
 
     /// Analyze bitboard geometry using precomputed masks
@@ -1026,5 +1055,50 @@ mod tests {
         assert_eq!(optimizer.popcount(sparse), 2);
         assert_eq!(optimizer.popcount(medium), 32);
         assert_eq!(optimizer.popcount(dense), 128);
+    }
+    /// `GlobalOptimizer` now computes its scans with integer intrinsics instead of
+    /// constructing a `BitScanningOptimizer` per call. Check it agrees with the
+    /// adaptive implementations it replaced, across sparse, dense, and
+    /// high-bit (>= 64) bitboards.
+    #[test]
+    fn global_optimizer_matches_adaptive() {
+        let adaptive = BitScanningOptimizer::new();
+        let mut state: u128 = 0x243F_6A88_85A3_08D3_1319_8A2E_0370_7344;
+        let mut next = || {
+            state = state
+                .wrapping_mul(0x2360_ED05_1FC6_5DA4_4385_DF64_9FCC_F645)
+                .wrapping_add(0x5851_F42D_4C95_7F2D_1405_7B7E_F767_814F);
+            state
+        };
+        let mut cases: Vec<u128> = vec![0, 1, 1 << 63, 1 << 64, 1 << 80, 1 << 127, u128::MAX];
+        for _ in 0..2000 {
+            let r = next();
+            cases.push(r); // dense
+            cases.push(r & next() & next()); // sparse
+            cases.push(r & ((1u128 << 81) - 1)); // board-sized
+            cases.push(1u128 << (r % 128)); // single bit
+        }
+        for v in cases {
+            let bb = Bitboard::from_u128(v);
+            assert_eq!(GlobalOptimizer::popcount(bb), adaptive.popcount(bb), "popcount {:#x}", v);
+            assert_eq!(
+                GlobalOptimizer::bit_scan_forward(bb),
+                adaptive.bit_scan_forward(bb),
+                "bsf {:#x}",
+                v
+            );
+            assert_eq!(
+                GlobalOptimizer::bit_scan_reverse(bb),
+                adaptive.bit_scan_reverse(bb),
+                "bsr {:#x}",
+                v
+            );
+            assert_eq!(
+                GlobalOptimizer::get_all_bit_positions(bb),
+                adaptive.get_all_bit_positions(bb),
+                "positions {:#x}",
+                v
+            );
+        }
     }
 }

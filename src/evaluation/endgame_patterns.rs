@@ -349,7 +349,7 @@ impl EndgamePatternEvaluator {
                 // Also apply penalty for unsafe advanced king
                 eg_score -= 20;
 
-                crate::utils::telemetry::trace_log(
+                crate::trace_log_fast!(
                     "KING_ACTIVITY",
                     &format!(
                         "Advanced king in unsafe position: {} (row={}, col={}), penalty=-20, \
@@ -1092,7 +1092,7 @@ impl EndgamePatternEvaluator {
             self.stats.zugzwang_detections += 1;
             self.stats.zugzwang_benefits += 1;
 
-            crate::utils::telemetry::trace_log(
+            crate::trace_log_fast!(
                 "ZUGZWANG",
                 &format!(
                     "Zugzwang detected: player={} moves ({} regular, {} drops), opponent={} moves \
@@ -1114,7 +1114,7 @@ impl EndgamePatternEvaluator {
             self.stats.zugzwang_detections += 1;
             self.stats.zugzwang_penalties += 1;
 
-            crate::utils::telemetry::trace_log(
+            crate::trace_log_fast!(
                 "ZUGZWANG",
                 &format!(
                     "Reverse zugzwang detected: player={} moves ({} regular, {} drops), \

@@ -129,7 +129,7 @@ impl ShogiEngine {
         engine.load_trained_nnue_weights();
 
         if let Err(err) = engine.apply_pst_config() {
-            crate::utils::telemetry::debug_log(&format!(
+            crate::debug_log_fast!(&format!(
                 "[PST] Failed to apply default configuration: {}",
                 err
             ));
@@ -217,7 +217,7 @@ impl ShogiEngine {
                     // Silently fail - weights file may not exist, which is fine
                     // Only log if in debug mode to avoid cluttering normal operation
                     if self.debug_mode {
-                        crate::utils::telemetry::debug_log(&format!(
+                        crate::debug_log_fast!(&format!(
                             "Could not load NNUE weights: {} (this is normal if weights file doesn't exist)",
                             e
                         ));
@@ -252,7 +252,7 @@ impl ShogiEngine {
 
             self.opening_book_prefilled = true;
 
-            crate::utils::telemetry::debug_log(&format!(
+            crate::debug_log_fast!(&format!(
                 "Opening book prefill inserted {} entries at depth {}",
                 inserted, depth
             ));
@@ -420,14 +420,14 @@ impl ShogiEngine {
     pub fn set_depth(&mut self, depth: u8) {
         // Allow depth 0 (unlimited/adaptive) - engine will decide based on time
         self.depth = depth;
-        crate::utils::telemetry::debug_log(&format!("Set depth to: {} (0 = unlimited)", depth));
+        crate::debug_log_fast!(&format!("Set depth to: {} (0 = unlimited)", depth));
         eprintln!("DEBUG: Set depth to: {} (0 = unlimited)", depth);
     }
 
     /// Set max depth (allows 0 for unlimited)
     pub fn set_max_depth(&mut self, depth: u8) {
         self.depth = depth;
-        crate::utils::telemetry::debug_log(&format!("Set max depth to: {} (0 = unlimited)", depth));
+        crate::debug_log_fast!(&format!("Set max depth to: {} (0 = unlimited)", depth));
     }
 
     pub fn to_string_for_debug(&self) -> String {
@@ -485,25 +485,25 @@ impl ShogiEngine {
         let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
         crate::utils::telemetry::debug_log("========================================");
         crate::utils::telemetry::debug_log("[GET_BEST_MOVE] CALLED - ENGINE INTERNAL STATE:");
-        crate::utils::telemetry::debug_log(&format!(
+        crate::debug_log_fast!(&format!(
             "[GET_BEST_MOVE]   Current Player: {:?}",
             self.current_player
         ));
-        crate::utils::telemetry::debug_log(&format!("[GET_BEST_MOVE]   Position FEN: {}", fen));
-        crate::utils::telemetry::debug_log(&format!(
+        crate::debug_log_fast!(&format!("[GET_BEST_MOVE]   Position FEN: {}", fen));
+        crate::debug_log_fast!(&format!(
             "[GET_BEST_MOVE]   Captured Pieces: black={:?}, white={:?}",
             self.captured_pieces.black, self.captured_pieces.white
         ));
         crate::utils::telemetry::debug_log("========================================");
 
         crate::debug_utils::set_search_start_time();
-        crate::utils::telemetry::trace_log(
+        crate::trace_log_fast!(
             "GET_BEST_MOVE",
             &format!("Starting search: depth={}, time_limit={}ms", depth, time_limit_ms),
         );
         crate::debug_utils::start_timing("tablebase_check");
 
-        crate::utils::telemetry::trace_log("GET_BEST_MOVE", &format!("Position FEN: {}", fen));
+        crate::trace_log_fast!("GET_BEST_MOVE", &format!("Position FEN: {}", fen));
 
         // Check tablebase first
         if let Some(tablebase_result) =
@@ -533,7 +533,7 @@ impl ShogiEngine {
         crate::debug_utils::start_timing("opening_book_check");
         if self.opening_book.is_loaded() {
             if let Some(book_move) = self.opening_book.get_best_move(&fen) {
-                crate::utils::telemetry::debug_log(&format!(
+                crate::debug_log_fast!(&format!(
                     "Found opening book move: {}",
                     book_move.to_usi_string()
                 ));
@@ -558,7 +558,7 @@ impl ShogiEngine {
             return None;
         }
 
-        crate::utils::telemetry::debug_log(&format!(
+        crate::debug_log_fast!(&format!(
             "Found {} legal moves, proceeding with search",
             legal_moves.len()
         ));
@@ -567,7 +567,7 @@ impl ShogiEngine {
         // on time Using 100 as practical maximum (deep searches rarely exceed
         // this)
         let actual_depth = if depth == 0 { 100 } else { depth };
-        crate::utils::telemetry::debug_log(&format!(
+        crate::debug_log_fast!(&format!(
             "Creating searcher with depth: {} (requested: {}, 0 = unlimited), time_limit: {}ms",
             actual_depth, depth, time_limit_ms
         ));
@@ -803,7 +803,7 @@ impl ShogiEngine {
             eprintln!("Legal moves: {:?}", legal_moves.iter().map(|m| m.to_usi_string()).collect::<Vec<_>>());
             eprintln!("Captured pieces: {:?}", self.captured_pieces);
             
-            crate::utils::telemetry::debug_log(&format!(
+            crate::debug_log_fast!(&format!(
                 "Move {} is not legal in current position",
                 move_.to_usi_string()
             ));
@@ -845,7 +845,7 @@ impl ShogiEngine {
         // Switch turns
         self.current_player = self.current_player.opposite();
 
-        crate::utils::telemetry::debug_log(&format!("Applied move: {}", move_.to_usi_string()));
+        crate::debug_log_fast!(&format!("Applied move: {}", move_.to_usi_string()));
         true
     }
 
@@ -884,11 +884,11 @@ impl ShogiEngine {
         let sfen_str: String;
         let mut moves_start_index: Option<usize> = None;
 
-        crate::utils::telemetry::debug_log(&format!(
+        crate::debug_log_fast!(&format!(
             "handle_position called with {} parts",
             parts.len()
         ));
-        crate::utils::telemetry::debug_log(&format!("Parts: {:?}", parts));
+        crate::debug_log_fast!(&format!("Parts: {:?}", parts));
 
         if parts.is_empty() {
             output.push("info string error Invalid position command".to_string());
@@ -911,7 +911,7 @@ impl ShogiEngine {
                 current_index += 1;
             }
             sfen_str = sfen_parts.join(" ");
-            crate::utils::telemetry::debug_log(&format!("Parsed SFEN: '{}'", sfen_str));
+            crate::debug_log_fast!(&format!("Parsed SFEN: '{}'", sfen_str));
             if current_index < parts.len() && parts[current_index] == "moves" {
                 moves_start_index = Some(current_index + 1);
             }
@@ -923,10 +923,10 @@ impl ShogiEngine {
             return output;
         }
 
-        crate::utils::telemetry::debug_log(&format!("About to parse SFEN: '{}'", sfen_str));
+        crate::debug_log_fast!(&format!("About to parse SFEN: '{}'", sfen_str));
         match BitboardBoard::from_fen(&sfen_str) {
             Ok((board, player, captured_pieces)) => {
-                crate::utils::telemetry::debug_log(&format!(
+                crate::debug_log_fast!(&format!(
                     "SFEN parsed successfully, player: {:?}",
                     player
                 ));
@@ -938,22 +938,22 @@ impl ShogiEngine {
                 let verify_fen = self.board.to_fen(self.current_player, &self.captured_pieces);
                 crate::utils::telemetry::debug_log("========================================");
                 crate::utils::telemetry::debug_log("[HANDLE_POSITION] STATE SET - VERIFICATION:");
-                crate::utils::telemetry::debug_log(&format!(
+                crate::debug_log_fast!(&format!(
                     "[HANDLE_POSITION]   self.current_player = {:?}",
                     self.current_player
                 ));
-                crate::utils::telemetry::debug_log(&format!(
+                crate::debug_log_fast!(&format!(
                     "[HANDLE_POSITION]   Verification FEN: {}",
                     verify_fen
                 ));
-                crate::utils::telemetry::debug_log(&format!(
+                crate::debug_log_fast!(&format!(
                     "[HANDLE_POSITION]   self.captured_pieces: black={:?}, white={:?}",
                     self.captured_pieces.black, self.captured_pieces.white
                 ));
                 crate::utils::telemetry::debug_log("========================================");
             }
             Err(e) => {
-                crate::utils::telemetry::debug_log(&format!("SFEN parse FAILED: {}", e));
+                crate::debug_log_fast!(&format!("SFEN parse FAILED: {}", e));
                 output.push(format!("info string error Failed to parse FEN: {}", e));
                 return output;
             }

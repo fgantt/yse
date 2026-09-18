@@ -1342,7 +1342,7 @@ impl ParallelSearchEngine {
         }
         let metrics_mode = self.work_stats.mode();
         let total_work_units = self.work_stats.snapshot().map(|s| s.total_work_units).unwrap_or(0);
-        crate::utils::telemetry::debug_log(&format!(
+        crate::debug_log_fast!(&format!(
             "PARALLEL_PROF: pushes={}, pops={}, steals={}, steal_retries={}, \
              work_metrics_mode={:?}, total_work_units={}",
             total_pushes,

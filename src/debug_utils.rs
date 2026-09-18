@@ -18,7 +18,7 @@ static DEBUG_ENABLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 #[macro_export]
 #[cfg(feature = "verbose-debug")]
 macro_rules! trace_log_fast {
-    ($feature:expr, $message:expr) => {
+    ($feature:expr, $message:expr $(,)?) => {
         // Check runtime flag first - this prevents string formatting when disabled
         if crate::debug_utils::is_debug_enabled() {
             crate::debug_utils::trace_log($feature, $message);
@@ -29,8 +29,11 @@ macro_rules! trace_log_fast {
 #[macro_export]
 #[cfg(not(feature = "verbose-debug"))]
 macro_rules! trace_log_fast {
-    ($feature:expr, $message:expr) => {
-        // Compile out completely when verbose-debug feature is disabled (zero overhead)
+    ($feature:expr, $message:expr $(,)?) => {
+        // Never evaluated; see `debug_log_fast!`.
+        if false {
+            let _ = ($feature, $message);
+        }
     };
 }
 
@@ -39,7 +42,7 @@ macro_rules! trace_log_fast {
 #[macro_export]
 #[cfg(feature = "verbose-debug")]
 macro_rules! debug_log_fast {
-    ($message:expr) => {
+    ($message:expr $(,)?) => {
         if crate::debug_utils::is_debug_enabled() {
             crate::debug_utils::debug_log($message);
         }
@@ -49,8 +52,13 @@ macro_rules! debug_log_fast {
 #[macro_export]
 #[cfg(not(feature = "verbose-debug"))]
 macro_rules! debug_log_fast {
-    ($message:expr) => {
-        // Compile out completely when verbose-debug feature is disabled (zero overhead)
+    ($message:expr $(,)?) => {
+        // Never evaluated: `if false` is removed at compile time, so there is no
+        // formatting or allocation. Keeping the expression in a dead branch still
+        // type-checks it, so variables used only for logging are not "unused".
+        if false {
+            let _ = $message;
+        }
     };
 }
 

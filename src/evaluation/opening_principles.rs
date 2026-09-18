@@ -2034,7 +2034,7 @@ impl OpeningPrincipleEvaluator {
                             if !self.is_castle_position(move_.to, player) {
                                 // Early king move violation
                                 #[cfg(debug_assertions)]
-                                crate::utils::telemetry::debug_log(&format!(
+                                crate::debug_log_fast!(&format!(
                                     "[OPENING_PRINCIPLES] Book move warning: Early king move at \
                                      move {} violates opening principles",
                                     move_count
@@ -2060,7 +2060,7 @@ impl OpeningPrincipleEvaluator {
                                     // violation Just log a
                                     // warning
                                     #[cfg(debug_assertions)]
-                                    crate::utils::telemetry::debug_log(&format!(
+                                    crate::debug_log_fast!(&format!(
                                         "[OPENING_PRINCIPLES] Book move note: {} still on \
                                          starting row at move {}",
                                         format!("{:?}", piece.piece_type),

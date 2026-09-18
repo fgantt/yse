@@ -79,7 +79,7 @@ impl UsiHandler {
         }
 
         crate::debug_utils::end_timing("go_command_parsing", "USI_GO");
-        crate::utils::telemetry::trace_log(
+        crate::trace_log_fast!(
             "USI_GO",
             &format!(
                 "Parsed time controls: btime={}ms wtime={}ms byoyomi={}ms",
@@ -120,7 +120,7 @@ impl UsiHandler {
         crate::debug_utils::end_timing("best_move_search", "USI_GO");
 
         if let Some(mv) = best_move {
-            crate::utils::telemetry::trace_log(
+            crate::trace_log_fast!(
                 "USI_GO",
                 &format!("Best move found: {}", mv.to_usi_string()),
             );

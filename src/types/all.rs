@@ -302,7 +302,7 @@ impl Piece {
         let piece_idx = piece_type.to_u8();
         if piece_idx >= 14 {
             // This should never happen with valid PieceType, but protect against corruption
-            crate::utils::telemetry::debug_log(&format!(
+            crate::debug_log_fast!(&format!(
                 "[PIECE::NEW ERROR] Invalid piece_type with to_u8() = {}. Defaulting to Pawn.",
                 piece_idx
             ));

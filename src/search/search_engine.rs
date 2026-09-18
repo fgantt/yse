@@ -5910,7 +5910,7 @@ impl SearchEngine {
                 best_move = Some(move_.clone());
 
                 // Log the new best move details
-                crate::debug_utils::trace_log(
+                crate::trace_log_fast!(
                     "SEARCH_AT_DEPTH",
                     &format!(
                         "BEST_MOVE_UPDATE: {} -> {} (score: {}, alpha: {})",
@@ -5921,7 +5921,7 @@ impl SearchEngine {
                     ),
                 );
             } else {
-                crate::debug_utils::trace_log(
+                crate::trace_log_fast!(
                     "SEARCH_AT_DEPTH",
                     &format!(
                         "Move {} scored {} (not better than current best: {})",
@@ -6085,7 +6085,7 @@ impl SearchEngine {
         // to avoid double-counting
 
         crate::debug_utils::end_timing(&format!("search_at_depth_{}", depth), "SEARCH_AT_DEPTH");
-        crate::debug_utils::trace_log(
+        crate::trace_log_fast!(
             "SEARCH_AT_DEPTH",
             &format!(
                 "Search completed: best_move={:?}, best_score={}",
@@ -6241,7 +6241,7 @@ impl SearchEngine {
         if self.should_stop(&start_time, time_limit_ms) {
             // Try to return a meaningful score instead of 0
             if let Some(best_score) = best_score_tracked {
-                crate::debug_utils::trace_log(
+                crate::trace_log_fast!(
                     "NEGAMAX",
                     &format!("Time limit reached, returning tracked best score: {}", best_score),
                 );
@@ -6249,7 +6249,7 @@ impl SearchEngine {
             }
             // Fallback to static evaluation if no best score tracked
             let static_eval = self.evaluate_position(board, player, captured_pieces);
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "NEGAMAX",
                 &format!("Time limit reached, returning static evaluation: {}", static_eval),
             );
@@ -6556,7 +6556,7 @@ impl SearchEngine {
         // === END NULL MOVE PRUNING ===
 
         if depth == 0 {
-            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Starting quiescence
+            // crate::trace_log_fast!("QUIESCENCE", &format!("Starting quiescence
             // search (alpha: {}, beta: {})", alpha, beta));
             crate::debug_utils::start_timing("quiescence_search");
             let result = self.quiescence_search(
@@ -6570,13 +6570,13 @@ impl SearchEngine {
                 5,
             );
             crate::debug_utils::end_timing("quiescence_search", "QUIESCENCE");
-            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Quiescence search
+            // crate::trace_log_fast!("QUIESCENCE", &format!("Quiescence search
             // completed: score={}", result));
             return result;
         }
 
         // Use the passed context parameters
-        crate::debug_utils::trace_log(
+        crate::trace_log_fast!(
             "NEGAMAX",
             &format!("Generating moves at depth {} (alpha: {}, beta: {})", depth, alpha, beta),
         );
@@ -6585,14 +6585,14 @@ impl SearchEngine {
         if legal_moves.is_empty() {
             let is_check = board.is_king_in_check(player, captured_pieces);
             let score = if is_check { -100000 } else { 0 };
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "NEGAMAX",
                 &format!("No legal moves: check={}, score={}", is_check, score),
             );
             return score;
         }
 
-        crate::debug_utils::trace_log(
+        crate::trace_log_fast!(
             "NEGAMAX",
             &format!("Found {} legal moves", legal_moves.len()),
         );
@@ -6610,7 +6610,7 @@ impl SearchEngine {
             || time_pressure == crate::types::TimePressure::High;
         if skip_iid_time_pressure {
             self.iid_stats.positions_skipped_time_pressure += 1;
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "IID",
                 &format!(
                     "Skipping IID due to time pressure {:?} (depth: {})",
@@ -6633,7 +6633,7 @@ impl SearchEngine {
             );
 
         if should_apply_iid {
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "IID",
                 &format!(
                     "Applying Internal Iterative Deepening at depth {} (time pressure: {:?})",
@@ -6650,7 +6650,7 @@ impl SearchEngine {
                 Some(start_time),
                 Some(time_limit_ms),
             );
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "IID",
                 &format!("Applying IID at depth {} with IID depth {}", depth, iid_depth),
             );
@@ -6689,7 +6689,7 @@ impl SearchEngine {
 
             // Task 2.12, 5.8: Add debug logging for IID move extraction and time accuracy
             if let Some(ref mv) = iid_move {
-                crate::debug_utils::trace_log(
+                crate::trace_log_fast!(
                     "IID",
                     &format!(
                         "Found move {} in {}ms (predicted: {}ms, accuracy: {:.1}%, score: {})",
@@ -7125,7 +7125,7 @@ impl SearchEngine {
                             // Counter-moves are typically for quiet moves
                             self.advanced_move_orderer
                                 .add_counter_move(opp_last_move.clone(), move_.clone());
-                            crate::debug_utils::trace_log(
+                            crate::trace_log_fast!(
                                 "COUNTER_MOVE",
                                 &format!(
                                     "Added counter-move {} for opponent's move {}",
@@ -7255,7 +7255,7 @@ impl SearchEngine {
                 iid_efficiency * ordering_effectiveness;
             self.iid_stats.iid_efficiency_ordering_correlation_points += 1;
 
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "IID_CORRELATION",
                 &format!(
                     "IID efficiency: {:.2}%, Ordering effectiveness: {:.2}%, Correlation points: \
@@ -7367,7 +7367,7 @@ impl SearchEngine {
         if self.should_stop(&start_time, time_limit_ms) {
             // Try to return a meaningful score instead of 0
             if let Some(best_score) = best_score_tracked {
-                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Time limit reached,
+                // crate::trace_log_fast!("QUIESCENCE", &format!("Time limit reached,
                 // returning tracked best score: {}", best_score));
                 return best_score;
             }
@@ -7382,12 +7382,12 @@ impl SearchEngine {
                 false,
                 true,
             );
-            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Time limit reached,
+            // crate::trace_log_fast!("QUIESCENCE", &format!("Time limit reached,
             // returning static evaluation: {}", static_eval));
             return static_eval;
         }
 
-        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Starting quiescence
+        // crate::trace_log_fast!("QUIESCENCE", &format!("Starting quiescence
         // search: depth={}, alpha={}, beta={}", depth, alpha, beta));
 
         // Update statistics
@@ -7414,10 +7414,10 @@ impl SearchEngine {
         // Depth limit rationale:
         // - Quiescence search is meant to evaluate "noisy" positions (captures, checks,
         //   promotions)
-        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Depth limit reached
+        // crate::trace_log_fast!("QUIESCENCE", &format!("Depth limit reached
         // (depth={}), evaluating position", depth));
         if depth == 0 || depth > self.quiescence_config.max_depth {
-            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Depth limit reached
+            // crate::trace_log_fast!("QUIESCENCE", &format!("Depth limit reached
             // (depth={}), evaluating position", depth));
             let score = self.evaluator.evaluate_with_context(
                 board,
@@ -7429,7 +7429,7 @@ impl SearchEngine {
                 false,
                 true,
             );
-            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Position evaluation:
+            // crate::trace_log_fast!("QUIESCENCE", &format!("Position evaluation:
             // {}", score));
             return score;
         }
@@ -7472,7 +7472,7 @@ impl SearchEngine {
                     let score_to_return = entry.score; // Store score before dropping mutable reference
                     let flag_to_return = entry.flag; // Store flag before dropping mutable reference
 
-                    // crate::debug_utils::trace_log("QUIESCENCE", &format!("Quiescence TT hit:
+                    // crate::trace_log_fast!("QUIESCENCE", &format!("Quiescence TT hit:
                     // depth={}, score={}, flag={:?}",     entry.depth,
                     // entry.score, entry.flag));
                     match flag_to_return {
@@ -7532,7 +7532,7 @@ impl SearchEngine {
                 true,
             )
         };
-        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Stand-pat evaluation:
+        // crate::trace_log_fast!("QUIESCENCE", &format!("Stand-pat evaluation:
         // {} (cached: {})", stand_pat, cached_stand_pat.is_some()));
 
         // Track stand-pat as initial best score
@@ -7571,7 +7571,7 @@ impl SearchEngine {
 
         // crate::debug_utils::trace_log("QUIESCENCE", "Generating noisy moves");
         let noisy_moves = self.generate_noisy_moves(board, player, captured_pieces);
-        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Found {} noisy moves",
+        // crate::trace_log_fast!("QUIESCENCE", &format!("Found {} noisy moves",
         // noisy_moves.len()));
 
         // Task 7.2, 7.3: Explicit check for empty move list before main search loop
@@ -7648,7 +7648,7 @@ impl SearchEngine {
         self.quiescence_stats.move_ordering_total_moves += noisy_moves.len() as u64;
         let total_move_count = sorted_noisy_moves.len();
 
-        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Starting noisy move
+        // crate::trace_log_fast!("QUIESCENCE", &format!("Starting noisy move
         // evaluation with {} moves", sorted_noisy_moves.len()));
 
         // Task 7.2: Main search loop - explicit check ensures we only enter if moves
@@ -7663,7 +7663,7 @@ impl SearchEngine {
                 break;
             }
 
-            // crate::debug_utils::trace_log("QUIESCENCE", &format!("Evaluating move {}: {}
+            // crate::trace_log_fast!("QUIESCENCE", &format!("Evaluating move {}: {}
             // (alpha: {}, beta: {})",     move_index + 1,
             // move_.to_usi_string(), alpha, beta));
 
@@ -7705,7 +7705,7 @@ impl SearchEngine {
                 self.should_prune_delta(&move_, stand_pat, alpha)
             };
             if should_prune {
-                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Delta pruning move {}",
+                // crate::trace_log_fast!("QUIESCENCE", &format!("Delta pruning move {}",
                 // move_.to_usi_string()));
                 self.quiescence_stats.delta_prunes += 1;
                 continue;
@@ -7723,7 +7723,7 @@ impl SearchEngine {
                 self.should_prune_futility(&move_, stand_pat, alpha, depth, Some(board), Some(player))
             };
             if should_prune_futility {
-                // crate::debug_utils::trace_log("QUIESCENCE", &format!("Futility pruning move
+                // crate::trace_log_fast!("QUIESCENCE", &format!("Futility pruning move
                 // {}", move_.to_usi_string()));
                 self.quiescence_stats.futility_prunes += 1;
                 continue;
@@ -7786,7 +7786,7 @@ impl SearchEngine {
             // Even with extensions, we must eventually decrease depth to ensure termination
             let search_depth = if self.should_extend(&move_, depth) && depth > 2 {
                 // Extensions can maintain depth, but only if depth > 2 to ensure we eventually
-                // terminate crate::debug_utils::trace_log("QUIESCENCE",
+                // terminate crate::trace_log_fast!("QUIESCENCE",
                 // &format!("Extending search for move {}", move_.to_usi_string()));
                 self.quiescence_stats.extensions += 1;
                 depth.saturating_sub(1) // Always decrement by at least 1 to
@@ -7898,7 +7898,7 @@ impl SearchEngine {
             }
         }
 
-        // crate::debug_utils::trace_log("QUIESCENCE", &format!("Quiescence search
+        // crate::trace_log_fast!("QUIESCENCE", &format!("Quiescence search
         // completed: depth={}, score={}", depth, alpha));
 
         // Store result in transposition table
@@ -9766,7 +9766,7 @@ impl SearchEngine {
     ) -> i32 {
         self.null_move_stats.verification_attempts += 1;
 
-        crate::debug_utils::trace_log(
+        crate::trace_log_fast!(
             "VERIFICATION",
             &format!(
                 "Performing verification search at depth {} (null move depth was {})",
@@ -9831,7 +9831,7 @@ impl SearchEngine {
     ) -> i32 {
         self.null_move_stats.mate_threat_attempts += 1;
 
-        crate::debug_utils::trace_log(
+        crate::trace_log_fast!(
             "MATE_THREAT",
             &format!(
                 "Performing mate threat verification search at depth {} (score suggests mate \
@@ -9875,7 +9875,7 @@ impl SearchEngine {
                 Some(mate_threat_score),
             );
         } else {
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "MATE_THREAT",
                 &format!(
                     "Mate threat verification score {} < beta {}, no mate threat",
@@ -11368,7 +11368,7 @@ impl SearchEngine {
         if let Some(ref tt_mv) = tt_move {
             if self.moves_equal(move_, tt_mv) {
                 self.lmr_stats.tt_move_exempted += 1;
-                crate::debug_utils::trace_log(
+                crate::trace_log_fast!(
                     "LMR",
                     &format!("TT move exempted from LMR: {}", move_.to_usi_string()),
                 );
@@ -11377,7 +11377,7 @@ impl SearchEngine {
 
         // Track escape move exemption (Task 6.8)
         if is_escape {
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "LMR",
                 &format!("Escape move exempted from LMR: {}", move_.to_usi_string()),
             );
@@ -11389,7 +11389,7 @@ impl SearchEngine {
 
         if is_iid_move {
             self.lmr_stats.iid_move_explicitly_exempted += 1;
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "LMR",
                 &format!("IID move explicitly exempted from LMR: {}", move_.to_usi_string()),
             );
@@ -11556,7 +11556,7 @@ impl SearchEngine {
                 }
 
                 // Debug logging for re-search margin decisions
-                crate::debug_utils::trace_log(
+                crate::trace_log_fast!(
                     "LMR",
                     &format!(
                         "Re-search triggered: score={} > threshold={} (alpha={} + margin={}, \
@@ -11613,7 +11613,7 @@ impl SearchEngine {
                     self.lmr_stats.re_search_margin_prevented += 1;
 
                     // Debug logging for re-search margin prevention
-                    crate::debug_utils::trace_log(
+                    crate::trace_log_fast!(
                         "LMR",
                         &format!(
                             "Re-search prevented by margin: score={} <= threshold={} (alpha={} + \
@@ -12698,14 +12698,14 @@ impl SearchEngine {
                 // Validate move format (basic USI format check)
                 let move_str = move_.to_usi_string();
                 if move_str.len() < 4 || move_str.len() > 6 {
-                    crate::debug_utils::trace_log(
+                    crate::trace_log_fast!(
                         "SEARCH_VALIDATION",
                         &format!("WARNING: Move string '{}' has unusual length", move_str),
                     );
                 }
 
                 // Log successful validation
-                crate::debug_utils::trace_log(
+                crate::trace_log_fast!(
                     "SEARCH_VALIDATION",
                     &format!(
                         "Search result validated: move={}, score={}, depth={}",
@@ -12718,7 +12718,7 @@ impl SearchEngine {
                 true
             }
             None => {
-                crate::debug_utils::trace_log(
+                crate::trace_log_fast!(
                     "SEARCH_VALIDATION",
                     &format!(
                         "WARNING: Search returned None at depth {} (alpha: {}, beta: {})",
@@ -12949,7 +12949,7 @@ impl SearchEngine {
 
         // Validate the result
         if *alpha < *beta && *alpha > i32::MIN + 1000 && *beta < i32::MAX - 1000 {
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "RECOVERY_SAFE_DEFAULTS",
                 &format!("Safe defaults applied: alpha={}, beta={}", alpha, beta),
             );
@@ -12984,7 +12984,7 @@ impl SearchEngine {
 
         // Validate the result
         if *alpha < *beta {
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "RECOVERY_ADAPTIVE",
                 &format!(
                     "Adaptive adjustment applied: alpha={}, beta={}, factor={}",
@@ -13034,7 +13034,7 @@ impl SearchEngine {
             *beta = MAX_SCORE;
         }
 
-        crate::debug_utils::trace_log(
+        crate::trace_log_fast!(
             "EMERGENCY_RECOVERY",
             &format!("Emergency recovery complete: alpha={}, beta={}", alpha, beta),
         );
@@ -13052,7 +13052,7 @@ impl SearchEngine {
         depth: u8,
         _researches: u8,
     ) -> bool {
-        crate::debug_utils::trace_log(
+        crate::trace_log_fast!(
             "ASPIRATION_ERROR",
             &format!("Error type: {}, context: {}", error_type, error_context),
         );
@@ -13205,7 +13205,7 @@ impl SearchEngine {
         // Determine degradation level based on failure patterns
         let degradation_level = self.calculate_degradation_level(researches, depth);
 
-        crate::debug_utils::trace_log(
+        crate::trace_log_fast!(
             "GRACEFUL_DEGRADATION",
             &format!(
                 "Applying degradation level {} for researches={}, depth={}",
@@ -13348,7 +13348,7 @@ impl SearchEngine {
         let health_score =
             self.calculate_system_health_score(alpha, beta, previous_score, depth, researches);
 
-        crate::debug_utils::trace_log(
+        crate::trace_log_fast!(
             "SYSTEM_HEALTH",
             &format!("System health score: {}", health_score),
         );
@@ -13466,7 +13466,7 @@ impl SearchEngine {
         match failure_type {
             "fail_low" => {
                 self.handle_fail_low(alpha, beta, previous_score, window_size);
-                crate::debug_utils::trace_log(
+                crate::trace_log_fast!(
                     "ASPIRATION_RETRY",
                     &format!(
                         "Fail-low retry: alpha={}, beta={}, researches={}",
@@ -13476,7 +13476,7 @@ impl SearchEngine {
             }
             "fail_high" => {
                 self.handle_fail_high(alpha, beta, previous_score, window_size);
-                crate::debug_utils::trace_log(
+                crate::trace_log_fast!(
                     "ASPIRATION_RETRY",
                     &format!(
                         "Fail-high retry: alpha={}, beta={}, researches={}",
@@ -13493,7 +13493,7 @@ impl SearchEngine {
                 if new_alpha < new_beta {
                     *alpha = new_alpha;
                     *beta = new_beta;
-                    crate::debug_utils::trace_log(
+                    crate::trace_log_fast!(
                         "ASPIRATION_RETRY",
                         &format!(
                             "Search failure retry: alpha={}, beta={}, researches={}",
@@ -13523,7 +13523,7 @@ impl SearchEngine {
                     *alpha = MIN_SCORE;
                     *beta = MAX_SCORE;
                 }
-                crate::debug_utils::trace_log(
+                crate::trace_log_fast!(
                     "ASPIRATION_RETRY",
                     &format!(
                         "Timeout retry: alpha={}, beta={}, researches={}",
@@ -14132,10 +14132,9 @@ impl SearchEngine {
     }
 
     fn log_evaluation_telemetry(&self) {
-        use crate::utils::telemetry;
         if let Some(telemetry) = self.evaluation_telemetry() {
             if let Some(tapered) = telemetry.tapered {
-                telemetry::debug_log(&format!(
+                crate::debug_log_fast!(&format!(
                     "[EvalTelemetry] phase_calcs={} cache_hits={} hit_rate={:.2}% \
                      interpolations={}",
                     tapered.phase_calculations,
@@ -14145,13 +14144,13 @@ impl SearchEngine {
                 ));
             }
             if let Some(phase) = telemetry.phase_transition {
-                telemetry::debug_log(&format!(
+                crate::debug_log_fast!(&format!(
                     "[EvalTelemetry] transition_interpolations={}",
                     phase.interpolations
                 ));
             }
             if let Some(performance) = telemetry.performance {
-                telemetry::debug_log(&format!(
+                crate::debug_log_fast!(&format!(
                     "[EvalTelemetry] profiler avg_eval_ns={:.2} avg_phase_ns={:.2} \
                      avg_interp_ns={:.2}",
                     performance.avg_evaluation_ns,
@@ -14160,7 +14159,7 @@ impl SearchEngine {
                 ));
             }
             if let Some(material) = telemetry.material {
-                telemetry::debug_log(&format!(
+                crate::debug_log_fast!(&format!(
                     "[EvalTelemetry] material_evals={} presets(r={},c={},x={}) hand_balance_mg={} \
                      phase_weighted_total={}",
                     material.evaluations,
@@ -14172,7 +14171,7 @@ impl SearchEngine {
                 ));
             }
             if let Some(pst) = telemetry.pst {
-                telemetry::debug_log(&format!(
+                crate::debug_log_fast!(&format!(
                     "[EvalTelemetry] pst_total mg {} eg {}",
                     pst.total_mg, pst.total_eg
                 ));
@@ -14185,7 +14184,7 @@ impl SearchEngine {
                         .take(3)
                         .map(|entry| format!("{:?}:{}|{}", entry.piece, entry.mg, entry.eg))
                         .collect();
-                    telemetry::debug_log(&format!(
+                    crate::debug_log_fast!(&format!(
                         "[EvalTelemetry] pst_top {}",
                         summary.join(", ")
                     ));
@@ -14193,7 +14192,7 @@ impl SearchEngine {
                 if let Some(stats) = self.evaluator.get_integrated_statistics() {
                     let aggregate = stats.pst_statistics();
                     if aggregate.sample_count() > 0 {
-                        telemetry::debug_log(&format!(
+                        crate::debug_log_fast!(&format!(
                             "[EvalTelemetry] pst_avg mg {:.2} eg {:.2} samples {}",
                             aggregate.average_total_mg(),
                             aggregate.average_total_eg(),
@@ -14768,7 +14767,12 @@ impl IterativeDeepening {
                 let info_interval = std::time::Duration::from_millis(1000); // Send every 1 second
 
                 while !info_sender_cancel_clone.load(Ordering::Relaxed) {
-                    std::thread::sleep(std::time::Duration::from_millis(100)); // Check every 100ms
+                    // `park_timeout`, not `sleep`: the main thread unparks this thread
+                    // when the depth finishes, so its `join` returns immediately. With
+                    // `sleep` every depth iteration waited out the remainder of a
+                    // 100 ms nap — ~100 ms of dead time on shallow depths, where the
+                    // search itself takes a few ms.
+                    std::thread::park_timeout(std::time::Duration::from_millis(100));
 
                     if last_info_time.elapsed() >= info_interval {
                         let elapsed = depth_start_time_instant.elapsed().as_millis() as u32;
@@ -15332,7 +15336,7 @@ impl IterativeDeepening {
                     // best move This prevents infinite loops when
                     // search_at_depth keeps failing
                     if researches >= search_engine.aspiration_config.max_researches + 2 {
-                        crate::debug_utils::trace_log(
+                        crate::trace_log_fast!(
                             "ASPIRATION_WINDOW",
                             &format!(
                                 "Search failed {} times, giving up and using previous best move",
@@ -15349,7 +15353,7 @@ impl IterativeDeepening {
                         break;
                     }
 
-                    crate::debug_utils::trace_log(
+                    crate::trace_log_fast!(
                         "ASPIRATION_WINDOW",
                         &format!(
                             "Search failed at research {}, widening window and retrying",
@@ -15359,7 +15363,7 @@ impl IterativeDeepening {
 
                     if researches >= search_engine.aspiration_config.max_researches {
                         // Only fall back to full-width search after exhausting retries
-                        crate::debug_utils::trace_log(
+                        crate::trace_log_fast!(
                             "ASPIRATION_WINDOW",
                             &format!(
                                 "Max researches ({}) reached, falling back to full-width search",
@@ -15369,7 +15373,7 @@ impl IterativeDeepening {
                         current_alpha = i32::MIN + 1;
                         current_beta = i32::MAX - 1;
                         researches += 1;
-                        crate::debug_utils::trace_log(
+                        crate::trace_log_fast!(
                             "ASPIRATION_WINDOW",
                             &format!(
                                 "Window state after fallback: alpha={}, beta={}, researches={}",
@@ -15388,7 +15392,7 @@ impl IterativeDeepening {
                             search_engine.calculate_window_size(depth, 0, 0),
                         );
                         researches += 1;
-                        crate::debug_utils::trace_log(
+                        crate::trace_log_fast!(
                             "ASPIRATION_WINDOW",
                             &format!(
                                 "Window widened: alpha {}->{}, beta {}->{}, researches={}",
@@ -15447,6 +15451,7 @@ impl IterativeDeepening {
 
             // Stop periodic info sender before building final info
             info_sender_cancel.store(true, Ordering::Relaxed);
+            info_sender_handle.thread().unpark();
             let _ = info_sender_handle.join(); // Wait for thread to finish
 
             crate::debug_utils::end_timing(&format!("depth_{}", depth), "ITERATIVE_DEEPENING");
@@ -15527,7 +15532,7 @@ impl IterativeDeepening {
                 // Only break early for extremely winning positions (king capture level)
                 // and only at higher depths to allow deeper search logging for higher AI levels
                 if score > 50000 && depth >= 6 {
-                    crate::debug_utils::trace_log(
+                    crate::trace_log_fast!(
                         "ITERATIVE_DEEPENING",
                         &format!(
                             "Extremely winning position (score: {}), breaking early at depth {}",
@@ -15537,7 +15542,7 @@ impl IterativeDeepening {
                     break;
                 }
             } else {
-                crate::debug_utils::trace_log(
+                crate::trace_log_fast!(
                     "ITERATIVE_DEEPENING",
                     &format!("No result at depth {}, breaking", depth),
                 );
@@ -15589,7 +15594,7 @@ impl IterativeDeepening {
                 fallback_move.to_usi_string(),
                 board_state_fen
             );
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "ITERATIVE_DEEPENING",
                 &format!(
                     "Fallback: using first legal move {} ({} moves available)",
@@ -15609,7 +15614,7 @@ impl IterativeDeepening {
             return Some((fallback_move, 0)); // Neutral score for fallback move
         }
 
-        crate::debug_utils::trace_log(
+        crate::trace_log_fast!(
             "ITERATIVE_DEEPENING",
             &format!(
                 "Search completed: best_move={:?}, best_score={}",
@@ -15633,7 +15638,7 @@ impl IterativeDeepening {
             best_move.map(|m| (m, best_score))
         } else if !legal_moves.is_empty() {
             // Final fallback: use first legal move if we somehow don't have a best move
-            crate::debug_utils::trace_log(
+            crate::trace_log_fast!(
                 "ITERATIVE_DEEPENING",
                 &format!(
                     "FINAL FALLBACK: No best move found, using first legal move {}",

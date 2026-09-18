@@ -128,6 +128,23 @@ impl AttackGenerator {
         pattern
     }
 
+    /// Attack pattern without the LRU cache.
+    ///
+    /// Use this on hot paths. A direct ray walk is a few dozen bit operations,
+    /// cheaper than the cache's SipHash lookup — and the cache's `get` pushes onto
+    /// its LRU queue on every hit without ever trimming it, so a long-lived
+    /// generator grows that queue by one entry per lookup. The cache key is exact
+    /// (square, piece type, full occupancy), so skipping it cannot change results.
+    #[inline]
+    pub fn generate_attack_pattern_uncached(
+        &self,
+        square: u8,
+        piece_type: PieceType,
+        blockers: Bitboard,
+    ) -> Bitboard {
+        self.generate_attack_pattern_internal(square, piece_type, blockers)
+    }
+
     /// Internal attack pattern generation
     fn generate_attack_pattern_internal(
         &self,

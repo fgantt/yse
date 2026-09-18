@@ -103,7 +103,7 @@ impl IterativeDeepeningHelper {
 
         // Log extreme values for debugging
         if validated_size != window_size {
-            crate::utils::telemetry::debug_log(&format!(
+            crate::debug_log_fast!(&format!(
                 "Aspiration: Window size clamped from {} to {}",
                 window_size, validated_size
             ));

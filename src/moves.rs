@@ -128,13 +128,13 @@ impl MoveGenerator {
     ) -> Vec<Move> {
         let is_in_check = board.is_king_in_check(player, captured_pieces);
 
-        crate::utils::telemetry::debug_log(&format!(
+        crate::debug_log_fast!(&format!(
             "[GENERATE_LEGAL_MOVES] Player: {:?}, In check: {}",
             player, is_in_check
         ));
 
         let pseudo_legal_moves = self.generate_pseudo_legal_moves(board, player, captured_pieces);
-        crate::utils::telemetry::debug_log(&format!(
+        crate::debug_log_fast!(&format!(
             "[GENERATE_LEGAL_MOVES] Generated {} pseudo-legal moves",
             pseudo_legal_moves.len()
         ));
@@ -159,12 +159,12 @@ impl MoveGenerator {
             })
             .collect();
 
-        crate::utils::telemetry::debug_log(&format!(
+        crate::debug_log_fast!(&format!(
             "[GENERATE_LEGAL_MOVES] Final legal moves: {}",
             legal_moves.len()
         ));
         if is_in_check {
-            crate::utils::telemetry::debug_log(&format!(
+            crate::debug_log_fast!(&format!(
                 "[GENERATE_LEGAL_MOVES] Player was in check, found {} legal moves",
                 legal_moves.len()
             ));
@@ -1297,7 +1297,7 @@ fn is_legal_drop_location(
         if pawn_count > 0 {
             // Two-pawn rule violation - this is normal and expected, just return false
             // Only log in debug mode if we want to trace this
-            crate::utils::telemetry::debug_log(&format!(
+            crate::debug_log_fast!(&format!(
                 "[NIFU] Illegal pawn drop at {}{}. Already have {} pawn(s) on file {}",
                 (b'a' + pos.col) as char,
                 9 - pos.row,
@@ -1311,7 +1311,7 @@ fn is_legal_drop_location(
         // 打ち歩詰め) This rule only applies to drops that give checkmate, not
         // just check
         if is_pawn_drop_mate(board, pos, player) {
-            crate::utils::telemetry::debug_log(&format!(
+            crate::debug_log_fast!(&format!(
                 "[UCHIFUZUME] Illegal pawn drop mate at {}{}",
                 (b'a' + pos.col) as char,
                 9 - pos.row
