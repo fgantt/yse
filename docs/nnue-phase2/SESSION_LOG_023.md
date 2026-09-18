@@ -111,7 +111,7 @@ sampled positions at the same depth differed by a median 71 cp, which is search 
 
 ---
 
-## More Varied Data (in progress)
+## More Varied Data (commits `8376f03` and earlier)
 
 `corpus-gen --random-move-prob p` plays a random legal move instead of the teacher's, after the teacher
 has labelled the position, sending games into material imbalances that teacher self-play never reaches.
@@ -119,15 +119,48 @@ Teacher moves are validated against our move generator; `--game-id-offset` lets 
 concatenated. The teacher (YaneuraOu V9.00 halfkpvm, `yaneuraou-V900-git-mac-all/`) needs about 1.3 s
 per depth-10 game.
 
-Corpus being generated: `corpus_s23/run.sh`, 8 × 1,250 games, random-move rates 0 / 0.05 / 0.10 / 0.15,
-game ids from 10,000 upward so the original corpus's held-out games keep their ids.
+Corpus: `corpus_s23/run.sh`, 8 × 1,250 games at random-move rates 0 / 0.05 / 0.10 / 0.15, game ids from
+10,000 up; 1,063,022 positions. Combined with the original as `nnue_corpus_s23_combined.jsonl`
+(1,130,425 positions; gitignored). `corpus_audit` on it: 0 chain breaks in 1,119,925 pairs and 0
+move-list differences from the teacher on 113,043 positions.
+
+All runs: frozen material PSQT, POV + hand, seed 47. Held-out numbers are on the **original** corpus's
+held-out games (`eval_correlation`), so they compare with the table above.
+
+| network | variant | pearson[clamp] | spearman | pawn / rook gain (cp) |
+|---|---|---|---|---|
+| `psqt_frozen` | original 64K corpus | 0.730 | 0.712 | 43 / 865 |
+| `big_frozen` | combined corpus | 0.735 | 0.726 | 29 / 649 |
+| `big_learned` | + `--psqt-lr 0.5` | 0.733 | 0.727 | 21 / 475 |
+| `quiet_lr05` | + `--skip-noisy` | 0.724 | 0.709 | 37 / 541 |
+| `quiet_lr01` | + `--skip-noisy`, lr 0.01 | 0.726 | 0.729 | 31 / 463 |
+| `ow0_lr05` | + `--outcome-weight 0` | 0.746 | 0.743 | 72 / 588 |
+| `ow0_quiet_lr01` | + both, lr 0.01 | 0.718 | 0.715 | 48 / 570 |
+
+The offline metrics barely move and material sensitivity *falls* with the bigger corpus, yet in play:
+
+| A | B | W-D-L (A) | Elo (A) |
+|---|---|---|---|
+| `big_frozen` | `psqt_frozen` | 74-0-16 | +266.0 ± 99.7 |
+| **`big_frozen`** | **classical** | **83-4-3** | **+492.2 ± 179.3** |
+| `ow0_lr05` | `big_frozen` | 37-1-52 | −58.5 ± 73.6 |
+
+**Lesson: held-out correlation on teacher-self-play positions does not predict playing strength.** The
+original held-out games contain no imbalanced positions, so they cannot see what the random-move data
+teaches. Decide between networks by bake-off. `ow0_lr05` has the best correlation and loses (not
+significant), so it was not taken further.
+
+`big_frozen` is now `nnue/default.bin` (untracked).
+
+Hypotheses tested for the material compression, neither confirmed: non-quiet training positions
+(`--skip-noisy`, commit `8376f03`, default off) and the game-outcome blend (`--outcome-weight 0`).
 
 ---
 
 ## Next Steps
 
-1. Retrain on the original plus the Session 23 corpus; compare on the original held-out games with
-   `eval_correlation`, then bake off against the S23 PSQT network and classical.
+1. More data along the same line (it was the biggest lever: +266 Elo), and a held-out set that includes
+   random-move games, so the offline metric can see what play sees.
 2. Toward modern NNUE: train the PSQT path (`--psqt-lr`), then king-conditioned features under POV
    (HalfKP with the king square mirrored), which only becomes worthwhile once the corpus is large enough
    not to overfit.
