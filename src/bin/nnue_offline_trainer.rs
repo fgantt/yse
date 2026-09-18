@@ -248,6 +248,7 @@ fn validation_pearson(
     use_stm_feature: bool,
     use_halfkp: bool,
     use_hand_features: bool,
+    eval_clamp: i32,
 ) -> Option<f32> {
     if sample_size == 0 {
         return None;
@@ -256,27 +257,36 @@ fn validation_pearson(
     let mut acc = NNUEAccumulator::new(h1, h2);
     let hand_base = if use_halfkp { HAND_FEATURE_BASE_HALFKP } else { HAND_FEATURE_BASE_FLAT };
 
-    // Pearson is computed in two POV-aggregation modes plus per-stratum, so the
-    // diagnostic is mode-independent across networks that converge to either
-    // fixed point of the loss landscape:
-    //   r_all_abs : all records, White-stm network output negated and pooled
-    //               with Black-stm. Correct when the network is board-absolute
-    //               (positive cp = good for Black), as in Sessions 14-17.
-    //   r_all_pov : all records, White-stm network output un-negated and pooled
-    //               with Black-stm. Correct when the network is to-move-POV
-    //               (positive cp = good for the side to move), as in Session 19.
-    //   r_blk     : Black-stm records only. Insensitive to network POV (Black-stm
-    //               teacher target equals network output for either convention).
-    //   r_wht_neg : White-stm records, network output negated. Highest when the
-    //               network is board-absolute.
-    //   r_wht_pov : White-stm records, network output un-negated. Highest when
-    //               the network is to-move-POV.
-    // The headline number reported and returned is whichever of (r_all_abs,
-    // r_all_pov) has larger magnitude — see S19 Issue 6.
+    // The network is trained against `clamp(eval_cp, +/-eval_clamp)`, so that is
+    // what the headline metric scores it against. Scoring against the *raw*
+    // teacher cp — as this diagnostic did through Session 20 — imposes a hard
+    // ceiling, because the mate tail (|cp| > 20000, ~8% of the corpus) carries
+    // ~97% of the variance in raw cp and is clamped away during training. On the
+    // YaneuraOu d10 corpus at eval_clamp = 2000 that ceiling is r = 0.608, which
+    // is exactly where Sessions 15-20 "plateaued". See
+    // `docs/nnue-phase2/FEATURE_SPEC_AND_AUDIT.md`.
+    //
+    // Reported per validation pass:
+    //   pearson[clamp] : vs the clamped target the network actually optimises.
+    //                    Ceiling 1.0. This is the headline and the return value.
+    //   spearman[raw]  : rank correlation vs raw teacher cp. Rank-based, so the
+    //                    mate tail cannot dominate it; measures whether the
+    //                    network *orders* positions like the teacher, which is
+    //                    what matters for move selection.
+    //   pearson[raw]   : the legacy Session 14-20 number, kept for continuity,
+    //                    printed next to its own ceiling so it cannot mislead.
+    //
+    // POV is resolved once, from pearson[clamp], by taking whichever of the
+    // board-absolute and to-move-POV aggregations has larger magnitude (a network
+    // can converge to either fixed point — S19 Issue 6). Every other metric then
+    // uses that same orientation, so the whole line is self-consistent.
     let mut preds_blk: Vec<f32> = Vec::new();
     let mut targets_blk: Vec<f32> = Vec::new();
+    let mut targets_blk_clamped: Vec<f32> = Vec::new();
     let mut preds_wht_pov: Vec<f32> = Vec::new();
     let mut targets_wht: Vec<f32> = Vec::new();
+    let mut targets_wht_clamped: Vec<f32> = Vec::new();
+    let mut n_clamped = 0usize;
     let mut total = 0;
     for rec in records.iter() {
         if total >= sample_size {
@@ -301,14 +311,20 @@ fn validation_pearson(
             acc.add_hand_contributions(&captured, weights, hand_base);
         }
         let net_cp = acc.evaluate(weights) as f32;
+        let clamped = teacher_cp.max(-eval_clamp).min(eval_clamp);
+        if clamped != teacher_cp {
+            n_clamped += 1;
+        }
         match rec.player {
             Player::Black => {
                 preds_blk.push(net_cp);
                 targets_blk.push(teacher_cp as f32);
+                targets_blk_clamped.push(clamped as f32);
             }
             Player::White => {
                 preds_wht_pov.push(net_cp);
                 targets_wht.push(teacher_cp as f32);
+                targets_wht_clamped.push(clamped as f32);
             }
         }
         total += 1;
@@ -316,32 +332,95 @@ fn validation_pearson(
     if total < 2 {
         return None;
     }
-    let mut preds_all_pov: Vec<f32> = Vec::with_capacity(total);
-    let mut preds_all_abs: Vec<f32> = Vec::with_capacity(total);
-    let mut targets_all: Vec<f32> = Vec::with_capacity(total);
-    preds_all_pov.extend(preds_blk.iter().copied());
-    preds_all_pov.extend(preds_wht_pov.iter().copied());
-    preds_all_abs.extend(preds_blk.iter().copied());
-    preds_all_abs.extend(preds_wht_pov.iter().map(|p| -p));
-    targets_all.extend(targets_blk.iter().copied());
-    targets_all.extend(targets_wht.iter().copied());
-    let r_all_pov = pearson(&preds_all_pov, &targets_all);
-    let r_all_abs = pearson(&preds_all_abs, &targets_all);
-    let r_blk = if preds_blk.len() >= 2 { pearson(&preds_blk, &targets_blk) } else { 0.0 };
-    let r_wht_pov = if preds_wht_pov.len() >= 2 { pearson(&preds_wht_pov, &targets_wht) } else { 0.0 };
-    let r_wht_neg = -r_wht_pov; // pearson is sign-flip-equivariant for one-sided negation
-    let (r_all_best, pov_label) = if r_all_pov.abs() >= r_all_abs.abs() {
-        (r_all_pov, "to-move-POV")
+    let mut targets_raw: Vec<f32> = Vec::with_capacity(total);
+    targets_raw.extend(targets_blk.iter().copied());
+    targets_raw.extend(targets_wht.iter().copied());
+    let mut targets_clamped: Vec<f32> = Vec::with_capacity(total);
+    targets_clamped.extend(targets_blk_clamped.iter().copied());
+    targets_clamped.extend(targets_wht_clamped.iter().copied());
+
+    // Resolve POV once, against the clamped target.
+    let mut preds_pov: Vec<f32> = Vec::with_capacity(total);
+    preds_pov.extend(preds_blk.iter().copied());
+    preds_pov.extend(preds_wht_pov.iter().copied());
+    let mut preds_abs: Vec<f32> = Vec::with_capacity(total);
+    preds_abs.extend(preds_blk.iter().copied());
+    preds_abs.extend(preds_wht_pov.iter().map(|p| -p));
+
+    let clamp_pov = pearson(&preds_pov, &targets_clamped);
+    let clamp_abs = pearson(&preds_abs, &targets_clamped);
+    let (preds, pov_label, is_pov) = if clamp_pov.abs() >= clamp_abs.abs() {
+        (&preds_pov, "to-move-POV", true)
     } else {
-        (r_all_abs, "board-absolute")
+        (&preds_abs, "board-absolute", false)
     };
+
+    let r_clamped = pearson(preds, &targets_clamped);
+    let rho_raw = spearman(preds, &targets_raw);
+    let r_raw = pearson(preds, &targets_raw);
+    // The best any network trained on the clamped target can score against raw cp.
+    let r_raw_ceiling = pearson(&targets_clamped, &targets_raw);
+
+    let r_blk = if preds_blk.len() >= 2 {
+        pearson(&preds_blk, &targets_blk_clamped)
+    } else {
+        0.0
+    };
+    let r_wht = if preds_wht_pov.len() >= 2 {
+        let p: Vec<f32> = if is_pov {
+            preds_wht_pov.clone()
+        } else {
+            preds_wht_pov.iter().map(|p| -p).collect()
+        };
+        pearson(&p, &targets_wht_clamped)
+    } else {
+        0.0
+    };
+
     println!(
-        "    pearson  all={:+.3} ({}) [abs={:+.3} pov={:+.3}]  black-stm={:+.3} (n={})  white-stm-neg={:+.3}  white-stm-pov={:+.3} (n={})",
-        r_all_best, pov_label, r_all_abs, r_all_pov,
-        r_blk, preds_blk.len(),
-        r_wht_neg, r_wht_pov, preds_wht_pov.len()
+        "    pearson[clamp] all={:+.3} ({})  blk={:+.3} (n={})  wht={:+.3} (n={})",
+        r_clamped,
+        pov_label,
+        r_blk,
+        preds_blk.len(),
+        r_wht,
+        preds_wht_pov.len()
     );
-    Some(r_all_best)
+    println!(
+        "    spearman[raw]  all={:+.3}   legacy pearson[raw]={:+.3} (ceiling {:.3})  clamped={:.1}%",
+        rho_raw,
+        r_raw,
+        r_raw_ceiling,
+        100.0 * n_clamped as f32 / total as f32
+    );
+    Some(r_clamped)
+}
+
+/// Average-rank transform, ties sharing their mean rank. Used for Spearman.
+fn ranks(xs: &[f32]) -> Vec<f32> {
+    let n = xs.len();
+    let mut idx: Vec<usize> = (0..n).collect();
+    idx.sort_by(|&a, &b| xs[a].partial_cmp(&xs[b]).unwrap_or(std::cmp::Ordering::Equal));
+    let mut out = vec![0.0f32; n];
+    let mut i = 0;
+    while i < n {
+        let mut j = i;
+        while j + 1 < n && xs[idx[j + 1]] == xs[idx[i]] {
+            j += 1;
+        }
+        let mean_rank = (i + j) as f32 / 2.0 + 1.0;
+        for k in i..=j {
+            out[idx[k]] = mean_rank;
+        }
+        i = j + 1;
+    }
+    out
+}
+
+/// Spearman rank correlation: Pearson over average ranks. Unlike Pearson on raw
+/// cp, this cannot be dominated by the corpus's mate tail.
+fn spearman(xs: &[f32], ys: &[f32]) -> f32 {
+    pearson(&ranks(xs), &ranks(ys))
 }
 
 fn pearson(xs: &[f32], ys: &[f32]) -> f32 {
@@ -370,6 +449,10 @@ struct CorpusRecord {
     player: Player,
     eval_cp: Option<i32>,
     outcome: i8, // +1 black win, 0 draw, -1 white win
+    /// Source self-play game. Used to split train/validation at game granularity:
+    /// adjacent plies of one game are near-identical positions, so a record-level
+    /// split would leak training positions into validation and inflate the score.
+    game_id: u32,
 }
 
 /// Scan a JSON object for the given "key":... value, returning the raw token
@@ -414,7 +497,13 @@ fn parse_jsonl_line(line: &str) -> Option<CorpusRecord> {
         .unwrap_or(outcome_raw.len());
     let outcome = outcome_raw[..out_end].trim().parse::<i8>().ok()?;
 
-    Some(CorpusRecord { sfen, player, eval_cp, outcome })
+    let gid_raw = find_field(line, "game_id")?.trim_start();
+    let gid_end = gid_raw
+        .find(|c: char| c == ',' || c == '}')
+        .unwrap_or(gid_raw.len());
+    let game_id = gid_raw[..gid_end].trim().parse::<u32>().ok()?;
+
+    Some(CorpusRecord { sfen, player, eval_cp, outcome, game_id })
 }
 
 fn load_corpus(path: &Path, skip_null_eval: bool) -> std::io::Result<Vec<CorpusRecord>> {
@@ -636,11 +725,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!();
 
-    let mut records = load_corpus(&cli.corpus, cli.skip_null_eval)?;
-    println!("Loaded {} training records", records.len());
-    if records.is_empty() {
+    let all_records = load_corpus(&cli.corpus, cli.skip_null_eval)?;
+    println!("Loaded {} records", all_records.len());
+    if all_records.is_empty() {
         return Err("no usable records in corpus".into());
     }
+
+    // Hold out every `VALIDATION_GAME_STRIDE`-th game for validation. Splitting by
+    // game (not by record) keeps adjacent plies of the same game on one side of
+    // the split — a record-level split leaks near-identical positions into
+    // validation and reports a training-fit score as if it were generalisation.
+    const VALIDATION_GAME_STRIDE: u32 = 20;
+    let (mut records, val_records): (Vec<_>, Vec<_>) = all_records
+        .into_iter()
+        .partition(|r| r.game_id % VALIDATION_GAME_STRIDE != 0);
+    if val_records.is_empty() {
+        return Err("validation split is empty — corpus has too few distinct games".into());
+    }
+    println!(
+        "  Train:        {} records   Held-out validation: {} records ({} of every {} games)",
+        records.len(),
+        val_records.len(),
+        1,
+        VALIDATION_GAME_STRIDE
+    );
 
     let mut rng = if cli.seed == 0 {
         StdRng::from_entropy()
@@ -808,14 +916,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         let pearson = validation_pearson(
             trainer.get_weights(),
-            &records,
+            &val_records,
             cli.validate_sample,
             cli.use_stm_feature,
             cli.use_halfkp,
             cli.use_hand_features,
+            cli.eval_clamp,
         );
         let pearson_str = match pearson {
-            Some(r) => format!(" pearson_r={:+.3}", r),
+            Some(r) => format!(" r_clamp={:+.3}", r),
             None => String::new(),
         };
         println!(
