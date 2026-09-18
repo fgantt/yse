@@ -329,15 +329,27 @@ impl MoveGenerator {
                     }
                 }
             }
+            // Dragons and horses slide like a rook/bishop *and* step one square
+            // diagonally/orthogonally. The precomputed tables are static, so they
+            // hold only the steps — these pieces used to move like kings.
+            // `get_attack_pattern` walks the rays against the current occupancy and
+            // includes the extra steps.
+            PieceType::PromotedBishop | PieceType::PromotedRook => {
+                let attacks = board.get_attack_pattern(pos, piece.piece_type);
+                use crate::bitboards::integration::GlobalOptimizer;
+                let mut remaining = attacks;
+                while let Some(target_square) = GlobalOptimizer::bit_scan_forward(remaining) {
+                    handle_capture_move(&mut moves, Position::from_index(target_square));
+                    remaining &= Bitboard::from_u128(remaining.to_u128() - 1);
+                }
+            }
             PieceType::Silver
             | PieceType::Gold
             | PieceType::King
             | PieceType::PromotedPawn
             | PieceType::PromotedLance
             | PieceType::PromotedKnight
-            | PieceType::PromotedSilver
-            | PieceType::PromotedBishop
-            | PieceType::PromotedRook => {
+            | PieceType::PromotedSilver => {
                 let dir: i8 = if player == Player::Black { -1 } else { 1 };
                 let offsets = piece.piece_type.get_move_offsets(dir);
                 for (dr, dc) in offsets {
@@ -596,15 +608,27 @@ impl MoveGenerator {
                     }
                 }
             }
+            // Dragons and horses slide like a rook/bishop *and* step one square
+            // diagonally/orthogonally. The precomputed tables are static, so they
+            // hold only the steps — these pieces used to move like kings.
+            // `get_attack_pattern` walks the rays against the current occupancy and
+            // includes the extra steps.
+            PieceType::PromotedBishop | PieceType::PromotedRook => {
+                let attacks = board.get_attack_pattern(pos, piece.piece_type);
+                use crate::bitboards::integration::GlobalOptimizer;
+                let mut remaining = attacks;
+                while let Some(target_square) = GlobalOptimizer::bit_scan_forward(remaining) {
+                    handle_move(&mut moves, Position::from_index(target_square));
+                    remaining &= Bitboard::from_u128(remaining.to_u128() - 1);
+                }
+            }
             PieceType::Silver
             | PieceType::Gold
             | PieceType::King
             | PieceType::PromotedPawn
             | PieceType::PromotedLance
             | PieceType::PromotedKnight
-            | PieceType::PromotedSilver
-            | PieceType::PromotedBishop
-            | PieceType::PromotedRook => {
+            | PieceType::PromotedSilver => {
                 // Use precomputed attack patterns for better performance
                 let attacks = board.get_attack_pattern_precomputed(pos, piece.piece_type, player);
 
@@ -848,6 +872,32 @@ impl MoveGenerator {
     }
 
     /// Optimized deduplication and sorting for quiescence moves
+    /// Bounded quiescence moves: captures and promotions, plus checks only when
+    /// `include_checks` (the search passes `true` at the first quiescence ply only).
+    ///
+    /// `generate_quiescence_moves` also adds every checking move — including
+    /// drops, of which there can be dozens with pieces in hand — and, when fewer
+    /// than 16 moves were found, quiet "tactical threat" moves, at *every*
+    /// quiescence ply. That turns quiescence into a second full-width search: a
+    /// single depth-2 search made ~846k evaluations. This is the standard,
+    /// bounded policy.
+    pub fn generate_quiescence_moves_bounded(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+        include_checks: bool,
+    ) -> Vec<Move> {
+        let mut moves = Vec::with_capacity(32);
+        moves.extend(self.generate_legal_captures(board, player, captured_pieces));
+        moves.extend(self.generate_promotions(board, player, captured_pieces));
+        if include_checks {
+            moves.extend(self.generate_checks(board, player, captured_pieces));
+        }
+        self.deduplicate_and_sort_quiescence_moves(&mut moves);
+        moves
+    }
+
     fn deduplicate_and_sort_quiescence_moves(&self, moves: &mut Vec<Move>) {
         if moves.is_empty() {
             return;

@@ -758,10 +758,34 @@ impl BitboardBoard {
         let from_idx = from_pos.to_index();
 
         match piece_type {
-            // Non-sliding pieces: use precomputed attack tables
-            PieceType::Pawn
-            | PieceType::Lance
-            | PieceType::Knight
+            // Pawns and lances have no entry in the precomputed attack tables, so
+            // routing them there returned an empty attack set: they never gave
+            // check and never defended a square.
+            PieceType::Pawn => {
+                let dir: i8 = if player == Player::Black { -1 } else { 1 };
+                let row = from_pos.row as i8 + dir;
+                row >= 0 && row < 9 && row as u8 == target_pos.row && from_pos.col == target_pos.col
+            }
+            PieceType::Lance => {
+                if from_pos.col != target_pos.col {
+                    return false;
+                }
+                let dir: i8 = if player == Player::Black { -1 } else { 1 };
+                let mut row = from_pos.row as i8 + dir;
+                while row >= 0 && row < 9 {
+                    let sq = Position::new(row as u8, from_pos.col);
+                    if sq == target_pos {
+                        return true;
+                    }
+                    if self.is_square_occupied(sq) {
+                        return false;
+                    }
+                    row += dir;
+                }
+                false
+            }
+            // Other non-sliding pieces: precomputed attack tables
+            PieceType::Knight
             | PieceType::Silver
             | PieceType::Gold
             | PieceType::King
@@ -1760,9 +1784,14 @@ mod tests {
         board.place_piece(white_king, Position::new(0, 4));
         board.place_piece(black_rook, Position::new(4, 0));
 
-        // Rook should attack white king's file
-        let white_king_pos = Position::new(0, 4);
-        assert!(board.is_square_attacked_by(white_king_pos, Player::Black));
+        // A rook on (4,0) attacks its own rank and file. The king on (0,4) is on
+        // neither, so it is *not* attacked. (This test previously asserted the
+        // opposite, which is not rook geometry.)
+        assert!(!board.is_square_attacked_by(Position::new(0, 4), Player::Black));
+        assert!(board.is_square_attacked_by(Position::new(0, 0), Player::Black));
+        assert!(board.is_square_attacked_by(Position::new(4, 3), Player::Black));
+        // Blocked by Black's own king on (4,4); (4,6) is also out of the king's reach.
+        assert!(!board.is_square_attacked_by(Position::new(4, 6), Player::Black));
     }
 
     #[test]
@@ -1777,16 +1806,24 @@ mod tests {
         board.place_piece(white_king, Position::new(0, 4));
         board.place_piece(black_silver, Position::new(3, 3));
 
-        // Silver should attack squares around white king
-        let target = Position::new(1, 3);
-        assert!(board.is_square_attacked_by(target, Player::Black));
+        // A Black silver on (3,3) steps one square: forward (toward row 0) and
+        // the four diagonals. (1,3) is two rows away and *not* attacked — the
+        // test previously asserted it was.
+        assert!(!board.is_square_attacked_by(Position::new(1, 3), Player::Black));
+        for (r, c) in [(2, 2), (2, 3), (2, 4), (4, 2)] {
+            assert!(board.is_square_attacked_by(Position::new(r, c), Player::Black), "({r},{c})");
+        }
+        // Silvers do not move straight back or sideways.
+        assert!(!board.is_square_attacked_by(Position::new(3, 2), Player::Black));
     }
 
     #[test]
     fn test_piece_attacks_square_bitboard_non_sliding() {
         let board = BitboardBoard::empty();
         let from = Position::new(4, 4);
-        let target = Position::new(5, 4);
+        // Black advances toward row 0 (perft-verified). This test previously
+        // expected row 5, the backwards direction.
+        let target = Position::new(3, 4);
 
         // Test non-sliding piece (pawn) using attack tables
         let attacks = board.get_attack_pattern_precomputed(from, PieceType::Pawn, Player::Black);

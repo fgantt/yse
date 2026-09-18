@@ -20,6 +20,9 @@ pub struct AttackTables {
     pub black_knight_attacks: [Bitboard; 81],
     pub black_gold_attacks: [Bitboard; 81],
     pub black_silver_attacks: [Bitboard; 81],
+    /// Pawn attacks: one square forward. Previously absent, so pawn lookups
+    /// fell through to an empty set.
+    pub black_pawn_attacks: [Bitboard; 81],
     pub black_promoted_pawn_attacks: [Bitboard; 81],
     pub black_promoted_lance_attacks: [Bitboard; 81],
     pub black_promoted_knight_attacks: [Bitboard; 81],
@@ -29,6 +32,7 @@ pub struct AttackTables {
     pub white_knight_attacks: [Bitboard; 81],
     pub white_gold_attacks: [Bitboard; 81],
     pub white_silver_attacks: [Bitboard; 81],
+    pub white_pawn_attacks: [Bitboard; 81],
     pub white_promoted_pawn_attacks: [Bitboard; 81],
     pub white_promoted_lance_attacks: [Bitboard; 81],
     pub white_promoted_knight_attacks: [Bitboard; 81],
@@ -123,6 +127,7 @@ impl AttackTables {
             black_knight_attacks: [Bitboard::default(); 81],
             black_gold_attacks: [Bitboard::default(); 81],
             black_silver_attacks: [Bitboard::default(); 81],
+            black_pawn_attacks: [Bitboard::default(); 81],
             black_promoted_pawn_attacks: [Bitboard::default(); 81],
             black_promoted_lance_attacks: [Bitboard::default(); 81],
             black_promoted_knight_attacks: [Bitboard::default(); 81],
@@ -130,6 +135,7 @@ impl AttackTables {
             white_knight_attacks: [Bitboard::default(); 81],
             white_gold_attacks: [Bitboard::default(); 81],
             white_silver_attacks: [Bitboard::default(); 81],
+            white_pawn_attacks: [Bitboard::default(); 81],
             white_promoted_pawn_attacks: [Bitboard::default(); 81],
             white_promoted_lance_attacks: [Bitboard::default(); 81],
             white_promoted_knight_attacks: [Bitboard::default(); 81],
@@ -177,6 +183,7 @@ impl AttackTables {
             (PieceType::King, _) => self.king_attacks[idx],
 
             // Black pieces
+            (PieceType::Pawn, Player::Black) => self.black_pawn_attacks[idx],
             (PieceType::Knight, Player::Black) => self.black_knight_attacks[idx],
             (PieceType::Gold, Player::Black) => self.black_gold_attacks[idx],
             (PieceType::Silver, Player::Black) => self.black_silver_attacks[idx],
@@ -186,6 +193,7 @@ impl AttackTables {
             (PieceType::PromotedSilver, Player::Black) => self.black_promoted_silver_attacks[idx],
 
             // White pieces
+            (PieceType::Pawn, Player::White) => self.white_pawn_attacks[idx],
             (PieceType::Knight, Player::White) => self.white_knight_attacks[idx],
             (PieceType::Gold, Player::White) => self.white_gold_attacks[idx],
             (PieceType::Silver, Player::White) => self.white_silver_attacks[idx],
@@ -227,6 +235,8 @@ impl AttackTables {
 
         // Generate BLACK piece patterns
         for square in 0..81 {
+            self.black_pawn_attacks[square] =
+                generator.generate_attacks_from_directions(square as u8, &[Direction::new(-1, 0)]);
             self.black_knight_attacks[square] =
                 generator.generate_knight_attacks(square as u8, Player::Black);
             self.black_gold_attacks[square] =
@@ -247,6 +257,8 @@ impl AttackTables {
 
         // Generate WHITE piece patterns
         for square in 0..81 {
+            self.white_pawn_attacks[square] =
+                generator.generate_attacks_from_directions(square as u8, &[Direction::new(1, 0)]);
             self.white_knight_attacks[square] =
                 generator.generate_knight_attacks(square as u8, Player::White);
             self.white_gold_attacks[square] =
@@ -423,14 +435,18 @@ impl AttackPatternGenerator {
 
     /// Generate knight attack pattern for a square and player
     fn generate_knight_attacks(&mut self, square: u8, player: Player) -> Bitboard {
+        // Black advances toward row 0 (the start position's 7g7f is row 6 -> 5), so
+        // a Black knight jumps two rows *down* in index. These were inverted, which
+        // made every knight move and attack backwards; perft(3) from the start
+        // position was 25,350 instead of 25,470.
         let directions = match player {
             Player::Black => [
-                Direction::new(2, -1), // Forward-left
-                Direction::new(2, 1),  // Forward-right
+                Direction::new(-2, -1), // Forward-left
+                Direction::new(-2, 1),  // Forward-right
             ],
             Player::White => [
-                Direction::new(-2, -1), // Forward-left (from white perspective)
-                Direction::new(-2, 1),  // Forward-right (from white perspective)
+                Direction::new(2, -1), // Forward-left (from white perspective)
+                Direction::new(2, 1),  // Forward-right (from white perspective)
             ],
         };
 

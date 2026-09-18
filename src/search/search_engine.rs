@@ -48,6 +48,11 @@ use std::sync::{
 pub const MIN_SCORE: i32 = i32::MIN + 1;
 /// Maximum score value (one below i32::MAX to avoid sentinel value issues)
 pub const MAX_SCORE: i32 = i32::MAX - 1;
+/// Depth at which negamax enters quiescence. Quiescence counts down from here;
+/// checks are generated only at this first ply (see `generate_noisy_moves`).
+pub const QUIESCENCE_ENTRY_DEPTH: u8 = 5;
+/// Score for the side to move being mated (matches negamax's convention).
+const MATED_SCORE: i32 = -100000;
 
 thread_local! {
     static YBWC_ENGINE_TLS: std::cell::RefCell<Option<SearchEngine>> = std::cell::RefCell::new(None);
@@ -6567,7 +6572,7 @@ impl SearchEngine {
                 beta,
                 &start_time,
                 time_limit_ms,
-                5,
+                QUIESCENCE_ENTRY_DEPTH,
             );
             crate::debug_utils::end_timing("quiescence_search", "QUIESCENCE");
             // crate::trace_log_fast!("QUIESCENCE", &format!("Quiescence search
@@ -7489,6 +7494,11 @@ impl SearchEngine {
         // Note: Stand-pat is not cached at beta cutoffs (position not fully evaluated)
         // It will be cached when the position is fully evaluated later
         // crate::debug_utils::trace_log("QUIESCENCE", "Evaluating stand-pat position");
+        // In check, standing pat is not an option — the side to move must respond —
+        // so stand-pat cutoffs and stand-pat-based pruning are off and every
+        // evasion is searched.
+        let in_check = board.is_king_in_check(player, captured_pieces);
+
         let stand_pat = if let Some(cached) = cached_stand_pat {
             // Use cached stand-pat from TT (Task 6.0)
             cached
@@ -7504,7 +7514,7 @@ impl SearchEngine {
 
         // Task 6.0: Use cached stand-pat for bounds checking
         // Stand-pat can be used for beta cutoff and alpha update
-        if stand_pat >= beta {
+        if !in_check && stand_pat >= beta {
             log_decision!(
                 "QUIESCENCE",
                 "Stand-pat beta cutoff",
@@ -7518,7 +7528,7 @@ impl SearchEngine {
             );
             return beta;
         }
-        if alpha < stand_pat {
+        if !in_check && alpha < stand_pat {
             log_decision!(
                 "QUIESCENCE",
                 "Stand-pat alpha update",
@@ -7534,7 +7544,19 @@ impl SearchEngine {
         }
 
         // crate::debug_utils::trace_log("QUIESCENCE", "Generating noisy moves");
-        let noisy_moves = self.generate_noisy_moves(board, player, captured_pieces);
+        let noisy_moves = if in_check {
+            self.move_generator.generate_legal_moves(board, player, captured_pieces)
+        } else {
+            self.generate_noisy_moves(
+                board,
+                player,
+                captured_pieces,
+                depth >= QUIESCENCE_ENTRY_DEPTH,
+            )
+        };
+        if in_check && noisy_moves.is_empty() {
+            return MATED_SCORE;
+        }
         // crate::trace_log_fast!("QUIESCENCE", &format!("Found {} noisy moves",
         // noisy_moves.len()));
 
@@ -7668,7 +7690,7 @@ impl SearchEngine {
             } else {
                 self.should_prune_delta(&move_, stand_pat, alpha)
             };
-            if should_prune {
+            if should_prune && !in_check {
                 // crate::trace_log_fast!("QUIESCENCE", &format!("Delta pruning move {}",
                 // move_.to_usi_string()));
                 self.quiescence_stats.delta_prunes += 1;
@@ -7686,7 +7708,7 @@ impl SearchEngine {
             } else {
                 self.should_prune_futility(&move_, stand_pat, alpha, depth, Some(board), Some(player))
             };
-            if should_prune_futility {
+            if should_prune_futility && !in_check {
                 // crate::trace_log_fast!("QUIESCENCE", &format!("Futility pruning move
                 // {}", move_.to_usi_string()));
                 self.quiescence_stats.futility_prunes += 1;
@@ -7960,8 +7982,14 @@ impl SearchEngine {
         board: &BitboardBoard,
         player: Player,
         captured_pieces: &CapturedPieces,
+        include_checks: bool,
     ) -> Vec<Move> {
-        self.move_generator.generate_quiescence_moves(board, player, captured_pieces)
+        self.move_generator.generate_quiescence_moves_bounded(
+            board,
+            player,
+            captured_pieces,
+            include_checks,
+        )
     }
 
     /// Sort quiescence moves using advanced move ordering

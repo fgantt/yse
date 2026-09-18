@@ -59,3 +59,146 @@ fn capturing_a_promoted_piece_records_it_for_the_hand_unpromoted() {
         "a captured tokin goes to hand as a pawn"
     );
 }
+
+/// In shogi a piece attacks exactly the squares it can move to on an otherwise
+/// empty board (pawns capture straight ahead). So for every piece type, colour
+/// and square, `is_square_attacked_by` must agree with the move generator's
+/// destinations for that piece. Squares where the piece could not legally stand
+/// (pawn/lance on the last rank, knight on the last two) are skipped.
+#[test]
+fn attacks_match_move_destinations_for_every_piece() {
+    use shogi_engine::types::board::CapturedPieces;
+    use shogi_engine::types::core::{Piece, PieceType, Position};
+    use std::collections::{BTreeMap, BTreeSet};
+    let types = [
+        PieceType::Pawn, PieceType::Lance, PieceType::Knight, PieceType::Silver, PieceType::Gold,
+        PieceType::Bishop, PieceType::Rook, PieceType::King, PieceType::PromotedPawn,
+        PieceType::PromotedLance, PieceType::PromotedKnight, PieceType::PromotedSilver,
+        PieceType::PromotedBishop, PieceType::PromotedRook,
+    ];
+    let mg = MoveGenerator::new();
+    let captured = CapturedPieces::new();
+    let mut bad: BTreeMap<String, usize> = BTreeMap::new();
+    let mut example: BTreeMap<String, String> = BTreeMap::new();
+    for &player in &[Player::Black, Player::White] {
+        for &pt in &types {
+            for sq in 0..81u8 {
+                let pos = Position::from_u8(sq);
+                // rows advance toward 0 for Black (7g7f is row 6 -> 5)
+                let ranks_from_far_edge = if player == Player::Black { pos.row } else { 8 - pos.row };
+                let illegal_home = match pt {
+                    PieceType::Pawn | PieceType::Lance => ranks_from_far_edge == 0,
+                    PieceType::Knight => ranks_from_far_edge <= 1,
+                    _ => false,
+                };
+                if illegal_home {
+                    continue;
+                }
+                let mut b = BitboardBoard::empty();
+                b.place_piece(Piece::new(pt, player), pos);
+                let moves: BTreeSet<u8> = mg
+                    .generate_legal_moves(&b, player, &captured)
+                    .iter()
+                    .filter(|m| m.from == Some(pos))
+                    .map(|m| m.to.to_u8())
+                    .collect();
+                let attacks: BTreeSet<u8> =
+                    (0..81u8).filter(|&t| t != sq && b.is_square_attacked_by(Position::from_u8(t), player)).collect();
+                if moves != attacks {
+                    let key = format!("{:?} {:?}", player, pt);
+                    *bad.entry(key.clone()).or_default() += 1;
+                    example.entry(key).or_insert_with(|| {
+                        format!("sq {} moves {:?} attacks {:?}", sq, moves, attacks)
+                    });
+                }
+            }
+        }
+    }
+    for (k, n) in &bad {
+        eprintln!("  {k:<24} {n:>2} squares disagree, e.g. {}", example[k]);
+    }
+    assert!(bad.is_empty(), "attack detection disagrees with move generation for {} piece/colour pairs", bad.len());
+}
+
+#[test]
+#[ignore = "diagnostic"]
+fn diagnostic_knight_and_dragon_moves() {
+    use shogi_engine::types::board::CapturedPieces;
+    let mg = MoveGenerator::new();
+    let c = CapturedPieces::new();
+    // Black knight on 5e (row 4) should go to 4c/6c (row 2).
+    let (b, _, _) = BitboardBoard::from_fen("4k4/9/9/9/4N4/9/9/9/4K4 b - 1").unwrap();
+    let mut v: Vec<String> = mg.generate_legal_moves(&b, Player::Black, &c).iter().map(|m| m.to_usi_string()).filter(|s| s.starts_with("5e")).collect();
+    v.sort(); eprintln!("Black knight 5e: {v:?}   (expect 5e4c, 5e6c)");
+    // Black dragon (+R) on 5e with kings on 5a/5i.
+    let (b, _, _) = BitboardBoard::from_fen("k8/9/9/9/4+R4/9/9/9/8K b - 1").unwrap();
+    let mut v: Vec<String> = mg.generate_legal_moves(&b, Player::Black, &c).iter().map(|m| m.to_usi_string()).filter(|s| s.starts_with("5e")).collect();
+    v.sort(); eprintln!("Black dragon 5e: {} moves {v:?}   (expect 20: 16 slides + 4 diagonal steps)", v.len());
+    let (b, _, _) = BitboardBoard::from_fen("k8/9/9/9/4+B4/9/9/9/8K b - 1").unwrap();
+    let v: Vec<String> = mg.generate_legal_moves(&b, Player::Black, &c).iter().map(|m| m.to_usi_string()).filter(|s| s.starts_with("5e")).collect();
+    eprintln!("Black horse 5e: {} moves   (expect 20: 16 slides + 4 orthogonal steps)", v.len());
+}
+
+fn perft(
+    mg: &MoveGenerator,
+    b: &mut BitboardBoard,
+    player: Player,
+    captured: &mut shogi_engine::types::board::CapturedPieces,
+    depth: u32,
+) -> u64 {
+    let moves = mg.generate_legal_moves(b, player, captured);
+    if depth == 1 {
+        return moves.len() as u64;
+    }
+    let mut total = 0;
+    for mv in moves {
+        let info = b.make_move_with_info(&mv);
+        if let Some(cap) = info.captured_piece {
+            captured.add_piece(cap.piece_type, player);
+        } else if mv.from.is_none() {
+            captured.remove_piece(mv.piece_type, player);
+        }
+        total += perft(mg, b, player.opposite(), captured, depth - 1);
+        b.unmake_move(&info);
+        if let Some(cap) = info.captured_piece {
+            captured.remove_piece(cap.piece_type, player);
+        } else if mv.from.is_none() {
+            captured.add_piece(mv.piece_type, player);
+        }
+    }
+    total
+}
+
+/// Perft from the start position against the published shogi values. The
+/// definitive check of move generation: every legal move sequence counted.
+#[test]
+fn perft_from_start_position() {
+    let expected = [30u64, 900, 25_470];
+    let mg = MoveGenerator::new();
+    let (mut b, stm, mut c) =
+        BitboardBoard::from_fen("lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1").unwrap();
+    let mut got = Vec::new();
+    for (i, &want) in expected.iter().enumerate() {
+        got.push((i + 1, perft(&mg, &mut b, stm, &mut c, i as u32 + 1), want));
+    }
+    for (d, g, w) in &got {
+        eprintln!("  perft({d}) = {g:>8}   expected {w:>8}{}", if g == w { "" } else { "   <-- WRONG" });
+    }
+    assert!(got.iter().all(|(_, g, w)| g == w), "perft mismatch");
+}
+
+/// Deeper perft: depth 4 has no drops yet; depth 5 is the first with drops
+/// (double-pawn and drop-pawn-mate rules). Slow, so opt-in.
+#[test]
+#[ignore = "slow; run with --ignored"]
+fn perft_from_start_position_deep() {
+    let mg = MoveGenerator::new();
+    let (mut b, stm, mut c) =
+        BitboardBoard::from_fen("lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1").unwrap();
+    for (depth, want) in [(4u32, 719_731u64), (5, 19_861_490)] {
+        let t = std::time::Instant::now();
+        let got = perft(&mg, &mut b, stm, &mut c, depth);
+        eprintln!("  perft({depth}) = {got:>10}   expected {want:>10}   ({:.1?}){}", t.elapsed(), if got == want { "" } else { "   <-- WRONG" });
+        assert_eq!(got, want, "perft({depth})");
+    }
+}

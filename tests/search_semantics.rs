@@ -161,19 +161,14 @@ fn search_symmetry(depth: u8) {
 }
 
 #[test]
-#[ignore = "Residual defect: after the single-evaluator and unmake fixes, 1/16 positions still \
-            differs from its colour-mirror (59 cp at depth 1, 7 cp at depth 2, same best move). \
-            Likely colour-dependent move-ordering tie-breaks feeding pruning. Was 2/16 and 5/16 with up \
-            to 805 cp. See docs/nnue-phase2/SESSION_LOG_022.md. Slow (~15 min)."]
 fn search_is_colour_symmetric_depth_1() {
     search_symmetry(1);
 }
 
 #[test]
-#[ignore = "Residual defect: after the single-evaluator and unmake fixes, 1/16 positions still \
-            differs from its colour-mirror (59 cp at depth 1, 7 cp at depth 2, same best move). \
-            Likely colour-dependent move-ordering tie-breaks feeding pruning. Was 2/16 and 5/16 with up \
-            to 805 cp. See docs/nnue-phase2/SESSION_LOG_022.md. Slow (~15 min)."]
+#[ignore = "Residual defect: 1/16 positions differs from its colour-mirror by 20 cp at depth 2 \
+            (same best move, near-mate score ~22,500). Likely colour-dependent move-ordering \
+            tie-breaks feeding pruning. See docs/nnue-phase2/SESSION_LOG_022.md."]
 fn search_is_colour_symmetric_depth_2() {
     search_symmetry(2);
 }
@@ -339,4 +334,57 @@ fn nnue_changes_search_results() {
         }
     }
     assert!(differ > 0, "NNUE did not change any search result");
+}
+
+/// Quiescence must search evasions when in check rather than stand pat. With
+/// that, a mate-in-1 is found at depth 1: after the mating move the opponent is
+/// in check with no legal reply, and quiescence returns the mate score. White
+/// king on 5a, Black pawn on 5c, Black gold in hand: G*5b is mate (the gold
+/// covers 4a/6a/4b/6b and is defended by the pawn).
+#[test]
+fn search_finds_mate_in_one() {
+    let (b, stm, c) = BitboardBoard::from_fen("4k4/9/4P4/9/9/9/9/9/4K4 b G 1").expect("from_fen");
+    for depth in [1u8, 2] {
+        let (mv, score) = search(&b, &c, stm, depth);
+        assert_eq!(mv, "G*5b", "depth {depth}: expected the mating drop, got {mv} ({score})");
+        assert!(score >= 90_000, "depth {depth}: mate should score as mate, got {score}");
+    }
+}
+
+#[test]
+fn mate_in_one_fixture_is_actually_mate() {
+    use shogi_engine::moves::MoveGenerator;
+    let (mut b, stm, mut c) = BitboardBoard::from_fen("4k4/9/4P4/9/9/9/9/9/4K4 b G 1").unwrap();
+    let mg = MoveGenerator::new();
+    let drop = mg
+        .generate_legal_moves(&b, stm, &c)
+        .into_iter()
+        .find(|m| m.to_usi_string() == "G*5b")
+        .expect("G*5b is legal");
+    b.make_move(&drop);
+    c.remove_piece(PieceType::Gold, Player::Black);
+    assert!(b.is_king_in_check(Player::White, &c), "White is in check after G*5b");
+    let replies: Vec<String> =
+        mg.generate_legal_moves(&b, Player::White, &c).iter().map(|m| m.to_usi_string()).collect();
+    assert!(replies.is_empty(), "White has replies: {replies:?}");
+}
+
+#[test]
+#[ignore = "diagnostic"]
+fn diagnostic_king_capture_of_defended_piece() {
+    use shogi_engine::moves::MoveGenerator;
+    let mg = MoveGenerator::new();
+    // After G*5b: W king 5a, B gold 5b, B pawn 5c, B king 5i.
+    let (b, _stm, c) = BitboardBoard::from_fen("4k4/4G4/4P4/9/9/9/9/9/4K4 w - 1").unwrap();
+    let sq_5b = Position::new(1, 4);
+    eprintln!("5b attacked by Black: {}", b.is_square_attacked_by(sq_5b, Player::Black));
+    eprintln!("piece on 5b: {:?}  on 5c: {:?}", b.get_piece(sq_5b), b.get_piece(Position::new(2, 4)));
+    let legal: Vec<String> = mg.generate_legal_moves(&b, Player::White, &c).iter().map(|m| m.to_usi_string()).collect();
+    eprintln!("legal: {legal:?}");
+    // Simpler: can a Black pawn's attack be seen at all? Pawn 5c -> 5b.
+    let (b2, _, _) = BitboardBoard::from_fen("4k4/9/4P4/9/9/9/9/9/4K4 w - 1").unwrap();
+    eprintln!("empty 5b attacked by Black pawn on 5c: {}", b2.is_square_attacked_by(sq_5b, Player::Black));
+    // After the king actually captures:
+    let (b3, _, c3) = BitboardBoard::from_fen("9/4k4/4P4/9/9/9/9/9/4K4 b G 1").unwrap();
+    eprintln!("W king on 5b next to B pawn 5c -> W in check: {}", b3.is_king_in_check(Player::White, &c3));
 }
