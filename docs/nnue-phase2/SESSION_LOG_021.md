@@ -102,8 +102,17 @@ show up head-to-head. It does rule out large effects: the 95% CI's upper bound i
 Colour asymmetry is gone, as expected from exact mirror invariance: POV scored −7.7 ± 66.8 as Black
 and −15.5 ± 72.0 as White, both within noise. (Compare S20's 5W-2L / 3W-6L split.)
 
-**Arm B — POV vs PST** (90 games, seed 51): *in progress at time of writing; +78.5 ± 62.0 after 54
-games* — in line with the historical vs-PST arm. Final numbers to be appended.
+**Arm B — POV vs PST** (90 games, seed 51): **23W – 51D – 16L, ELO +27.1 ± 47.5.** Brackets zero.
+Even by colour: +23.2 ± 66.7 as Black, +31.0 ± 68.5 as White.
+
+Note the interim trap: after 54 games this arm read +78.5 ± 62.0 and was reported mid-session as "in
+line with the historical arm". The last 36 games went 5W-21D-10L. Interim bake-off numbers at this
+sample size are not worth quoting.
+
+Cumulative vs-PST arm, S14–S21: **74W-124D-42L over 240 games = +46.6 ± 30.6 ELO** (was +58.5 ± 38.6
+over 150). Still positive at 95%, drifting down as games accumulate — the S14–S17 figure of +79.6
+looks increasingly like an early high draw. Caveat as in S20: the arm pools different networks, so it
+reads as "the NNUE engine's general edge over PST", not a measurement of any one weight file.
 
 **The harness is the bottleneck, not the eval.** Parsing all 8,150 searched moves in Arm A's log:
 
@@ -127,9 +136,10 @@ Two further consequences:
   at even depth. Plausible contributors, not yet verified: a truncated or miscalibrated quiescence
   search (the opponent's capture at an odd leaf never gets answered), and a residual to-move bias in
   the eval (the teacher's own to-move-POV mean is about +135 cp).
-- **Resolution.** A large eval difference (any NNUE vs PST) survives this; a finer one (two NNUEs of
-  different quality) is swamped. That is consistent with every NNUE-vs-PST bake-off since S14 coming
-  back positive and every NNUE-vs-NNUE bake-off (S18, S20 A, S21 A) coming back null.
+- **Resolution.** A large eval difference survives this; a finer one is swamped. That is consistent
+  with every NNUE-vs-NNUE bake-off (S18, S20 A, S21 A) coming back null. The NNUE-vs-PST record is
+  weaker support than it first looks, though: individual 30–90 game arms have mostly bracketed zero
+  (S20 B −23, S21 B +27), and the edge is only visible pooled over 240 games (+46.6 ± 30.6).
 
 This is the same shape of problem as Finding 1: **the measuring instrument, not the thing measured,
 has been the binding constraint.** Until search reaches its nominal depth at a sane node rate,
