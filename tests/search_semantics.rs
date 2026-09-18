@@ -96,9 +96,6 @@ fn mirror_usi_is_an_involution() {
 }
 
 #[test]
-#[ignore = "Defect: evaluate() routes through IntegratedEvaluator, which is not colour-symmetric \
-            (15/16 positions differ from their mirror by 10-521 cp) and runs ~10x the scale of \
-            the tapered evaluator. See docs/nnue-phase2/SESSION_LOG_022.md."]
 fn static_eval_is_colour_symmetric() {
     let mut evaluator = PositionEvaluator::new();
     let mut failures = Vec::new();
@@ -164,15 +161,19 @@ fn search_symmetry(depth: u8) {
 }
 
 #[test]
-#[ignore = "Defect: pruning uses the asymmetric IntegratedEvaluator static eval, so search scores \
-            differ from the colour-mirror. See docs/nnue-phase2/SESSION_LOG_022.md."]
+#[ignore = "Residual defect: after the single-evaluator and unmake fixes, 1/16 positions still \
+            differs from its colour-mirror (59 cp at depth 1, 7 cp at depth 2, same best move). \
+            Likely colour-dependent move-ordering tie-breaks feeding pruning. Was 2/16 and 5/16 with up \
+            to 805 cp. See docs/nnue-phase2/SESSION_LOG_022.md. Slow (~15 min)."]
 fn search_is_colour_symmetric_depth_1() {
     search_symmetry(1);
 }
 
 #[test]
-#[ignore = "Defect: pruning uses the asymmetric IntegratedEvaluator static eval, so search scores \
-            differ from the colour-mirror. See docs/nnue-phase2/SESSION_LOG_022.md."]
+#[ignore = "Residual defect: after the single-evaluator and unmake fixes, 1/16 positions still \
+            differs from its colour-mirror (59 cp at depth 1, 7 cp at depth 2, same best move). \
+            Likely colour-dependent move-ordering tie-breaks feeding pruning. Was 2/16 and 5/16 with up \
+            to 805 cp. See docs/nnue-phase2/SESSION_LOG_022.md. Slow (~15 min)."]
 fn search_is_colour_symmetric_depth_2() {
     search_symmetry(2);
 }
@@ -197,37 +198,145 @@ fn diagnostic_compare_evaluator_entry_points() {
     }
 }
 
-/// The search must score positions with a single evaluation function. Today it
-/// does not: `evaluate()` (IntegratedEvaluator, or NNUE when enabled) drives the
-/// static eval used for pruning, while quiescence scores every leaf with the
-/// tapered evaluator in `evaluate_with_context()` — which never consults NNUE.
-/// Checked with NNUE off and on.
+/// Classical play: the search's static eval (`evaluate`) and its leaf eval are
+/// the same function, the tapered evaluator with fixed context flags.
 #[test]
-#[ignore = "Defect: two evaluators in one search; NNUE never reaches leaf evaluation. \
-            See docs/nnue-phase2/SESSION_LOG_022.md."]
-fn search_uses_one_evaluation_function() {
-    let weights = std::path::Path::new("weights/session21/nnue_weights_s21_pov_final.bin");
-    let mut configs: Vec<(&str, PositionEvaluator)> = vec![("classical", PositionEvaluator::new())];
-    if weights.exists() {
-        let mut ev = PositionEvaluator::new();
-        ev.enable_nnue_with_weights(weights).expect("load weights");
-        ev.nnue_set_use_pov(true);
-        ev.nnue_set_use_hand_features(true);
-        configs.push(("nnue-pov", ev));
+fn classical_evaluate_is_the_canonical_classical_eval() {
+    let mut ev = PositionEvaluator::new();
+    for (i, sfen) in POSITIONS.iter().enumerate() {
+        let (b, stm, c) = BitboardBoard::from_fen(sfen).expect("from_fen");
+        assert_eq!(ev.evaluate(&b, stm, &c), ev.evaluate_classical(&b, stm, &c), "#{i}");
     }
-    let mut failures = Vec::new();
-    for (name, ev) in configs.iter_mut() {
-        for (i, sfen) in POSITIONS.iter().enumerate() {
-            let (b, stm, c) = BitboardBoard::from_fen(sfen).expect("from_fen");
-            let static_eval = ev.evaluate(&b, stm, &c);
-            let leaf_eval = ev.evaluate_with_context(&b, stm, &c, 1, false, false, false, true);
-            if static_eval != leaf_eval {
-                failures.push(format!("{name} #{i}: evaluate {static_eval} vs leaf {leaf_eval}"));
-            }
+}
+
+// ---------------------------------------------------------------------------
+// NNUE as the search evaluator. Mechanics are tested with a deterministic random
+// POV network so the tests are hermetic; they check staleness, perspective,
+// symmetry and incremental exactness, not playing strength.
+// ---------------------------------------------------------------------------
+
+fn random_pov_weights_file() -> std::path::PathBuf {
+    use shogi_engine::evaluation::nnue::{NNUEWeights, NUM_NNUE_FEATURES_WITH_HAND_TOTAL};
+    let path = std::env::temp_dir().join(format!("search_semantics_pov_{}.bin", std::process::id()));
+    if path.exists() {
+        return path;
+    }
+    let (h1, h2) = (64usize, 16usize);
+    let mut state: u64 = 0x5DEE_CE66_D1CE_4E5B;
+    let mut next = |lo: i32, hi: i32| -> i32 {
+        state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        lo + ((state >> 33) as i64 % (hi - lo + 1) as i64) as i32
+    };
+    // Moderate magnitudes keep scores in a normal cp range, away from mate scores.
+    let w = NNUEWeights {
+        input_weights_1: (0..NUM_NNUE_FEATURES_WITH_HAND_TOTAL)
+            .map(|_| (0..h1).map(|_| next(-20, 20) as i16).collect())
+            .collect(),
+        hidden_biases_1: (0..h1).map(|_| next(-10, 10)).collect(),
+        input_weights_2: Some((0..h1).map(|_| (0..h2).map(|_| next(-64, 64) as i16).collect()).collect()),
+        hidden_biases_2: Some((0..h2).map(|_| next(-10, 10)).collect()),
+        output_weights: (0..h2).map(|_| next(-64, 64) as i16).collect(),
+        output_bias: 0,
+    };
+    w.save(&path).expect("save random weights");
+    path
+}
+
+fn nnue_evaluator() -> PositionEvaluator {
+    let mut ev = PositionEvaluator::new();
+    ev.enable_nnue_with_weights(random_pov_weights_file()).expect("load");
+    ev.nnue_set_use_pov(true);
+    ev.nnue_set_use_hand_features(true);
+    ev
+}
+
+fn nnue_engine() -> SearchEngine {
+    let mut engine = SearchEngine::new(None, 16);
+    let ev = engine.get_evaluator_mut();
+    ev.enable_nnue_with_weights(random_pov_weights_file()).expect("load");
+    ev.nnue_set_use_pov(true);
+    ev.nnue_set_use_hand_features(true);
+    engine
+}
+
+/// Evaluating unrelated positions in sequence on one evaluator, with no manual
+/// refresh, must match a fresh evaluator every time. Before the fix every call
+/// after the first returned the first position's score (387 for all 16).
+#[test]
+fn nnue_evaluate_is_not_stale() {
+    let mut shared = nnue_evaluator();
+    let mut distinct = std::collections::HashSet::new();
+    for (i, sfen) in POSITIONS.iter().enumerate() {
+        let (b, stm, c) = BitboardBoard::from_fen(sfen).expect("from_fen");
+        let expected = nnue_evaluator().evaluate(&b, stm, &c);
+        assert_eq!(shared.evaluate(&b, stm, &c), expected, "#{i}");
+        distinct.insert(expected);
+    }
+    assert!(distinct.len() > POSITIONS.len() / 2, "NNUE scores should vary by position");
+}
+
+/// `evaluate` must answer for the requested player, not whichever side the
+/// accumulator last saw move (null-move search asks for the other side).
+#[test]
+fn nnue_evaluate_honours_player() {
+    for sfen in POSITIONS.iter() {
+        let (b, stm, c) = BitboardBoard::from_fen(sfen).expect("from_fen");
+        let mut ev = nnue_evaluator();
+        ev.nnue_refresh(&b, stm, &c);
+        ev.nnue_set_verify(true);
+        let _ = ev.evaluate(&b, stm, &c);
+        let _ = ev.evaluate(&b, stm.opposite(), &c);
+        let (checks, mismatches, first) = ev.nnue_verify_stats().unwrap();
+        assert_eq!(checks, 2);
+        assert_eq!(mismatches, 0, "{}", first.unwrap_or_default());
+    }
+}
+
+/// POV NNUE must be exactly colour-symmetric as a static evaluator.
+#[test]
+fn nnue_static_eval_is_colour_symmetric() {
+    for (i, sfen) in POSITIONS.iter().enumerate() {
+        let (b, stm, c) = BitboardBoard::from_fen(sfen).expect("from_fen");
+        let (mb, mc) = mirror(&b, &c);
+        let direct = nnue_evaluator().evaluate(&b, stm, &c);
+        let flipped = nnue_evaluator().evaluate(&mb, stm.opposite(), &mc);
+        assert_eq!(direct, flipped, "#{i}");
+    }
+}
+
+/// The incremental accumulator must equal a from-scratch evaluation at every
+/// node the search evaluates. Once NNUE scores the leaves, any board change that
+/// bypasses the make/unmake hooks would silently score the wrong position.
+#[test]
+fn nnue_incremental_is_exact_at_every_evaluated_node() {
+    let mut total_checks = 0;
+    for (i, sfen) in POSITIONS.iter().take(2).enumerate() {
+        let (b, stm, c) = BitboardBoard::from_fen(sfen).expect("from_fen");
+        let mut engine = nnue_engine();
+        engine.get_evaluator_mut().nnue_set_verify(true);
+        let mut id = IterativeDeepening::new(2, 600_000, None);
+        let _ = id.search(&mut engine, &b, &c, stm);
+        let (checks, mismatches, first) = engine.get_evaluator_mut().nnue_verify_stats().unwrap();
+        total_checks += checks;
+        assert_eq!(mismatches, 0, "#{i}: {mismatches}/{checks} mismatches; first: {}", first.unwrap_or_default());
+    }
+    assert!(total_checks > 100, "verification should have run at many nodes, ran {total_checks}");
+}
+
+/// With NNUE enabled, the evaluator must actually influence the search.
+/// Before the fix, classical and NNUE searches were identical on 28/28 positions.
+#[test]
+fn nnue_changes_search_results() {
+    let mut differ = 0;
+    for sfen in POSITIONS.iter().take(8) {
+        let (b, stm, c) = BitboardBoard::from_fen(sfen).expect("from_fen");
+        let classical = search(&b, &c, stm, 2);
+        let mut engine = nnue_engine();
+        let mut id = IterativeDeepening::new(2, 600_000, None);
+        let (mv, score) = id.search(&mut engine, &b, &c, stm).expect("a legal move");
+        if (mv.to_usi_string(), score) != classical {
+            differ += 1;
         }
     }
-    for f in &failures {
-        eprintln!("  {f}");
-    }
-    assert!(failures.is_empty(), "{} evaluator disagreements", failures.len());
+    assert!(differ > 0, "NNUE did not change any search result");
 }

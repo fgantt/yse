@@ -124,7 +124,7 @@ impl PositionEvaluator {
             weight_manager: WeightManager::new(),
             use_tuned_weights: false,
             integrated_evaluator: Some(IntegratedEvaluator::new()),
-            use_integrated_eval: true,
+            use_integrated_eval: false,
             advanced_integration: Some(AdvancedIntegration::new()),
             eval_cache: None,
             multi_level_cache: None,
@@ -143,7 +143,7 @@ impl PositionEvaluator {
             weight_manager: WeightManager::new(),
             use_tuned_weights: false,
             integrated_evaluator: Some(IntegratedEvaluator::new()),
-            use_integrated_eval: true,
+            use_integrated_eval: false,
             advanced_integration: Some(AdvancedIntegration::new()),
             eval_cache: None,
             multi_level_cache: None,
@@ -612,75 +612,69 @@ impl PositionEvaluator {
         final_score as i32
     }
 
-    /// Evaluate the current position from the perspective of the given player
+    /// Evaluate `board` from `player`'s perspective. **This is the search's single
+    /// evaluation function**: the static eval used for pruning, quiescence stand-pat
+    /// and leaf scores all come from here.
+    ///
+    /// * NNUE, when enabled, for the requested `player` (see
+    ///   [`NNUEEvaluator::evaluate_for`]).
+    /// * Otherwise the tapered classical evaluator, always with the same context
+    ///   flags. Those flags only affect king safety (quiescence uses a cheaper
+    ///   variant); fixing them makes the classical score a function of the position
+    ///   alone, so the evaluation cache never mixes scores computed under different
+    ///   contexts.
+    /// * The `IntegratedEvaluator` only when explicitly enabled
+    ///   (`enable_integrated_evaluator`, e.g. via a PST preset).
+    ///
+    /// Previously this routed classical play through `IntegratedEvaluator` while
+    /// quiescence called `evaluate_with_context` directly: two incompatible
+    /// evaluators in one tree, and NNUE never reached leaf evaluation. See
+    /// `docs/nnue-phase2/SESSION_LOG_022.md`.
     pub fn evaluate(
         &mut self,
         board: &BitboardBoard,
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> i32 {
-        // Use NNUE if enabled and available.
-        // Prefer incremental evaluation (skips full refresh if accumulator is in sync).
         if self.use_nnue {
             if let Some(ref mut nnue) = self.nnue_evaluator {
-                let nnue_score = nnue.evaluate_incremental(board);
-                return nnue_score;
+                return nnue.evaluate_for(board, player, captured_pieces);
             }
         }
 
-        // Try cache first (Task 3.1.2: Cache probe before evaluation)
-        if self.use_cache {
-            if let Some(ref cache) = self.eval_cache {
-                if let Some(score) = cache.probe(board, player, captured_pieces) {
-                    return score;
-                }
-            } else if let Some(ref ml_cache) = self.multi_level_cache {
-                if let Some(score) = ml_cache.probe(board, player, captured_pieces) {
-                    return score;
-                }
-            }
-        }
-        // Cache miss or cache disabled - evaluate normally
-        let score = if self.use_integrated_eval {
+        if self.use_integrated_eval {
             if let Some(ref mut integrated) = self.integrated_evaluator {
-                let result =
-                    integrated.evaluate_with_move_count(board, player, captured_pieces, None);
-                result.score
-            } else {
-                self.evaluate_with_context(
-                    board,
-                    player,
-                    captured_pieces,
-                    0,
-                    false,
-                    false,
-                    false,
-                    false,
-                )
-            }
-        } else {
-            self.evaluate_with_context(
-                board,
-                player,
-                captured_pieces,
-                0,
-                false,
-                false,
-                false,
-                false,
-            )
-        };
-
-        // Store in cache (Task 3.1.3: Cache store after evaluation)
-        if self.use_cache {
-            if let Some(ref cache) = self.eval_cache {
-                cache.store(board, player, captured_pieces, score, 0);
-            } else if let Some(ref ml_cache) = self.multi_level_cache {
-                ml_cache.store(board, player, captured_pieces, score, 0);
+                return integrated
+                    .evaluate_with_move_count(board, player, captured_pieces, None)
+                    .score;
             }
         }
 
-        score
+        self.evaluate_classical(board, player, captured_pieces)
+    }
+
+    /// The canonical classical evaluation: the tapered evaluator with the context
+    /// flags quiescence has always used. Cached (depth > 0 enables the cache).
+    pub fn evaluate_classical(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+    ) -> i32 {
+        self.evaluate_with_context(board, player, captured_pieces, 1, false, false, false, true)
+    }
+
+    /// Enable or disable NNUE verification: every NNUE evaluation is also computed
+    /// from scratch and compared. See [`NNUEEvaluator::set_verify`].
+    pub fn nnue_set_verify(&mut self, on: bool) {
+        if let Some(ref mut nnue) = self.nnue_evaluator {
+            nnue.set_verify(on);
+        }
+    }
+
+    /// (checks, mismatches, first mismatch) from NNUE verification mode.
+    pub fn nnue_verify_stats(&self) -> Option<(u64, u64, Option<String>)> {
+        self.nnue_evaluator.as_ref().map(|n| n.verify_stats())
     }
 
     /// Evaluate using tuned weights if available, otherwise use traditional

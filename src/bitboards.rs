@@ -253,8 +253,15 @@ pub struct MoveInfo {
     pub player: Player,
     /// Whether this was a promotion move
     pub was_promotion: bool,
-    /// The captured piece, if any
+    /// The captured piece, if any, **unpromoted** — the form it takes in hand.
+    /// Use this for hand bookkeeping.
     pub captured_piece: Option<Piece>,
+    /// The captured piece exactly as it stood on the board (possibly promoted).
+    /// Use this to restore the square on unmake and for anything keyed on the
+    /// board contents, such as NNUE piece-square features. Before this field
+    /// existed, `unmake_move` restored `captured_piece`, so capturing a tokin,
+    /// horse or dragon and unmaking put a pawn, bishop or rook back on the board.
+    pub captured_on_board: Option<Piece>,
 }
 
 impl MoveInfo {
@@ -267,7 +274,17 @@ impl MoveInfo {
         was_promotion: bool,
         captured_piece: Option<Piece>,
     ) -> Self {
-        Self { original_piece_type, from, to, player, was_promotion, captured_piece }
+        // Callers that only know the hand form get it for both; `make_move_with_info`
+        // sets `captured_on_board` to the real on-board piece.
+        Self {
+            original_piece_type,
+            from,
+            to,
+            player,
+            was_promotion,
+            captured_piece,
+            captured_on_board: captured_piece,
+        }
     }
 }
 
@@ -520,6 +537,7 @@ impl BitboardBoard {
     /// needed to unmake
     pub fn make_move_with_info(&mut self, move_: &Move) -> MoveInfo {
         let mut captured_piece = None;
+        let mut captured_on_board = None;
         let mut original_piece_type = move_.piece_type;
 
         if let Some(from) = move_.from {
@@ -535,6 +553,7 @@ impl BitboardBoard {
                 self.remove_piece(from);
                 if move_.is_capture {
                     if let Some(cp) = self.remove_piece(move_.to) {
+                        captured_on_board = Some(cp);
                         captured_piece = Some(cp.unpromoted());
                     }
                 }
@@ -561,14 +580,16 @@ impl BitboardBoard {
             self.place_piece(Piece::new(move_.piece_type, move_.player), move_.to);
         }
 
-        MoveInfo::new(
+        let mut info = MoveInfo::new(
             original_piece_type,
             move_.from,
             move_.to,
             move_.player,
             move_.is_promotion,
             captured_piece,
-        )
+        );
+        info.captured_on_board = captured_on_board;
+        info
     }
 
     /// Unmake a move, restoring the board to its previous state
@@ -604,7 +625,7 @@ impl BitboardBoard {
         self.remove_piece(move_info.to);
 
         // Restore the captured piece if there was one
-        if let Some(ref captured_piece) = move_info.captured_piece {
+        if let Some(ref captured_piece) = move_info.captured_on_board {
             self.place_piece(captured_piece.clone(), move_info.to);
         }
 

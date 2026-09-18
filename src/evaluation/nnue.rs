@@ -1020,6 +1020,24 @@ pub struct NNUEEvaluator {
     /// Snapshot stack for `accumulator_white`, pushed and popped in lockstep with
     /// `accumulator_stack` so unmake stays O(1).
     accumulator_stack_white: Vec<Vec<i32>>,
+    /// Verification mode: on every `evaluate_for`, also evaluate the position
+    /// from scratch and compare. Catches a desynchronised accumulator — a board
+    /// change that bypassed the make/unmake hooks — which otherwise silently
+    /// scores the wrong position. Off by default; costs a full refresh per call.
+    verify: bool,
+    verify_checks: u64,
+    verify_mismatches: u64,
+    first_mismatch: Option<String>,
+    /// Occupancy of the board the accumulator currently represents, maintained by
+    /// the same make/unmake hooks. `evaluate_for` compares it with the real board
+    /// (one 128-bit compare) and rebuilds on mismatch, so a board change that
+    /// bypassed the hooks cannot silently score the wrong position. `None` when
+    /// unknown (before the first refresh).
+    synced_occ: Option<u128>,
+    synced_occ_stack: Vec<Option<u128>>,
+    /// Rebuilds triggered by an occupancy mismatch. Non-zero during search means
+    /// some code path changes the board without calling the NNUE hooks.
+    resyncs: u64,
 }
 
 impl NNUEEvaluator {
@@ -1042,6 +1060,13 @@ impl NNUEEvaluator {
             use_pov: false,
             accumulator_white: NNUEAccumulator::new(hidden_size_1, hidden_size_2),
             accumulator_stack_white: Vec::with_capacity(128),
+            verify: false,
+            verify_checks: 0,
+            verify_mismatches: 0,
+            first_mismatch: None,
+            synced_occ: None,
+            synced_occ_stack: Vec::with_capacity(128),
+            resyncs: 0,
         }
     }
 
@@ -1064,6 +1089,13 @@ impl NNUEEvaluator {
             use_pov: false,
             accumulator_white: NNUEAccumulator::new(size_1, size_2),
             accumulator_stack_white: Vec::with_capacity(128),
+            verify: false,
+            verify_checks: 0,
+            verify_mismatches: 0,
+            first_mismatch: None,
+            synced_occ: None,
+            synced_occ_stack: Vec::with_capacity(128),
+            resyncs: 0,
         }
     }
 
@@ -1323,6 +1355,146 @@ impl NNUEEvaluator {
         self.active_accumulator().evaluate(&self.weights)
     }
 
+    /// Score `board` for `player` to move. This is the search's evaluation entry
+    /// point.
+    ///
+    /// Unlike [`Self::evaluate_incremental`], it honours `player`: the accumulator
+    /// encodes whoever it last saw move, and the search sometimes asks about the
+    /// other side without making a move (null-move search). Under POV the two
+    /// perspective accumulators are both maintained, so the right one is simply
+    /// read. The legacy encodings bake the side to move into the accumulator, so a
+    /// mismatch is evaluated from scratch instead — correct, and it leaves the
+    /// make/unmake state untouched.
+    pub fn evaluate_for(
+        &mut self,
+        board: &BitboardBoard,
+        player: Player,
+        captured: &CapturedPieces,
+    ) -> i32 {
+        if !self.enabled {
+            return 0;
+        }
+        let occ = board.get_occupied_bitboard().to_u128();
+        if self.synced_occ != Some(occ) {
+            if self.synced_occ.is_some() {
+                self.resyncs += 1;
+            }
+            self.needs_refresh = true;
+        }
+        if self.needs_refresh {
+            self.refresh_in_place(board, player, captured);
+        }
+        let score = if self.use_pov {
+            let acc =
+                if player == Player::White { &self.accumulator_white } else { &self.accumulator };
+            acc.evaluate(&self.weights)
+        } else if player == self.current_stm {
+            self.accumulator.evaluate(&self.weights)
+        } else {
+            self.scratch_score(board, player, captured)
+        };
+        if self.verify {
+            let reference = self.scratch_score(board, player, captured);
+            self.verify_checks += 1;
+            if reference != score {
+                self.verify_mismatches += 1;
+                if self.first_mismatch.is_none() {
+                    let mut hands = String::new();
+                    for (pi, p) in [Player::Black, Player::White].iter().enumerate() {
+                        for (ti, &pt) in HAND_PIECE_TYPES.iter().enumerate() {
+                            let tracked = self.hand_counts[pi][ti] as usize;
+                            let actual = captured.count(pt, *p);
+                            if tracked != actual {
+                                hands.push_str(&format!(
+                                    " {:?} {:?}: tracked {} actual {};",
+                                    p, pt, tracked, actual
+                                ));
+                            }
+                        }
+                    }
+                    self.first_mismatch = Some(format!(
+                        "incremental {} vs full refresh {} for {:?} (acc stm {:?}) at {}; hand \
+                         diffs:{}",
+                        score,
+                        reference,
+                        player,
+                        self.current_stm,
+                        board.to_fen(player, captured),
+                        if hands.is_empty() { " none".to_string() } else { hands }
+                    ));
+                }
+            }
+        }
+        score
+    }
+
+    /// Full evaluation of `board` for `player` on a scratch accumulator. Touches no
+    /// evaluator state.
+    fn scratch_score(&self, board: &BitboardBoard, player: Player, captured: &CapturedPieces) -> i32 {
+        let (h1, h2) = self.weights.hidden_sizes();
+        let mut acc = NNUEAccumulator::new(h1, h2);
+        let base = self.hand_feature_base();
+        if self.use_pov {
+            acc.refresh_pov(board, player, &self.weights);
+            if self.use_hand_features {
+                acc.add_hand_contributions_pov(captured, player, &self.weights, base);
+            }
+        } else {
+            if self.use_halfkp {
+                acc.refresh_halfkp(board, player, &self.weights, self.use_stm_feature);
+            } else if self.use_stm_feature {
+                acc.refresh_with_stm(board, player, &self.weights);
+            } else {
+                acc.refresh(board, &self.weights);
+            }
+            if self.use_hand_features {
+                acc.add_hand_contributions(captured, &self.weights, base);
+            }
+        }
+        acc.evaluate(&self.weights)
+    }
+
+    /// Rebuild the accumulator(s) from `board` without clearing the make/unmake
+    /// snapshot stacks, so a refresh in mid-search leaves later unmakes valid.
+    fn refresh_in_place(&mut self, board: &BitboardBoard, player: Player, captured: &CapturedPieces) {
+        if self.use_pov {
+            self.refresh_pov_pair(board, Some(captured));
+        } else {
+            if self.use_halfkp {
+                self.accumulator.refresh_halfkp(board, player, &self.weights, self.use_stm_feature);
+            } else if self.use_stm_feature {
+                self.accumulator.refresh_with_stm(board, player, &self.weights);
+            } else {
+                self.accumulator.refresh(board, &self.weights);
+            }
+            if self.use_hand_features {
+                let base = self.hand_feature_base();
+                self.accumulator.add_hand_contributions(captured, &self.weights, base);
+                self.set_hand_counts_from(captured);
+            }
+        }
+        self.current_stm = player;
+        self.synced_occ = Some(board.get_occupied_bitboard().to_u128());
+        self.needs_refresh = false;
+    }
+
+    /// Occupancy-mismatch rebuilds since construction. See `synced_occ`.
+    pub fn resyncs(&self) -> u64 {
+        self.resyncs
+    }
+
+    pub fn set_verify(&mut self, on: bool) {
+        self.verify = on;
+        self.verify_checks = 0;
+        self.verify_mismatches = 0;
+        self.first_mismatch = None;
+    }
+
+    /// (checks, mismatches, first mismatch) since `set_verify(true)`.
+    pub fn verify_stats(&self) -> (u64, u64, Option<String>) {
+        (self.verify_checks, self.verify_mismatches, self.first_mismatch.clone())
+    }
+
     /// Evaluate using the current accumulator state (no refresh).
     ///
     /// This is the fast path used during search when the accumulator is kept
@@ -1410,7 +1582,23 @@ impl NNUEEvaluator {
         captured_piece: Option<Piece>,
         was_promotion: bool,
     ) {
-        if !self.enabled || self.needs_refresh {
+        if !self.enabled {
+            return;
+        }
+        if self.needs_refresh {
+            // The accumulator is already invalid, so there is nothing to update —
+            // but the snapshot stacks must still be pushed. `nnue_unmake_move`
+            // always pops, and skipping the push here used to make it pop the
+            // snapshot belonging to an *earlier* move. Recording the occupancy as
+            // unknown makes the next `evaluate_for` rebuild.
+            self.accumulator_stack.push(self.accumulator.hidden_1.clone());
+            if self.use_pov {
+                self.accumulator_stack_white.push(self.accumulator_white.hidden_1.clone());
+            }
+            self.hand_counts_stack.push(self.hand_counts);
+            self.synced_occ_stack.push(None);
+            self.synced_occ = None;
+            self.current_stm = original_piece.player.opposite();
             return;
         }
 
@@ -1423,6 +1611,13 @@ impl NNUEEvaluator {
         // them. Pushed unconditionally to keep the stack length aligned with
         // accumulator_stack (independent of whether `use_hand_features` is on).
         self.hand_counts_stack.push(self.hand_counts);
+        self.synced_occ_stack.push(self.synced_occ);
+        if let Some(ref mut occ) = self.synced_occ {
+            if let Some(f) = from {
+                *occ &= !(1u128 << f.to_u8());
+            }
+            *occ |= 1u128 << to.to_u8();
+        }
 
         // Session 19: update cached `hand_counts` for capture/drop. Promoted
         // captures revert to base type in hand. Tracked unconditionally so
@@ -1605,6 +1800,9 @@ impl NNUEEvaluator {
             if let Some(prev_hand) = self.hand_counts_stack.pop() {
                 self.hand_counts = prev_hand;
             }
+            if let Some(prev_occ) = self.synced_occ_stack.pop() {
+                self.synced_occ = prev_occ;
+            }
             // Session 17: under HalfKP, make_move forced a refresh on the
             // post-move state but the popped snapshot is the valid pre-move
             // accumulator — clear needs_refresh so the next evaluate uses
@@ -1660,6 +1858,8 @@ impl NNUEEvaluator {
             }
         }
         self.current_stm = side_to_move;
+        self.synced_occ = Some(board.get_occupied_bitboard().to_u128());
+        self.synced_occ_stack.clear();
         self.accumulator_stack.clear();
         self.accumulator_stack_white.clear();
         self.hand_counts_stack.clear();

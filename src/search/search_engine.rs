@@ -7334,16 +7334,7 @@ impl SearchEngine {
 
         // If recursion is too deep, return static evaluation immediately
         if recursion_depth.1 {
-            let static_eval = self.evaluator.evaluate_with_context(
-                board,
-                player,
-                captured_pieces,
-                depth,
-                false,
-                false,
-                false,
-                true,
-            );
+            let static_eval = self.evaluator.evaluate(board, player, captured_pieces);
             return static_eval;
         }
 
@@ -7372,16 +7363,7 @@ impl SearchEngine {
                 return best_score;
             }
             // Fallback to static evaluation if no best score tracked
-            let static_eval = self.evaluator.evaluate_with_context(
-                board,
-                player,
-                captured_pieces,
-                depth,
-                false,
-                false,
-                false,
-                true,
-            );
+            let static_eval = self.evaluator.evaluate(board, player, captured_pieces);
             // crate::trace_log_fast!("QUIESCENCE", &format!("Time limit reached,
             // returning static evaluation: {}", static_eval));
             return static_eval;
@@ -7419,16 +7401,7 @@ impl SearchEngine {
         if depth == 0 || depth > self.quiescence_config.max_depth {
             // crate::trace_log_fast!("QUIESCENCE", &format!("Depth limit reached
             // (depth={}), evaluating position", depth));
-            let score = self.evaluator.evaluate_with_context(
-                board,
-                player,
-                captured_pieces,
-                depth,
-                false,
-                false,
-                false,
-                true,
-            );
+            let score = self.evaluator.evaluate(board, player, captured_pieces);
             // crate::trace_log_fast!("QUIESCENCE", &format!("Position evaluation:
             // {}", score));
             return score;
@@ -7521,16 +7494,7 @@ impl SearchEngine {
             cached
         } else {
             // Evaluate stand-pat (will be cached later in TT entry)
-            self.evaluator.evaluate_with_context(
-                board,
-                player,
-                captured_pieces,
-                depth,
-                false,
-                false,
-                false,
-                true,
-            )
+            self.evaluator.evaluate(board, player, captured_pieces)
         };
         // crate::trace_log_fast!("QUIESCENCE", &format!("Stand-pat evaluation:
         // {} (cached: {})", stand_pat, cached_stand_pat.is_some()));
@@ -14064,7 +14028,10 @@ impl SearchEngine {
             move_info.to,
             moved_piece,
             original_piece,
-            move_info.captured_piece,
+            // The on-board form: the hook removes this piece's feature from `to`,
+            // so it must be the promoted piece if that is what was captured. The
+            // hook derives the hand type itself by unpromoting.
+            move_info.captured_on_board,
             move_info.was_promotion,
         );
     }
