@@ -102,6 +102,14 @@ pub const HAND_FEATURE_BASE_HALFKP: usize = NUM_NNUE_FEATURES_HALFKP_TOTAL;
 pub const NUM_NNUE_FEATURES_HALFKP_WITH_HAND_TOTAL: usize =
     NUM_NNUE_FEATURES_HALFKP_TOTAL + NUM_HAND_FEATURES;
 
+/// Rows per own-king square in the king-conditioned perspective feature space:
+/// the whole POV feature space (board pieces, the unused side-to-move row, and
+/// hand features) is repeated once for each square the perspective's own king
+/// can stand on.
+pub const KING_FEATURE_STRIDE: usize = NUM_NNUE_FEATURES_WITH_HAND_TOTAL;
+/// Input rows of a king-conditioned network: 81 × [`KING_FEATURE_STRIDE`].
+pub const NUM_NNUE_FEATURES_KING_TOTAL: usize = NUM_SQUARES * KING_FEATURE_STRIDE;
+
 /// Default size of first hidden layer
 pub const DEFAULT_HIDDEN_SIZE_1: usize = 256;
 
@@ -326,7 +334,15 @@ impl NNUEWeights {
     /// the board and in hand, `-value` for each of the opponent's. Each hand
     /// thermometer level counts one piece. `num_rows` is the network's input row
     /// count; the side-to-move row, unused under POV, scores zero.
+    ///
+    /// For a king-conditioned network (`num_rows` a multiple of
+    /// [`KING_FEATURE_STRIDE`]) the same values repeat in every king bucket.
     pub fn material_psqt(num_rows: usize) -> Vec<i32> {
+        let flat = Self::material_psqt_flat(KING_FEATURE_STRIDE);
+        (0..num_rows).map(|f| flat[f % KING_FEATURE_STRIDE]).collect()
+    }
+
+    fn material_psqt_flat(num_rows: usize) -> Vec<i32> {
         let mut psqt = vec![0i32; num_rows];
         for (side, sign) in [(Player::Black, 1), (Player::White, -1)] {
             for pt in ALL_PIECE_TYPES {
@@ -514,15 +530,21 @@ impl NNUEWeights {
             .unwrap_or(false);
         let (file_data, features): (NNUEWeightFile, Option<NNUEFeatureSet>) = if is_bin {
             let bytes = std::fs::read(path)?;
-            if let Some(rest) = bytes.strip_prefix(NNUE_BIN_MAGIC_V3) {
+            if let Some(rest) = bytes.strip_prefix(NNUE_BIN_MAGIC_V4) {
                 let (fs, w, psqt): (NNUEFeatureSet, NNUEWeightFile, Vec<i32>) =
                     bincode::deserialize(rest)?;
                 let mut weights = Self::from_file_data(w);
                 weights.psqt = psqt;
                 return Ok((weights, Some(fs)));
+            } else if let Some(rest) = bytes.strip_prefix(NNUE_BIN_MAGIC_V3) {
+                let (fs, w, psqt): (NNUEFeatureSetV2, NNUEWeightFile, Vec<i32>) =
+                    bincode::deserialize(rest)?;
+                let mut weights = Self::from_file_data(w);
+                weights.psqt = psqt;
+                return Ok((weights, Some(fs.into())));
             } else if let Some(rest) = bytes.strip_prefix(NNUE_BIN_MAGIC_V2) {
-                let (fs, w): (NNUEFeatureSet, NNUEWeightFile) = bincode::deserialize(rest)?;
-                (w, Some(fs))
+                let (fs, w): (NNUEFeatureSetV2, NNUEWeightFile) = bincode::deserialize(rest)?;
+                (w, Some(fs.into()))
             } else {
                 (bincode::deserialize(&bytes)?, None)
             }
@@ -621,13 +643,8 @@ impl NNUEWeights {
         let mut writer = BufWriter::new(File::create(path)?);
         if is_bin {
             use std::io::Write;
-            if self.psqt.is_empty() {
-                writer.write_all(NNUE_BIN_MAGIC_V2)?;
-                bincode::serialize_into(writer, &(features, file_data))?;
-            } else {
-                writer.write_all(NNUE_BIN_MAGIC_V3)?;
-                bincode::serialize_into(writer, &(features, file_data, &self.psqt))?;
-            }
+            writer.write_all(NNUE_BIN_MAGIC_V4)?;
+            bincode::serialize_into(writer, &(features, file_data, &self.psqt))?;
         } else {
             let v2 = NNUEWeightFileV2Json {
                 feature_set: features,
@@ -637,6 +654,44 @@ impl NNUEWeights {
             serde_json::to_writer_pretty(writer, &v2)?;
         }
         Ok(())
+    }
+
+    /// Whether layer 2 reads both perspectives (`2 × hidden_size_1` rows).
+    pub fn is_dual(&self) -> bool {
+        self.input_weights_2
+            .as_ref()
+            .map_or(false, |w2| w2.len() == 2 * self.hidden_biases_1.len())
+    }
+
+    /// Turn a single-perspective network into a two-perspective one computing
+    /// the same function: the new opponent-perspective half of layer 2 starts at
+    /// zero, so training begins from the existing network rather than from noise.
+    pub fn make_dual(&mut self) {
+        let h1 = self.hidden_biases_1.len();
+        if let Some(w2) = self.input_weights_2.as_mut() {
+            if w2.len() == h1 {
+                let h2 = w2.first().map_or(0, Vec::len);
+                w2.extend((0..h1).map(|_| vec![0i16; h2]));
+            }
+        }
+    }
+
+    /// Turn a POV network (`KING_FEATURE_STRIDE` input rows) into a
+    /// king-conditioned one by copying its input rows and PSQT into all 81
+    /// own-king buckets. The result computes exactly the same function; training
+    /// then specialises each bucket. This stands in for the "factoriser" of
+    /// modern NNUE trainers: rarely seen king squares keep sensible weights
+    /// instead of starting from noise.
+    pub fn tile_for_king(&mut self) {
+        if self.input_weights_1.len() != KING_FEATURE_STRIDE {
+            return;
+        }
+        let base = std::mem::take(&mut self.input_weights_1);
+        self.input_weights_1 = (0..NUM_SQUARES).flat_map(|_| base.iter().cloned()).collect();
+        if self.psqt.len() == KING_FEATURE_STRIDE {
+            let p = std::mem::take(&mut self.psqt);
+            self.psqt = (0..NUM_SQUARES).flat_map(|_| p.iter().copied()).collect();
+        }
     }
 
     /// Get hidden layer sizes
@@ -661,6 +716,30 @@ pub struct NNUEFeatureSet {
     pub halfkp: bool,
     /// Pieces-in-hand thermometer features.
     pub hand: bool,
+    /// POV features conditioned on each perspective's own king square
+    /// ([`KING_FEATURE_STRIDE`] rows per square). Requires `pov`.
+    #[serde(default)]
+    pub king: bool,
+    /// Layer 2 reads both perspectives' accumulators (the weights also say so:
+    /// see [`NNUEWeights::is_dual`]). Requires `pov`.
+    #[serde(default)]
+    pub dual: bool,
+}
+
+/// The v2/v3 on-disk layout of [`NNUEFeatureSet`]. bincode is positional, so
+/// fields added later cannot be read from these files by the new struct.
+#[derive(Serialize, Deserialize)]
+struct NNUEFeatureSetV2 {
+    pov: bool,
+    stm: bool,
+    halfkp: bool,
+    hand: bool,
+}
+
+impl From<NNUEFeatureSetV2> for NNUEFeatureSet {
+    fn from(v: NNUEFeatureSetV2) -> Self {
+        Self { pov: v.pov, stm: v.stm, halfkp: v.halfkp, hand: v.hand, king: false, dual: false }
+    }
 }
 
 impl NNUEFeatureSet {
@@ -673,12 +752,21 @@ impl NNUEFeatureSet {
                 "stm" => fs.stm = true,
                 "halfkp" => fs.halfkp = true,
                 "hand" => fs.hand = true,
+                "king" => fs.king = true,
+                "dual" => fs.dual = true,
                 "flat" => {}
-                other => return Err(format!("unknown feature '{other}' (expected pov, stm, halfkp, hand, flat)")),
+                other => {
+                    return Err(format!(
+                        "unknown feature '{other}' (expected pov, stm, halfkp, hand, king, dual, flat)"
+                    ))
+                }
             }
         }
         if fs.pov && (fs.stm || fs.halfkp) {
             return Err("pov cannot be combined with stm or halfkp".into());
+        }
+        if (fs.king || fs.dual) && !fs.pov {
+            return Err("king and dual need pov".into());
         }
         Ok(fs)
     }
@@ -691,6 +779,8 @@ impl std::fmt::Display for NNUEFeatureSet {
         if self.stm { parts.push("stm"); }
         if self.halfkp { parts.push("halfkp"); }
         if self.hand { parts.push("hand"); }
+        if self.king { parts.push("king"); }
+        if self.dual { parts.push("dual"); }
         if parts.is_empty() { parts.push("flat"); }
         write!(f, "{}", parts.join(","))
     }
@@ -705,6 +795,11 @@ const NNUE_BIN_MAGIC_V2: &[u8] = b"SHOGINNUE2";
 /// bincode-encoded `(NNUEFeatureSet, NNUEWeightFile, Vec<i32>)`. Written only
 /// for networks that have a PSQT path, so files without one stay v2.
 const NNUE_BIN_MAGIC_V3: &[u8] = b"SHOGINNUE3";
+
+/// Magic prefix of v4 binary weight files, the current format:
+/// `(NNUEFeatureSet, NNUEWeightFile, Vec<i32> psqt)` with the full feature set
+/// (including `king` and `dual`). The PSQT vector is empty when absent.
+const NNUE_BIN_MAGIC_V4: &[u8] = b"SHOGINNUE4";
 
 /// v2 JSON weight file: `{ "feature_set": {...}, "weights": {...} }`.
 #[derive(Serialize, Deserialize)]
@@ -726,6 +821,25 @@ struct NNUEWeightFile {
     output_bias: i32,
 }
 
+/// Saved accumulator state for make/unmake: see [`NNUEAccumulator::snapshot`].
+#[derive(Debug, Clone)]
+pub struct AccSnapshot {
+    hidden_1: Vec<i32>,
+    psqt: i32,
+    king_offset: usize,
+    dirty: bool,
+}
+
+/// Row offset of `frame`'s own-king bucket: the square of `frame`'s king, seen
+/// from `frame` (so both perspectives use the same 81 buckets), times
+/// [`KING_FEATURE_STRIDE`]. A king-less board (never reached in play) uses 0.
+pub fn king_offset(board: &BitboardBoard, frame: Player) -> usize {
+    match find_king_square(board, frame) {
+        Some(sq) => to_mover_frame(frame, frame, sq).1 as usize * KING_FEATURE_STRIDE,
+        None => 0,
+    }
+}
+
 /// NNUE accumulator for efficient incremental updates
 /// Stores the accumulated hidden layer values
 #[derive(Debug, Clone)]
@@ -737,6 +851,16 @@ pub struct NNUEAccumulator {
     /// Sum of [`NNUEWeights::psqt`] over the active features, in centipawns.
     /// Zero for networks without a PSQT path.
     pub psqt: i32,
+    /// King-conditioned features: every feature index is offset by
+    /// [`Self::king_offset`], the own-king bucket of this accumulator's frame.
+    pub king_mode: bool,
+    /// `own_king_square_in_frame × KING_FEATURE_STRIDE`, set by
+    /// [`Self::refresh_pov`]; 0 unless `king_mode`.
+    pub king_offset: usize,
+    /// The frame's own king has moved since the last refresh, so `king_offset`
+    /// and every row in the sum are stale. Incremental updates cannot fix this;
+    /// the owner must call [`Self::refresh_pov`] before evaluating.
+    pub dirty: bool,
     /// Size of hidden layer 1 (used internally)
     #[allow(dead_code)]
     hidden_size_1: usize,
@@ -752,6 +876,9 @@ impl NNUEAccumulator {
             hidden_1: vec![0; hidden_size_1],
             hidden_2: if hidden_size_2 > 0 { Some(vec![0; hidden_size_2]) } else { None },
             psqt: 0,
+            king_mode: false,
+            king_offset: 0,
+            dirty: false,
             hidden_size_1,
             hidden_size_2,
         }
@@ -788,14 +915,21 @@ impl NNUEAccumulator {
 
     /// The state `nnue_make_move` saves for unmake: hidden layer 1 and the PSQT
     /// sum. Hidden layer 2 is recomputed at evaluation and needs no saving.
-    pub fn snapshot(&self) -> (Vec<i32>, i32) {
-        (self.hidden_1.clone(), self.psqt)
+    pub fn snapshot(&self) -> AccSnapshot {
+        AccSnapshot {
+            hidden_1: self.hidden_1.clone(),
+            psqt: self.psqt,
+            king_offset: self.king_offset,
+            dirty: self.dirty,
+        }
     }
 
     /// Restore a [`Self::snapshot`].
-    pub fn restore(&mut self, (hidden_1, psqt): (Vec<i32>, i32)) {
-        self.hidden_1 = hidden_1;
-        self.psqt = psqt;
+    pub fn restore(&mut self, snap: AccSnapshot) {
+        self.hidden_1 = snap.hidden_1;
+        self.psqt = snap.psqt;
+        self.king_offset = snap.king_offset;
+        self.dirty = snap.dirty;
     }
 
     /// Refresh accumulator from scratch for a position (no side-to-move
@@ -903,10 +1037,13 @@ impl NNUEAccumulator {
         if let Some(ref mut h2) = self.hidden_2 {
             h2.fill(0);
         }
+        self.king_offset = if self.king_mode { king_offset(board, stm) } else { 0 };
+        self.dirty = false;
         for sq in 0..81u8 {
             let pos = Position::from_u8(sq);
             if let Some(piece) = board.get_piece(pos) {
-                let feat = feature_index_pov(stm, piece.player, piece.piece_type, sq);
+                let feat =
+                    self.king_offset + feature_index_pov(stm, piece.player, piece.piece_type, sq);
                 if feat < weights.input_weights_1.len() {
                     self.add_feature(feat, weights);
                 }
@@ -930,6 +1067,7 @@ impl NNUEAccumulator {
                 let active_levels = count.min(MAX_HAND_COUNT[type_idx]);
                 for k in 1..=active_levels {
                     if let Some(feat) = hand_feature_index_pov(base, stm, player, piece_type, k) {
+                        let feat = self.king_offset + feat;
                         if feat < weights.input_weights_1.len() {
                             self.add_feature(feat, weights);
                         }
@@ -1012,7 +1150,8 @@ impl NNUEAccumulator {
         square: Position,
         weights: &NNUEWeights,
     ) {
-        let feat = feature_index_pov(frame, piece.player, piece.piece_type, square.to_u8());
+        let feat =
+            self.king_offset + feature_index_pov(frame, piece.player, piece.piece_type, square.to_u8());
         if feat < weights.input_weights_1.len() {
             self.add_feature(feat, weights);
         }
@@ -1026,7 +1165,8 @@ impl NNUEAccumulator {
         square: Position,
         weights: &NNUEWeights,
     ) {
-        let feat = feature_index_pov(frame, piece.player, piece.piece_type, square.to_u8());
+        let feat =
+            self.king_offset + feature_index_pov(frame, piece.player, piece.piece_type, square.to_u8());
         if feat < weights.input_weights_1.len() {
             self.sub_feature(feat, weights);
         }
@@ -1043,6 +1183,7 @@ impl NNUEAccumulator {
         k: u8,
     ) {
         if let Some(feat) = hand_feature_index_pov(base, frame, player, piece_type, k) {
+            let feat = self.king_offset + feat;
             if feat < weights.input_weights_1.len() {
                 self.add_feature(feat, weights);
             }
@@ -1060,6 +1201,7 @@ impl NNUEAccumulator {
         k: u8,
     ) {
         if let Some(feat) = hand_feature_index_pov(base, frame, player, piece_type, k) {
+            let feat = self.king_offset + feat;
             if feat < weights.input_weights_1.len() {
                 self.sub_feature(feat, weights);
             }
@@ -1112,67 +1254,115 @@ impl NNUEAccumulator {
     /// Optimized to avoid heap allocations by using a stack-allocated array for the
     /// second hidden layer (max 32 neurons in the default architecture).
     pub fn evaluate(&self, weights: &NNUEWeights) -> i32 {
-        // Apply ReLU to hidden layer 1: activated[i] = max(0, hidden_1[i] + bias[i])
         let activated_1: Vec<i32> = self
             .hidden_1
             .iter()
             .zip(weights.hidden_biases_1.iter())
             .map(|(&h, &bias)| (h + bias).max(0))
             .collect();
+        forward_from_activations(&activated_1, weights) + self.psqt
+    }
 
-        // Accumulate products at full precision and apply the >> 6 scale once
-        // per layer, rather than flooring every individual term.
-        //
-        // Per-term flooring was a systematic distortion, not rounding noise: with
-        // 256 hidden-1 terms it biased each hidden-2 pre-activation by ~128 units,
-        // and the trainer's f32 forward pass (which divides exactly) never saw it,
-        // so the optimiser was differentiating a function the engine did not
-        // compute. Measured drift between the two was 148-673 cp.
-        //
-        // i64 accumulation is what makes the single shift safe: activations reach
-        // ~10^4 (up to ~78 active features x the +/-127 input-weight clamp) and
-        // hidden-2 weights reach +/-32767, so 256 terms can exceed i32. The old
-        // per-term shift was in effect overflow protection bought with accuracy.
-        //
-        // See `docs/nnue-phase2/FEATURE_SPEC_AND_AUDIT.md` Finding 3.
-        if let (Some(ref weights_2), Some(ref biases_2)) =
-            (weights.input_weights_2.as_ref(), weights.hidden_biases_2.as_ref())
-        {
-            let hidden_size_2 = biases_2.len();
-            debug_assert!(hidden_size_2 <= 32, "Hidden layer 2 size exceeds stack buffer");
-            let mut h2_values = [0i64; 32];
+    /// Evaluate a two-perspective network: layer 2 reads the side to move's
+    /// activated accumulator followed by the opponent's (`2 × hidden_size_1`
+    /// inputs, one shared feature transformer), as in modern NNUE designs.
+    ///
+    /// The PSQT term is `(stm.psqt - nstm.psqt) / 2`: each accumulator scores
+    /// material from its own side, so for a material PSQT the two halves agree
+    /// and this is just `stm.psqt`.
+    pub fn evaluate_dual(stm: &Self, nstm: &Self, weights: &NNUEWeights) -> i32 {
+        let activated: Vec<i32> = stm
+            .hidden_1
+            .iter()
+            .chain(nstm.hidden_1.iter())
+            .zip(weights.hidden_biases_1.iter().chain(weights.hidden_biases_1.iter()))
+            .map(|(&h, &bias)| (h + bias).max(0))
+            .collect();
+        forward_from_activations(&activated, weights) + (stm.psqt - nstm.psqt) / 2
+    }
+}
 
-            for (i, &act_1) in activated_1.iter().enumerate() {
-                if act_1 == 0 {
-                    continue; // Skip zero activations (ReLU killed)
-                }
-                let a = act_1 as i64;
-                for (j, &weight) in weights_2[i].iter().enumerate() {
-                    h2_values[j] += a * weight as i64;
-                }
+/// Layers 2 and 3 of the network, from the activated first layer, in
+/// centipawns without the PSQT term. `activated_1` has `hidden_size_1` entries
+/// for a single-perspective network and twice that for a two-perspective one;
+/// `input_weights_2` has one row per entry.
+///
+/// Accumulate products at full precision and apply the >> 6 scale once per
+/// layer, rather than flooring every individual term.
+///
+/// Per-term flooring was a systematic distortion, not rounding noise: with 256
+/// hidden-1 terms it biased each hidden-2 pre-activation by ~128 units, and the
+/// trainer's f32 forward pass (which divides exactly) never saw it, so the
+/// optimiser was differentiating a function the engine did not compute.
+/// Measured drift between the two was 148-673 cp.
+///
+/// i64 accumulation is what makes the single shift safe: activations reach
+/// ~10^4 and hidden-2 weights reach +/-32767, so 256 terms can exceed i32.
+///
+/// See `docs/nnue-phase2/FEATURE_SPEC_AND_AUDIT.md` Finding 3.
+fn forward_from_activations(activated_1: &[i32], weights: &NNUEWeights) -> i32 {
+    if let (Some(weights_2), Some(biases_2)) =
+        (weights.input_weights_2.as_ref(), weights.hidden_biases_2.as_ref())
+    {
+        let hidden_size_2 = biases_2.len();
+        debug_assert!(hidden_size_2 <= 32, "Hidden layer 2 size exceeds stack buffer");
+        let mut h2_values = [0i64; 32];
+        for (i, &act_1) in activated_1.iter().enumerate() {
+            if act_1 == 0 {
+                continue; // Skip zero activations (ReLU killed)
             }
-
-            // Fused: ReLU(h2 + bias) dot output_weights, avoiding a second
-            // allocation. `output_bias` is in post-shift units (the trainer adds
-            // it without dividing), so it is added after the shift, not before.
-            let mut dot: i64 = 0;
-            for j in 0..hidden_size_2 {
-                let h2_activated = ((h2_values[j] >> 6) as i32 + biases_2[j]).max(0) as i64;
-                dot += h2_activated * weights.output_weights[j] as i64;
+            let Some(row) = weights_2.get(i) else { break };
+            let a = act_1 as i64;
+            for (j, &weight) in row.iter().enumerate() {
+                h2_values[j] += a * weight as i64;
             }
-            let output = weights.output_bias + (dot >> 6) as i32;
-
-            (output * SCALE_FACTOR) / OUTPUT_DIVISOR + self.psqt
-        } else {
-            // No second hidden layer: dot activated_1 with output_weights
-            let mut dot: i64 = 0;
-            for (&act, &weight) in activated_1.iter().zip(weights.output_weights.iter()) {
-                dot += act as i64 * weight as i64;
-            }
-            let output = weights.output_bias + (dot >> 6) as i32;
-
-            (output * SCALE_FACTOR) / OUTPUT_DIVISOR + self.psqt
         }
+        // `output_bias` is in post-shift units (the trainer adds it without
+        // dividing), so it is added after the shift, not before.
+        let mut dot: i64 = 0;
+        for j in 0..hidden_size_2 {
+            let h2_activated = ((h2_values[j] >> 6) as i32 + biases_2[j]).max(0) as i64;
+            dot += h2_activated * weights.output_weights[j] as i64;
+        }
+        let output = weights.output_bias + (dot >> 6) as i32;
+        (output * SCALE_FACTOR) / OUTPUT_DIVISOR
+    } else {
+        let mut dot: i64 = 0;
+        for (&act, &weight) in activated_1.iter().zip(weights.output_weights.iter()) {
+            dot += act as i64 * weight as i64;
+        }
+        let output = weights.output_bias + (dot >> 6) as i32;
+        (output * SCALE_FACTOR) / OUTPUT_DIVISOR
+    }
+}
+
+/// Score `board` for `stm` to move with a POV network, from scratch: builds both
+/// perspective accumulators and applies the single- or two-perspective forward
+/// pass. The reference that incremental evaluation is verified against, and the
+/// evaluation the offline trainer validates with, so all three agree.
+pub fn score_pov_scratch(
+    weights: &NNUEWeights,
+    king: bool,
+    hand: bool,
+    board: &BitboardBoard,
+    stm: Player,
+    captured: &CapturedPieces,
+) -> i32 {
+    let (h1, h2) = weights.hidden_sizes();
+    let build = |frame: Player| {
+        let mut acc = NNUEAccumulator::new(h1, h2);
+        acc.king_mode = king;
+        acc.refresh_pov(board, frame, weights);
+        if hand {
+            acc.add_hand_contributions_pov(captured, frame, weights, HAND_FEATURE_BASE_FLAT);
+        }
+        acc
+    };
+    let mine = build(stm);
+    if weights.is_dual() {
+        NNUEAccumulator::evaluate_dual(&mine, &build(stm.opposite()), weights)
+    } else {
+        mine.evaluate(weights)
     }
 }
 
@@ -1192,7 +1382,7 @@ pub struct NNUEEvaluator {
     accumulator: NNUEAccumulator,
     /// Stack of accumulator hidden_1 states for make/unmake during search.
     /// Each entry is a snapshot of hidden_1 before a make_move.
-    accumulator_stack: Vec<(Vec<i32>, i32)>,
+    accumulator_stack: Vec<AccSnapshot>,
     /// Session 19: parallel stack of `hand_counts` snapshots, pushed alongside
     /// `accumulator_stack` so `nnue_unmake_move` can restore the pre-move
     /// counts without recomputing them from the move info (which the unmake
@@ -1248,7 +1438,7 @@ pub struct NNUEEvaluator {
     accumulator_white: NNUEAccumulator,
     /// Snapshot stack for `accumulator_white`, pushed and popped in lockstep with
     /// `accumulator_stack` so unmake stays O(1).
-    accumulator_stack_white: Vec<(Vec<i32>, i32)>,
+    accumulator_stack_white: Vec<AccSnapshot>,
     /// Verification mode: on every `evaluate_for`, also evaluate the position
     /// from scratch and compare. Catches a desynchronised accumulator — a board
     /// change that bypassed the make/unmake hooks — which otherwise silently
@@ -1268,6 +1458,10 @@ pub struct NNUEEvaluator {
     /// some code path changes the board without calling the NNUE hooks.
     resyncs: u64,    /// Feature set declared by the weight file (v2 files only).
     feature_set: Option<NNUEFeatureSet>,
+    /// King-conditioned POV features: each perspective's accumulator is indexed
+    /// by its own king's square. A king move marks that perspective's
+    /// accumulator dirty, and `evaluate_for` rebuilds it from the board.
+    use_king: bool,
     /// Identifies the loaded network (and its feature flags), so parallel-search
     /// workers can tell whether their copy is current without comparing weights.
     network_id: u64,
@@ -1307,6 +1501,7 @@ impl NNUEEvaluator {
             synced_occ_stack: Vec::with_capacity(128),
             resyncs: 0,
             feature_set: None,
+            use_king: false,
             network_id: next_network_id(),
         }
     }
@@ -1338,6 +1533,7 @@ impl NNUEEvaluator {
             synced_occ_stack: Vec::with_capacity(128),
             resyncs: 0,
             feature_set: None,
+            use_king: false,
             network_id: next_network_id(),
         }
     }
@@ -1361,13 +1557,57 @@ impl NNUEEvaluator {
         self.use_pov
     }
 
-    /// The accumulator to read for the side currently to move.
-    #[inline]
-    fn active_accumulator(&self) -> &NNUEAccumulator {
-        if self.use_pov && self.current_stm == Player::White {
-            &self.accumulator_white
+    /// Enable king-conditioned POV features (see `use_king`). Implies POV.
+    pub fn set_use_king(&mut self, on: bool) {
+        if on && !self.use_pov {
+            self.set_use_pov(true);
+        }
+        self.network_id = next_network_id();
+        self.use_king = on;
+        self.accumulator.king_mode = on;
+        self.accumulator_white.king_mode = on;
+        self.invalidate();
+    }
+
+    /// POV score for `player` to move from the two perspective accumulators:
+    /// the mover's alone for a single-perspective network, both for a
+    /// two-perspective one.
+    fn pov_score(&self, player: Player) -> i32 {
+        let (mine, theirs) = if player == Player::White {
+            (&self.accumulator_white, &self.accumulator)
         } else {
-            &self.accumulator
+            (&self.accumulator, &self.accumulator_white)
+        };
+        if self.weights.is_dual() {
+            NNUEAccumulator::evaluate_dual(mine, theirs, &self.weights)
+        } else {
+            mine.evaluate(&self.weights)
+        }
+    }
+
+    /// Score for the side the accumulator last saw to move.
+    fn current_score(&self) -> i32 {
+        if self.use_pov {
+            self.pov_score(self.current_stm)
+        } else {
+            self.accumulator.evaluate(&self.weights)
+        }
+    }
+
+    /// Rebuild any perspective whose own king has moved (king-conditioned only).
+    fn refresh_dirty_frames(&mut self, board: &BitboardBoard, captured: &CapturedPieces) {
+        let base = self.hand_feature_base();
+        let hand = self.use_hand_features;
+        for (frame, acc) in [
+            (Player::Black, &mut self.accumulator),
+            (Player::White, &mut self.accumulator_white),
+        ] {
+            if acc.dirty {
+                acc.refresh_pov(board, frame, &self.weights);
+                if hand {
+                    acc.add_hand_contributions_pov(captured, frame, &self.weights, base);
+                }
+            }
         }
     }
 
@@ -1446,6 +1686,7 @@ impl NNUEEvaluator {
     pub fn apply_feature_set(&mut self, fs: NNUEFeatureSet) {
         if fs.pov {
             self.set_use_pov(true);
+            self.set_use_king(fs.king);
         } else {
             self.set_use_halfkp(fs.halfkp);
             self.set_use_stm_feature(fs.stm);
@@ -1468,11 +1709,14 @@ impl NNUEEvaluator {
         c.use_halfkp = self.use_halfkp;
         c.use_hand_features = self.use_hand_features;
         c.use_pov = self.use_pov;
+        c.use_king = self.use_king;
         c.enabled = self.enabled;
         c.feature_set = self.feature_set;
         c.network_id = self.network_id;
         c.accumulator = NNUEAccumulator::new(h1, h2);
         c.accumulator_white = NNUEAccumulator::new(h1, h2);
+        c.accumulator.king_mode = self.use_king;
+        c.accumulator_white.king_mode = self.use_king;
         c.needs_refresh = true;
         c
     }
@@ -1645,7 +1889,7 @@ impl NNUEEvaluator {
         self.needs_refresh = false;
 
         // Evaluate using accumulator
-        self.active_accumulator().evaluate(&self.weights)
+        self.current_score()
     }
 
     /// Score `board` for `player` to move. This is the search's evaluation entry
@@ -1677,10 +1921,11 @@ impl NNUEEvaluator {
         if self.needs_refresh {
             self.refresh_in_place(board, player, captured);
         }
+        if self.use_king {
+            self.refresh_dirty_frames(board, captured);
+        }
         let score = if self.use_pov {
-            let acc =
-                if player == Player::White { &self.accumulator_white } else { &self.accumulator };
-            acc.evaluate(&self.weights)
+            self.pov_score(player)
         } else if player == self.current_stm {
             self.accumulator.evaluate(&self.weights)
         } else {
@@ -1728,10 +1973,14 @@ impl NNUEEvaluator {
         let mut acc = NNUEAccumulator::new(h1, h2);
         let base = self.hand_feature_base();
         if self.use_pov {
-            acc.refresh_pov(board, player, &self.weights);
-            if self.use_hand_features {
-                acc.add_hand_contributions_pov(captured, player, &self.weights, base);
-            }
+            return score_pov_scratch(
+                &self.weights,
+                self.use_king,
+                self.use_hand_features,
+                board,
+                player,
+                captured,
+            );
         } else {
             if self.use_halfkp {
                 acc.refresh_halfkp(board, player, &self.weights, self.use_stm_feature);
@@ -1802,7 +2051,9 @@ impl NNUEEvaluator {
             return 0;
         }
 
-        if self.needs_refresh {
+        let king_dirty =
+            self.use_king && (self.accumulator.dirty || self.accumulator_white.dirty);
+        if self.needs_refresh || king_dirty {
             // Session 17: HalfKP fallback uses the tracked `current_stm` to
             // re-anchor the refresh on the to-move's own king square. For
             // flat features without stm, fallback to the legacy refresh path.
@@ -1833,7 +2084,7 @@ impl NNUEEvaluator {
             self.needs_refresh = false;
         }
 
-        self.active_accumulator().evaluate(&self.weights)
+        self.current_score()
     }
 
     /// Session 19: fold the thermometer hand-feature contributions into
@@ -2016,6 +2267,21 @@ impl NNUEEvaluator {
                     acc.remove_piece_in_frame(frame, captured, to, &self.weights);
                 }
                 acc.add_piece_in_frame(frame, landed, to, &self.weights);
+            }
+            // The mover's own king bucket changed: every row in that perspective
+            // is now indexed wrongly. The other perspective sees the king as an
+            // ordinary piece, so its incremental update above is correct.
+            // The search can also capture a king (pseudo-legal lines inside
+            // quiescence); the victim's perspective then has no king bucket.
+            if self.use_king {
+                for piece in [Some(original_piece), captured_piece].into_iter().flatten() {
+                    if piece.piece_type == PieceType::King {
+                        match piece.player {
+                            Player::Black => self.accumulator.dirty = true,
+                            Player::White => self.accumulator_white.dirty = true,
+                        }
+                    }
+                }
             }
             self.current_stm = original_piece.player.opposite();
             return;

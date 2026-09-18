@@ -203,6 +203,10 @@ pub struct TrainingPosition {
     pub outcome: Option<GameResult>,
     /// TD target value (computed during training)
     pub td_target: Option<f32>,
+    /// Two-perspective networks: the opponent perspective's active features and
+    /// accumulator. Empty / `None` for single-perspective training.
+    pub active_features_nstm: Vec<usize>,
+    pub accumulator_nstm: Option<NNUEAccumulator>,
 }
 
 /// Self-play training data from a single game
@@ -920,6 +924,7 @@ impl NNUETrainer {
             std::collections::HashMap::new();
         let mut acc_b1: Vec<f32> = vec![0.0_f32; h1_size];
         let psqt_trainable = self.config.psqt_learning_rate > 0.0 && !self.shadow.psqt.is_empty();
+        let dual = self.weights.is_dual();
         let mut acc_psqt: std::collections::HashMap<usize, f32> = std::collections::HashMap::new();
 
         let mut total_error = 0.0_f32;
@@ -950,26 +955,37 @@ impl NNUETrainer {
             // un-rounded weight values that subsequent gradient updates are
             // accumulating into. Active features come straight from the
             // `position.active_features` list the offline trainer populates.
-            let h1_pre: Vec<f32> = if f32_input_forward {
-                let mut v = self.shadow.hidden_biases_1.clone();
-                for &feat in &position.active_features {
-                    if feat < self.shadow.input_weights_1.len() {
-                        let row = &self.shadow.input_weights_1[feat];
-                        for (i, &w) in row.iter().enumerate() {
-                            v[i] += w;
+            let first_layer = |acc: &NNUEAccumulator, features: &[usize]| -> Vec<f32> {
+                if f32_input_forward {
+                    let mut v = self.shadow.hidden_biases_1.clone();
+                    for &feat in features {
+                        if feat < self.shadow.input_weights_1.len() {
+                            let row = &self.shadow.input_weights_1[feat];
+                            for (i, &w) in row.iter().enumerate() {
+                                v[i] += w;
+                            }
                         }
                     }
+                    v
+                } else {
+                    acc.hidden_1
+                        .iter()
+                        .zip(self.weights.hidden_biases_1.iter())
+                        .map(|(&h, &b)| (h + b) as f32)
+                        .collect()
                 }
-                v
-            } else {
-                position
-                    .accumulator
-                    .hidden_1
-                    .iter()
-                    .zip(self.weights.hidden_biases_1.iter())
-                    .map(|(&h, &b)| (h + b) as f32)
-                    .collect()
             };
+            // Two-perspective networks read the side to move's first layer
+            // followed by the opponent's; `h1_pre` is then `2 × h1_size` long and
+            // index `h1_size + i` belongs to the opponent perspective.
+            let mut h1_pre: Vec<f32> = first_layer(&position.accumulator, &position.active_features);
+            if dual {
+                let nstm = position
+                    .accumulator_nstm
+                    .as_ref()
+                    .expect("two-perspective training needs accumulator_nstm");
+                h1_pre.extend(first_layer(nstm, &position.active_features_nstm));
+            }
             let h1_act: Vec<f32> = h1_pre.iter().map(|&x| x.max(0.0)).collect();
 
             // NOTE: this forward pass is duplicated in
@@ -1008,11 +1024,16 @@ impl NNUETrainer {
             // The PSQT path adds straight to the output in centipawns, as in the
             // engine's `NNUEAccumulator::evaluate`. Read from the f32 shadow so
             // that sub-centipawn updates are seen before they round.
-            let psqt_cp: f32 = position
-                .active_features
-                .iter()
-                .filter_map(|&f| self.shadow.psqt.get(f))
-                .sum();
+            let psqt_sum = |features: &[usize]| -> f32 {
+                features.iter().filter_map(|&f| self.shadow.psqt.get(f)).sum()
+            };
+            // Two perspectives: (stm - nstm) / 2, as in `evaluate_dual`.
+            let psqt_cp: f32 = if dual {
+                (psqt_sum(&position.active_features) - psqt_sum(&position.active_features_nstm))
+                    / 2.0
+            } else {
+                psqt_sum(&position.active_features)
+            };
             let output_cp = raw_output * SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32 + psqt_cp;
             // Session 13: prediction either tanh (legacy) over [-1,1] or
             // sigmoid (new) over [0,1]. Both forms accept output_cp; tanh uses
@@ -1059,9 +1080,18 @@ impl NNUETrainer {
             let d_raw = weighted_error * pred_deriv * scale_deriv;
             // d(output_cp)/d(psqt[f]) = 1 for every active feature.
             if psqt_trainable {
+                let (g_stm, g_nstm) = if dual { (0.5, -0.5) } else { (1.0, 0.0) };
                 for &f in &position.active_features {
                     if f < self.shadow.psqt.len() {
-                        *acc_psqt.entry(f).or_insert(0.0) += weighted_error * pred_deriv;
+                        *acc_psqt.entry(f).or_insert(0.0) += g_stm * weighted_error * pred_deriv;
+                    }
+                }
+                if dual {
+                    for &f in &position.active_features_nstm {
+                        if f < self.shadow.psqt.len() {
+                            *acc_psqt.entry(f).or_insert(0.0) +=
+                                g_nstm * weighted_error * pred_deriv;
+                        }
                     }
                 }
             }
@@ -1087,16 +1117,17 @@ impl NNUETrainer {
                 Vec::new()
             };
 
-            let mut d_h1 = vec![0.0_f32; h1_size];
+            let h1_total = h1_act.len();
+            let mut d_h1 = vec![0.0_f32; h1_total];
             if let Some(ref w2) = self.weights.input_weights_2 {
-                for i in 0..h1_size {
+                for i in 0..h1_total {
                     for j in 0..h2_size {
                         if h2_pre[j] > 0.0 {
                             d_h1[i] += d_h2[j] * (w2[i][j] as f32 / 64.0);
                         }
                     }
                 }
-                for i in 0..h1_size {
+                for i in 0..h1_total {
                     for j in 0..h2_size {
                         if h2_pre[j] > 0.0 {
                             acc_w2[i][j] += d_h2[j] * (h1_act[i] / 64.0);
@@ -1116,22 +1147,30 @@ impl NNUETrainer {
                 }
             }
 
-            for &feature_idx in &position.active_features {
-                if feature_idx >= num_features {
-                    continue;
-                }
-                let entry = acc_input_w
-                    .entry(feature_idx)
-                    .or_insert_with(|| vec![0.0_f32; h1_size]);
-                for i in 0..h1_size {
-                    if h1_pre[i] > 0.0 {
-                        entry[i] += d_h1[i];
+            // Both perspectives share one feature transformer: each perspective's
+            // active rows take the gradient of its own half of `d_h1`.
+            let mut halves: Vec<(&[usize], usize)> = vec![(&position.active_features, 0)];
+            if dual {
+                halves.push((&position.active_features_nstm, h1_size));
+            }
+            for (features, off) in halves {
+                for &feature_idx in features {
+                    if feature_idx >= num_features {
+                        continue;
+                    }
+                    let entry = acc_input_w
+                        .entry(feature_idx)
+                        .or_insert_with(|| vec![0.0_f32; h1_size]);
+                    for i in 0..h1_size {
+                        if h1_pre[off + i] > 0.0 {
+                            entry[i] += d_h1[off + i];
+                        }
                     }
                 }
-            }
-            for i in 0..h1_size {
-                if h1_pre[i] > 0.0 {
-                    acc_b1[i] += d_h1[i];
+                for i in 0..h1_size {
+                    if h1_pre[off + i] > 0.0 {
+                        acc_b1[i] += d_h1[off + i];
+                    }
                 }
             }
         }
@@ -1197,7 +1236,7 @@ impl NNUETrainer {
                 adam.input_weights_2_m.as_mut(),
                 adam.input_weights_2_v.as_mut(),
             ) {
-                for i in 0..h1_size {
+                for i in 0..shadow_w2.len() {
                     for j in 0..h2_size {
                         adam_apply(
                             &mut shadow_w2[i][j],
@@ -1282,7 +1321,7 @@ impl NNUETrainer {
             self.shadow.output_bias += acc_output_b * lr * out_scale;
 
             if let Some(ref mut shadow_w2) = self.shadow.input_weights_2 {
-                for i in 0..h1_size {
+                for i in 0..shadow_w2.len() {
                     for j in 0..h2_size {
                         shadow_w2[i][j] += acc_w2[i][j] * lr * out_scale;
                     }
@@ -1583,6 +1622,31 @@ pub fn extract_active_features_pov(board: &BitboardBoard, stm: Player) -> Vec<us
 
 /// Perspective-normalised flat extraction plus the pieces-in-hand thermometer,
 /// with the hand holder also expressed as mover/opponent.
+/// Active features of one perspective (`frame`) of a POV network, including
+/// hand features when `hand` and the own-king bucket offset when `king`. This
+/// is exactly what [`NNUEAccumulator::refresh_pov`] plus
+/// `add_hand_contributions_pov` activate for that frame.
+pub fn extract_features_frame(
+    board: &BitboardBoard,
+    frame: Player,
+    captured: &CapturedPieces,
+    hand: bool,
+    king: bool,
+) -> Vec<usize> {
+    let mut f = if hand {
+        extract_active_features_pov_with_hand(board, frame, captured)
+    } else {
+        extract_active_features_pov(board, frame)
+    };
+    if king {
+        let off = crate::evaluation::nnue::king_offset(board, frame);
+        for x in f.iter_mut() {
+            *x += off;
+        }
+    }
+    f
+}
+
 pub fn extract_active_features_pov_with_hand(
     board: &BitboardBoard,
     stm: Player,

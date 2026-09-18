@@ -434,3 +434,100 @@ fn parallel_workers_receive_the_main_engines_network() {
     let mut off = parallel.create_thread_context(&b, &c, stm, 16);
     assert_eq!(off.search_engine_mut().get_evaluator().nnue_network_id(), None);
 }
+
+// ---------------------------------------------------------------------------
+// Two-perspective, king-conditioned networks: the modern-NNUE layout. A king
+// move marks the mover's perspective dirty and it is rebuilt from the board, so
+// the exactness test below must see king moves during search.
+// ---------------------------------------------------------------------------
+
+fn random_king_dual_weights_file() -> std::path::PathBuf {
+    static PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        use shogi_engine::evaluation::nnue::{NNUEFeatureSet, NNUEWeights};
+        let src = random_pov_weights_file();
+        let (mut w, _) = NNUEWeights::load_with_features(&src).expect("load fixture");
+        w.tile_for_king();
+        w.make_dual();
+        // Make every king bucket and the opponent half differ, so a stale bucket
+        // or a swapped perspective changes the score.
+        let mut state: u64 = 0x9E37_79B9_7F4A_7C15;
+        let mut next = |lo: i32, hi: i32| -> i32 {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            lo + ((state >> 33) as i64 % (hi - lo + 1) as i64) as i32
+        };
+        for row in w.input_weights_1.iter_mut() {
+            for v in row.iter_mut() {
+                *v = (*v as i32 + next(-5, 5)) as i16;
+            }
+        }
+        let h1 = w.hidden_biases_1.len();
+        for row in w.input_weights_2.as_mut().unwrap()[h1..].iter_mut() {
+            for v in row.iter_mut() {
+                *v = next(-64, 64) as i16;
+            }
+        }
+        let path = std::env::temp_dir()
+            .join(format!("search_semantics_king_dual_{}.bin", std::process::id()));
+        w.save_with_features(&path, NNUEFeatureSet::parse("pov,hand,king,dual").unwrap())
+            .expect("save");
+        path
+    })
+    .clone()
+}
+
+fn king_dual_evaluator() -> PositionEvaluator {
+    let mut ev = PositionEvaluator::new();
+    ev.enable_nnue_with_weights(random_king_dual_weights_file()).expect("load");
+    ev
+}
+
+#[test]
+fn king_dual_network_declares_its_features() {
+    let ev = king_dual_evaluator();
+    let fs = ev.nnue_declared_feature_set().expect("v4 file declares features");
+    assert!(fs.pov && fs.hand && fs.king && fs.dual, "{fs}");
+}
+
+#[test]
+fn king_dual_evaluate_is_not_stale_and_honours_player() {
+    let mut shared = king_dual_evaluator();
+    for (i, sfen) in POSITIONS.iter().enumerate() {
+        let (b, stm, c) = BitboardBoard::from_fen(sfen).expect("from_fen");
+        for p in [stm, stm.opposite()] {
+            let expected = king_dual_evaluator().evaluate(&b, p, &c);
+            assert_eq!(shared.evaluate(&b, p, &c), expected, "#{i} {p:?}");
+        }
+    }
+}
+
+#[test]
+fn king_dual_static_eval_is_colour_symmetric() {
+    for (i, sfen) in POSITIONS.iter().enumerate() {
+        let (b, stm, c) = BitboardBoard::from_fen(sfen).expect("from_fen");
+        let (mb, mc) = mirror(&b, &c);
+        let direct = king_dual_evaluator().evaluate(&b, stm, &c);
+        let flipped = king_dual_evaluator().evaluate(&mb, stm.opposite(), &mc);
+        assert_eq!(direct, flipped, "#{i}");
+    }
+}
+
+#[test]
+fn king_dual_incremental_is_exact_at_every_evaluated_node() {
+    let mut total_checks = 0;
+    for (i, sfen) in POSITIONS.iter().take(4).enumerate() {
+        let (b, stm, c) = BitboardBoard::from_fen(sfen).expect("from_fen");
+        let mut engine = SearchEngine::new(None, 16);
+        engine
+            .get_evaluator_mut()
+            .enable_nnue_with_weights(random_king_dual_weights_file())
+            .expect("load");
+        engine.get_evaluator_mut().nnue_set_verify(true);
+        let mut id = IterativeDeepening::new(2, 600_000, None);
+        let _ = id.search(&mut engine, &b, &c, stm);
+        let (checks, mismatches, first) = engine.get_evaluator_mut().nnue_verify_stats().unwrap();
+        total_checks += checks;
+        assert_eq!(mismatches, 0, "#{i}: {mismatches}/{checks}; first: {}", first.unwrap_or_default());
+    }
+    assert!(total_checks > 100, "ran {total_checks} checks");
+}

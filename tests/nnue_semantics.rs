@@ -518,3 +518,53 @@ fn material_psqt_survives_save_load_and_the_engine_evaluator() {
     // The legacy format cannot hold a PSQT vector, so it must refuse.
     assert!(weights.save(std::env::temp_dir().join("nnue_psqt_legacy.bin")).is_err());
 }
+
+// ---------------------------------------------------------------------------
+// Architecture expansions used to warm-start training: each must leave the
+// function the network computes unchanged.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn make_dual_and_tile_for_king_preserve_the_network() {
+    use shogi_engine::evaluation::nnue::{score_pov_scratch, NUM_NNUE_FEATURES_KING_TOTAL};
+    let mut w = det_weights(NUM_NNUE_FEATURES_WITH_HAND_TOTAL, 16, 8);
+    w.psqt = NNUEWeights::material_psqt(NUM_NNUE_FEATURES_WITH_HAND_TOTAL);
+    let score = |w: &NNUEWeights, king: bool, fen: &str| {
+        let (b, stm, c) = BitboardBoard::from_fen(fen).unwrap();
+        score_pov_scratch(w, king, true, &b, stm, &c)
+    };
+    let before: Vec<i32> = MATERIAL_FENS.iter().map(|f| score(&w, false, f)).collect();
+    w.make_dual();
+    assert!(w.is_dual());
+    let dual: Vec<i32> = MATERIAL_FENS.iter().map(|f| score(&w, false, f)).collect();
+    assert_eq!(before, dual, "make_dual must not change scores");
+    w.tile_for_king();
+    assert_eq!(w.input_weights_1.len(), NUM_NNUE_FEATURES_KING_TOTAL);
+    let king: Vec<i32> = MATERIAL_FENS.iter().map(|f| score(&w, true, f)).collect();
+    assert_eq!(before, king, "tile_for_king must not change scores");
+}
+
+/// The trainer's feature lists must be exactly what the engine's accumulator
+/// activates, for both perspectives and with king buckets.
+#[test]
+fn trainer_frame_features_match_engine_refresh_with_king_buckets() {
+    use shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_KING_TOTAL;
+    use shogi_engine::evaluation::nnue_training::extract_features_frame;
+    let w = det_weights(NUM_NNUE_FEATURES_KING_TOTAL, 8, 4);
+    for fen in MATERIAL_FENS {
+        let (b, _stm, c) = BitboardBoard::from_fen(fen).unwrap();
+        for frame in [Player::Black, Player::White] {
+            let mut acc = NNUEAccumulator::new(8, 4);
+            acc.king_mode = true;
+            acc.refresh_pov(&b, frame, &w);
+            acc.add_hand_contributions_pov(&c, frame, &w, HAND_FEATURE_BASE_FLAT);
+            let mut sum = vec![0i32; 8];
+            for f in extract_features_frame(&b, frame, &c, true, true) {
+                for (s, &x) in sum.iter_mut().zip(&w.input_weights_1[f]) {
+                    *s += x as i32;
+                }
+            }
+            assert_eq!(acc.hidden_1, sum, "{fen} {frame:?}");
+        }
+    }
+}

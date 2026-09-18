@@ -172,6 +172,8 @@ fn play_self_play_game(
             move_made: None,
             outcome: None,
             td_target: None,
+            active_features_nstm: Vec::new(),
+            accumulator_nstm: None,
         });
 
         // Search uses PST evaluator (not NNUE) for move selection

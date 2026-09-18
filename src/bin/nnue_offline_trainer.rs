@@ -25,13 +25,14 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::nnue::{
-    NNUEFeatureSet, HAND_FEATURE_BASE_FLAT, HAND_FEATURE_BASE_HALFKP, NNUEAccumulator, NNUEWeights,
+    score_pov_scratch, NNUEAccumulator, NNUEFeatureSet, NNUEWeights, HAND_FEATURE_BASE_FLAT,
+    HAND_FEATURE_BASE_HALFKP,
 };
 use shogi_engine::evaluation::nnue_training::{
     extract_active_features, extract_active_features_halfkp,
     extract_active_features_halfkp_with_hand, extract_active_features_halfkp_with_stm,
-    extract_active_features_halfkp_with_stm_and_hand, extract_active_features_pov,
-    extract_active_features_pov_with_hand, extract_active_features_with_hand,
+    extract_active_features_halfkp_with_stm_and_hand, extract_active_features_with_hand,
+    extract_features_frame,
     extract_active_features_with_stm, extract_active_features_with_stm_and_hand, NNUETrainer,
     NNUETrainingConfig, TrainingPosition,
 };
@@ -281,6 +282,20 @@ struct Cli {
     /// held-out record, so scores stay comparable with runs without the filter.
     #[arg(long)]
     skip_noisy: bool,
+
+    /// Condition each perspective's features on its own king square (81 buckets
+    /// of the POV feature space). A POV network passed as `--init-weights` is
+    /// copied into every bucket, so training starts from the same function.
+    /// Requires `--use-pov-features --use-hand-features`.
+    #[arg(long)]
+    king_features: bool,
+
+    /// Layer 2 reads both perspectives' accumulators (side to move, then
+    /// opponent). A single-perspective `--init-weights` network is extended with
+    /// a zeroed opponent half, so training starts from the same function.
+    /// Requires `--use-pov-features`.
+    #[arg(long)]
+    dual_perspective: bool,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -298,6 +313,7 @@ fn validation_pearson(
     use_hand_features: bool,
     eval_clamp: i32,
     use_pov: bool,
+    use_king: bool,
 ) -> Option<f32> {
     if sample_size == 0 {
         return None;
@@ -350,7 +366,7 @@ fn validation_pearson(
             None => continue,
         };
         if use_pov {
-            acc.refresh_pov(&board, rec.player, weights);
+            // Handled below by `score_pov_scratch`, the engine's own reference.
         } else if use_halfkp {
             acc.refresh_halfkp(&board, rec.player, weights, use_stm_feature);
         } else if use_stm_feature {
@@ -358,14 +374,15 @@ fn validation_pearson(
         } else {
             acc.refresh(&board, weights);
         }
-        if use_hand_features {
-            if use_pov {
-                acc.add_hand_contributions_pov(&captured, rec.player, weights, hand_base);
-            } else {
-                acc.add_hand_contributions(&captured, weights, hand_base);
-            }
+        if use_hand_features && !use_pov {
+            acc.add_hand_contributions(&captured, weights, hand_base);
         }
-        let net_cp = acc.evaluate(weights) as f32;
+        let net_cp = if use_pov {
+            score_pov_scratch(weights, use_king, use_hand_features, &board, rec.player, &captured)
+                as f32
+        } else {
+            acc.evaluate(weights) as f32
+        };
         let clamped = teacher_cp.max(-eval_clamp).min(eval_clamp);
         if clamped != teacher_cp {
             n_clamped += 1;
@@ -715,6 +732,7 @@ fn build_position(
     use_halfkp: bool,
     use_hand_features: bool,
     use_pov: bool,
+    use_king: bool,
 ) -> Option<TrainingPosition> {
     let target = target_for(
         rec,
@@ -728,11 +746,7 @@ fn build_position(
     let active_features = if use_pov {
         // Perspective normalisation supersedes the stm bit: the mover is always
         // "Black" in the normalised frame, so the bit carries no information.
-        if use_hand_features {
-            extract_active_features_pov_with_hand(&board, rec.player, &captured)
-        } else {
-            extract_active_features_pov(&board, rec.player)
-        }
+        extract_features_frame(&board, rec.player, &captured, use_hand_features, use_king)
     } else if use_halfkp {
         if use_hand_features && use_stm_feature {
             extract_active_features_halfkp_with_stm_and_hand(&board, rec.player, &captured)
@@ -762,6 +776,7 @@ fn build_position(
     }
     let (h1, h2) = weights.hidden_sizes();
     let mut accumulator = NNUEAccumulator::new(h1, h2);
+    accumulator.king_mode = use_king;
     let hand_base = if use_halfkp { HAND_FEATURE_BASE_HALFKP } else { HAND_FEATURE_BASE_FLAT };
     if use_pov {
         accumulator.refresh_pov(&board, rec.player, weights);
@@ -779,7 +794,23 @@ fn build_position(
             accumulator.add_hand_contributions(&captured, weights, hand_base);
         }
     }
-    let nnue_eval = accumulator.evaluate(weights);
+    // Two-perspective networks also need the opponent's view of the position.
+    let (active_features_nstm, accumulator_nstm) = if use_pov && weights.is_dual() {
+        let other = rec.player.opposite();
+        let mut acc = NNUEAccumulator::new(h1, h2);
+        acc.king_mode = use_king;
+        acc.refresh_pov(&board, other, weights);
+        if use_hand_features {
+            acc.add_hand_contributions_pov(&captured, other, weights, hand_base);
+        }
+        (extract_features_frame(&board, other, &captured, use_hand_features, use_king), Some(acc))
+    } else {
+        (Vec::new(), None)
+    };
+    let nnue_eval = match &accumulator_nstm {
+        Some(n) => NNUEAccumulator::evaluate_dual(&accumulator, n, weights),
+        None => accumulator.evaluate(weights),
+    };
     Some(TrainingPosition {
         active_features,
         accumulator,
@@ -789,6 +820,8 @@ fn build_position(
         move_made: None,
         outcome: None,
         td_target: Some(target),
+        active_features_nstm,
+        accumulator_nstm,
     })
 }
 
@@ -1010,6 +1043,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut initial_weights = initial_weights;
+    if (cli.king_features || cli.dual_perspective)
+        && !(cli.use_pov_features && cli.use_hand_features)
+    {
+        return Err("--king-features / --dual-perspective need --use-pov-features \
+                    --use-hand-features"
+            .into());
+    }
     if cli.psqt_material && initial_weights.psqt.is_empty() {
         if !cli.use_pov_features {
             return Err("--psqt-material needs --use-pov-features (material is scored from the \
@@ -1018,6 +1058,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         initial_weights.psqt = NNUEWeights::material_psqt(initial_weights.input_weights_1.len());
     }
+    if cli.king_features {
+        initial_weights.tile_for_king();
+        if initial_weights.input_weights_1.len()
+            != shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_KING_TOTAL
+        {
+            return Err(format!(
+                "--king-features: weights have {} input rows, expected {} (or a {}-row POV \
+                 network to expand)",
+                initial_weights.input_weights_1.len(),
+                shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_KING_TOTAL,
+                shogi_engine::evaluation::nnue::KING_FEATURE_STRIDE
+            )
+            .into());
+        }
+    }
+    if cli.dual_perspective {
+        initial_weights.make_dual();
+    }
+    println!(
+        "  Architecture: {} input rows, {}{} -> {} -> 1",
+        initial_weights.input_weights_1.len(),
+        initial_weights.hidden_sizes().0,
+        if initial_weights.is_dual() { "x2 (both perspectives)" } else { "" },
+        initial_weights.hidden_sizes().1
+    );
     println!(
         "  PSQT path:    {}",
         match (initial_weights.psqt.is_empty(), cli.psqt_lr > 0.0) {
@@ -1054,6 +1119,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         stm: cli.use_stm_feature && !cli.use_pov_features,
         halfkp: cli.use_halfkp,
         hand: cli.use_hand_features,
+        king: cli.king_features,
+        dual: cli.dual_perspective,
     };
     println!("  Feature set:  {} (written into every saved weight file)", feature_set);
 
@@ -1090,6 +1157,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 cli.use_halfkp,
                 cli.use_hand_features,
                 cli.use_pov_features,
+                cli.king_features,
             ) {
                 batch.push(pos);
             }
@@ -1133,6 +1201,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             cli.use_hand_features,
             cli.eval_clamp,
             cli.use_pov_features,
+            cli.king_features,
         );
         let pearson_str = match pearson {
             Some(r) => format!(" r_clamp={:+.3}", r),
