@@ -1404,55 +1404,24 @@ fn is_pawn_drop_mate(board: &BitboardBoard, drop_pos: Position, player: Player) 
         return false; // Not even giving check, so not checkmate
     }
 
-    // Now check if it's actually checkmate (king has no escape)
-    // This requires simulating the pawn drop and checking if the king has any legal
-    // moves
-    let mut temp_board = board.clone();
-    temp_board.place_piece(Piece::new(PieceType::Pawn, player), drop_pos);
-
-    // Check if opponent king has any legal moves or if check can be blocked
-    // For simplicity, check if king can escape to any adjacent square
-    for dr in -1..=1 {
-        for dc in -1..=1 {
-            if dr == 0 && dc == 0 {
-                continue;
-            }
-
-            let new_row = king_pos.row as i8 + dr;
-            let new_col = king_pos.col as i8 + dc;
-
-            if new_row >= 0 && new_row < 9 && new_col >= 0 && new_col < 9 {
-                let escape_pos = Position::new(new_row as u8, new_col as u8);
-
-                // Check if this square is a valid escape
-                if let Some(piece_at_escape) = temp_board.get_piece(escape_pos) {
-                    // Can only escape by capturing opponent's piece
-                    if piece_at_escape.player == player {
-                        continue; // Can't capture own piece
-                    }
-                }
-
-                // Temporarily move king to escape square and see if it's still in check
-                temp_board.remove_piece(king_pos);
-                temp_board.place_piece(Piece::new(PieceType::King, opponent), escape_pos);
-
-                // Create a temporary CapturedPieces (empty for this check)
-                let temp_captured = CapturedPieces::new();
-                if !temp_board.is_king_in_check(opponent, &temp_captured) {
-                    return false; // King can escape, so not checkmate
-                }
-
-                // Restore the king position for next check
-                temp_board.remove_piece(escape_pos);
-                temp_board.place_piece(Piece::new(PieceType::King, opponent), king_pos);
-            }
-        }
-    }
-
-    // TODO: Also check if the pawn can be captured or if check can be blocked
-    // For now, this is a reasonable approximation
-
-    true // Looks like checkmate
+    // Checkmate iff the defender has no legal reply. A pawn check is adjacent,
+    // so it cannot be blocked and a drop can never answer it: the only replies
+    // are board moves (the king stepping away or taking the pawn, or another
+    // piece taking the pawn). Generating board moves alone also keeps this from
+    // recursing through the defender's own pawn drops.
+    //
+    // This used to check king steps only, so any checking pawn drop the king
+    // could not dodge counted as mate even when another piece could take the
+    // pawn, and the engine refused legal moves strong engines play.
+    let mut after_drop = board.clone();
+    after_drop.place_piece(Piece::new(PieceType::Pawn, player), drop_pos);
+    let no_hand = CapturedPieces::new();
+    let replies = MoveGenerator::new().generate_all_piece_moves(&after_drop, opponent);
+    !replies.iter().any(|reply| {
+        let mut b = after_drop.clone();
+        b.make_move(reply);
+        !b.is_king_in_check(opponent, &no_hand)
+    })
 }
 
 /// Performance metrics for move generation

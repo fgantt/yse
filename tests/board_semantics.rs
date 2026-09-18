@@ -260,3 +260,35 @@ fn random_games_conserve_pieces() {
     }
     assert!(drops > 50, "random games should include plenty of drops, saw {drops}");
 }
+
+fn legal_usi(sfen: &str) -> Vec<String> {
+    let (b, stm, c) = BitboardBoard::from_fen(sfen).expect("from_fen");
+    MoveGenerator::new().generate_legal_moves(&b, stm, &c).iter().map(|m| m.to_usi_string()).collect()
+}
+
+/// Dropping a pawn to give checkmate is illegal (uchifuzume), but a checking
+/// pawn drop that some piece can capture is not mate and must stay legal.
+#[test]
+fn pawn_drop_mate_is_illegal_but_capturable_pawn_check_is_legal() {
+    // White king 1a. Gold 2c covers 1b and 2b, silver 3b covers 2a: P*1b is mate.
+    let mate = "8k/6S2/7G1/9/9/9/9/9/4K4 b P 1";
+    assert!(!legal_usi(mate).contains(&"P*1b".to_string()), "P*1b is pawn-drop mate");
+    // Same, but a White gold on 2a can take the pawn: not mate, so legal.
+    let not_mate = "7gk/6S2/7G1/9/9/9/9/9/4K4 b P 1";
+    assert!(legal_usi(not_mate).contains(&"P*1b".to_string()), "P*1b can be captured");
+}
+
+/// Checking pawn drops YaneuraOu played in the training corpus, which the old
+/// pawn-drop-mate test (king steps only) rejected.
+#[test]
+fn checking_pawn_drops_from_teacher_games_are_legal() {
+    let cases = [
+        ("l1+Pp2S1l/4g1kS1/p1p1p2gp/4bp3/P5p1P/2n3PK1/3PPP3/3+r1NSbr/+s4G1N+n w PPGPpll 1", "P*2e"),
+        ("l8/8l/p6+Rp/1SpSp1RK1/3s1p2L/P2n1B3/NkS1g1+pPg/3G5/L3G4 b PPPPNPPBPpnpp 1", "P*8h"),
+        ("8l/2p4k1/2+PSBp1N1/4p1+rpp/2Gp5/1+R1sP2l1/PB1n1P1PP/1p1G5/Ks1P3NL w GGPPPLpsn 1", "P*9h"),
+        ("3p2Snl/2s1+R1s1k/1+B5lp/1p1PlpBp1/K1P1g1G2/P1n2P1P1/+rP1GG3P/9/9 w LNSPNppppp 1", "P*9d"),
+    ];
+    for (sfen, mv) in cases {
+        assert!(legal_usi(sfen).contains(&mv.to_string()), "{mv} should be legal in {sfen}");
+    }
+}
