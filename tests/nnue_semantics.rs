@@ -15,7 +15,9 @@ use shogi_engine::evaluation::nnue::{
     NUM_NNUE_FEATURES, NUM_NNUE_FEATURES_HALFKP, NUM_NNUE_FEATURES_TOTAL,
     NUM_NNUE_FEATURES_WITH_HAND_TOTAL,
 };
-use shogi_engine::evaluation::nnue_training::extract_active_features_with_stm;
+use shogi_engine::evaluation::nnue_training::{
+    extract_active_features_pov_with_hand, extract_active_features_with_stm,
+};
 use shogi_engine::types::board::CapturedPieces;
 use shogi_engine::types::core::{Piece, PieceType, Player, Position};
 use std::collections::HashSet;
@@ -235,6 +237,43 @@ fn trainer_feature_extraction_matches_engine_refresh() {
         assert_eq!(
             acc.hidden_1, expected,
             "trainer extraction and engine refresh disagree on {}",
+            fen
+        );
+    }
+}
+
+/// Same parity check for the perspective-normalised path. The trainer extracts
+/// via `extract_active_features_pov_with_hand`; the engine accumulates via
+/// `refresh_pov` + `add_hand_contributions_pov`. If these disagree, the network
+/// is trained on different inputs than the engine evaluates.
+#[test]
+fn trainer_pov_extraction_matches_engine_refresh() {
+    let weights = det_weights(NUM_NNUE_FEATURES_WITH_HAND_TOTAL, 16, 8);
+    let fens = [
+        "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+        "ln1gk2nl/1r4gb1/p1ppp1spp/1p3pp2/9/2P2PP2/PPBPPSP1P/1G3GSR1/LN2K2NL w - 1",
+        "4k4/9/4S4/9/9/9/9/9/4K4 b GGBB 1",
+        "4k4/9/4s4/9/9/9/9/9/4K4 w 2P3r 1",
+    ];
+    for fen in fens {
+        let (board, stm, cap) = BitboardBoard::from_fen(fen).expect("from_fen");
+
+        let (h1, h2) = weights.hidden_sizes();
+        let mut acc = NNUEAccumulator::new(h1, h2);
+        acc.refresh_pov(&board, stm, &weights);
+        acc.add_hand_contributions_pov(&cap, stm, &weights, HAND_FEATURE_BASE_FLAT);
+
+        let feats = extract_active_features_pov_with_hand(&board, stm, &cap);
+        let mut expected = vec![0i32; h1];
+        for f in feats {
+            for (i, &w) in weights.input_weights_1[f].iter().enumerate() {
+                expected[i] += w as i32;
+            }
+        }
+
+        assert_eq!(
+            acc.hidden_1, expected,
+            "trainer POV extraction and engine refresh_pov disagree on {}",
             fen
         );
     }

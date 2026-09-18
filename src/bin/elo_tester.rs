@@ -145,6 +145,18 @@ struct Cli {
     /// NNUE weights (only meaningful when `--nnue-weights-b` is set).
     #[arg(long)]
     use_hand_features_b: bool,
+
+    /// Enable perspective-normalised features with dual accumulators. Set when
+    /// the weights were trained with `nnue-offline-trainer --use-pov-features`.
+    /// Supersedes `--use-stm-feature` and is mutually exclusive with
+    /// `--use-halfkp`.
+    #[arg(long)]
+    use_pov_features: bool,
+
+    /// Perspective-normalised features on engine B's NNUE weights (only
+    /// meaningful when `--nnue-weights-b` is set).
+    #[arg(long)]
+    use_pov_features_b: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -379,6 +391,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             eval.nnue_set_use_halfkp(true);
             println!("  A HalfKP:      ON (Session 17 — own_king_sq × side × piece × sq)");
         }
+        if cli.use_pov_features {
+            eval.nnue_set_use_pov(true);
+        }
         if cli.use_hand_features {
             eval.nnue_set_use_hand_features(true);
             println!("  A Hand features: ON (Session 19 — thermometer 38×2)");
@@ -402,6 +417,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             if cli.use_halfkp_b {
                 eval.nnue_set_use_halfkp(true);
                 println!("  B HalfKP:      ON (Session 18)");
+            }
+            if cli.use_pov_features_b {
+                eval.nnue_set_use_pov(true);
             }
             if cli.use_hand_features_b {
                 eval.nnue_set_use_hand_features(true);

@@ -731,6 +731,79 @@ impl NNUEAccumulator {
     }
 
     /// Add a piece's contribution to the accumulator
+    /// Add a piece's contribution, indexed in `frame`'s perspective. `frame ==
+    /// Black` is the identity (board-absolute); `frame == White` rotates 180° and
+    /// swaps colour. Used to maintain one accumulator per perspective so that a
+    /// side-to-move flip costs nothing — see [`NNUEEvaluator`]'s dual accumulators.
+    pub fn add_piece_in_frame(
+        &mut self,
+        frame: Player,
+        piece: Piece,
+        square: Position,
+        weights: &NNUEWeights,
+    ) {
+        let feat = feature_index_pov(frame, piece.player, piece.piece_type, square.to_u8());
+        if feat < weights.input_weights_1.len() {
+            for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
+                self.hidden_1[i] += w as i32;
+            }
+        }
+    }
+
+    /// Frame-relative counterpart of [`Self::remove_piece`].
+    pub fn remove_piece_in_frame(
+        &mut self,
+        frame: Player,
+        piece: Piece,
+        square: Position,
+        weights: &NNUEWeights,
+    ) {
+        let feat = feature_index_pov(frame, piece.player, piece.piece_type, square.to_u8());
+        if feat < weights.input_weights_1.len() {
+            for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
+                self.hidden_1[i] -= w as i32;
+            }
+        }
+    }
+
+    /// Frame-relative counterpart of [`Self::add_hand_level`].
+    pub fn add_hand_level_in_frame(
+        &mut self,
+        frame: Player,
+        weights: &NNUEWeights,
+        base: usize,
+        player: Player,
+        piece_type: PieceType,
+        k: u8,
+    ) {
+        if let Some(feat) = hand_feature_index_pov(base, frame, player, piece_type, k) {
+            if feat < weights.input_weights_1.len() {
+                for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
+                    self.hidden_1[i] += w as i32;
+                }
+            }
+        }
+    }
+
+    /// Frame-relative counterpart of [`Self::remove_hand_level`].
+    pub fn remove_hand_level_in_frame(
+        &mut self,
+        frame: Player,
+        weights: &NNUEWeights,
+        base: usize,
+        player: Player,
+        piece_type: PieceType,
+        k: u8,
+    ) {
+        if let Some(feat) = hand_feature_index_pov(base, frame, player, piece_type, k) {
+            if feat < weights.input_weights_1.len() {
+                for (i, &w) in weights.input_weights_1[feat].iter().enumerate() {
+                    self.hidden_1[i] -= w as i32;
+                }
+            }
+        }
+    }
+
     pub fn add_piece(&mut self, piece: Piece, square: Position, weights: &NNUEWeights) {
         let square_idx = square.to_u8();
         let feature_idx = feature_index(piece.player, piece.piece_type, square_idx);
@@ -885,6 +958,22 @@ pub struct NNUEEvaluator {
     /// `nnue_unmake_move` (which adjust it for capture/drop). Used to compute
     /// which thermometer level to toggle on each ply.
     hand_counts: [[u8; NUM_HAND_PIECE_TYPES]; 2],
+    /// Perspective-normalised features (see [`feature_index_pov`]). Under POV the
+    /// feature index depends on whose turn it is, so a single accumulator would
+    /// be invalidated by every side-to-move flip — the same bind HalfKP is in,
+    /// which it resolves by full-refreshing every move.
+    ///
+    /// Instead we keep one accumulator per perspective. `accumulator` holds the
+    /// Black frame and `accumulator_white` the White frame; each has a *fixed*
+    /// indexing, so both stay incrementally updatable, and a stm flip merely
+    /// changes which one is read. Every piece and hand update is applied to both.
+    use_pov: bool,
+    /// White-perspective accumulator. Maintained in parallel with `accumulator`
+    /// whenever `use_pov` is set; otherwise untouched.
+    accumulator_white: NNUEAccumulator,
+    /// Snapshot stack for `accumulator_white`, pushed and popped in lockstep with
+    /// `accumulator_stack` so unmake stays O(1).
+    accumulator_stack_white: Vec<Vec<i32>>,
 }
 
 impl NNUEEvaluator {
@@ -904,6 +993,9 @@ impl NNUEEvaluator {
             current_stm: Player::Black,
             use_hand_features: false,
             hand_counts: [[0; NUM_HAND_PIECE_TYPES]; 2],
+            use_pov: false,
+            accumulator_white: NNUEAccumulator::new(hidden_size_1, hidden_size_2),
+            accumulator_stack_white: Vec::with_capacity(128),
         }
     }
 
@@ -923,6 +1015,96 @@ impl NNUEEvaluator {
             current_stm: Player::Black,
             use_hand_features: false,
             hand_counts: [[0; NUM_HAND_PIECE_TYPES]; 2],
+            use_pov: false,
+            accumulator_white: NNUEAccumulator::new(size_1, size_2),
+            accumulator_stack_white: Vec::with_capacity(128),
+        }
+    }
+
+    /// Enable perspective-normalised features with dual accumulators.
+    ///
+    /// Supersedes the side-to-move feature and is mutually exclusive with HalfKP
+    /// (whose `own_king_sq` would also need mirroring), so enabling it clears
+    /// both. Invalidates the accumulator: the next evaluate does a full refresh.
+    pub fn set_use_pov(&mut self, on: bool) {
+        self.use_pov = on;
+        if on {
+            self.use_stm_feature = false;
+            self.use_halfkp = false;
+        }
+        self.invalidate();
+    }
+
+    pub fn use_pov(&self) -> bool {
+        self.use_pov
+    }
+
+    /// The accumulator to read for the side currently to move.
+    #[inline]
+    fn active_accumulator(&self) -> &NNUEAccumulator {
+        if self.use_pov && self.current_stm == Player::White {
+            &self.accumulator_white
+        } else {
+            &self.accumulator
+        }
+    }
+
+    /// Rebuild both perspective accumulators from scratch.
+    fn refresh_pov_pair(&mut self, board: &BitboardBoard, captured: Option<&CapturedPieces>) {
+        self.accumulator.refresh_pov(board, Player::Black, &self.weights);
+        self.accumulator_white.refresh_pov(board, Player::White, &self.weights);
+        if self.use_hand_features {
+            let base = self.hand_feature_base();
+            match captured {
+                Some(c) => {
+                    self.accumulator.add_hand_contributions_pov(
+                        c,
+                        Player::Black,
+                        &self.weights,
+                        base,
+                    );
+                    self.accumulator_white.add_hand_contributions_pov(
+                        c,
+                        Player::White,
+                        &self.weights,
+                        base,
+                    );
+                    self.set_hand_counts_from(c);
+                }
+                // No CapturedPieces available (the `evaluate_incremental`
+                // fallback); rebuild from the counts make/unmake has tracked.
+                None => self.add_hand_contributions_from_counts_pov(),
+            }
+        }
+    }
+
+    /// Fold hand contributions into both accumulators from the cached counts.
+    fn add_hand_contributions_from_counts_pov(&mut self) {
+        let base = self.hand_feature_base();
+        for player_idx in 0..2 {
+            let player = if player_idx == 0 { Player::Black } else { Player::White };
+            for t_idx in 0..NUM_HAND_PIECE_TYPES {
+                let piece_type = HAND_PIECE_TYPES[t_idx];
+                let count = self.hand_counts[player_idx][t_idx].min(MAX_HAND_COUNT[t_idx]);
+                for k in 1..=count {
+                    self.accumulator.add_hand_level_in_frame(
+                        Player::Black,
+                        &self.weights,
+                        base,
+                        player,
+                        piece_type,
+                        k,
+                    );
+                    self.accumulator_white.add_hand_level_in_frame(
+                        Player::White,
+                        &self.weights,
+                        base,
+                        player,
+                        piece_type,
+                        k,
+                    );
+                }
+            }
         }
     }
 
@@ -1068,24 +1250,31 @@ impl NNUEEvaluator {
         // to-move's own king square. Session 19: with hand features on,
         // append the thermometer hand-feature contributions and seed
         // `hand_counts` for incremental tracking.
-        if self.use_halfkp {
-            self.accumulator
-                .refresh_halfkp(board, player, &self.weights, self.use_stm_feature);
-        } else if self.use_stm_feature {
-            self.accumulator.refresh_with_stm(board, player, &self.weights);
+        if self.use_pov {
+            self.refresh_pov_pair(board, Some(captured_pieces));
         } else {
-            self.accumulator.refresh(board, &self.weights);
-        }
-        if self.use_hand_features {
-            self.accumulator
-                .add_hand_contributions(captured_pieces, &self.weights, self.hand_feature_base());
-            self.set_hand_counts_from(captured_pieces);
+            if self.use_halfkp {
+                self.accumulator
+                    .refresh_halfkp(board, player, &self.weights, self.use_stm_feature);
+            } else if self.use_stm_feature {
+                self.accumulator.refresh_with_stm(board, player, &self.weights);
+            } else {
+                self.accumulator.refresh(board, &self.weights);
+            }
+            if self.use_hand_features {
+                self.accumulator.add_hand_contributions(
+                    captured_pieces,
+                    &self.weights,
+                    self.hand_feature_base(),
+                );
+                self.set_hand_counts_from(captured_pieces);
+            }
         }
         self.current_stm = player;
         self.needs_refresh = false;
 
         // Evaluate using accumulator
-        self.accumulator.evaluate(&self.weights)
+        self.active_accumulator().evaluate(&self.weights)
     }
 
     /// Evaluate using the current accumulator state (no refresh).
@@ -1111,7 +1300,9 @@ impl NNUEEvaluator {
             // and let the next stm-aware refresh re-establish it. This branch
             // should be rare in practice — search root always performs a
             // stm-aware refresh.
-            if self.use_halfkp {
+            if self.use_pov {
+                self.refresh_pov_pair(board, None);
+            } else if self.use_halfkp {
                 self.accumulator
                     .refresh_halfkp(board, self.current_stm, &self.weights, self.use_stm_feature);
             } else {
@@ -1123,13 +1314,15 @@ impl NNUEEvaluator {
             // possible here because `evaluate_incremental` does not take one;
             // the cached counts were last set by a refresh that did, plus any
             // capture/drop deltas applied by make/unmake since.
-            if self.use_hand_features {
+            // `refresh_pov_pair` already folded hand contributions into both
+            // accumulators from the cached counts.
+            if self.use_hand_features && !self.use_pov {
                 self.add_hand_contributions_from_counts();
             }
             self.needs_refresh = false;
         }
 
-        self.accumulator.evaluate(&self.weights)
+        self.active_accumulator().evaluate(&self.weights)
     }
 
     /// Session 19: fold the thermometer hand-feature contributions into
@@ -1177,6 +1370,9 @@ impl NNUEEvaluator {
 
         // Save current hidden_1 state to stack
         self.accumulator_stack.push(self.accumulator.hidden_1.clone());
+        if self.use_pov {
+            self.accumulator_stack_white.push(self.accumulator_white.hidden_1.clone());
+        }
         // Session 19: also save the pre-move hand_counts so unmake can restore
         // them. Pushed unconditionally to keep the stack length aligned with
         // accumulator_stack (independent of whether `use_hand_features` is on).
@@ -1202,8 +1398,27 @@ impl NNUEEvaluator {
                 let new_count =
                     (self.hand_counts[mover_idx][t_idx] + 1).min(MAX_HAND_COUNT[t_idx]);
                 if self.use_hand_features && new_count > self.hand_counts[mover_idx][t_idx] {
-                    self.accumulator
-                        .add_hand_level(&self.weights, hand_base, mover, c_type, new_count);
+                    if self.use_pov {
+                        self.accumulator.add_hand_level_in_frame(
+                            Player::Black,
+                            &self.weights,
+                            hand_base,
+                            mover,
+                            c_type,
+                            new_count,
+                        );
+                        self.accumulator_white.add_hand_level_in_frame(
+                            Player::White,
+                            &self.weights,
+                            hand_base,
+                            mover,
+                            c_type,
+                            new_count,
+                        );
+                    } else {
+                        self.accumulator
+                            .add_hand_level(&self.weights, hand_base, mover, c_type, new_count);
+                    }
                 }
                 self.hand_counts[mover_idx][t_idx] = new_count;
             }
@@ -1213,8 +1428,27 @@ impl NNUEEvaluator {
                 let prev = self.hand_counts[mover_idx][t_idx];
                 if prev > 0 {
                     if self.use_hand_features {
-                        self.accumulator
-                            .remove_hand_level(&self.weights, hand_base, mover, d_type, prev);
+                        if self.use_pov {
+                            self.accumulator.remove_hand_level_in_frame(
+                                Player::Black,
+                                &self.weights,
+                                hand_base,
+                                mover,
+                                d_type,
+                                prev,
+                            );
+                            self.accumulator_white.remove_hand_level_in_frame(
+                                Player::White,
+                                &self.weights,
+                                hand_base,
+                                mover,
+                                d_type,
+                                prev,
+                            );
+                        } else {
+                            self.accumulator
+                                .remove_hand_level(&self.weights, hand_base, mover, d_type, prev);
+                        }
                     }
                     self.hand_counts[mover_idx][t_idx] = prev - 1;
                 }
@@ -1228,6 +1462,27 @@ impl NNUEEvaluator {
         // state in O(1) without re-refreshing.
         if self.use_halfkp {
             self.needs_refresh = true;
+            self.current_stm = original_piece.player.opposite();
+            return;
+        }
+
+        // Perspective-normalised path: apply the same delta to both frames. Each
+        // frame's indexing is fixed, so unlike HalfKP no full refresh is needed —
+        // the side-to-move flip below only changes which accumulator is read.
+        if self.use_pov {
+            let landed = if was_promotion { moved_piece } else { original_piece };
+            for (frame, acc) in [
+                (Player::Black, &mut self.accumulator),
+                (Player::White, &mut self.accumulator_white),
+            ] {
+                if let Some(from_sq) = from {
+                    acc.remove_piece_in_frame(frame, original_piece, from_sq, &self.weights);
+                }
+                if let Some(captured) = captured_piece {
+                    acc.remove_piece_in_frame(frame, captured, to, &self.weights);
+                }
+                acc.add_piece_in_frame(frame, landed, to, &self.weights);
+            }
             self.current_stm = original_piece.player.opposite();
             return;
         }
@@ -1285,6 +1540,20 @@ impl NNUEEvaluator {
 
         if let Some(prev_hidden_1) = self.accumulator_stack.pop() {
             self.accumulator.hidden_1 = prev_hidden_1;
+            // The two stacks are pushed together, so a missing White snapshot is
+            // unreachable unless POV was toggled mid-search. Rebuild in that case
+            // rather than evaluating a stale White frame.
+            let white_restored = if self.use_pov {
+                match self.accumulator_stack_white.pop() {
+                    Some(prev_white) => {
+                        self.accumulator_white.hidden_1 = prev_white;
+                        true
+                    }
+                    None => false,
+                }
+            } else {
+                true
+            };
             // Session 19: restore the pre-move hand_counts. Pop unconditionally
             // (the stacks are kept length-aligned in nnue_make_move).
             if let Some(prev_hand) = self.hand_counts_stack.pop() {
@@ -1294,7 +1563,7 @@ impl NNUEEvaluator {
             // post-move state but the popped snapshot is the valid pre-move
             // accumulator — clear needs_refresh so the next evaluate uses
             // the restored state directly.
-            self.needs_refresh = false;
+            self.needs_refresh = !white_restored;
             self.current_stm = self.current_stm.opposite();
         } else {
             // Stack underflow — mark as needing refresh
@@ -1320,28 +1589,33 @@ impl NNUEEvaluator {
         if !self.enabled {
             return;
         }
-        if self.use_halfkp {
-            self.accumulator.refresh_halfkp(
-                board,
-                side_to_move,
-                &self.weights,
-                self.use_stm_feature,
-            );
-        } else if self.use_stm_feature {
-            self.accumulator.refresh_with_stm(board, side_to_move, &self.weights);
+        if self.use_pov {
+            self.refresh_pov_pair(board, Some(captured_pieces));
         } else {
-            self.accumulator.refresh(board, &self.weights);
-        }
-        if self.use_hand_features {
-            self.accumulator.add_hand_contributions(
-                captured_pieces,
-                &self.weights,
-                self.hand_feature_base(),
-            );
-            self.set_hand_counts_from(captured_pieces);
+            if self.use_halfkp {
+                self.accumulator.refresh_halfkp(
+                    board,
+                    side_to_move,
+                    &self.weights,
+                    self.use_stm_feature,
+                );
+            } else if self.use_stm_feature {
+                self.accumulator.refresh_with_stm(board, side_to_move, &self.weights);
+            } else {
+                self.accumulator.refresh(board, &self.weights);
+            }
+            if self.use_hand_features {
+                self.accumulator.add_hand_contributions(
+                    captured_pieces,
+                    &self.weights,
+                    self.hand_feature_base(),
+                );
+                self.set_hand_counts_from(captured_pieces);
+            }
         }
         self.current_stm = side_to_move;
         self.accumulator_stack.clear();
+        self.accumulator_stack_white.clear();
         self.hand_counts_stack.clear();
         self.needs_refresh = false;
     }
@@ -1675,6 +1949,192 @@ mod tests {
         assert!(
             diff_count > 0 || true,
             "stm-on/off accumulators identical (rare with random init)"
+        );
+    }
+
+    /// Dual accumulators: under POV the feature index depends on whose turn it
+    /// is, so the whole scheme rests on both frames staying in sync through
+    /// make/unmake. Walks a multi-ply sequence and checks at every ply that the
+    /// incrementally-maintained score equals an independent full refresh of the
+    /// same position — the invariant that lets POV avoid HalfKP's per-move
+    /// full refresh.
+    #[test]
+    fn test_pov_incremental_matches_full_refresh() {
+        use crate::bitboards::BitboardBoard;
+        use crate::moves::MoveGenerator;
+        use crate::types::board::CapturedPieces;
+
+        let weights = NNUEWeights::new(256, 32);
+        let mut board = BitboardBoard::new();
+        let captured = CapturedPieces::new();
+
+        let mut evaluator = NNUEEvaluator::from_weights(weights.clone());
+        evaluator.set_use_pov(true);
+        evaluator.refresh_accumulator(&board, Player::Black, &captured);
+
+        let move_gen = MoveGenerator::new();
+        let mut stm = Player::Black;
+
+        // Hand features are off, so `captured` stays empty and no drops are
+        // generated; this isolates the piece-movement half of the update.
+        for ply in 0..10 {
+            let legal = move_gen.generate_legal_moves(&board, stm, &captured);
+            if legal.is_empty() {
+                break;
+            }
+            let mv = legal[ply % legal.len()].clone();
+            let move_info = board.make_move_with_info(&mv);
+
+            let original_piece = Piece::new(move_info.original_piece_type, move_info.player);
+            let moved_piece = if move_info.was_promotion {
+                move_info
+                    .original_piece_type
+                    .promoted_version()
+                    .map(|pt| Piece::new(pt, move_info.player))
+                    .unwrap_or(original_piece)
+            } else {
+                original_piece
+            };
+            evaluator.nnue_make_move(
+                move_info.from,
+                move_info.to,
+                moved_piece,
+                original_piece,
+                move_info.captured_piece,
+                move_info.was_promotion,
+            );
+            stm = stm.opposite();
+
+            let incremental = evaluator.evaluate_incremental(&board);
+
+            let mut fresh = NNUEEvaluator::from_weights(weights.clone());
+            fresh.set_use_pov(true);
+            fresh.refresh_accumulator(&board, stm, &captured);
+            let full = fresh.evaluate_incremental(&board);
+
+            assert_eq!(
+                incremental, full,
+                "ply {}: POV incremental ({}) != full refresh ({}), stm={:?}",
+                ply, incremental, full, stm
+            );
+        }
+    }
+
+    /// The White-frame accumulator must be restored by unmake, not just the
+    /// Black one. A single shared snapshot stack would pass a Black-only check
+    /// while silently leaving the White frame stale.
+    #[test]
+    fn test_pov_unmake_restores_both_frames() {
+        use crate::bitboards::BitboardBoard;
+        use crate::moves::MoveGenerator;
+        use crate::types::board::CapturedPieces;
+
+        let weights = NNUEWeights::new(256, 32);
+        let mut board = BitboardBoard::new();
+        let captured = CapturedPieces::new();
+
+        let mut evaluator = NNUEEvaluator::from_weights(weights);
+        evaluator.set_use_pov(true);
+        evaluator.refresh_accumulator(&board, Player::Black, &captured);
+
+        let black_frame_before = evaluator.accumulator.hidden_1.clone();
+        let white_frame_before = evaluator.accumulator_white.hidden_1.clone();
+
+        let move_gen = MoveGenerator::new();
+        let legal = move_gen.generate_legal_moves(&board, Player::Black, &captured);
+        let mv = legal[0].clone();
+        let move_info = board.make_move_with_info(&mv);
+        let original_piece = Piece::new(move_info.original_piece_type, move_info.player);
+        evaluator.nnue_make_move(
+            move_info.from,
+            move_info.to,
+            original_piece,
+            original_piece,
+            move_info.captured_piece,
+            move_info.was_promotion,
+        );
+
+        assert_ne!(
+            evaluator.accumulator_white.hidden_1, white_frame_before,
+            "the White frame should have been updated by the move"
+        );
+
+        evaluator.nnue_unmake_move();
+
+        assert_eq!(
+            evaluator.accumulator.hidden_1, black_frame_before,
+            "unmake must restore the Black frame"
+        );
+        assert_eq!(
+            evaluator.accumulator_white.hidden_1, white_frame_before,
+            "unmake must restore the White frame"
+        );
+        assert_eq!(evaluator.current_stm, Player::Black);
+    }
+
+    /// POV + pieces-in-hand: a capture changes the hand thermometer, and under
+    /// POV the holder is recorded as mover/opponent, so both frames' hand rows
+    /// must be updated in opposite senses.
+    #[test]
+    fn test_pov_hand_features_capture_matches_full_refresh() {
+        use crate::bitboards::BitboardBoard;
+        use crate::types::board::CapturedPieces;
+
+        let mut weights = NNUEWeights::new(256, 32);
+        let row_len = weights.input_weights_1[0].len();
+        while weights.input_weights_1.len() < NUM_NNUE_FEATURES_WITH_HAND_TOTAL {
+            weights.input_weights_1.push(vec![0i16; row_len]);
+        }
+        // Make both the mover-side and opponent-side pawn rows large, so a
+        // frame that updates the wrong side is detectable.
+        for player in [Player::Black, Player::White] {
+            let row = hand_feature_index(HAND_FEATURE_BASE_FLAT, player, PieceType::Pawn, 1)
+                .expect("valid hand index");
+            for (i, w) in weights.input_weights_1[row].iter_mut().enumerate() {
+                *w = if i % 2 == 0 { 100 } else { -100 };
+            }
+        }
+
+        let fen = "9/9/9/4p4/4P4/9/9/9/4K3 b - 1";
+        let (board, _p, _cap) = BitboardBoard::from_fen(fen).expect("from_fen");
+        let mut captured = CapturedPieces::new();
+
+        let mut evaluator = NNUEEvaluator::from_weights(weights.clone());
+        evaluator.set_use_pov(true);
+        evaluator.set_use_hand_features(true);
+        evaluator.refresh_accumulator(&board, Player::Black, &captured);
+
+        let from = Position::new(5, 4);
+        let to = Position::new(3, 4);
+        let pawn_black = Piece::new(PieceType::Pawn, Player::Black);
+        let pawn_white = Piece::new(PieceType::Pawn, Player::White);
+        evaluator.nnue_make_move(
+            Some(from),
+            to,
+            pawn_black,
+            pawn_black,
+            Some(pawn_white),
+            false,
+        );
+
+        let mut post_board = board.clone();
+        post_board.remove_piece(from);
+        post_board.remove_piece(to);
+        post_board.place_piece(pawn_black, to);
+        captured.add_piece(PieceType::Pawn, Player::Black);
+
+        let incremental = evaluator.evaluate_incremental(&post_board);
+
+        let mut fresh = NNUEEvaluator::from_weights(weights);
+        fresh.set_use_pov(true);
+        fresh.set_use_hand_features(true);
+        fresh.refresh_accumulator(&post_board, Player::White, &captured);
+        let full = fresh.evaluate_incremental(&post_board);
+
+        assert_eq!(
+            incremental, full,
+            "POV+hand incremental ({}) must match full refresh ({}) after a capture",
+            incremental, full
         );
     }
 

@@ -508,6 +508,16 @@ impl PositionEvaluator {
         }
     }
 
+    /// Enable perspective-normalised features with dual accumulators. Set when
+    /// loading weights trained with `nnue-offline-trainer --use-pov-features`.
+    /// Supersedes the side-to-move feature and is mutually exclusive with HalfKP.
+    /// No effect if NNUE is not enabled.
+    pub fn nnue_set_use_pov(&mut self, on: bool) {
+        if let Some(ref mut nnue) = self.nnue_evaluator {
+            nnue.set_use_pov(on);
+        }
+    }
+
     /// Evaluate using NNUE incrementally (no full refresh).
     ///
     /// Returns the NNUE score if enabled and available, None otherwise.
