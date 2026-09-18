@@ -135,3 +135,43 @@ even swing (re-measure after Task 9 — it may disappear with the mixed evaluato
 influenced move choice, that the search mixes two incompatible evaluators, and that the classical
 static eval is asymmetric and mis-scaled. No gameplay fixes made yet — these change engine behaviour
 and need a decision on which evaluator is canonical.
+
+---
+
+## Update — Single Evaluator Landed (commit `72eadab`)
+
+**NNUE now scores every node the search evaluates.** `PositionEvaluator::evaluate` is the search's only
+evaluation function: NNUE for the requested player when enabled, otherwise the tapered classical
+evaluator with fixed context flags. Quiescence goes through it. The IntegratedEvaluator is opt-in.
+
+| search-bench, 30 positions, depth 2 (28 depth-bound) | same best move | same score |
+|---|---|---|
+| classical vs POV NNUE | **3/28** (was 28/28) | **0/28** (was 28/28) |
+| classical vs baseline NNUE | 3/28 | 0/28 |
+| POV vs baseline NNUE | 9/28 | 0/28 |
+
+**A second, worse bug surfaced on the way — board corruption on unmake.** `make_move_with_info`
+recorded the captured piece unpromoted (right for the hand), and `unmake_move` restored that field. So
+capturing a tokin, horse or dragon and unmaking put a pawn, bishop or rook back on the board. Every
+search has corrupted its own board for the later siblings of such a capture, classical and NNUE alike.
+The NNUE hook removed the wrong feature from the same field, which is what made the new verification
+mode report 336,528 incremental-vs-scratch mismatches in one depth-2 search. `MoveInfo` now carries
+`captured_on_board`. Gate: `tests/board_semantics.rs`.
+
+After both fixes:
+- NNUE incremental accumulator equals a from-scratch evaluation at **every** evaluated node (0
+  mismatches), with an occupancy-based safety net that rebuilds if a board change ever bypasses the
+  hooks.
+- Classical static eval colour-symmetric 16/16 (was 1/16).
+- Search colour symmetry: 1/16 residual (59 cp depth 1, 7 cp depth 2, same move) — down from 2/16 and
+  5/16 with up to 805 cp. The board corruption was the main source.
+
+**Speed is now the binding problem.** One depth-2 search made ~846,000 evaluations; 30 positions at
+depth 2 take 6–9 minutes. Cause, from `MoveGenerator::generate_quiescence_moves`: at *every* quiescence
+ply (max 8) it searches all captures, **all checks including drops**, all promotions, and — when fewer
+than 16 moves — quiet "tactical threat" moves. That is close to a second full-width search. Standard
+practice is captures and promotions at every ply, checks at most at the first, never quiet moves.
+
+**Deployment consequence**: `usi-engine` auto-loads `nnue_weights_trained.json` (Session 3,
+colour-absolute) with no feature flags, and it now scores every leaf. Weight files carry no feature-set
+metadata. Task 12.
