@@ -22,7 +22,7 @@ use rand::{Rng, SeedableRng};
 use shogi_engine::moves::MoveGenerator;
 use shogi_engine::search::shogi_hash::ShogiHashHandler;
 use shogi_engine::types::board::CapturedPieces;
-use shogi_engine::types::core::{Move, Player};
+use shogi_engine::types::core::Player;
 use shogi_engine::usi_client::{UsiEngine, UsiError};
 use shogi_engine::BitboardBoard;
 use std::collections::HashMap;
@@ -90,6 +90,22 @@ struct Cli {
     /// Verbose per-ply output.
     #[arg(long)]
     verbose: bool,
+
+    /// After the teacher labels a position, play a uniformly random legal move
+    /// instead of its best move with this probability. The position is still
+    /// labelled; the random move sends the game somewhere the teacher would not
+    /// go, typically a material imbalance.
+    ///
+    /// Why: in pure teacher self-play material almost never hangs, so a network
+    /// trained on it never sees what a piece is worth, and the search spends
+    /// most of its time exactly in positions after captures.
+    #[arg(long, default_value_t = 0.0)]
+    random_move_prob: f64,
+
+    /// Added to every game id, so corpora generated in parallel can be
+    /// concatenated without colliding (the trainer's held-out split is by id).
+    #[arg(long, default_value_t = 0)]
+    game_id_offset: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -124,6 +140,8 @@ struct PositionRecord {
     eval_cp: Option<i32>,
     from_random_opening: bool,
     ply: u32,
+    /// The move played from this position was random, not the teacher's.
+    random_move: bool,
 }
 
 fn player_str(p: Player) -> &'static str {
@@ -146,7 +164,7 @@ fn write_jsonl_record(
     };
     writeln!(
         out,
-        "{{\"game_id\":{},\"ply\":{},\"sfen\":\"{}\",\"player\":\"{}\",\"eval_cp\":{},\"outcome\":{},\"outcome_str\":\"{}\",\"from_random_opening\":{}}}",
+        "{{\"game_id\":{},\"ply\":{},\"sfen\":\"{}\",\"player\":\"{}\",\"eval_cp\":{},\"outcome\":{},\"outcome_str\":\"{}\",\"from_random_opening\":{},\"random_move\":{}}}",
         game_id,
         rec.ply,
         rec.sfen.replace('"', "\\\""),
@@ -155,6 +173,7 @@ fn write_jsonl_record(
         outcome.as_i8(),
         outcome.as_str(),
         rec.from_random_opening,
+        rec.random_move,
     )
 }
 
@@ -163,6 +182,7 @@ fn play_one_game(
     depth: u32,
     random_plies: u8,
     max_moves: u32,
+    random_move_prob: f64,
     rng: &mut StdRng,
     verbose: bool,
 ) -> Result<(Vec<PositionRecord>, Outcome), UsiError> {
@@ -193,14 +213,10 @@ fn play_one_game(
             eval_cp: None,
             from_random_opening: true,
             ply,
+            random_move: true,
         });
         usi_moves.push(mv.to_usi_string());
-        if mv.from.is_none() {
-            captured.remove_piece(mv.piece_type, player);
-        }
-        if let Some(cap) = board.make_move(&mv) {
-            captured.add_piece(cap.piece_type, player);
-        }
+        board.make_move_with_hand(&mv, &mut captured);
         player = player.opposite();
         ply += 1;
     }
@@ -266,45 +282,34 @@ fn play_one_game(
             );
         }
 
+        // The teacher's move must be legal by our move generator, which now
+        // agrees with YaneuraOu on every move of the 500-game d10 corpus (see
+        // `corpus_audit`). A disagreement means our board has diverged from the
+        // teacher's, and every label after it would belong to another position.
+        if !legal.iter().any(|m| m.to_usi_string() == bestmove_str) {
+            return Err(UsiError::ProtocolError(format!(
+                "teacher move '{}' is not legal by our move generator in {}",
+                bestmove_str, sfen_before
+            )));
+        }
+        let random_move = random_move_prob > 0.0 && rng.gen_bool(random_move_prob);
+        let mv = if random_move {
+            legal[rng.gen_range(0..legal.len())].clone()
+        } else {
+            legal.iter().find(|m| m.to_usi_string() == bestmove_str).unwrap().clone()
+        };
+
         positions.push(PositionRecord {
             sfen: sfen_before,
             player,
             eval_cp,
             from_random_opening: false,
             ply,
+            random_move,
         });
 
-        // Parse the engine's move into our own representation and apply it.
-        let mv = match Move::from_usi_string(&bestmove_str, player, &board) {
-            Ok(m) => m,
-            Err(e) => {
-                return Err(UsiError::ProtocolError(format!(
-                    "could not parse teacher bestmove '{}' for {:?}: {}",
-                    bestmove_str, player, e
-                )));
-            }
-        };
-
-        // Note: we deliberately do NOT validate the teacher's move against our
-        // own legal-move list. Our move generator has a known bug where promoted
-        // rook ("dragon") sliding moves are truncated to a single step, so the
-        // teacher's perfectly legal long slides get rejected. The teacher is
-        // the source of truth for move legality; `Move::from_usi_string` +
-        // `board.make_move` apply from/to coordinates directly and do not
-        // depend on the legal-move generator.
-        let _ = legal;
-
-        usi_moves.push(bestmove_str);
-        // Drops must remove the dropped piece from the player's hand; the
-        // board.make_move function does not touch captured_pieces state, and
-        // without this line drops would double-count the piece (once in hand
-        // because we never removed it, once on board because we placed it).
-        if mv.from.is_none() {
-            captured.remove_piece(mv.piece_type, player);
-        }
-        if let Some(cap) = board.make_move(&mv) {
-            captured.add_piece(cap.piece_type, player);
-        }
+        usi_moves.push(mv.to_usi_string());
+        board.make_move_with_hand(&mv, &mut captured);
         player = player.opposite();
         ply += 1;
     }
@@ -332,6 +337,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     println!("  Seed:         {}", cli.seed);
     println!("  Threads:      {}", cli.threads);
     println!("  Hash MB:      {}", cli.hash_mb);
+    println!("  Random moves: p={}", cli.random_move_prob);
+    println!("  Game id base: {}", cli.game_id_offset);
     println!("  Output:       {}", cli.output.display());
     println!();
 
@@ -376,6 +383,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             cli.depth,
             cli.random_plies,
             cli.max_moves,
+            cli.random_move_prob,
             &mut rng,
             cli.verbose,
         )?;
@@ -392,7 +400,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             if cli.skip_random_opening_positions && rec.from_random_opening {
                 continue;
             }
-            write_jsonl_record(&mut out, game_id, rec, outcome)?;
+            write_jsonl_record(&mut out, game_id + cli.game_id_offset, rec, outcome)?;
             game_written += 1;
         }
         written_positions += game_written;
