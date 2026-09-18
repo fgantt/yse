@@ -210,12 +210,16 @@ fn classical_evaluate_is_the_canonical_classical_eval() {
 // symmetry and incremental exactness, not playing strength.
 // ---------------------------------------------------------------------------
 
+/// Written once per test process: tests run on parallel threads, and an
+/// exists-then-write check let one thread read the file mid-write.
 fn random_pov_weights_file() -> std::path::PathBuf {
+    static PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    PATH.get_or_init(write_random_pov_weights).clone()
+}
+
+fn write_random_pov_weights() -> std::path::PathBuf {
     use shogi_engine::evaluation::nnue::{NNUEWeights, NUM_NNUE_FEATURES_WITH_HAND_TOTAL};
     let path = std::env::temp_dir().join(format!("search_semantics_pov_{}.bin", std::process::id()));
-    if path.exists() {
-        return path;
-    }
     let (h1, h2) = (64usize, 16usize);
     let mut state: u64 = 0x5DEE_CE66_D1CE_4E5B;
     let mut next = |lo: i32, hi: i32| -> i32 {
@@ -387,4 +391,37 @@ fn diagnostic_king_capture_of_defended_piece() {
     // After the king actually captures:
     let (b3, _, c3) = BitboardBoard::from_fen("9/4k4/4P4/9/9/9/9/9/4K4 b G 1").unwrap();
     eprintln!("W king on 5b next to B pawn 5c -> W in check: {}", b3.is_king_in_check(Player::White, &c3));
+}
+
+/// Parallel-search workers are built with a fresh evaluator. They must be given
+/// the main engine's NNUE network — otherwise helper threads search with
+/// classical evaluation while the main thread uses NNUE.
+#[test]
+fn parallel_workers_receive_the_main_engines_network() {
+    use shogi_engine::search::parallel_search::{ParallelSearchConfig, ParallelSearchEngine};
+    let main = nnue_evaluator();
+    let main_id = main.nnue_network_id();
+    assert!(main_id.is_some());
+
+    let parallel = ParallelSearchEngine::new(ParallelSearchConfig::new(2)).expect("parallel engine");
+    let (b, stm, c) = BitboardBoard::from_fen(POSITIONS[0]).unwrap();
+
+    // Before a template is set, a worker has no network.
+    let mut before = parallel.create_thread_context(&b, &c, stm, 16);
+    assert_eq!(before.search_engine_mut().get_evaluator().nnue_network_id(), None);
+
+    parallel.set_nnue_template(&main);
+    let mut ctx = parallel.create_thread_context(&b, &c, stm, 16);
+    let worker = ctx.search_engine_mut().get_evaluator_mut();
+    assert_eq!(worker.nnue_network_id(), main_id, "worker must run the same network");
+
+    // And it scores positions exactly like the main evaluator.
+    let mut main = main;
+    assert_eq!(worker.evaluate(&b, stm, &c), main.evaluate(&b, stm, &c));
+
+    // Switching NNUE off on the main engine propagates too.
+    let classical = PositionEvaluator::new();
+    parallel.set_nnue_template(&classical);
+    let mut off = parallel.create_thread_context(&b, &c, stm, 16);
+    assert_eq!(off.search_engine_mut().get_evaluator().nnue_network_id(), None);
 }

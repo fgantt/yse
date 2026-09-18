@@ -413,6 +413,40 @@ impl PositionEvaluator {
         self.use_nnue = true;
     }
 
+    /// A copy of the active NNUE network for a parallel-search worker, or `None`
+    /// when NNUE is not in use.
+    pub fn nnue_worker_copy(&self) -> Option<NNUEEvaluator> {
+        if !self.use_nnue {
+            return None;
+        }
+        self.nnue_evaluator.as_ref().map(|n| n.clone_for_worker())
+    }
+
+    /// Identifier of the active NNUE network, or `None` when NNUE is not in use.
+    pub fn nnue_network_id(&self) -> Option<u64> {
+        if !self.use_nnue {
+            return None;
+        }
+        self.nnue_evaluator.as_ref().map(|n| n.network_id())
+    }
+
+    /// Install (or, with `None`, switch off) the NNUE network used by this
+    /// evaluator. Used to give parallel-search workers the main engine's network.
+    pub fn install_nnue(&mut self, nnue: Option<NNUEEvaluator>) {
+        match nnue {
+            Some(n) => {
+                self.nnue_evaluator = Some(n);
+                self.use_nnue = true;
+            }
+            None => self.use_nnue = false,
+        }
+    }
+
+    /// Feature set declared by the loaded NNUE weight file (v2 files only).
+    pub fn nnue_declared_feature_set(&self) -> Option<nnue::NNUEFeatureSet> {
+        self.nnue_evaluator.as_ref().and_then(|n| n.declared_feature_set())
+    }
+
     /// Disable NNUE evaluation
     pub fn disable_nnue(&mut self) {
         self.use_nnue = false;

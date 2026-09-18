@@ -25,7 +25,7 @@ use rand::seq::SliceRandom;
 use rand::SeedableRng;
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::evaluation::nnue::{
-    HAND_FEATURE_BASE_FLAT, HAND_FEATURE_BASE_HALFKP, NNUEAccumulator, NNUEWeights,
+    NNUEFeatureSet, HAND_FEATURE_BASE_FLAT, HAND_FEATURE_BASE_HALFKP, NNUEAccumulator, NNUEWeights,
 };
 use shogi_engine::evaluation::nnue_training::{
     extract_active_features, extract_active_features_halfkp,
@@ -930,6 +930,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut trainer = NNUETrainer::new(initial_weights, config);
 
+    // Recorded in every saved file so the engine can configure itself to match.
+    let feature_set = NNUEFeatureSet {
+        pov: cli.use_pov_features,
+        stm: cli.use_stm_feature && !cli.use_pov_features,
+        halfkp: cli.use_halfkp,
+        hand: cli.use_hand_features,
+    };
+    println!("  Feature set:  {} (written into every saved weight file)", feature_set);
+
     let start = Instant::now();
     let total_epochs = cli.epochs;
     let total_positions = records.len();
@@ -1028,7 +1037,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 best_r = Some(r);
                 best_epoch = epoch + 1;
                 epochs_since_best = 0;
-                trainer.get_weights().save(&cli.output_weights)?;
+                trainer.get_weights().save_with_features(&cli.output_weights, feature_set)?;
             } else {
                 epochs_since_best += 1;
                 if cli.early_stop_patience > 0 && epochs_since_best >= cli.early_stop_patience {
@@ -1056,7 +1065,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .map(|e| e.to_string_lossy().into_owned())
                 .unwrap_or_else(|| "bin".into());
             let ckpt = parent.join(format!("{}_epoch_{}.{}", stem, epoch + 1, ext));
-            trainer.get_weights().save(&ckpt)?;
+            trainer.get_weights().save_with_features(&ckpt, feature_set)?;
             println!("  checkpoint -> {}", ckpt.display());
         }
     }
@@ -1064,7 +1073,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // When validation ran, `--output-weights` already holds the best-scoring
     // network; overwriting it here with the final epoch would undo that.
     if best_r.is_none() {
-        trainer.get_weights().save(&cli.output_weights)?;
+        trainer.get_weights().save_with_features(&cli.output_weights, feature_set)?;
     }
     println!();
     println!("=== TRAINING COMPLETE ===");

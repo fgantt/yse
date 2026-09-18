@@ -92,7 +92,16 @@ pub struct ShogiEngine {
     thread_count: usize,
     parallel_options: ParallelOptions,
     pst_config: PieceSquareTableConfig,
+    /// USI `UseNNUE`.
+    use_nnue: bool,
+    /// USI `NNUEFile`: path to a v2 weight file that declares its feature set.
+    nnue_file: String,
+    /// Result of the last NNUE configuration, reported on `isready`.
+    nnue_status: String,
 }
+
+/// Default network location. Not matched by the `nnue_weights_*` gitignore rule.
+pub const DEFAULT_NNUE_FILE: &str = "nnue/default.bin";
 
 impl ShogiEngine {
     pub fn new() -> Self {
@@ -113,6 +122,9 @@ impl ShogiEngine {
             thread_count,
             parallel_options: ParallelOptions::default(),
             pst_config: PieceSquareTableConfig::default(),
+            use_nnue: true,
+            nnue_file: DEFAULT_NNUE_FILE.to_string(),
+            nnue_status: String::new(),
         };
         engine.parallel_options.enable_parallel = thread_count > 1;
         engine.parallel_options.hash_size_mb = 16;
@@ -125,8 +137,7 @@ impl ShogiEngine {
         engine.load_prefs();
         // Try to load default opening book if available
         engine.load_default_opening_book();
-        // Try to load trained NNUE weights if available
-        engine.load_trained_nnue_weights();
+        engine.apply_nnue_config();
 
         if let Err(err) = engine.apply_pst_config() {
             crate::debug_log_fast!(&format!(
@@ -200,31 +211,53 @@ impl ShogiEngine {
         crate::utils::telemetry::debug_log("No default opening book available");
     }
 
-    /// Try to load trained NNUE weights from nnue_weights_trained.json
-    /// This is called automatically during engine initialization
-    fn load_trained_nnue_weights(&mut self) {
-        if let Ok(mut search_engine_guard) = self.search_engine.lock() {
-            let evaluator = search_engine_guard.get_evaluator_mut();
-            
-            // Try to load trained weights from the current directory
-            // Note: Status message is sent during 'isready' command, not here
-            match evaluator.enable_nnue_with_weights("nnue_weights_trained.json") {
-                Ok(()) => {
-                    // Success - status will be reported during isready command
-                    crate::utils::telemetry::debug_log("✓ Loaded trained NNUE weights from nnue_weights_trained.json");
-                }
-                Err(e) => {
-                    // Silently fail - weights file may not exist, which is fine
-                    // Only log if in debug mode to avoid cluttering normal operation
-                    if self.debug_mode {
-                        crate::debug_log_fast!(&format!(
-                            "Could not load NNUE weights: {} (this is normal if weights file doesn't exist)",
-                            e
-                        ));
+    /// Load (or unload) NNUE per the `UseNNUE` / `NNUEFile` options.
+    ///
+    /// NNUE scores every node the search evaluates, and a network is only
+    /// meaningful under the feature encoding it was trained with. So a file is
+    /// used only if it declares its feature set (a v2 file); the evaluator is
+    /// configured from that declaration. Otherwise the engine uses classical
+    /// evaluation and says why on `isready`. This replaces unconditionally
+    /// loading `nnue_weights_trained.json` with no feature flags, which after the
+    /// single-evaluator change would have had a Session-3 colour-absolute network
+    /// scoring every leaf.
+    ///
+    /// Called at start-up, when either option changes, and whenever the search
+    /// engine is rebuilt (e.g. `USI_Hash`), which otherwise drops the network.
+    fn apply_nnue_config(&mut self) {
+        let status = if let Ok(mut guard) = self.search_engine.lock() {
+            let evaluator = guard.get_evaluator_mut();
+            if !self.use_nnue {
+                evaluator.disable_nnue();
+                "NNUE disabled (UseNNUE=false); classical evaluation".to_string()
+            } else {
+                match evaluator.enable_nnue_with_weights(&self.nnue_file) {
+                    Ok(()) => match evaluator.nnue_declared_feature_set() {
+                        Some(fs) => format!("NNUE enabled: {} (features {})", self.nnue_file, fs),
+                        None => {
+                            evaluator.disable_nnue();
+                            format!(
+                                "NNUE file {} declares no feature set; classical evaluation. Stamp \
+                                 it with nnue-convert-weights --feature-set",
+                                self.nnue_file
+                            )
+                        }
+                    },
+                    Err(e) => {
+                        evaluator.disable_nnue();
+                        format!("NNUE not loaded ({}: {}); classical evaluation", self.nnue_file, e)
                     }
                 }
             }
-        }
+        } else {
+            "NNUE not configured: search engine busy".to_string()
+        };
+        self.nnue_status = status;
+    }
+
+    /// Human-readable NNUE status, reported on `isready`.
+    pub fn nnue_status(&self) -> &str {
+        &self.nnue_status
     }
 
     /// Check if NNUE evaluation is enabled
@@ -1005,7 +1038,20 @@ impl ShogiEngine {
                         }
                         self.opening_book_prefilled = false;
                         self.maybe_prefill_opening_book();
+                        // The rebuilt engine has a fresh evaluator: reload the network.
+                        self.apply_nnue_config();
+                        output.push(format!("info string {}", self.nnue_status));
                     }
+                }
+                "UseNNUE" => {
+                    self.use_nnue = parts[3].eq_ignore_ascii_case("true");
+                    self.apply_nnue_config();
+                    output.push(format!("info string {}", self.nnue_status));
+                }
+                "NNUEFile" => {
+                    self.nnue_file = parts[3..].join(" ").trim().to_string();
+                    self.apply_nnue_config();
+                    output.push(format!("info string {}", self.nnue_status));
                 }
                 "PSTPreset" => {
                     let value = parts[3..].join(" ");

@@ -786,6 +786,11 @@ pub struct ParallelSearchEngine {
 
     /// Work distribution statistics.
     work_stats: Arc<WorkDistributionRecorder>,
+
+    /// The main engine's NNUE network, copied into each worker engine. Workers
+    /// are built with a fresh `PositionEvaluator`; without this they searched with
+    /// classical evaluation while the main thread used NNUE.
+    nnue_template: std::sync::RwLock<Option<crate::evaluation::nnue::NNUEEvaluator>>,
 }
 
 impl ParallelSearchEngine {
@@ -843,10 +848,31 @@ impl ParallelSearchEngine {
             stop_flag: None,
             work_queues,
             work_stats: Arc::new(WorkDistributionRecorder::new(num_threads, metrics_mode)),
+            nnue_template: std::sync::RwLock::new(None),
         })
     }
 
+    /// Set the network workers should use (the main engine's). Cheap when
+    /// unchanged: the copy is only taken if the network id differs.
+    pub fn set_nnue_template(&self, main: &PositionEvaluator) {
+        let wanted = main.nnue_network_id();
+        if let Ok(mut t) = self.nnue_template.write() {
+            let current = t.as_ref().map(|n| n.network_id());
+            if current != wanted {
+                *t = main.nnue_worker_copy();
+            }
+        }
+    }
+
     fn configure_worker_engine(&self, engine: &mut SearchEngine) {
+        if let Ok(t) = self.nnue_template.read() {
+            let wanted = t.as_ref().map(|n| n.network_id());
+            if engine.get_evaluator().nnue_network_id() != wanted {
+                engine
+                    .get_evaluator_mut()
+                    .install_nnue(t.as_ref().map(|n| n.clone_for_worker()));
+            }
+        }
         engine.set_ybwc(self.config.ybwc_enabled, self.config.ybwc_min_depth);
         engine.set_ybwc_branch(self.config.ybwc_min_branch);
         engine.set_ybwc_max_siblings(self.config.ybwc_max_siblings);
@@ -907,6 +933,7 @@ impl ParallelSearchEngine {
             stop_flag,
             work_queues,
             work_stats: Arc::new(WorkDistributionRecorder::new(num_threads, metrics_mode)),
+            nnue_template: std::sync::RwLock::new(None),
         })
     }
 
@@ -1000,6 +1027,7 @@ impl ParallelSearchEngine {
             stop_flag,
             work_queues,
             work_stats: Arc::new(WorkDistributionRecorder::new(num_threads, metrics_mode)),
+            nnue_template: std::sync::RwLock::new(None),
         })
     }
 

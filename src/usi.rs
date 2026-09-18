@@ -138,6 +138,8 @@ impl UsiHandler {
             "id name Yggdrasil".to_string(),
             "id author fgantt (Gemini & Cursor)".to_string(),
             "option name USI_Hash type spin default 16 min 1 max 1024".to_string(),
+            "option name UseNNUE type check default true".to_string(),
+            format!("option name NNUEFile type string default {}", crate::DEFAULT_NNUE_FILE),
             format!(
                 "option name ParallelEnable type check default {}",
                 if parallel_options.enable_parallel { "true" } else { "false" }
@@ -210,8 +212,9 @@ impl UsiHandler {
         let mut response = Vec::new();
         
         // Send NNUE status during isready (standard USI practice for status messages)
-        if self.engine.is_nnue_enabled() {
-            response.push("info string NNUE evaluation enabled (using trained weights)".to_string());
+        let status = self.engine.nnue_status();
+        if !status.is_empty() {
+            response.push(format!("info string {}", status));
         }
         
         response.push("readyok".to_string());

@@ -431,22 +431,41 @@ impl NNUEWeights {
     /// Session 18: `.bin` files are bincode-encoded. The on-disk struct is
     /// the same `NNUEWeightFile`, so JSON ↔ binary round-trips bit-exactly.
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, NNUEError> {
+        Self::load_with_features(path).map(|(w, _)| w)
+    }
+
+    /// Load weights and, for v2 files, the feature set they were trained with.
+    /// Legacy (v1) files load with `None`.
+    pub fn load_with_features<P: AsRef<Path>>(
+        path: P,
+    ) -> Result<(Self, Option<NNUEFeatureSet>), NNUEError> {
         let path = path.as_ref();
-        let file_data: NNUEWeightFile = if path
+        let is_bin = path
             .extension()
             .and_then(|e| e.to_str())
             .map(|e| e.eq_ignore_ascii_case("bin"))
-            .unwrap_or(false)
-        {
-            let file = File::open(path)?;
-            let reader = BufReader::new(file);
-            bincode::deserialize_from(reader)?
+            .unwrap_or(false);
+        let (file_data, features): (NNUEWeightFile, Option<NNUEFeatureSet>) = if is_bin {
+            let bytes = std::fs::read(path)?;
+            if let Some(rest) = bytes.strip_prefix(NNUE_BIN_MAGIC_V2) {
+                let (fs, w): (NNUEFeatureSet, NNUEWeightFile) = bincode::deserialize(rest)?;
+                (w, Some(fs))
+            } else {
+                (bincode::deserialize(&bytes)?, None)
+            }
         } else {
-            let file = File::open(path)?;
-            let reader = BufReader::new(file);
-            serde_json::from_reader(reader)?
+            let value: serde_json::Value = serde_json::from_reader(BufReader::new(File::open(path)?))?;
+            if value.get("feature_set").is_some() && value.get("weights").is_some() {
+                let v2: NNUEWeightFileV2Json = serde_json::from_value(value)?;
+                (v2.weights, Some(v2.feature_set))
+            } else {
+                (serde_json::from_value(value)?, None)
+            }
         };
+        Ok((Self::from_file_data(file_data), features))
+    }
 
+    fn from_file_data(file_data: NNUEWeightFile) -> Self {
         let mut input_weights_1 = file_data.input_weights_1;
         if input_weights_1.len() == NUM_NNUE_FEATURES {
             let row_len = input_weights_1
@@ -456,14 +475,14 @@ impl NNUEWeights {
             input_weights_1.push(vec![0i16; row_len]);
         }
 
-        Ok(Self {
+        Self {
             input_weights_1,
             hidden_biases_1: file_data.hidden_biases_1,
             input_weights_2: file_data.input_weights_2,
             hidden_biases_2: file_data.hidden_biases_2,
             output_weights: file_data.output_weights,
             output_bias: file_data.output_bias,
-        })
+        }
     }
 
     /// Save weights to file. Dispatches by extension: `.bin` → bincode,
@@ -495,12 +514,107 @@ impl NNUEWeights {
         Ok(())
     }
 
+    /// Save as a v2 file recording the feature set. Prefer this over `save` for
+    /// anything that will be loaded by the engine: it lets the loader configure
+    /// the evaluator instead of relying on the caller to pass matching flags.
+    pub fn save_with_features<P: AsRef<Path>>(
+        &self,
+        path: P,
+        features: NNUEFeatureSet,
+    ) -> Result<(), NNUEError> {
+        let path = path.as_ref();
+        let file_data = NNUEWeightFile {
+            input_weights_1: self.input_weights_1.clone(),
+            hidden_biases_1: self.hidden_biases_1.clone(),
+            input_weights_2: self.input_weights_2.clone(),
+            hidden_biases_2: self.hidden_biases_2.clone(),
+            output_weights: self.output_weights.clone(),
+            output_bias: self.output_bias,
+        };
+        let is_bin = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .map(|e| e.eq_ignore_ascii_case("bin"))
+            .unwrap_or(false);
+        let mut writer = BufWriter::new(File::create(path)?);
+        if is_bin {
+            use std::io::Write;
+            writer.write_all(NNUE_BIN_MAGIC_V2)?;
+            bincode::serialize_into(writer, &(features, file_data))?;
+        } else {
+            let v2 = NNUEWeightFileV2Json { feature_set: features, weights: file_data };
+            serde_json::to_writer_pretty(writer, &v2)?;
+        }
+        Ok(())
+    }
+
     /// Get hidden layer sizes
     pub fn hidden_sizes(&self) -> (usize, usize) {
         let size_1 = self.hidden_biases_1.len();
         let size_2 = self.hidden_biases_2.as_ref().map(|b| b.len()).unwrap_or(0);
         (size_1, size_2)
     }
+}
+
+/// The feature encoding a network was trained with. A network is only
+/// meaningful under the encoding it was trained on, and the encodings cannot be
+/// told apart from the tensors alone (a POV network and a stm+hand network have
+/// the same row count), so v2 weight files record it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct NNUEFeatureSet {
+    /// Perspective-normalised features with dual accumulators.
+    pub pov: bool,
+    /// Colour-absolute features plus a side-to-move bit (legacy).
+    pub stm: bool,
+    /// King-conditioned HalfKP features.
+    pub halfkp: bool,
+    /// Pieces-in-hand thermometer features.
+    pub hand: bool,
+}
+
+impl NNUEFeatureSet {
+    /// Parse a comma-separated list such as `"pov,hand"`. Empty means flat.
+    pub fn parse(spec: &str) -> Result<Self, String> {
+        let mut fs = Self::default();
+        for part in spec.split(',').map(str::trim).filter(|p| !p.is_empty()) {
+            match part {
+                "pov" => fs.pov = true,
+                "stm" => fs.stm = true,
+                "halfkp" => fs.halfkp = true,
+                "hand" => fs.hand = true,
+                "flat" => {}
+                other => return Err(format!("unknown feature '{other}' (expected pov, stm, halfkp, hand, flat)")),
+            }
+        }
+        if fs.pov && (fs.stm || fs.halfkp) {
+            return Err("pov cannot be combined with stm or halfkp".into());
+        }
+        Ok(fs)
+    }
+}
+
+impl std::fmt::Display for NNUEFeatureSet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut parts = Vec::new();
+        if self.pov { parts.push("pov"); }
+        if self.stm { parts.push("stm"); }
+        if self.halfkp { parts.push("halfkp"); }
+        if self.hand { parts.push("hand"); }
+        if parts.is_empty() { parts.push("flat"); }
+        write!(f, "{}", parts.join(","))
+    }
+}
+
+/// Magic prefix of v2 binary weight files: the magic, then a bincode-encoded
+/// `(NNUEFeatureSet, NNUEWeightFile)`. Files without it are legacy (v1) bincode
+/// of a bare `NNUEWeightFile` and still load, with no feature set.
+const NNUE_BIN_MAGIC_V2: &[u8] = b"SHOGINNUE2";
+
+/// v2 JSON weight file: `{ "feature_set": {...}, "weights": {...} }`.
+#[derive(Serialize, Deserialize)]
+struct NNUEWeightFileV2Json {
+    feature_set: NNUEFeatureSet,
+    weights: NNUEWeightFile,
 }
 
 /// Serializable weight file format
@@ -1037,7 +1151,17 @@ pub struct NNUEEvaluator {
     synced_occ_stack: Vec<Option<u128>>,
     /// Rebuilds triggered by an occupancy mismatch. Non-zero during search means
     /// some code path changes the board without calling the NNUE hooks.
-    resyncs: u64,
+    resyncs: u64,    /// Feature set declared by the weight file (v2 files only).
+    feature_set: Option<NNUEFeatureSet>,
+    /// Identifies the loaded network (and its feature flags), so parallel-search
+    /// workers can tell whether their copy is current without comparing weights.
+    network_id: u64,
+}
+
+static NEXT_NNUE_NETWORK_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+
+fn next_network_id() -> u64 {
+    NEXT_NNUE_NETWORK_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
 }
 
 impl NNUEEvaluator {
@@ -1067,6 +1191,8 @@ impl NNUEEvaluator {
             synced_occ: None,
             synced_occ_stack: Vec::with_capacity(128),
             resyncs: 0,
+            feature_set: None,
+            network_id: next_network_id(),
         }
     }
 
@@ -1096,6 +1222,8 @@ impl NNUEEvaluator {
             synced_occ: None,
             synced_occ_stack: Vec::with_capacity(128),
             resyncs: 0,
+            feature_set: None,
+            network_id: next_network_id(),
         }
     }
 
@@ -1105,6 +1233,7 @@ impl NNUEEvaluator {
     /// (whose `own_king_sq` would also need mirroring), so enabling it clears
     /// both. Invalidates the accumulator: the next evaluate does a full refresh.
     pub fn set_use_pov(&mut self, on: bool) {
+        self.network_id = next_network_id();
         self.use_pov = on;
         if on {
             self.use_stm_feature = false;
@@ -1188,8 +1317,54 @@ impl NNUEEvaluator {
 
     /// Load NNUE evaluator from file
     pub fn load<P: AsRef<Path>>(path: P) -> Result<Self, NNUEError> {
-        let weights = NNUEWeights::load(path)?;
-        Ok(Self::from_weights(weights))
+        let (weights, features) = NNUEWeights::load_with_features(path)?;
+        let mut ev = Self::from_weights(weights);
+        if let Some(fs) = features {
+            ev.apply_feature_set(fs);
+        }
+        ev.feature_set = features;
+        Ok(ev)
+    }
+
+    /// Configure the evaluator for `fs`. Explicit `set_use_*` calls afterwards
+    /// still take effect, so callers can override.
+    pub fn apply_feature_set(&mut self, fs: NNUEFeatureSet) {
+        if fs.pov {
+            self.set_use_pov(true);
+        } else {
+            self.set_use_halfkp(fs.halfkp);
+            self.set_use_stm_feature(fs.stm);
+        }
+        self.set_use_hand_features(fs.hand);
+    }
+
+    /// Identifier of the loaded network and feature configuration.
+    pub fn network_id(&self) -> u64 {
+        self.network_id
+    }
+
+    /// A copy of this network for a parallel-search worker: same weights, flags
+    /// and `network_id`, with fresh accumulators and empty make/unmake stacks.
+    /// The first evaluation rebuilds from the worker's board.
+    pub fn clone_for_worker(&self) -> Self {
+        let (h1, h2) = self.weights.hidden_sizes();
+        let mut c = Self::from_weights(self.weights.clone());
+        c.use_stm_feature = self.use_stm_feature;
+        c.use_halfkp = self.use_halfkp;
+        c.use_hand_features = self.use_hand_features;
+        c.use_pov = self.use_pov;
+        c.enabled = self.enabled;
+        c.feature_set = self.feature_set;
+        c.network_id = self.network_id;
+        c.accumulator = NNUEAccumulator::new(h1, h2);
+        c.accumulator_white = NNUEAccumulator::new(h1, h2);
+        c.needs_refresh = true;
+        c
+    }
+
+    /// The feature set declared by the loaded weight file, if it was a v2 file.
+    pub fn declared_feature_set(&self) -> Option<NNUEFeatureSet> {
+        self.feature_set
     }
 
     /// Toggle Session 14's side-to-move feature on this evaluator. When
@@ -1198,6 +1373,7 @@ impl NNUEEvaluator {
     /// Callers loading stm-trained weights set this; pre-Session-14
     /// weights leave it off (default).
     pub fn set_use_stm_feature(&mut self, on: bool) {
+        self.network_id = next_network_id();
         self.use_stm_feature = on;
         // The accumulator's hidden_1 may have been built without the stm
         // bit; force a full refresh on the next eval to keep state coherent.
@@ -1218,6 +1394,7 @@ impl NNUEEvaluator {
     /// pre-Session-16 weight files leave it off. The hidden_1 snapshot stack
     /// is still used so unmake is O(1).
     pub fn set_use_halfkp(&mut self, on: bool) {
+        self.network_id = next_network_id();
         self.use_halfkp = on;
         self.needs_refresh = true;
         self.accumulator_stack.clear();
@@ -1242,6 +1419,7 @@ impl NNUEEvaluator {
     /// hand-feature rows are addressable. Pre-Session-19 weights with hand
     /// features off remain bit-exact.
     pub fn set_use_hand_features(&mut self, on: bool) {
+        self.network_id = next_network_id();
         self.use_hand_features = on;
         if on {
             self.pad_for_hand_features();

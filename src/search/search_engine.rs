@@ -258,6 +258,10 @@ mod tablebase_tests {
 
 pub struct SearchEngine {
     evaluator: PositionEvaluator,
+    /// Shareable copy of this engine's NNUE network for YBWC sibling engines,
+    /// keyed by network id so it is only rebuilt when the network changes.
+    nnue_worker_template:
+        Option<(Option<u64>, Arc<Option<crate::evaluation::nnue::NNUEEvaluator>>)>,
     move_generator: MoveGenerator,
     tablebase: MicroTablebase,
     transposition_table: crate::search::ThreadSafeTranspositionTable,
@@ -1351,6 +1355,7 @@ impl SearchEngine {
         let quiescence_capacity = quiescence_config.tt_size_mb * 1024 * 1024 / BYTES_PER_ENTRY;
         let mut engine = Self {
             evaluator: PositionEvaluator::new(),
+            nnue_worker_template: None,
             move_generator: MoveGenerator::new(),
             tablebase: MicroTablebase::new(),
             transposition_table: crate::search::ThreadSafeTranspositionTable::new(config),
@@ -1819,6 +1824,7 @@ impl SearchEngine {
 
         let mut engine = Self {
             evaluator: PositionEvaluator::new(),
+            nnue_worker_template: None,
             move_generator: MoveGenerator::new(),
             tablebase: MicroTablebase::new(),
             transposition_table: crate::search::ThreadSafeTranspositionTable::new(tt_config),
@@ -5972,6 +5978,8 @@ impl SearchEngine {
                 let stop_flag = self.stop_flag.clone();
                 let shared_tt = self.shared_transposition_table.clone();
                 let quiescence_cfg = self.quiescence_config.clone();
+                let nnue_template = self.nnue_worker_template();
+                let nnue_template_id = self.evaluator.nnue_network_id();
                 let sibling_results: Vec<(i32, usize)> = siblings
                     .par_iter()
                     .enumerate()
@@ -6000,6 +6008,13 @@ impl SearchEngine {
                                 *opt = Some(e);
                             }
                             let eng = opt.as_mut().unwrap();
+                            // Same network as this engine; the thread-local engine
+                            // outlives a search, so re-check on every use.
+                            if eng.evaluator.nnue_network_id() != nnue_template_id {
+                                eng.evaluator.install_nnue(
+                                    nnue_template.as_ref().as_ref().map(|n| n.clone_for_worker()),
+                                );
+                            }
                             let score = -eng.negamax(
                                 &mut sib_board,
                                 &sib_captured,
@@ -14029,6 +14044,20 @@ impl SearchEngine {
         false
     }
 
+    /// Shareable copy of the active NNUE network for sibling engines (see
+    /// `nnue_worker_template`). Cheap when the network is unchanged.
+    fn nnue_worker_template(&mut self) -> Arc<Option<crate::evaluation::nnue::NNUEEvaluator>> {
+        let id = self.evaluator.nnue_network_id();
+        if let Some((cached_id, t)) = &self.nnue_worker_template {
+            if *cached_id == id {
+                return t.clone();
+            }
+        }
+        let t = Arc::new(self.evaluator.nnue_worker_copy());
+        self.nnue_worker_template = Some((id, t.clone()));
+        t
+    }
+
     /// Update the NNUE accumulator after a move has been made on the board.
     ///
     /// Call this immediately after `board.make_move_with_info()` to keep the
@@ -15133,6 +15162,7 @@ impl IterativeDeepening {
 
                 let parallel_result = if self.thread_count > 1 && depth >= self.parallel_min_depth {
                     if let Some(ref parallel_engine) = self.parallel_engine {
+                        parallel_engine.set_nnue_template(search_engine.get_evaluator());
                         parallel_engine.search_root_moves(
                             board,
                             captured_pieces,

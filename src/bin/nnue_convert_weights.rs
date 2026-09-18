@@ -12,7 +12,7 @@
 //!         --output /tmp/s16_halfkp_adam_fresh_30e.bin
 
 use clap::Parser;
-use shogi_engine::evaluation::nnue::NNUEWeights;
+use shogi_engine::evaluation::nnue::{NNUEFeatureSet, NNUEWeights};
 use std::path::PathBuf;
 use std::time::Instant;
 
@@ -27,6 +27,13 @@ struct Cli {
     /// Output weights file (`.json` or `.bin` — format selected by extension)
     #[arg(long)]
     output: PathBuf,
+
+    /// Record the feature set the network was trained with, e.g. `pov,hand` or
+    /// `stm,hand`, writing a v2 file the engine configures itself from. Without
+    /// it, a v2 input's declared set is carried over and a legacy input stays
+    /// legacy.
+    #[arg(long)]
+    feature_set: Option<String>,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -41,7 +48,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Input size:  {} bytes  ({:.1} MB)", in_size, in_size as f64 / 1024.0 / 1024.0);
 
     let load_start = Instant::now();
-    let weights = NNUEWeights::load(&cli.input)?;
+    let (weights, declared) = NNUEWeights::load_with_features(&cli.input)?;
+    match declared {
+        Some(fs) => println!("Declared:    feature set {}", fs),
+        None => println!("Declared:    none (legacy v1 file)"),
+    }
+    let features = match &cli.feature_set {
+        Some(spec) => Some(NNUEFeatureSet::parse(spec)?),
+        None => declared,
+    };
     let load_elapsed = load_start.elapsed();
     println!("Load time:   {:.3} s", load_elapsed.as_secs_f64());
 
@@ -54,7 +69,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let save_start = Instant::now();
-    weights.save(&cli.output)?;
+    match features {
+        Some(fs) => {
+            weights.save_with_features(&cli.output, fs)?;
+            println!("Wrote:       v2 file, feature set {}", fs);
+        }
+        None => weights.save(&cli.output)?,
+    }
     let save_elapsed = save_start.elapsed();
     println!("Save time:   {:.3} s", save_elapsed.as_secs_f64());
 
@@ -68,7 +89,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Verify round-trip: load the output back and confirm bit-for-bit equality.
     let verify_start = Instant::now();
-    let reloaded = NNUEWeights::load(&cli.output)?;
+    let (reloaded, reloaded_features) = NNUEWeights::load_with_features(&cli.output)?;
+    assert_eq!(reloaded_features, features, "feature set did not round-trip");
     let verify_elapsed = verify_start.elapsed();
     println!("Reload time: {:.3} s", verify_elapsed.as_secs_f64());
 
