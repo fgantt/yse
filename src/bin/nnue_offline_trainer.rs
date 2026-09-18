@@ -249,6 +249,15 @@ struct Cli {
     /// See `docs/nnue-phase2/FEATURE_SPEC_AND_AUDIT.md` Finding 2.
     #[arg(long)]
     use_pov_features: bool,
+
+    /// Stop training after this many consecutive validation passes without a new
+    /// best held-out score. 0 disables early stopping (the full `--epochs` run).
+    ///
+    /// Worth setting: on the current corpus held-out r peaks around epoch 10 and
+    /// then drifts *down*, so a 30-epoch run is not merely slower, it ends on a
+    /// worse network than it passed through.
+    #[arg(long, default_value_t = 0)]
+    early_stop_patience: u32,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -807,6 +816,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         StdRng::seed_from_u64(cli.seed)
     };
+    // Fresh weight init previously always drew from the thread RNG, so `--seed`
+    // controlled only shuffling and no fresh-init run was actually reproducible.
+    // Offset the init stream so init and shuffling do not share a sequence.
+    let init_seed = cli.seed.wrapping_add(0x9E37_79B9_7F4A_7C15);
 
     let target_rows = match (cli.use_halfkp, cli.use_hand_features) {
         (true, true) => {
@@ -861,7 +874,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     target_rows,
                     if cli.use_hand_features { " incl. hand features" } else { "" }
                 );
-                let mut w = NNUEWeights::new_halfkp(cli.hidden_1, cli.hidden_2);
+                let mut w = NNUEWeights::new_with_features_seeded(
+                    shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_HALFKP_TOTAL,
+                    cli.hidden_1,
+                    cli.hidden_2,
+                    init_seed,
+                );
                 if cli.use_hand_features {
                     let row_len = cli.hidden_1;
                     while w.input_weights_1.len() < target_rows {
@@ -875,7 +893,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     target_rows,
                     if cli.use_hand_features { " incl. hand features" } else { "" }
                 );
-                let mut w = NNUEWeights::new(cli.hidden_1, cli.hidden_2);
+                let mut w = NNUEWeights::new_with_features_seeded(
+                    shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_TOTAL,
+                    cli.hidden_1,
+                    cli.hidden_2,
+                    init_seed,
+                );
                 if cli.use_hand_features {
                     let row_len = cli.hidden_1;
                     while w.input_weights_1.len() < target_rows {
@@ -910,6 +933,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
     let total_epochs = cli.epochs;
     let total_positions = records.len();
+
+    // Save the *best* network by held-out score, not the last one trained. These
+    // diverge: held-out r peaks early and then declines, so the final epoch's
+    // weights are routinely worse than the peak the run already reached.
+    let mut best_r: Option<f32> = None;
+    let mut best_epoch: u32 = 0;
+    let mut epochs_since_best: u32 = 0;
 
     for epoch in 0..total_epochs {
         let epoch_start = Instant::now();
@@ -992,6 +1022,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             epoch_start.elapsed().as_secs_f64()
         );
 
+        if let Some(r) = pearson {
+            let improved = best_r.map_or(true, |b| r > b);
+            if improved {
+                best_r = Some(r);
+                best_epoch = epoch + 1;
+                epochs_since_best = 0;
+                trainer.get_weights().save(&cli.output_weights)?;
+            } else {
+                epochs_since_best += 1;
+                if cli.early_stop_patience > 0 && epochs_since_best >= cli.early_stop_patience {
+                    println!(
+                        "  early stop: {} validation passes without improving on r_clamp={:+.3} \
+                         (epoch {})",
+                        epochs_since_best,
+                        best_r.unwrap_or(0.0),
+                        best_epoch
+                    );
+                    break;
+                }
+            }
+        }
+
         if cli.checkpoint_every > 0 && (epoch + 1) % cli.checkpoint_every == 0 {
             let stem = cli.output_weights.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "nnue_weights".into());
             let parent = cli.output_weights.parent().unwrap_or(Path::new("."));
@@ -1009,13 +1061,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    trainer.get_weights().save(&cli.output_weights)?;
+    // When validation ran, `--output-weights` already holds the best-scoring
+    // network; overwriting it here with the final epoch would undo that.
+    if best_r.is_none() {
+        trainer.get_weights().save(&cli.output_weights)?;
+    }
     println!();
     println!("=== TRAINING COMPLETE ===");
     println!("  Epochs:       {}", total_epochs);
     println!("  Positions/ep: {}", total_positions);
     println!("  Wall time:    {:.1}s", start.elapsed().as_secs_f64());
-    println!("  Weights ->    {}", cli.output_weights.display());
+    match best_r {
+        Some(r) => println!(
+            "  Weights ->    {}  (best: r_clamp={:+.3} at epoch {})",
+            cli.output_weights.display(),
+            r,
+            best_epoch
+        ),
+        None => println!("  Weights ->    {}  (final epoch)", cli.output_weights.display()),
+    }
 
     Ok(())
 }

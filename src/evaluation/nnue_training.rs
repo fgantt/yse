@@ -605,6 +605,13 @@ impl NNUETrainer {
             .collect();
 
         // Hidden layer 2 (if present): ReLU(W2 * h1 + b2)
+        //
+        // The `/ 64.0` is hoisted out of the inner loop so this mirrors the
+        // engine's single `>> 6` in `NNUEAccumulator::evaluate` line for line.
+        // In f32 this is the same value either way -- the divergence Finding 3
+        // measured was the engine *flooring* every term, which is fixed there,
+        // not here. The structures are kept parallel so the next person can see
+        // at a glance that they agree.
         let final_values: Vec<f32> = if let Some(ref _h2) = position.accumulator.hidden_2 {
             let biases_2 = self.weights.hidden_biases_2.as_ref().unwrap();
             let h2_len = biases_2.len();
@@ -612,8 +619,11 @@ impl NNUETrainer {
             if let Some(ref w2) = self.weights.input_weights_2 {
                 for (i, &act_1) in hidden_1_activated.iter().enumerate() {
                     for (j, &weight) in w2[i].iter().enumerate() {
-                        h2_values[j] += act_1 * (weight as f32) / 64.0;
+                        h2_values[j] += act_1 * (weight as f32);
                     }
+                }
+                for v in h2_values.iter_mut() {
+                    *v /= 64.0;
                 }
                 for (j, &bias) in biases_2.iter().enumerate() {
                     h2_values[j] = (h2_values[j] + bias as f32).max(0.0);
@@ -624,13 +634,16 @@ impl NNUETrainer {
             hidden_1_activated.clone()
         };
 
-        // Output: dot(final_values, output_weights) / 64 + output_bias
-        let mut raw_output: f32 = self.weights.output_bias as f32;
+        // Output: dot(final_values, output_weights) / 64 + output_bias.
+        // `output_bias` is in post-shift units, so it is added after the divide —
+        // same order as the engine.
+        let mut dot: f32 = 0.0;
         for (i, &value) in final_values.iter().enumerate() {
             if i < self.weights.output_weights.len() {
-                raw_output += value * (self.weights.output_weights[i] as f32) / 64.0;
+                dot += value * (self.weights.output_weights[i] as f32);
             }
         }
+        let raw_output: f32 = self.weights.output_bias as f32 + dot / 64.0;
 
         // Scale to centipawns: output_cp = raw_output * SCALE_FACTOR / OUTPUT_DIVISOR
         let output_cp = raw_output * SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;

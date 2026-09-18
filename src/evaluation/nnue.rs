@@ -305,12 +305,41 @@ impl NNUEWeights {
 
     /// Generic fresh-init with caller-supplied feature count. Used by both
     /// `new` (flat features, Session 14 size) and `new_halfkp` (Session 16).
+    ///
+    /// Draws from the thread RNG, so successive calls differ. Prefer
+    /// [`Self::new_with_features_seeded`] anywhere a run needs to be reproducible.
     pub fn new_with_features(
         num_features: usize,
         hidden_size_1: usize,
         hidden_size_2: usize,
     ) -> Self {
-        let mut rng = rand::thread_rng();
+        Self::init_with_rng(num_features, hidden_size_1, hidden_size_2, &mut rand::thread_rng())
+    }
+
+    /// Reproducible fresh-init. Identical distributions to
+    /// [`Self::new_with_features`] but driven by an explicitly seeded RNG.
+    ///
+    /// This exists because fresh init previously always used `rand::thread_rng()`,
+    /// so a trainer `--seed` controlled only corpus shuffling and every fresh-init
+    /// run started from different weights. Runs recorded as reproducible in
+    /// Sessions 1-20 were not.
+    pub fn new_with_features_seeded(
+        num_features: usize,
+        hidden_size_1: usize,
+        hidden_size_2: usize,
+        seed: u64,
+    ) -> Self {
+        use rand::SeedableRng;
+        let mut rng = rand::rngs::StdRng::seed_from_u64(seed);
+        Self::init_with_rng(num_features, hidden_size_1, hidden_size_2, &mut rng)
+    }
+
+    fn init_with_rng<R: rand::Rng>(
+        num_features: usize,
+        hidden_size_1: usize,
+        hidden_size_2: usize,
+        rng: &mut R,
+    ) -> Self {
         let weight_dist = Normal::new(0.0, 0.01).unwrap();
         let bias_dist = Normal::new(0.0, 10.0).unwrap();
 
@@ -324,7 +353,7 @@ impl NNUEWeights {
             .map(|_| {
                 (0..hidden_size_1)
                     .map(|_| {
-                        let w: f64 = weight_dist.sample(&mut rng);
+                        let w: f64 = weight_dist.sample(rng);
                         (w * 100.0).clamp(-127.0, 127.0) as i16
                     })
                     .collect()
@@ -333,7 +362,7 @@ impl NNUEWeights {
 
         let hidden_biases_1: Vec<i32> = (0..hidden_size_1)
             .map(|_| {
-                let b: f64 = bias_dist.sample(&mut rng);
+                let b: f64 = bias_dist.sample(rng);
                 b.clamp(-32768.0, 32767.0) as i32
             })
             .collect();
@@ -343,7 +372,7 @@ impl NNUEWeights {
                 .map(|_| {
                     (0..hidden_size_2)
                         .map(|_| {
-                            let w: f64 = weight_dist.sample(&mut rng);
+                            let w: f64 = weight_dist.sample(rng);
                             (w * 100.0).clamp(-127.0, 127.0) as i16
                         })
                         .collect()
@@ -352,14 +381,14 @@ impl NNUEWeights {
 
             let biases_2: Vec<i32> = (0..hidden_size_2)
                 .map(|_| {
-                    let b: f64 = bias_dist.sample(&mut rng);
+                    let b: f64 = bias_dist.sample(rng);
                     b.clamp(-32768.0, 32767.0) as i32
                 })
                 .collect();
 
             let output: Vec<i16> = (0..hidden_size_2)
                 .map(|_| {
-                    let w: f64 = weight_dist.sample(&mut rng);
+                    let w: f64 = weight_dist.sample(rng);
                     (w * 100.0).clamp(-127.0, 127.0) as i16
                 })
                 .collect();
@@ -368,7 +397,7 @@ impl NNUEWeights {
         } else {
             let output: Vec<i16> = (0..hidden_size_1)
                 .map(|_| {
-                    let w: f64 = weight_dist.sample(&mut rng);
+                    let w: f64 = weight_dist.sample(rng);
                     (w * 100.0).clamp(-127.0, 127.0) as i16
                 })
                 .collect();
@@ -376,7 +405,7 @@ impl NNUEWeights {
         };
 
         let output_bias = {
-            let b: f64 = bias_dist.sample(&mut rng);
+            let b: f64 = bias_dist.sample(rng);
             b.clamp(-32768.0, 32767.0) as i32
         };
 
@@ -862,39 +891,56 @@ impl NNUEAccumulator {
             .map(|(&h, &bias)| (h + bias).max(0))
             .collect();
 
-        // Apply second hidden layer if present
+        // Accumulate products at full precision and apply the >> 6 scale once
+        // per layer, rather than flooring every individual term.
+        //
+        // Per-term flooring was a systematic distortion, not rounding noise: with
+        // 256 hidden-1 terms it biased each hidden-2 pre-activation by ~128 units,
+        // and the trainer's f32 forward pass (which divides exactly) never saw it,
+        // so the optimiser was differentiating a function the engine did not
+        // compute. Measured drift between the two was 148-673 cp.
+        //
+        // i64 accumulation is what makes the single shift safe: activations reach
+        // ~10^4 (up to ~78 active features x the +/-127 input-weight clamp) and
+        // hidden-2 weights reach +/-32767, so 256 terms can exceed i32. The old
+        // per-term shift was in effect overflow protection bought with accuracy.
+        //
+        // See `docs/nnue-phase2/FEATURE_SPEC_AND_AUDIT.md` Finding 3.
         if let (Some(ref weights_2), Some(ref biases_2)) =
             (weights.input_weights_2.as_ref(), weights.hidden_biases_2.as_ref())
         {
-            // Compute hidden layer 2 from activated layer 1, then output
-            // in a single pass to avoid a second allocation.
             let hidden_size_2 = biases_2.len();
             debug_assert!(hidden_size_2 <= 32, "Hidden layer 2 size exceeds stack buffer");
-            let mut h2_values = [0i32; 32];
+            let mut h2_values = [0i64; 32];
 
             for (i, &act_1) in activated_1.iter().enumerate() {
                 if act_1 == 0 {
                     continue; // Skip zero activations (ReLU killed)
                 }
+                let a = act_1 as i64;
                 for (j, &weight) in weights_2[i].iter().enumerate() {
-                    h2_values[j] += (act_1 * weight as i32) >> 6;
+                    h2_values[j] += a * weight as i64;
                 }
             }
 
-            // Fused: ReLU(h2 + bias) dot output_weights, avoiding a second allocation
-            let mut output = weights.output_bias;
+            // Fused: ReLU(h2 + bias) dot output_weights, avoiding a second
+            // allocation. `output_bias` is in post-shift units (the trainer adds
+            // it without dividing), so it is added after the shift, not before.
+            let mut dot: i64 = 0;
             for j in 0..hidden_size_2 {
-                let h2_activated = (h2_values[j] + biases_2[j]).max(0);
-                output += (h2_activated * weights.output_weights[j] as i32) >> 6;
+                let h2_activated = ((h2_values[j] >> 6) as i32 + biases_2[j]).max(0) as i64;
+                dot += h2_activated * weights.output_weights[j] as i64;
             }
+            let output = weights.output_bias + (dot >> 6) as i32;
 
             (output * SCALE_FACTOR) / OUTPUT_DIVISOR
         } else {
             // No second hidden layer: dot activated_1 with output_weights
-            let mut output = weights.output_bias;
+            let mut dot: i64 = 0;
             for (&act, &weight) in activated_1.iter().zip(weights.output_weights.iter()) {
-                output += (act * weight as i32) >> 6;
+                dot += act as i64 * weight as i64;
             }
+            let output = weights.output_bias + (dot >> 6) as i32;
 
             (output * SCALE_FACTOR) / OUTPUT_DIVISOR
         }

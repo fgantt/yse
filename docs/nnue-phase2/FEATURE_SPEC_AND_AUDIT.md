@@ -344,6 +344,59 @@ Best weights: `weights/session21/nnue_weights_s21_pov_epoch_10.bin`.
 
 ---
 
+## Part 3c — Arithmetic Fix, Early Stopping, Reproducibility (2026-09-17)
+
+Three further fixes, and a reproducibility defect found while verifying them.
+
+**Finding 3 fixed.** The engine now accumulates hidden-2 and output products at full i64 precision
+and applies `>> 6` once per layer, instead of flooring every individual term. `output_bias` is added
+after the shift, since (as in the trainer) it is already in post-shift units. i64 is what makes the
+single shift safe — activations reach ~10⁴ and hidden-2 weights ±32767, so 256 terms overflow i32.
+The old per-term shift was, in effect, overflow protection bought with accuracy.
+
+Measured trainer-vs-engine drift on identical weights and inputs:
+
+| | before | after |
+|---|---|---|
+| absolute | 148 – 673 cp | 0.3 – 8.4 cp |
+| relative | 1e-3 – 6e-3 | **2e-6 – 7e-5** |
+
+The residual is irreducible single-rounding, so
+`tests/nnue_semantics.rs::trainer_forward_matches_engine_evaluate` asserts *relative* error (< 1e-3);
+the synthetic weights it uses produce outputs around 1e5 cp, so an absolute cp bound would be
+meaningless. All ten semantic tests now pass with none ignored.
+
+**Early stopping and save-best.** `--early-stop-patience N` halts after N validation passes with no
+new best. More importantly, `--output-weights` now receives the **best-scoring** network rather than
+the final epoch's. These diverge by a lot: held-out r peaks around epoch 11-15 and then drifts down,
+so every recorded 30-epoch run ended by saving weights worse than the peak it had already passed
+through. That was a silent defect independent of everything else in this audit.
+
+**Reproducibility defect (new).** `NNUEWeights::new_with_features` drew from `rand::thread_rng()`, so
+the trainer's `--seed` controlled only corpus shuffling — **fresh weight initialisation was never
+seeded.** No fresh-init run in Sessions 1-20 was reproducible, despite each logging a specific seed.
+Found because two runs with identical flags gave peak r of 0.646 and 0.637.
+
+Fixed via `NNUEWeights::new_with_features_seeded`, which the trainer now uses with an offset derived
+from `--seed`. Two 5-epoch runs at seed 47 now produce **bit-identical weight files**.
+
+That ±0.01 spread also bounds the init noise in this session's comparisons. The baseline→POV gap
+(0.449 → 0.641) is ~0.19, roughly 20× the noise, so the conclusion is not an artifact of
+initialisation — but every prior session's third-decimal comparisons were within noise of each other.
+
+**Cumulative held-out result**, same recipe and seed throughout:
+
+| Configuration | held-out `pearson[clamp]` |
+|---|---|
+| colour-absolute + stm, epoch 30 (the S20 recipe) | +0.449 |
+| POV features, epoch 10 | +0.618 |
+| POV + single-shift arithmetic, best epoch (11) | **+0.641** |
+
+Best weights: `weights/session21/nnue_weights_s21_pov_final.bin`, 45 s wall, reproducible from
+`--seed 47`.
+
+---
+
 ## Part 4 — Recommended Sequence
 
 **Done** — Findings 1 and 1b are fixed and the re-baseline in Part 3 is the new reference point.
@@ -362,14 +415,17 @@ Remaining, in priority order:
 
    Not yet done on this axis: **HalfKP under POV** (its `own_king_sq` also needs mirroring), and
    `usi-engine` exposure for shipped builds.
-2. **Attack overfitting** (Part 3, conclusion 2). 0.928 training vs 0.449 held-out is the binding
+2. ~~**Align the arithmetic**~~ (Finding 3) — **done**, see Part 3c. Also landed there: early
+   stopping, save-best-not-last, and seeded weight init. Finding 4 (clipped ReLU / the ±127 input
+   range) remains open, but is now purely a weight-utilisation question rather than a correctness one:
+   i64 accumulation removed the overflow pressure that the per-term shift was compensating for.
+
+3. **Attack overfitting** (Part 3, conclusion 2). 0.928 training vs 0.449 held-out is the binding
    constraint, and it is now measurable. Cheap levers first, since training is ~80 s: L2 /
    weight decay, early stopping on held-out r (it plateaus at epoch 10, so 30 epochs is 3× wasted
    wall), and dropout. Corpus expansion is the expensive lever — but unlike before, its payoff can now
    be verified, and note that perspective normalisation is itself a 2× effective-data increase, so do
    it first and re-measure.
-3. **Align the arithmetic** (Findings 3 and 4) — clipped ReLU, single end-of-accumulation shift,
-   trainer forward matching engine forward exactly.
 4. **Retrain and bake off.** Only after 1–3, and only with ≥90 games per the Session 20 power
    analysis. Do not spend bake-off wall time on a config whose held-out r has not improved.
 
