@@ -165,3 +165,42 @@ Hypotheses tested for the material compression, neither confirmed: non-quiet tra
    (HalfKP with the king square mirrored), which only becomes worthwhile once the corpus is large enough
    not to overfit.
 3. Search speed (depth 3 ≈ 6 s/position) is now the main limit on playing strength and on bake-off cost.
+
+---
+
+## Update — 4.24M-Position Corpus (Session 24 data)
+
+`corpus_s24/run.sh`: 10 × 3,000 more games (random-move rates 0–0.15, seeds 2401–2410, game ids from
+100,000 up), 3,109,831 positions, no divergence errors. Combined with everything earlier as
+`nnue_corpus_s24_combined.jsonl`: **4,240,256 positions, 40,500 games**. `corpus_audit`: 0 chain breaks
+in 4,199,756 pairs, 0 move-list differences from the teacher on 424,026 positions.
+
+**Screening metric.** Held-out games of the S23 combined corpus (which include random-move games) rank
+networks much closer to play than the original held-out games did: `psqt_frozen` 0.759 / 0.804
+(pearson / spearman), `big_frozen` 0.784 / 0.849, `ow0_lr05` 0.793 / 0.855, classical 0.672 / 0.672.
+It separates the +266 Elo pair clearly but ranks `ow0_lr05` slightly above `big_frozen`, which it lost
+to (not significant). Use it to screen, the bake-off to decide.
+
+Same recipe as `big_frozen` (frozen material PSQT, POV + hand, outcome weight 0.3, seed 47):
+
+| network | lr | best epoch | S23-combined held-out pearson / spearman | pawn / rook (cp) |
+|---|---|---|---|---|
+| `s24_lr05` | 0.05 | 3 | 0.796 / 0.864 | 80 / 527 |
+| **`s24_lr01`** | 0.01 | 11 | **0.801 / 0.872** | 67 / 452 |
+
+With 4M positions the lower learning rate trains steadily to epoch 11 instead of peaking at once.
+
+| A | B | W-D-L (A) | Elo (A) |
+|---|---|---|---|
+| **`s24_lr01`** | `big_frozen` | 54-1-35 | **+74.5 ± 74.3** |
+| `s24_lr05` | `big_frozen` | 44-1-45 | −3.9 ± 72.4 |
+| **`s24_lr01`** | classical | 83-4-3 | +492.2 ± 179.3 |
+
+(The last line equals `big_frozen`'s result against classical by coincidence; the games differ.) Against
+classical both networks are near the ceiling a 90-game depth-2 match can resolve, so progress now has to
+be measured network against network. `s24_lr01` is now `nnue/default.bin`.
+
+Data scaling so far, each step judged head to head: 64K → 1.13M positions +266 Elo; 1.13M → 4.24M
++74.5 Elo (at a tuned learning rate). The returns are diminishing on this 256→32→1 network, which is
+the signal to move to the bigger modern architecture (king-conditioned features, both perspectives),
+which needs exactly this kind of data volume.
