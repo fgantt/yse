@@ -288,8 +288,11 @@ fn play_one_game(
         // teacher's, and every label after it would belong to another position.
         if !legal.iter().any(|m| m.to_usi_string() == bestmove_str) {
             return Err(UsiError::ProtocolError(format!(
-                "teacher move '{}' is not legal by our move generator in {}",
-                bestmove_str, sfen_before
+                "teacher move '{}' is not legal by our move generator in {} \
+                 (moves from startpos: {})",
+                bestmove_str,
+                sfen_before,
+                usi_moves.join(" ")
             )));
         }
         let random_move = random_move_prob > 0.0 && rng.gen_bool(random_move_prob);

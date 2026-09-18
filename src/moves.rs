@@ -236,11 +236,14 @@ impl MoveGenerator {
                     let from_in_opponent_promo = pos.is_in_promotion_zone(player.opposite());
                     let to_in_opponent_promo = to_pos.is_in_promotion_zone(player.opposite());
 
-                    // Non-promoted move
-                    let mut move_ = Move::new_move(pos, to_pos, piece.piece_type, player, false);
-                    move_.is_capture = true;
-                    move_.captured_piece = board.get_piece(to_pos);
-                    moves.push(move_);
+                    // Non-promoted move (not allowed where the piece could never move again)
+                    if !must_promote(piece.piece_type, player, to_pos) {
+                        let mut move_ =
+                            Move::new_move(pos, to_pos, piece.piece_type, player, false);
+                        move_.is_capture = true;
+                        move_.captured_piece = board.get_piece(to_pos);
+                        moves.push(move_);
+                    }
 
                     // Promoted move
                     if piece.piece_type.can_promote()
@@ -508,13 +511,15 @@ impl MoveGenerator {
                 let from_in_opponent_promo = pos.is_in_promotion_zone(player.opposite());
                 let to_in_opponent_promo = to_pos.is_in_promotion_zone(player.opposite());
 
-                // Non-promoted move
-                let mut move_ = Move::new_move(pos, to_pos, piece.piece_type, player, false);
-                if is_capture {
-                    move_.is_capture = true;
-                    move_.captured_piece = board.get_piece(to_pos);
+                // Non-promoted move (not allowed where the piece could never move again)
+                if !must_promote(piece.piece_type, player, to_pos) {
+                    let mut move_ = Move::new_move(pos, to_pos, piece.piece_type, player, false);
+                    if is_capture {
+                        move_.is_capture = true;
+                        move_.captured_piece = board.get_piece(to_pos);
+                    }
+                    moves.push(move_);
                 }
-                moves.push(move_);
 
                 // Promoted move
                 if piece.piece_type.can_promote()
@@ -1319,6 +1324,22 @@ mod tests {
         }
     }
 }
+/// A pawn or lance on the last rank, or a knight on the last two, could never
+/// move again, so moving one there must promote. Drops there are excluded
+/// separately, in [`is_legal_drop_location`].
+///
+/// Without this the generator offered the non-promoting move too. The engine
+/// could play it, and a GUI or teacher engine rejects it as illegal (found when
+/// YaneuraOu refused a random `6b6a` pawn move during corpus generation).
+fn must_promote(piece_type: PieceType, player: Player, to: Position) -> bool {
+    let rank = if player == Player::Black { to.row } else { 8 - to.row };
+    match piece_type {
+        PieceType::Pawn | PieceType::Lance => rank == 0,
+        PieceType::Knight => rank <= 1,
+        _ => false,
+    }
+}
+
 fn is_legal_drop_location(
     board: &BitboardBoard,
     piece_type: PieceType,

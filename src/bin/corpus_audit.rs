@@ -5,6 +5,11 @@
 //! which matches the published perft counts) turns the first into the second.
 //! A break means the recorded position is not the one the teacher was playing,
 //! so its label belongs to a different position.
+//!
+//! With a teacher engine path as the second argument it also compares, on every
+//! 10th position, our full legal-move list with the teacher's (`moves` command,
+//! YaneuraOu), which catches moves we generate that are illegal, not only legal
+//! moves we miss.
 
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::moves::MoveGenerator;
@@ -63,6 +68,78 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("games {}  consecutive pairs {}  breaks {}  games with a break {}", games.len(), pairs, breaks, bad_games);
     for b in first_breaks {
         println!("  {b}");
+    }
+    if let Some(engine) = std::env::args().nth(2) {
+        let sfens: Vec<&String> = games.values().flatten().map(|(_, s)| s).step_by(10).collect();
+        compare_with_teacher(&engine, &sfens, &mg)?;
+    }
+    Ok(())
+}
+
+fn compare_with_teacher(
+    engine: &str,
+    sfens: &[&String],
+    mg: &MoveGenerator,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use std::collections::BTreeSet;
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let path = std::path::Path::new(engine);
+    let mut child = Command::new(path)
+        .current_dir(path.parent().unwrap_or(std::path::Path::new(".")))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()?;
+    let mut stdin = child.stdin.take().unwrap();
+    let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
+    let wait_for = |tok: &str, lines: &mut std::io::Lines<BufReader<std::process::ChildStdout>>| -> Vec<String> {
+        let mut seen = Vec::new();
+        for l in lines.by_ref() {
+            let l = l.unwrap();
+            if l.starts_with(tok) {
+                break;
+            }
+            seen.push(l);
+        }
+        seen
+    };
+    writeln!(stdin, "usi\nsetoption name USI_Hash value 16\nisready")?;
+    wait_for("readyok", &mut lines);
+    let (mut extra, mut missing, mut differing) = (0usize, 0usize, Vec::new());
+    for (i, sfen) in sfens.iter().enumerate() {
+        if std::env::var_os("AUDIT_TRACE").is_some() {
+            eprintln!("{i} {sfen}");
+        }
+        // `moves` prints exactly one line: the legal moves, space-separated (empty
+        // when there are none). Read that line rather than syncing on `isready`,
+        // whose `readyok` can arrive before it.
+        writeln!(stdin, "position sfen {sfen} 1\nmoves")?;
+        let reply = lines
+            .by_ref()
+            .map(|l| l.unwrap())
+            .find(|l| !l.starts_with("info"))
+            .ok_or("teacher closed its output")?;
+        let teacher: BTreeSet<String> = reply.split_whitespace().map(str::to_string).collect();
+        let (b, stm, c) = BitboardBoard::from_fen(sfen)?;
+        let ours: BTreeSet<String> =
+            mg.generate_legal_moves(&b, stm, &c).iter().map(|m| m.to_usi_string()).collect();
+        let only_ours: Vec<_> = ours.difference(&teacher).cloned().collect();
+        let only_teacher: Vec<_> = teacher.difference(&ours).cloned().collect();
+        extra += only_ours.len();
+        missing += only_teacher.len();
+        if (!only_ours.is_empty() || !only_teacher.is_empty()) && differing.len() < 10 {
+            differing.push(format!("{sfen}\n      ours only: {only_ours:?}\n      teacher only: {only_teacher:?}"));
+        }
+    }
+    writeln!(stdin, "quit")?;
+    println!(
+        "teacher move lists: {} positions, {} moves only we generate, {} only the teacher generates",
+        sfens.len(),
+        extra,
+        missing
+    );
+    for d in differing {
+        println!("  {d}");
     }
     Ok(())
 }

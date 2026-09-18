@@ -292,3 +292,23 @@ fn checking_pawn_drops_from_teacher_games_are_legal() {
         assert!(legal_usi(sfen).contains(&mv.to_string()), "{mv} should be legal in {sfen}");
     }
 }
+
+/// A pawn or lance reaching the last rank, or a knight reaching the last two,
+/// must promote; the non-promoting move is illegal. Promoting is still offered.
+#[test]
+fn pieces_that_could_never_move_again_must_promote() {
+    // Black pawn 6b (from the corpus-gen game YaneuraOu rejected), Black lance 1c,
+    // Black knight 3d; White pawn 5h, White knight 7f mirror the rule for White.
+    let sfen = "4k4/3P5/8L/6N2/9/2n6/9/4p4/K8 b - 1";
+    let black = legal_usi(sfen);
+    for (bad, good) in [("6b6a", "6b6a+"), ("1c1a", "1c1a+"), ("3d2b", "3d2b+"), ("3d4b", "3d4b+")] {
+        assert!(!black.contains(&bad.to_string()), "{bad} must promote");
+        assert!(black.contains(&good.to_string()), "{good} should be legal");
+    }
+    assert!(black.contains(&"1c1b".to_string()), "a lance may stop short of the last rank unpromoted");
+    let white = legal_usi(&sfen.replace(" b ", " w "));
+    for (bad, good) in [("5h5i", "5h5i+"), ("7f6h", "7f6h+"), ("7f8h", "7f8h+")] {
+        assert!(!white.contains(&bad.to_string()), "{bad} must promote");
+        assert!(white.contains(&good.to_string()), "{good} should be legal");
+    }
+}
