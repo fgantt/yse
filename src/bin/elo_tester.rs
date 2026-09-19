@@ -7,9 +7,10 @@
 //!     OR
 //!   * Engine B: NNUE-enabled (loads `--nnue-weights-b`) -- Session 18 head-to-head mode
 //!
-//! Colors alternate each game. Each game begins from a shared random opening
-//! (seeded) so both sides face the same start, but each game's opening is
-//! unique. Draws are declared on 3-fold repetition or move-limit.
+//! Colors alternate each game, and each opening is played twice (games 2k and
+//! 2k+1, colours swapped). Each game begins from a shared random opening
+//! (seeded) so both sides face the same start, and each
+//! pair's opening is unique. Draws are declared on 3-fold repetition or move-limit.
 //!
 //! Reports W/D/L, score, ELO difference and a ~95% confidence interval, and
 //! writes a per-game CSV.
@@ -356,6 +357,75 @@ fn elo_ci95(wins: u32, draws: u32, losses: u32) -> f64 {
     (elo_hi - elo_lo) / 2.0
 }
 
+/// Elo and 95% CI from per-pair points (each pair = one opening, both colours).
+/// Treating the pair as the independent unit is correct here: the two games of
+/// a pair share an opening, so they are correlated. Also returns how many pairs
+/// A won (2 or 1.5 points), split (1) and lost.
+fn paired_elo(pairs: &[f64]) -> Option<(f64, f64, usize, usize, usize)> {
+    let n = pairs.len();
+    if n < 2 {
+        return None;
+    }
+    let scores: Vec<f64> = pairs.iter().map(|p| p / 2.0).collect();
+    let mean = scores.iter().sum::<f64>() / n as f64;
+    let var = scores.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / (n as f64 - 1.0);
+    let se = (var / n as f64).sqrt();
+    let to_elo = |s: f64| {
+        let s = s.clamp(1e-6, 1.0 - 1e-6);
+        -400.0 * (1.0 / s - 1.0).log10()
+    };
+    let ci = (to_elo(mean + 1.96 * se) - to_elo(mean - 1.96 * se)) / 2.0;
+    let won = pairs.iter().filter(|&&p| p > 1.0).count();
+    let split = pairs.iter().filter(|&&p| p == 1.0).count();
+    Some((to_elo(mean), ci, won, split, n - won - split))
+}
+
+/// Build engine A (`side_a`) or B as configured on the command line, from
+/// scratch. Called for every game so that no search state (hash tables,
+/// history, killers, move-ordering and evaluation caches) carries over from an
+/// earlier game: with carried-over state the same network playing itself on the
+/// same opening with colours swapped did not replay the same game.
+fn build_engine(cli: &Cli, side_a: bool) -> Result<SearchEngine, Box<dyn std::error::Error>> {
+    let mut engine = SearchEngine::new(None, cli.tt_mb);
+    let eval: &mut PositionEvaluator = engine.get_evaluator_mut();
+    let (weights, stm, halfkp, pov, hand) = if side_a {
+        (
+            Some(&cli.nnue_weights),
+            cli.use_stm_feature,
+            cli.use_halfkp,
+            cli.use_pov_features,
+            cli.use_hand_features,
+        )
+    } else {
+        (
+            cli.nnue_weights_b.as_ref(),
+            cli.use_stm_feature_b,
+            cli.use_halfkp_b,
+            cli.use_pov_features_b,
+            cli.use_hand_features_b,
+        )
+    };
+    match weights {
+        Some(w) => {
+            eval.enable_nnue_with_weights(w)?;
+            if stm {
+                eval.nnue_set_use_stm_feature(true);
+            }
+            if halfkp {
+                eval.nnue_set_use_halfkp(true);
+            }
+            if pov {
+                eval.nnue_set_use_pov(true);
+            }
+            if hand {
+                eval.nnue_set_use_hand_features(true);
+            }
+        }
+        None => eval.disable_nnue(),
+    }
+    Ok(engine)
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
@@ -461,9 +531,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let game_log_label = if head_to_head { "A" } else { "NNUE" };
 
     let start = Instant::now();
+    // Paired openings: each random opening is played twice with colours
+    // swapped (game 2k and 2k+1 share an opening), so an unbalanced opening
+    // helps each side once instead of deciding a game. At fixed depth the games
+    // are deterministic given the opening, so opening luck was the dominant
+    // noise when comparing close networks.
+    let mut pair_rng = rng.clone();
+    // Engine A's points per opening pair (0..=2), for the paired CI.
+    let mut pair_points: Vec<f64> = Vec::new();
+    let mut current_pair = 0.0_f64;
     for g in 0..cli.games {
         let nnue_plays_black = g % 2 == 0;
+        if g % 2 == 0 {
+            pair_rng = rng.clone();
+        } else {
+            rng = pair_rng.clone();
+        }
         let game_start = Instant::now();
+        nnue_engine = build_engine(&cli, true)?;
+        pst_engine = build_engine(&cli, false)?;
         let (outcome, moves) = play_game(
             &mut nnue_engine,
             &mut pst_engine,
@@ -480,6 +566,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Outcome::NnueWin => wins += 1,
             Outcome::PstWin => losses += 1,
             Outcome::Draw => draws += 1,
+        }
+        current_pair += match outcome {
+            Outcome::NnueWin => 1.0,
+            Outcome::PstWin => 0.0,
+            Outcome::Draw => 0.5,
+        };
+        if g % 2 == 1 {
+            pair_points.push(current_pair);
+            current_pair = 0.0;
         }
 
         let elo = elo_from_score(wins, draws, losses);
@@ -523,6 +618,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     );
     println!("  ELO:     {:+.1} ± {:.1}  (95% CI)", elo, ci);
+    if let Some((pelo, pci, won, split, lost)) = paired_elo(&pair_points) {
+        println!(
+            "  Paired:  {:+.1} ± {:.1}  (95% CI over {} opening pairs: {} won, {} split, {} lost)",
+            pelo,
+            pci,
+            pair_points.len(),
+            won,
+            split,
+            lost
+        );
+    }
     println!("  Wall:    {:.1}s", elapsed.as_secs_f64());
     println!("  CSV:     {}", cli.output);
 
