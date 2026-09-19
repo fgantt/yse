@@ -296,6 +296,14 @@ struct Cli {
     /// Requires `--use-pov-features`.
     #[arg(long)]
     dual_perspective: bool,
+
+    /// With `--king-features`: train each king-conditioned weight as a
+    /// king-specific part plus a part shared by all 81 king squares (the
+    /// "factoriser" of modern NNUE trainers). The shared part learns from every
+    /// position, so rarely seen king squares still get good weights; the two are
+    /// summed into the saved network, so the engine is unaffected.
+    #[arg(long)]
+    king_factorizer: bool,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -1112,6 +1120,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.min_batch_size = cli.batch_size.max(100_000);
 
     let mut trainer = NNUETrainer::new(initial_weights, config);
+    if cli.king_factorizer {
+        if !cli.king_features {
+            return Err("--king-factorizer needs --king-features".into());
+        }
+        trainer.enable_king_factorizer();
+        println!("  Factoriser:   on (shared rows summed into every king bucket)");
+    }
 
     // Recorded in every saved file so the engine can configure itself to match.
     let feature_set = NNUEFeatureSet {

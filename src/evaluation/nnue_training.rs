@@ -242,6 +242,14 @@ pub struct ShadowWeights {
     pub output_weights: Vec<f32>,
     pub output_bias: f32,
     pub psqt: Vec<f32>,
+    /// King factoriser: one shared row per POV feature (`KING_FEATURE_STRIDE`
+    /// rows). The effective input row `r` of a king-conditioned network is
+    /// `input_weights_1[r] + input_shared[r % KING_FEATURE_STRIDE]`, and that
+    /// sum is what `quantize_into` writes to the i16 weights, so the engine
+    /// sees one ordinary coalesced network. The shared row gets the summed
+    /// gradient of all 81 king buckets, so what is learned in one bucket
+    /// reaches the rest. `None` when off.
+    pub input_shared: Option<Vec<Vec<f32>>>,
 }
 
 impl ShadowWeights {
@@ -272,6 +280,7 @@ impl ShadowWeights {
             output_weights: weights.output_weights.iter().map(|&w| w as f32).collect(),
             output_bias: weights.output_bias as f32,
             psqt: weights.psqt.iter().map(|&v| v as f32).collect(),
+            input_shared: None,
         }
     }
 
@@ -288,8 +297,13 @@ impl ShadowWeights {
         let mut count = 0_usize;
 
         for (feat_i, row) in self.input_weights_1.iter().enumerate() {
+            let shared = self
+                .input_shared
+                .as_ref()
+                .map(|sh| &sh[feat_i % crate::evaluation::nnue::KING_FEATURE_STRIDE]);
             for (j, &w) in row.iter().enumerate() {
                 let old = weights.input_weights_1[feat_i][j];
+                let w = w + shared.map_or(0.0, |sh| sh[j]);
                 let new = w.clamp(-127.0, 127.0).round() as i16;
                 if new != old {
                     let ch = (new - old).abs() as f32;
@@ -414,6 +428,8 @@ pub struct AdamState {
     pub output_bias_v: f32,
     pub psqt_m: Vec<f32>,
     pub psqt_v: Vec<f32>,
+    pub input_shared_m: Option<Vec<Vec<f32>>>,
+    pub input_shared_v: Option<Vec<Vec<f32>>>,
     pub step: u64,
 }
 
@@ -438,6 +454,8 @@ impl AdamState {
             output_bias_v: 0.0,
             psqt_m: vec![0.0; shadow.psqt.len()],
             psqt_v: vec![0.0; shadow.psqt.len()],
+            input_shared_m: shadow.input_shared.as_ref().map(zeros_2d),
+            input_shared_v: shadow.input_shared.as_ref().map(zeros_2d),
             step: 0,
         }
     }
@@ -964,6 +982,12 @@ impl NNUETrainer {
                             for (i, &w) in row.iter().enumerate() {
                                 v[i] += w;
                             }
+                            if let Some(sh) = self.shadow.input_shared.as_ref() {
+                                let srow = &sh[feat % crate::evaluation::nnue::KING_FEATURE_STRIDE];
+                                for (i, &w) in srow.iter().enumerate() {
+                                    v[i] += w;
+                                }
+                            }
                         }
                     }
                     v
@@ -1183,6 +1207,23 @@ impl NNUETrainer {
         let out_scale = self.config.output_grad_scale;
         let in_scale = self.config.input_grad_scale;
         let use_adam = self.config.use_adam;
+        // King factoriser: each shared row takes the summed gradient of every
+        // king bucket's copy of that feature.
+        let acc_shared: std::collections::HashMap<usize, Vec<f32>> =
+            if self.shadow.input_shared.is_some() {
+                let stride = crate::evaluation::nnue::KING_FEATURE_STRIDE;
+                let mut m: std::collections::HashMap<usize, Vec<f32>> =
+                    std::collections::HashMap::new();
+                for (&r, g) in acc_input_w.iter() {
+                    let e = m.entry(r % stride).or_insert_with(|| vec![0.0_f32; h1_size]);
+                    for (a, b) in e.iter_mut().zip(g) {
+                        *a += b;
+                    }
+                }
+                m
+            } else {
+                std::collections::HashMap::new()
+            };
 
         if use_adam {
             // Session 15: Adam path. The grad-scale multipliers from the SGD
@@ -1287,6 +1328,27 @@ impl NNUETrainer {
                     );
                 }
             }
+            if let (Some(sh), Some(sm), Some(sv)) = (
+                self.shadow.input_shared.as_mut(),
+                adam.input_shared_m.as_mut(),
+                adam.input_shared_v.as_mut(),
+            ) {
+                for (&f, grads) in acc_shared.iter() {
+                    for i in 0..h1_size {
+                        adam_apply(
+                            &mut sh[f][i],
+                            &mut sm[f][i],
+                            &mut sv[f][i],
+                            grads[i] * in_scale,
+                            lr,
+                            beta1,
+                            beta2,
+                            eps,
+                            t,
+                        );
+                    }
+                }
+            }
             for i in 0..h1_size {
                 adam_apply(
                     &mut self.shadow.hidden_biases_1[i],
@@ -1336,6 +1398,13 @@ impl NNUETrainer {
             for (&feature_idx, grads) in acc_input_w.iter() {
                 for i in 0..h1_size {
                     self.shadow.input_weights_1[feature_idx][i] += grads[i] * lr * in_scale;
+                }
+            }
+            if let Some(sh) = self.shadow.input_shared.as_mut() {
+                for (&f, grads) in acc_shared.iter() {
+                    for i in 0..h1_size {
+                        sh[f][i] += grads[i] * lr * in_scale;
+                    }
                 }
             }
             for i in 0..h1_size {
@@ -1415,6 +1484,20 @@ impl NNUETrainer {
 
     /// Rebuild the f32 shadow from the current i16 weights. Call after any
     /// external mutation of weights (e.g. loading a checkpoint mid-training).
+    /// Turn on the king factoriser (see [`ShadowWeights::input_shared`]) for a
+    /// king-conditioned network. Shared rows start at zero, so the effective
+    /// weights, and the function the network computes, are unchanged.
+    pub fn enable_king_factorizer(&mut self) {
+        use crate::evaluation::nnue::KING_FEATURE_STRIDE;
+        let h1 = self.weights.hidden_sizes().0;
+        let zeros = vec![vec![0.0_f32; h1]; KING_FEATURE_STRIDE];
+        if let Some(adam) = self.adam.as_mut() {
+            adam.input_shared_m = Some(zeros.clone());
+            adam.input_shared_v = Some(zeros.clone());
+        }
+        self.shadow.input_shared = Some(zeros);
+    }
+
     pub fn resync_shadow_from_weights(&mut self) {
         self.shadow = ShadowWeights::from_weights(&self.weights);
     }
