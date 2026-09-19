@@ -6820,6 +6820,11 @@ impl SearchEngine {
         // Position hash already added to hash_history above - no FEN string needed
 
         let mut move_index = 0;
+        // Per-node facts the move loop's pruning and reduction decisions need.
+        // They were recomputed for every move (a full evaluation and a material
+        // count each time, twice per move counting the LMR path), which made
+        // evaluation the single largest cost in the search.
+        let node_game_phase = self.get_game_phase(board);
         let mut iid_move_improved_alpha = false;
 
         trace_log!(
@@ -6856,9 +6861,9 @@ impl SearchEngine {
             search_state.move_number = move_index as u8;
             search_state.update_fields(
                 has_check,
-                self.evaluate_position(board, player, captured_pieces),
-                self.get_position_hash(board),
-                self.get_game_phase(board),
+                cached_static_eval,
+                position_hash,
+                node_game_phase,
             );
 
             // Check if move should be pruned using advanced pruning techniques with
@@ -6968,6 +6973,8 @@ impl SearchEngine {
             // Task 7.0.1: Pass IID move for explicit exemption from LMR
             // Task 7.0.3.4: Pass entry source for TT priority management
             let score = self.search_move_with_lmr(
+                cached_static_eval,
+                node_game_phase,
                 board,
                 &new_captured,
                 player,
@@ -11308,6 +11315,8 @@ impl SearchEngine {
     /// PruningManager is the authoritative implementation for LMR logic.
     fn search_move_with_lmr(
         &mut self,
+        node_static_eval: i32,
+        node_game_phase: GamePhase,
         board: &mut BitboardBoard,
         captured_pieces: &CapturedPieces,
         player: Player,
@@ -11338,12 +11347,10 @@ impl SearchEngine {
         // Create search state for advanced pruning
         let mut search_state = crate::types::search::SearchState::new(depth, alpha, beta);
         search_state.move_number = move_index as u8;
-        search_state.update_fields(
-            has_check,
-            self.evaluate_position(board, player, captured_pieces),
-            position_hash,
-            self.get_game_phase(board),
-        );
+        // The node's own static evaluation and phase, computed once by the
+        // caller. This evaluated the post-move board, from the wrong side, for
+        // every move searched.
+        search_state.update_fields(has_check, node_static_eval, position_hash, node_game_phase);
 
         // Store TT move in SearchState (Task 3.3)
         search_state.set_tt_move(tt_move.clone());

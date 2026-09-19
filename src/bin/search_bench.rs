@@ -148,6 +148,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "{:>3} {:?} best={:<8} score={:>7} nodes={:>9} ms={:>9.1} legal={:>3}{}",
             idx, player, mv, score, nodes, ms, n_legal, tag
         );
+        {
+            let q = engine.get_quiescence_stats();
+            let nm = engine.get_null_move_stats();
+            let lmr = engine.get_lmr_stats();
+            println!(
+                "      qnodes={} null: tried={} cut={} | lmr: considered={} reduced={} researched={}",
+                q.nodes_searched,
+                nm.attempts,
+                nm.cutoffs_after_null_move,
+                lmr.moves_considered,
+                lmr.reductions_applied,
+                lmr.researches_triggered
+            );
+        }
         fp_lines.push(format!("{} {} {} {}{}", idx, mv, score, nodes, tag));
         total_nodes += nodes;
         total_ms += ms;

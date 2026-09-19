@@ -139,24 +139,14 @@ impl MoveGenerator {
             pseudo_legal_moves.len()
         ));
 
+        // A pseudo-legal move is legal unless it leaves the mover's king in check.
+        // Test each on one scratch board with make/unmake: this used to clone the
+        // board (and the hands, which the check test does not read) per move, the
+        // single largest cost of move generation.
+        let mut scratch = board.clone();
         let legal_moves: Vec<Move> = pseudo_legal_moves
             .into_iter()
-            .filter(|m| {
-                let mut temp_board = board.clone();
-                let mut temp_captured = captured_pieces.clone();
-
-                if let Some(captured) = temp_board.make_move(m) {
-                    temp_captured.add_piece(captured.piece_type, player);
-                }
-
-                let king_safe = !temp_board.is_king_in_check(player, &temp_captured);
-                
-                // Note: Illegal king moves (that would leave the king in check) are correctly
-                // filtered out here. This is expected behavior - the move generator generates
-                // pseudo-legal moves and then filters out those that would leave the king in check.
-                
-                king_safe
-            })
+            .filter(|m| king_safe_after(&mut scratch, m, player, captured_pieces))
             .collect();
 
         crate::debug_log_fast!(&format!(
@@ -183,16 +173,10 @@ impl MoveGenerator {
             self.generate_pseudo_legal_captures(board, player, captured_pieces);
 
         // Filter out moves that leave the king in check
+        let mut scratch = board.clone();
         pseudo_legal_moves
             .into_iter()
-            .filter(|m| {
-                let mut temp_board = board.clone();
-                let mut temp_captured = captured_pieces.clone();
-                if let Some(captured) = temp_board.make_move(m) {
-                    temp_captured.add_piece(captured.piece_type, m.player);
-                }
-                !temp_board.is_king_in_check(player, &temp_captured)
-            })
+            .filter(|m| king_safe_after(&mut scratch, m, player, captured_pieces))
             .collect()
     }
 
@@ -1338,6 +1322,20 @@ fn must_promote(piece_type: PieceType, player: Player, to: Position) -> bool {
         PieceType::Knight => rank <= 1,
         _ => false,
     }
+}
+
+/// Whether `player`'s king is safe after `m`, tested on `scratch` (a copy of the
+/// current board) and undone before returning.
+fn king_safe_after(
+    scratch: &mut BitboardBoard,
+    m: &Move,
+    player: Player,
+    captured_pieces: &CapturedPieces,
+) -> bool {
+    let info = scratch.make_move_with_info(m);
+    let safe = !scratch.is_king_in_check(player, captured_pieces);
+    scratch.unmake_move(&info);
+    safe
 }
 
 fn is_legal_drop_location(
