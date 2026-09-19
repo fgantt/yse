@@ -14647,15 +14647,11 @@ impl IterativeDeepening {
             }
         };
 
-        // For unlimited depth, use 60 seconds to allow much deeper searches
-        // This gives enough time to reach depths 30+ and profile what's taking so long
-        let search_time_limit = if effective_max_depth >= 100 {
-            // Unlimited depth: use 60 seconds (60000ms) to allow deep searches and
-            // profiling
-            60000u32
-        } else {
-            effective_time_limit
-        };
+        // The caller's limit, always. This used to be replaced by a hard-coded
+        // 60 s whenever depth was unlimited (a profiling leftover), and the USI
+        // engine always searches with unlimited depth, so every game move took up
+        // to a minute regardless of the clock.
+        let search_time_limit = effective_time_limit;
         trace_log!(
             "ITERATIVE_DEEPENING",
             &format!(
@@ -14700,7 +14696,12 @@ impl IterativeDeepening {
 
             // Debug output removed to reduce noise during training
 
-            if remaining_ms <= time_buffer_ms {
+            // An iteration typically costs several times the previous one, so one
+            // started after half the budget has gone would almost never finish,
+            // and its time would be wasted (the result of an unfinished iteration
+            // is discarded below).
+            let past_half = self.max_depth >= 100 && depth > 1 && elapsed_ms * 2 > search_time_limit;
+            if remaining_ms <= time_buffer_ms || past_half {
                 trace_log!(
                     "ITERATIVE_DEEPENING",
                     &format!(
@@ -15025,6 +15026,9 @@ impl IterativeDeepening {
 
             // Perform search with aspiration window
             let mut search_result: Option<(Move, i32)> = None;
+            // Set when this iteration was cut off by the clock: its result is
+            // incomplete and must not replace the last completed iteration's move.
+            let mut timed_out = false;
             let _ = search_result; // Suppress unused assignment warning
             let mut researches = 0;
             let mut current_alpha = alpha;
@@ -15210,6 +15214,19 @@ impl IterativeDeepening {
 
                     search_engine.record_depth_completion(depth, depth_completion_time);
 
+                    if search_engine.should_stop_force(&start_time, search_time_limit) {
+                        // Cut off mid-iteration: keep the previous depth's move. Only
+                        // if no iteration has completed is a partial result better
+                        // than nothing.
+                        timed_out = true;
+                        if best_move.is_none() {
+                            best_move = Some(move_.clone());
+                            best_score = score;
+                        }
+                        search_result = best_move.clone().map(|m| (m, best_score));
+                        break;
+                    }
+
                     search_result = Some((move_.clone(), score));
 
                     trace_log!(
@@ -15224,11 +15241,11 @@ impl IterativeDeepening {
                     );
 
                     if score <= current_alpha {
-                        // Fail-low: widen window downward
-                        // Update best move even on fail-low so info sender has current data
+                        // Fail-low: widen window downward. The move is only a bound
+                        // from a failed search, so it is shown to the info sender but
+                        // not adopted: adopting it made the engine play whichever move
+                        // an interrupted re-search happened to be holding.
                         let move_clone = move_.clone();
-                        best_move = Some(move_clone.clone());
-                        best_score = score;
 
                         // Update shared state with current best move
                         let pv_for_info =
@@ -15264,11 +15281,8 @@ impl IterativeDeepening {
                     }
 
                     if score >= current_beta {
-                        // Fail-high: widen window upward
-                        // Update best move even on fail-high so info sender has current data
+                        // Fail-high: widen window upward. Not adopted, as for fail-low.
                         let move_clone = move_.clone();
-                        best_move = Some(move_clone.clone());
-                        best_score = score;
 
                         // Update shared state with current best move
                         let pv_for_info =
@@ -15478,6 +15492,9 @@ impl IterativeDeepening {
             info_sender_cancel.store(true, Ordering::Relaxed);
             info_sender_handle.thread().unpark();
             let _ = info_sender_handle.join(); // Wait for thread to finish
+            if timed_out {
+                break;
+            }
 
             crate::debug_utils::end_timing(&format!("depth_{}", depth), "ITERATIVE_DEEPENING");
 

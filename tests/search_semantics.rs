@@ -531,3 +531,18 @@ fn king_dual_incremental_is_exact_at_every_evaluated_node() {
     }
     assert!(total_checks > 100, "ran {total_checks} checks");
 }
+
+/// An unlimited-depth search (what the USI engine runs) must respect its time
+/// limit. It used to replace the limit with a hard-coded 60 s, so every game
+/// move took up to a minute whatever the clock said.
+#[test]
+fn unlimited_depth_search_respects_the_time_limit() {
+    let (b, stm, c) = BitboardBoard::from_fen(POSITIONS[3]).expect("from_fen");
+    let mut engine = nnue_engine();
+    let started = std::time::Instant::now();
+    let mut id = IterativeDeepening::new(100, 500, None);
+    let result = id.search(&mut engine, &b, &c, stm);
+    let elapsed = started.elapsed().as_millis();
+    assert!(result.is_some(), "must return a move");
+    assert!(elapsed < 1500, "500 ms search took {elapsed} ms");
+}
