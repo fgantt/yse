@@ -1706,7 +1706,8 @@ pub fn extract_active_features_pov(board: &BitboardBoard, stm: Player) -> Vec<us
 /// Perspective-normalised flat extraction plus the pieces-in-hand thermometer,
 /// with the hand holder also expressed as mover/opponent.
 /// Active features of one perspective (`frame`) of a POV network, including
-/// hand features when `hand` and the own-king bucket offset when `king`. This
+/// hand features when `hand` and the own-king bucket offset when `king_buckets`
+/// is non-zero (the network's bucket count). This
 /// is exactly what [`NNUEAccumulator::refresh_pov`] plus
 /// `add_hand_contributions_pov` activate for that frame.
 pub fn extract_features_frame(
@@ -1714,15 +1715,15 @@ pub fn extract_features_frame(
     frame: Player,
     captured: &CapturedPieces,
     hand: bool,
-    king: bool,
+    king_buckets: usize,
 ) -> Vec<usize> {
     let mut f = if hand {
         extract_active_features_pov_with_hand(board, frame, captured)
     } else {
         extract_active_features_pov(board, frame)
     };
-    if king {
-        let off = crate::evaluation::nnue::king_offset(board, frame);
+    if king_buckets > 0 {
+        let off = crate::evaluation::nnue::king_offset(board, frame, king_buckets);
         for x in f.iter_mut() {
             *x += off;
         }

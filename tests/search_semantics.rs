@@ -447,7 +447,7 @@ fn random_king_dual_weights_file() -> std::path::PathBuf {
         use shogi_engine::evaluation::nnue::{NNUEFeatureSet, NNUEWeights};
         let src = random_pov_weights_file();
         let (mut w, _) = NNUEWeights::load_with_features(&src).expect("load fixture");
-        w.tile_for_king();
+        w.tile_for_king(81);
         w.make_dual();
         // Make every king bucket and the opponent half differ, so a stale bucket
         // or a swapped perspective changes the score.

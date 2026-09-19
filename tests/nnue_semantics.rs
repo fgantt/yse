@@ -526,45 +526,69 @@ fn material_psqt_survives_save_load_and_the_engine_evaluator() {
 
 #[test]
 fn make_dual_and_tile_for_king_preserve_the_network() {
-    use shogi_engine::evaluation::nnue::{score_pov_scratch, NUM_NNUE_FEATURES_KING_TOTAL};
-    let mut w = det_weights(NUM_NNUE_FEATURES_WITH_HAND_TOTAL, 16, 8);
-    w.psqt = NNUEWeights::material_psqt(NUM_NNUE_FEATURES_WITH_HAND_TOTAL);
-    let score = |w: &NNUEWeights, king: bool, fen: &str| {
-        let (b, stm, c) = BitboardBoard::from_fen(fen).unwrap();
-        score_pov_scratch(w, king, true, &b, stm, &c)
-    };
-    let before: Vec<i32> = MATERIAL_FENS.iter().map(|f| score(&w, false, f)).collect();
-    w.make_dual();
-    assert!(w.is_dual());
-    let dual: Vec<i32> = MATERIAL_FENS.iter().map(|f| score(&w, false, f)).collect();
-    assert_eq!(before, dual, "make_dual must not change scores");
-    w.tile_for_king();
-    assert_eq!(w.input_weights_1.len(), NUM_NNUE_FEATURES_KING_TOTAL);
-    let king: Vec<i32> = MATERIAL_FENS.iter().map(|f| score(&w, true, f)).collect();
-    assert_eq!(before, king, "tile_for_king must not change scores");
+    use shogi_engine::evaluation::nnue::{score_pov_scratch, KING_BUCKET_SCHEMES, KING_FEATURE_STRIDE};
+    for nb in KING_BUCKET_SCHEMES {
+        let mut w = det_weights(NUM_NNUE_FEATURES_WITH_HAND_TOTAL, 16, 8);
+        w.psqt = NNUEWeights::material_psqt(NUM_NNUE_FEATURES_WITH_HAND_TOTAL);
+        let score = |w: &NNUEWeights, king: bool, fen: &str| {
+            let (b, stm, c) = BitboardBoard::from_fen(fen).unwrap();
+            score_pov_scratch(w, king, true, &b, stm, &c)
+        };
+        let before: Vec<i32> = MATERIAL_FENS.iter().map(|f| score(&w, false, f)).collect();
+        w.make_dual();
+        assert!(w.is_dual());
+        let dual: Vec<i32> = MATERIAL_FENS.iter().map(|f| score(&w, false, f)).collect();
+        assert_eq!(before, dual, "make_dual must not change scores");
+        w.tile_for_king(nb);
+        assert_eq!(w.input_weights_1.len(), nb * KING_FEATURE_STRIDE);
+        let king: Vec<i32> = MATERIAL_FENS.iter().map(|f| score(&w, true, f)).collect();
+        assert_eq!(before, king, "tile_for_king({nb}) must not change scores");
+    }
 }
 
 /// The trainer's feature lists must be exactly what the engine's accumulator
 /// activates, for both perspectives and with king buckets.
 #[test]
 fn trainer_frame_features_match_engine_refresh_with_king_buckets() {
-    use shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_KING_TOTAL;
+    use shogi_engine::evaluation::nnue::{KING_BUCKET_SCHEMES, KING_FEATURE_STRIDE};
     use shogi_engine::evaluation::nnue_training::extract_features_frame;
-    let w = det_weights(NUM_NNUE_FEATURES_KING_TOTAL, 8, 4);
-    for fen in MATERIAL_FENS {
-        let (b, _stm, c) = BitboardBoard::from_fen(fen).unwrap();
-        for frame in [Player::Black, Player::White] {
-            let mut acc = NNUEAccumulator::new(8, 4);
-            acc.king_mode = true;
-            acc.refresh_pov(&b, frame, &w);
-            acc.add_hand_contributions_pov(&c, frame, &w, HAND_FEATURE_BASE_FLAT);
-            let mut sum = vec![0i32; 8];
-            for f in extract_features_frame(&b, frame, &c, true, true) {
-                for (s, &x) in sum.iter_mut().zip(&w.input_weights_1[f]) {
-                    *s += x as i32;
+    for nb in KING_BUCKET_SCHEMES {
+        let w = det_weights(nb * KING_FEATURE_STRIDE, 8, 4);
+        for fen in MATERIAL_FENS {
+            let (b, _stm, c) = BitboardBoard::from_fen(fen).unwrap();
+            for frame in [Player::Black, Player::White] {
+                let mut acc = NNUEAccumulator::new(8, 4);
+                acc.king_mode = true;
+                acc.refresh_pov(&b, frame, &w);
+                acc.add_hand_contributions_pov(&c, frame, &w, HAND_FEATURE_BASE_FLAT);
+                let mut sum = vec![0i32; 8];
+                for f in extract_features_frame(&b, frame, &c, true, nb) {
+                    for (s, &x) in sum.iter_mut().zip(&w.input_weights_1[f]) {
+                        *s += x as i32;
+                    }
                 }
+                assert_eq!(acc.hidden_1, sum, "{nb} buckets, {fen} {frame:?}");
             }
-            assert_eq!(acc.hidden_1, sum, "{fen} {frame:?}");
         }
+    }
+}
+
+/// 9-bucket scheme: every square maps into 0..9, the home rank of each wing is
+/// its own bucket, and the mapping is taken from each side's own view.
+#[test]
+fn nine_king_buckets_cover_the_board() {
+    use shogi_engine::evaluation::nnue::king_bucket;
+    let mut seen = HashSet::new();
+    for sq in 0..81u8 {
+        let b = king_bucket(sq, 9);
+        assert!(b < 9);
+        seen.insert(b);
+    }
+    assert_eq!(seen.len(), 9);
+    // Home rank (row 8): left wing, centre, right wing are distinct buckets.
+    assert_ne!(king_bucket(8 * 9 + 1, 9), king_bucket(8 * 9 + 4, 9));
+    assert_ne!(king_bucket(8 * 9 + 4, 9), king_bucket(8 * 9 + 7, 9));
+    for sq in 0..81u8 {
+        assert_eq!(king_bucket(sq, 81), sq as usize);
     }
 }

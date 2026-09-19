@@ -107,7 +107,8 @@ pub const NUM_NNUE_FEATURES_HALFKP_WITH_HAND_TOTAL: usize =
 /// hand features) is repeated once for each square the perspective's own king
 /// can stand on.
 pub const KING_FEATURE_STRIDE: usize = NUM_NNUE_FEATURES_WITH_HAND_TOTAL;
-/// Input rows of a king-conditioned network: 81 × [`KING_FEATURE_STRIDE`].
+/// Input rows of a king-conditioned network with one bucket per square:
+/// 81 × [`KING_FEATURE_STRIDE`]. Coarser schemes ([`king_bucket`]) have fewer.
 pub const NUM_NNUE_FEATURES_KING_TOTAL: usize = NUM_SQUARES * KING_FEATURE_STRIDE;
 
 /// Default size of first hidden layer
@@ -682,15 +683,18 @@ impl NNUEWeights {
     /// then specialises each bucket. This stands in for the "factoriser" of
     /// modern NNUE trainers: rarely seen king squares keep sensible weights
     /// instead of starting from noise.
-    pub fn tile_for_king(&mut self) {
+    /// `nbuckets` is one of [`KING_BUCKET_SCHEMES`]; the engine reads the
+    /// scheme back from the row count.
+    pub fn tile_for_king(&mut self, nbuckets: usize) {
+        assert!(KING_BUCKET_SCHEMES.contains(&nbuckets), "unsupported king buckets {nbuckets}");
         if self.input_weights_1.len() != KING_FEATURE_STRIDE {
             return;
         }
         let base = std::mem::take(&mut self.input_weights_1);
-        self.input_weights_1 = (0..NUM_SQUARES).flat_map(|_| base.iter().cloned()).collect();
+        self.input_weights_1 = (0..nbuckets).flat_map(|_| base.iter().cloned()).collect();
         if self.psqt.len() == KING_FEATURE_STRIDE {
             let p = std::mem::take(&mut self.psqt);
-            self.psqt = (0..NUM_SQUARES).flat_map(|_| p.iter().copied()).collect();
+            self.psqt = (0..nbuckets).flat_map(|_| p.iter().copied()).collect();
         }
     }
 
@@ -833,10 +837,29 @@ pub struct AccSnapshot {
 /// Row offset of `frame`'s own-king bucket: the square of `frame`'s king, seen
 /// from `frame` (so both perspectives use the same 81 buckets), times
 /// [`KING_FEATURE_STRIDE`]. A king-less board (never reached in play) uses 0.
-pub fn king_offset(board: &BitboardBoard, frame: Player) -> usize {
+pub fn king_offset(board: &BitboardBoard, frame: Player, nbuckets: usize) -> usize {
     match find_king_square(board, frame) {
-        Some(sq) => to_mover_frame(frame, frame, sq).1 as usize * KING_FEATURE_STRIDE,
+        Some(sq) => king_bucket(to_mover_frame(frame, frame, sq).1, nbuckets) * KING_FEATURE_STRIDE,
         None => 0,
+    }
+}
+
+/// King-bucket schemes, by bucket count: 81 (one per square) or 9 (regions).
+pub const KING_BUCKET_SCHEMES: [usize; 2] = [81, 9];
+
+/// Bucket of an own-king square seen from its own side (row 8 = home rank).
+///
+/// * 81 buckets: the square itself.
+/// * 9 buckets: 3 file groups (the two wings and the centre) × {home rank,
+///   second rank, further up}. Keeps what matters most about the king, which
+///   side it has castled to and how exposed it is, with 9× fewer weights than
+///   one bucket per square, which overfit the available data.
+pub fn king_bucket(sq_in_frame: u8, nbuckets: usize) -> usize {
+    let (row, col) = (sq_in_frame as usize / 9, sq_in_frame as usize % 9);
+    match nbuckets {
+        81 => sq_in_frame as usize,
+        9 => (col / 3) * 3 + if row == 8 { 0 } else if row == 7 { 1 } else { 2 },
+        _ => 0,
     }
 }
 
@@ -1037,7 +1060,11 @@ impl NNUEAccumulator {
         if let Some(ref mut h2) = self.hidden_2 {
             h2.fill(0);
         }
-        self.king_offset = if self.king_mode { king_offset(board, stm) } else { 0 };
+        self.king_offset = if self.king_mode {
+            king_offset(board, stm, weights.input_weights_1.len() / KING_FEATURE_STRIDE)
+        } else {
+            0
+        };
         self.dirty = false;
         for sq in 0..81u8 {
             let pos = Position::from_u8(sq);

@@ -304,6 +304,11 @@ struct Cli {
     /// summed into the saved network, so the engine is unaffected.
     #[arg(long)]
     king_factorizer: bool,
+
+    /// King buckets for `--king-features`: 81 (one per square) or 9 (3 file
+    /// groups × home rank / second rank / further up).
+    #[arg(long, default_value_t = 81)]
+    king_buckets: usize,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -726,6 +731,15 @@ fn target_for(
     }
 }
 
+/// The network's king-bucket count (0 when not king-conditioned).
+fn king_buckets(weights: &NNUEWeights, use_king: bool) -> usize {
+    if use_king {
+        weights.input_weights_1.len() / shogi_engine::evaluation::nnue::KING_FEATURE_STRIDE
+    } else {
+        0
+    }
+}
+
 /// Build a TrainingPosition from a corpus record (assumes target can be computed).
 #[allow(clippy::too_many_arguments)]
 fn build_position(
@@ -754,7 +768,7 @@ fn build_position(
     let active_features = if use_pov {
         // Perspective normalisation supersedes the stm bit: the mover is always
         // "Black" in the normalised frame, so the bit carries no information.
-        extract_features_frame(&board, rec.player, &captured, use_hand_features, use_king)
+        extract_features_frame(&board, rec.player, &captured, use_hand_features, king_buckets(weights, use_king))
     } else if use_halfkp {
         if use_hand_features && use_stm_feature {
             extract_active_features_halfkp_with_stm_and_hand(&board, rec.player, &captured)
@@ -811,7 +825,16 @@ fn build_position(
         if use_hand_features {
             acc.add_hand_contributions_pov(&captured, other, weights, hand_base);
         }
-        (extract_features_frame(&board, other, &captured, use_hand_features, use_king), Some(acc))
+        (
+            extract_features_frame(
+                &board,
+                other,
+                &captured,
+                use_hand_features,
+                king_buckets(weights, use_king),
+            ),
+            Some(acc),
+        )
     } else {
         (Vec::new(), None)
     };
@@ -1067,15 +1090,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         initial_weights.psqt = NNUEWeights::material_psqt(initial_weights.input_weights_1.len());
     }
     if cli.king_features {
-        initial_weights.tile_for_king();
+        initial_weights.tile_for_king(cli.king_buckets);
         if initial_weights.input_weights_1.len()
-            != shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_KING_TOTAL
+            != cli.king_buckets * shogi_engine::evaluation::nnue::KING_FEATURE_STRIDE
         {
             return Err(format!(
                 "--king-features: weights have {} input rows, expected {} (or a {}-row POV \
                  network to expand)",
                 initial_weights.input_weights_1.len(),
-                shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES_KING_TOTAL,
+                cli.king_buckets * shogi_engine::evaluation::nnue::KING_FEATURE_STRIDE,
                 shogi_engine::evaluation::nnue::KING_FEATURE_STRIDE
             )
             .into());
