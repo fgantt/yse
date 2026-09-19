@@ -698,10 +698,76 @@ impl BitboardBoard {
         }
     }
 
-    /// Check if a square is attacked by a player
-    /// Task 3.0.3.1: Rewritten to iterate attackers by bitboard instead of
-    /// nested 9×9 loops
+    /// Whether `attacking_player` attacks `target_pos`.
+    ///
+    /// Works backwards from the target: shogi pieces are point-symmetric between
+    /// the colours, so a piece of type P belonging to the attacker on square f
+    /// attacks t exactly when a defender's P on t would attack f. The attackers
+    /// of t are therefore, per piece type, the defender-colour pattern from t
+    /// intersected with the attacker's pieces of that type; sliders use rays from
+    /// t. That is one pattern per piece type instead of one per attacking piece
+    /// (the previous version, kept as `is_square_attacked_by_reference`), and
+    /// this runs twice per legal move in move generation.
     pub fn is_square_attacked_by(&self, target_pos: Position, attacking_player: Player) -> bool {
+        let a = if attacking_player == Player::Black { 0 } else { 1 };
+        let defender = attacking_player.opposite();
+        let t = target_pos.to_index() as u8;
+        let pcs = |pt: PieceType| self.pieces[a][pt.to_u8() as usize];
+        for pt in [
+            PieceType::Pawn,
+            PieceType::Knight,
+            PieceType::Silver,
+            PieceType::Gold,
+            PieceType::PromotedPawn,
+            PieceType::PromotedLance,
+            PieceType::PromotedKnight,
+            PieceType::PromotedSilver,
+        ] {
+            let p = pcs(pt);
+            if !p.is_empty()
+                && !(self.attack_tables.get_attack_pattern(t, pt, defender) & p).is_empty()
+            {
+                return true;
+            }
+        }
+        // King, and the one-step moves of dragon and horse: both attack all eight
+        // neighbouring squares.
+        let adjacent = pcs(PieceType::King) | pcs(PieceType::PromotedRook) | pcs(PieceType::PromotedBishop);
+        if !adjacent.is_empty()
+            && !(self.attack_tables.get_attack_pattern(t, PieceType::King, defender) & adjacent)
+                .is_empty()
+        {
+            return true;
+        }
+        let rooks = pcs(PieceType::Rook) | pcs(PieceType::PromotedRook);
+        if !rooks.is_empty() && !(self.get_attack_pattern(target_pos, PieceType::Rook) & rooks).is_empty() {
+            return true;
+        }
+        let bishops = pcs(PieceType::Bishop) | pcs(PieceType::PromotedBishop);
+        if !bishops.is_empty()
+            && !(self.get_attack_pattern(target_pos, PieceType::Bishop) & bishops).is_empty()
+        {
+            return true;
+        }
+        // Lance: scan from the target away from the attacker's direction of travel.
+        let lances = pcs(PieceType::Lance);
+        if !lances.is_empty() {
+            let dir: i8 = if attacking_player == Player::Black { 1 } else { -1 };
+            let mut row = target_pos.row as i8 + dir;
+            while (0..9).contains(&row) {
+                let sq = Position::new(row as u8, target_pos.col);
+                if let Some(p) = self.get_piece(sq) {
+                    return p.player == attacking_player && p.piece_type == PieceType::Lance;
+                }
+                row += dir;
+            }
+        }
+        false
+    }
+
+    /// The previous per-attacker implementation of [`Self::is_square_attacked_by`],
+    /// kept as a test reference.
+    pub fn is_square_attacked_by_reference(&self, target_pos: Position, attacking_player: Player) -> bool {
         use crate::bitboards::integration::GlobalOptimizer;
 
         let target_idx = target_pos.to_index();

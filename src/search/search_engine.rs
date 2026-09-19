@@ -288,6 +288,8 @@ pub struct SearchEngine {
     time_manager: TimeManager,
     /// See [`Self::set_node_limit`].
     node_limit: Option<u64>,
+    /// Check extensions taken on the current search path (see the move loop).
+    check_extensions_on_path: u32,
     /// Search statistics module (Task 1.8)
     search_statistics: SearchStatistics,
     /// Core search metrics for performance tracking
@@ -1389,6 +1391,7 @@ impl SearchEngine {
                 crate::types::TimePressureThresholds::default(),
             ),
             node_limit: None,
+            check_extensions_on_path: 0,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
             quiescence_config,
@@ -1865,6 +1868,7 @@ impl SearchEngine {
                 crate::types::TimePressureThresholds::default(),
             ),
             node_limit: None,
+            check_extensions_on_path: 0,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
             // Convert from all:: types to types::search:: types
@@ -7000,13 +7004,27 @@ impl SearchEngine {
             // Children may return early without popping their own entry; restore
             // the path to this node's length after each one.
             let path_len = hash_history.len();
+            // Check extension: search a checking move one ply deeper. Mating
+            // attacks in shogi are long sequences of checks (drops especially), and
+            // without this the search saw a mate in 3 against it only at depth 6+:
+            // games against YaneuraOu were lost to mates the engine walked into.
+            // Bounded to the iteration depth per path so check sequences cannot run
+            // away.
+            let ext: u8 = if move_.gives_check
+                && self.check_extensions_on_path < self.current_depth.max(1) as u32
+            {
+                1
+            } else {
+                0
+            };
+            self.check_extensions_on_path += ext as u32;
             let score = self.search_move_with_lmr(
                 cached_static_eval,
                 node_game_phase,
                 board,
                 &new_captured,
                 player,
-                depth,
+                depth + ext,
                 alpha,
                 beta,
                 &start_time,
@@ -7022,6 +7040,7 @@ impl SearchEngine {
                 iid_move.as_ref(), // Task 7.0.1: Pass IID move for explicit exemption from LMR
                 entry_source,      // Task 7.0.3.4: Pass entry source for TT priority management
             );
+            self.check_extensions_on_path -= ext as u32;
             hash_history.truncate(path_len);
             crate::debug_utils::end_timing(&format!("move_search_{}", move_index), "NEGAMAX");
 
@@ -7615,7 +7634,7 @@ impl SearchEngine {
                 board,
                 player,
                 captured_pieces,
-                depth >= QUIESCENCE_ENTRY_DEPTH,
+                depth >= QUIESCENCE_ENTRY_DEPTH && std::env::var_os("SHOGI_NO_QCHECKS").is_none(),
             )
         };
         if in_check && noisy_moves.is_empty() {

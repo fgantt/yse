@@ -312,3 +312,44 @@ fn pieces_that_could_never_move_again_must_promote() {
         assert!(white.contains(&good.to_string()), "{good} should be legal");
     }
 }
+
+/// The reverse-lookup attack test must agree with the per-attacker reference on
+/// every square, for both colours, across positions from random games.
+#[test]
+fn attack_test_matches_reference_in_random_games() {
+    use rand::{Rng, SeedableRng};
+    use shogi_engine::types::board::CapturedPieces;
+    use shogi_engine::types::core::Position;
+    let mg = MoveGenerator::new();
+    let mut rng = rand::rngs::StdRng::seed_from_u64(7);
+    let mut checked = 0;
+    for _ in 0..40 {
+        let mut b = BitboardBoard::new();
+        let mut c = CapturedPieces::new();
+        let mut p = Player::Black;
+        for _ in 0..120 {
+            for sq in 0..81u8 {
+                let pos = Position::from_u8(sq);
+                for who in [Player::Black, Player::White] {
+                    assert_eq!(
+                        b.is_square_attacked_by(pos, who),
+                        b.is_square_attacked_by_reference(pos, who),
+                        "{:?} on {:?} in {}",
+                        who,
+                        pos,
+                        b.to_fen(p, &c)
+                    );
+                    checked += 1;
+                }
+            }
+            let legal = mg.generate_legal_moves(&b, p, &c);
+            if legal.is_empty() {
+                break;
+            }
+            let m = legal[rng.gen_range(0..legal.len())].clone();
+            b.make_move_with_hand(&m, &mut c);
+            p = p.opposite();
+        }
+    }
+    assert!(checked > 100_000);
+}
