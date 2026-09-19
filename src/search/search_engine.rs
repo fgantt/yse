@@ -1607,6 +1607,11 @@ impl SearchEngine {
     /// Task 6.8: Made public for testing integration
     /// Task 3.0: Added iid_move parameter to integrate IID move into all
     /// ordering paths
+    /// Diagnostic: the move-ordering score components for one move.
+    pub fn debug_move_score_components(&mut self, m: &Move, board: &BitboardBoard) -> String {
+        self.advanced_move_orderer.debug_score_components(m, board)
+    }
+
     pub fn order_moves_for_negamax(
         &mut self,
         moves: &[Move],
@@ -7076,6 +7081,18 @@ impl SearchEngine {
                     // Track beta cutoff (Task 5.7)
                     self.core_search_metrics.total_cutoffs += 1;
                     self.core_search_metrics.beta_cutoffs += 1;
+
+                    // Feed the cutoff to the orderer that actually orders moves. Its
+                    // killer and history tables were never updated by the search
+                    // (only the engine's own two-slot killer list and a history table
+                    // keyed by source square alone), so neither heuristic ever
+                    // influenced ordering. Quiet moves only: captures are ordered by
+                    // MVV-LVA.
+                    if !move_.is_capture && !move_.is_promotion {
+                        self.advanced_move_orderer.set_current_depth(depth);
+                        self.advanced_move_orderer.add_killer_move(move_.clone());
+                        self.advanced_move_orderer.update_history_score(move_, depth, Some(board));
+                    }
 
                     // Task 12.2: Track cutoffs from IID moves vs non-IID moves
                     self.iid_stats.total_cutoffs += 1;
@@ -15277,13 +15294,21 @@ impl IterativeDeepening {
                             ),
                             Some(score),
                         );
-                        search_engine.handle_fail_low(
-                            &mut current_alpha,
-                            &mut current_beta,
-                            previous_scores.last().copied().unwrap_or(0),
-                            search_engine.calculate_window_size(depth, 0, 0),
-                        );
+                        // Widen below the score just returned, keeping beta, with a
+                        // margin that doubles per re-search; after max_researches go
+                        // full width. The window used to be rebuilt around the
+                        // previous iteration's score with no re-search limit, so an
+                        // unstable search failed low, then high, then low again
+                        // until the clock ran out (a 60 s game move stuck at depth 4).
                         researches += 1;
+                        let delta = search_engine.calculate_window_size(depth, 0, 0).max(50)
+                            << researches.min(8);
+                        if researches > search_engine.aspiration_config.max_researches {
+                            current_alpha = i32::MIN + 1;
+                            current_beta = i32::MAX - 1;
+                        } else {
+                            current_alpha = score.saturating_sub(delta).max(i32::MIN + 1);
+                        }
                         continue;
                     }
 
@@ -15314,13 +15339,17 @@ impl IterativeDeepening {
                             ),
                             Some(score),
                         );
-                        search_engine.handle_fail_high(
-                            &mut current_alpha,
-                            &mut current_beta,
-                            previous_scores.last().copied().unwrap_or(0),
-                            search_engine.calculate_window_size(depth, 0, 0),
-                        );
+                        // Mirror of fail-low: widen above the returned score, keep
+                        // alpha, full width after max_researches.
                         researches += 1;
+                        let delta = search_engine.calculate_window_size(depth, 0, 0).max(50)
+                            << researches.min(8);
+                        if researches > search_engine.aspiration_config.max_researches {
+                            current_alpha = i32::MIN + 1;
+                            current_beta = i32::MAX - 1;
+                        } else {
+                            current_beta = score.saturating_add(delta).min(i32::MAX - 1);
+                        }
                         continue;
                     }
 

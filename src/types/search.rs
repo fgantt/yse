@@ -1171,6 +1171,9 @@ pub struct MoveOrderingEffectivenessStats {
     pub early_ordered_no_cutoffs: u64,
     pub cutoff_index_sum: u64,
     pub cutoff_index_count: u64,
+    /// Cutoffs caused by the first move searched (the negamax loop's
+    /// `move_index` is 1-based). The standard move-ordering health metric.
+    pub first_move_cutoffs: u64,
 }
 
 impl MoveOrderingEffectivenessStats {
@@ -1202,6 +1205,9 @@ impl MoveOrderingEffectivenessStats {
     /// Record a cutoff
     pub fn record_cutoff(&mut self, index: usize) {
         self.total_cutoffs += 1;
+        if index <= 1 {
+            self.first_move_cutoffs += 1;
+        }
         if index >= 3 {
             self.cutoffs_after_threshold += 1;
         }

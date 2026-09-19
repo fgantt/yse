@@ -12,6 +12,9 @@ use crate::types::board::GamePhase;
 use crate::types::core::{Move, PieceType, Position};
 use std::collections::HashMap;
 
+/// History key "source square" for drops (off the board: rows are 0..9).
+pub const DROP_FROM: Position = Position { row: 9, col: 0 };
+
 /// History entry for enhanced history heuristic (Task 4.0)
 #[derive(Debug, Clone)]
 pub struct HistoryEntry {
@@ -188,7 +191,10 @@ impl HistoryHeuristicManager {
         config: &HistoryConfig,
         current_time: u64,
     ) -> u32 {
-        if let Some(from) = move_.from {
+        // Drops have no source square; key them by a sentinel square off the
+        // board, so they are keyed by (piece, destination). Skipping them left
+        // most quiet shogi moves without history.
+        if let Some(from) = move_.from.or(Some(DROP_FROM)) {
             let key = (move_.piece_type, from, move_.to);
             let relative_key = (from, move_.to);
 
@@ -254,7 +260,10 @@ impl HistoryHeuristicManager {
         config: &HistoryConfig,
         board: Option<&BitboardBoard>,
     ) {
-        if let Some(from) = move_.from {
+        // Drops have no source square; key them by a sentinel square off the
+        // board, so they are keyed by (piece, destination). Skipping them left
+        // most quiet shogi moves without history.
+        if let Some(from) = move_.from.or(Some(DROP_FROM)) {
             let current_time = self.get_current_timestamp();
             let key = (move_.piece_type, from, move_.to);
             let relative_key = (from, move_.to);

@@ -144,6 +144,13 @@ impl UsiEngine {
         self.read_search_result()
     }
 
+    /// `go <args>` with arbitrary arguments (e.g. `btime 0 wtime 0 byoyomi 1000`,
+    /// `nodes 20000`), returning at `bestmove`.
+    pub fn go_with(&mut self, args: &str) -> Result<SearchResult, UsiError> {
+        self.send(&format!("go {}", args))?;
+        self.read_search_result()
+    }
+
     #[allow(dead_code)]
     pub fn go_movetime(&mut self, ms: u32) -> Result<SearchResult, UsiError> {
         self.send(&format!("go movetime {}", ms))?;

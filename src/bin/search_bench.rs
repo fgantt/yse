@@ -59,9 +59,15 @@ struct Cli {
     /// Write the per-position fingerprint (move, score, nodes) here.
     #[arg(long)]
     fingerprint: Option<PathBuf>,
+    /// Search this one position instead of drawing from the corpus.
+    #[arg(long)]
+    sfen: Option<String>,
 }
 
 fn load_sfens(cli: &Cli) -> std::io::Result<Vec<String>> {
+    if let Some(s) = &cli.sfen {
+        return Ok(vec![s.clone()]);
+    }
     let f = BufReader::new(File::open(&cli.corpus)?);
     let mut out = Vec::new();
     for (i, line) in f.lines().enumerate() {
@@ -156,10 +162,22 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "      qnodes={} null: tried={} cut={} | lmr: considered={} reduced={} researched={}",
                 q.nodes_searched,
                 nm.attempts,
-                nm.cutoffs_after_null_move,
+                nm.cutoffs,
                 lmr.moves_considered,
                 lmr.reductions_applied,
                 lmr.researches_triggered
+            );
+            let iid = engine.get_iid_stats();
+            println!(
+                "      iid: searches={} nodes={}",
+                iid.iid_searches_performed, iid.total_iid_nodes
+            );
+            let mo = &lmr.move_ordering_stats;
+            println!(
+                "      cutoffs={} first-move={:.1}% mean-index={:.2}",
+                mo.total_cutoffs,
+                100.0 * mo.first_move_cutoffs as f64 / mo.total_cutoffs.max(1) as f64,
+                mo.cutoff_index_sum as f64 / mo.cutoff_index_count.max(1) as f64
             );
         }
         fp_lines.push(format!("{} {} {} {}{}", idx, mv, score, nodes, tag));

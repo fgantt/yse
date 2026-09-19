@@ -4466,7 +4466,8 @@ impl MoveOrdering {
         depth: u8,
         board: Option<&crate::bitboards::BitboardBoard>,
     ) {
-        if let Some(_from) = move_.from {
+        {
+            // Drops included (history_heuristic keys them by a sentinel square).
             // Use safe multiplication to prevent overflow (depth is u8, max value is 255)
             // depth * depth can overflow u8 if depth > 16, so cast to u32 first
             let bonus = ((depth as u32) * (depth as u32)) as u32; // Bonus proportional to depth
@@ -6251,28 +6252,59 @@ impl MoveOrdering {
             }
         }
 
-        // Check if this is the PV move (high priority)
+        // Ordering tiers. Each tier's offset exceeds anything the tiers below can
+        // score, so no quiet-move bonus can outrank a capture. Before this, a
+        // capture was scored by its SEE alone (e.g. -70 for taking a bishop in an
+        // even trade) and sank below every quiet move with a castle bonus: in a
+        // test position the three captures were ordered 27th-29th of 32, and only
+        // 29-40% of cutoffs came from the first move (a well-ordered search gets
+        // ~90%).
+        const TIER_PV: i32 = 10_000_000;
+        const TIER_CAPTURE: i32 = 6_000_000;
+        const TIER_PROMOTION: i32 = 5_000_000;
+        const TIER_KILLER: i32 = 4_000_000;
+        const TIER_COUNTER: i32 = 3_000_000;
+        const QUIET_CAP: i32 = 2_000_000;
+
         if let Some(ref pv) = pv_move {
             if self.moves_equal(move_, pv) {
-                return self.score_pv_move(move_);
+                return TIER_PV;
             }
         }
 
-        // Check if this is a killer move (medium-high priority)
+        // Captures by MVV-LVA: most valuable victim first, cheapest attacker as
+        // tie-break. (SEE is not used here: it scores some even exchanges as
+        // heavily losing, e.g. -700 for pawn-takes-pawn recaptured by a rook.)
+        if move_.is_capture {
+            if let Some(victim) = move_.captured_piece {
+                use crate::evaluation::nnue::MATERIAL_VALUES;
+                let v = MATERIAL_VALUES[victim.piece_type.as_index()];
+                let a = MATERIAL_VALUES[move_.piece_type.as_index()];
+                return TIER_CAPTURE + v * 16 - a / 16;
+            }
+        }
+        if move_.is_promotion {
+            return TIER_PROMOTION;
+        }
+
         if killer_moves.iter().any(|killer| self.moves_equal(move_, killer)) {
             self.stats.killer_move_hits += 1;
-            return self.score_killer_move(move_);
+            return TIER_KILLER;
         }
 
-        // Task 2.5: Check if this is a counter-move for opponent's last move
-        // (medium-high priority, quiet moves only)
-        if !move_.is_capture {
-            let counter_score = self.score_counter_move(move_, opponent_last_move);
-            if counter_score > 0 {
-                return counter_score;
-            }
+        if self.score_counter_move(move_, opponent_last_move) > 0 {
+            return TIER_COUNTER;
         }
 
+        self.score_quiet_move_heuristics(move_, board).clamp(-QUIET_CAP, QUIET_CAP)
+    }
+
+    /// Ordering score of a quiet move: history, then the positional bonuses.
+    fn score_quiet_move_heuristics(
+        &mut self,
+        move_: &Move,
+        board: &crate::bitboards::BitboardBoard,
+    ) -> i32 {
         // Check if this move has history score (medium priority)
         let history_score = self.score_history_move(move_);
         if history_score > 0 {
@@ -6327,6 +6359,27 @@ impl MoveOrdering {
         self.stats.killer_move_misses += 1;
         let base_score = self.score_move(move_).unwrap_or(0);
         base_score + safety_penalty
+    }
+
+    /// Diagnostic: the components `score_move_with_all_heuristics` combines, for
+    /// one move with no PV / killer / IID context.
+    pub fn debug_score_components(
+        &mut self,
+        move_: &Move,
+        board: &crate::bitboards::BitboardBoard,
+    ) -> String {
+        let history = self.score_history_move(move_);
+        let see = if move_.is_capture { self.score_see_move(move_, board).ok() } else { None };
+        let castle = self.score_castle_progress_move(move_, board);
+        let storm = self.score_storm_response_move(move_, board);
+        let flank = self.score_flank_security_move(move_, board);
+        let counter = self.score_active_counterplay_move(move_, board);
+        let safety = self.check_move_safety(move_, board);
+        let base = self.score_move(move_).unwrap_or(0);
+        format!(
+            "history={history} see={see:?} castle={castle:?} storm={storm:?} flank={flank:?} \
+             counterplay={counter:?} safety={safety} base={base}"
+        )
     }
 
     /// Check if a move creates vulnerabilities (e.g., ▲7六歩 leaving 8八 undefended)
