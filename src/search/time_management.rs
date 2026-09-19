@@ -71,10 +71,18 @@ impl TimeManager {
         let frequency = self.config.time_check_frequency;
         self.time_check_node_counter = self.time_check_node_counter.wrapping_add(1);
 
-        // Only check time every N nodes
+        // Only check time every N nodes. Once the limit has passed, keep the
+        // counter at the threshold so that every later call re-checks and
+        // reports it. Resetting it unconditionally made the check report the
+        // deadline to one node and then answer "not yet" for the next 1023: the
+        // search carried on almost normally past its limit (31 s on a 1 s move in
+        // a real game) and stopped only when the iteration happened to finish.
         if self.time_check_node_counter >= frequency {
-            self.time_check_node_counter = 0;
-            start_time.has_exceeded_limit(time_limit_ms)
+            let exceeded = start_time.has_exceeded_limit(time_limit_ms);
+            if !exceeded {
+                self.time_check_node_counter = 0;
+            }
+            exceeded
         } else {
             false // Don't check time yet
         }

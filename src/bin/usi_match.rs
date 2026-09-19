@@ -135,7 +135,16 @@ fn play(
         side.engine.set_position_startpos(&moves)?;
         let t0 = Instant::now();
         let result = side.engine.go_with(&side.go)?;
-        side.max_think_ms = side.max_think_ms.max(t0.elapsed().as_millis());
+        let took = t0.elapsed().as_millis();
+        side.max_think_ms = side.max_think_ms.max(took);
+        if took > 2000 && side.go.contains("byoyomi") {
+            eprintln!(
+                "SLOW MOVE {} ms ({}): position startpos moves {}",
+                took,
+                if a_is(player) { "A" } else { "B" },
+                moves.join(" ")
+            );
+        }
         let bm = result.bestmove.trim().to_string();
         match bm.as_str() {
             "resign" => {

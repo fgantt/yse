@@ -6308,19 +6308,21 @@ impl SearchEngine {
         // Note: hash_calculator maintains its own global history via
         // add_position_to_history For search context, we track hashes locally
         // in hash_history
-        let repetition_state = self.hash_calculator.get_repetition_state_for_hash(position_hash);
-        if repetition_state.is_draw() {
-            crate::debug_utils::trace_log(
-                "NEGAMAX",
-                "Repetition detected (hash-based), returning 0 (draw)",
-            );
-            return 0; // Repetition is a draw
+        // Repetition along the current search path scores as a draw (the usual
+        // engine convention: a cycle within the search gains nothing).
+        //
+        // This used to consult a game-wide history to which *every searched
+        // node* was added and never removed, keeping the last 1,000 visits: any
+        // position visited 4 times anywhere in the recent search, which iterative
+        // deepening and transpositions guarantee near the root, scored as a
+        // four-fold-repetition draw. It also cost a Vec::remove(0) per node.
+        if !is_root && hash_history.contains(&position_hash) {
+            return 0;
         }
 
         // Add current position hash to search history (Task 5.2)
         // Also add to hash_calculator's global history for game-wide repetition
         // tracking
-        self.hash_calculator.add_position_to_history(position_hash);
         hash_history.push(position_hash);
 
         // Track TT probe (Task 5.7)
@@ -6977,6 +6979,9 @@ impl SearchEngine {
             // Task 2.6: Pass current move as opponent_last_move to recursive call
             // Task 7.0.1: Pass IID move for explicit exemption from LMR
             // Task 7.0.3.4: Pass entry source for TT priority management
+            // Children may return early without popping their own entry; restore
+            // the path to this node's length after each one.
+            let path_len = hash_history.len();
             let score = self.search_move_with_lmr(
                 cached_static_eval,
                 node_game_phase,
@@ -6999,6 +7004,7 @@ impl SearchEngine {
                 iid_move.as_ref(), // Task 7.0.1: Pass IID move for explicit exemption from LMR
                 entry_source,      // Task 7.0.3.4: Pass entry source for TT priority management
             );
+            hash_history.truncate(path_len);
             crate::debug_utils::end_timing(&format!("move_search_{}", move_index), "NEGAMAX");
 
             // Restore board state by unmaking the move
