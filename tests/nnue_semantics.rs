@@ -592,3 +592,27 @@ fn nine_king_buckets_cover_the_board() {
         assert_eq!(king_bucket(sq, 81), sq as usize);
     }
 }
+
+/// Enabling the king factoriser splits each row into a shared mean and a
+/// per-bucket difference; the network it renders must be exactly the same.
+#[test]
+fn king_factorizer_split_preserves_the_network() {
+    use shogi_engine::evaluation::nnue::KING_FEATURE_STRIDE;
+    use shogi_engine::evaluation::nnue_training::{NNUETrainer, NNUETrainingConfig};
+    let mut w = det_weights(KING_FEATURE_STRIDE, 8, 4);
+    w.make_dual();
+    w.tile_for_king(9);
+    // Make buckets differ so the mean is not just a copy.
+    for (r, row) in w.input_weights_1.iter_mut().enumerate() {
+        for v in row.iter_mut() {
+            *v = (*v as i32 + (r / KING_FEATURE_STRIDE) as i32 - 4).clamp(-127, 127) as i16;
+        }
+    }
+    let mut config = NNUETrainingConfig::default();
+    config.use_adam = true;
+    let mut trainer = NNUETrainer::new(w.clone(), config);
+    trainer.enable_king_factorizer();
+    let mut rendered = w.clone();
+    trainer.get_shadow().quantize_into(&mut rendered);
+    assert_eq!(rendered.input_weights_1, w.input_weights_1);
+}

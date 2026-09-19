@@ -123,6 +123,12 @@ pub struct NNUETrainingConfig {
     /// for networks without a PSQT path.
     #[serde(default)]
     pub psqt_learning_rate: f32,
+    /// King factoriser only: decoupled weight decay on the king-specific rows
+    /// (the per-bucket corrections to the shared rows), applied to each row the
+    /// batch touched. Pulls a bucket back to the shared weights unless the data
+    /// keeps pushing it away. 0 = off.
+    #[serde(default)]
+    pub king_delta_decay: f32,
 }
 
 fn default_output_grad_scale() -> f32 { 1e7 }
@@ -159,6 +165,7 @@ impl Default for NNUETrainingConfig {
             adam_beta2: default_adam_beta2(),
             adam_epsilon: default_adam_epsilon(),
             psqt_learning_rate: 0.0,
+            king_delta_decay: 0.0,
         }
     }
 }
@@ -1415,6 +1422,16 @@ impl NNUETrainer {
             }
         }
 
+        // King factoriser: decoupled decay of the per-bucket corrections.
+        let decay = self.config.king_delta_decay;
+        if decay > 0.0 && self.shadow.input_shared.is_some() {
+            for &r in acc_input_w.keys() {
+                for w in self.shadow.input_weights_1[r].iter_mut() {
+                    *w *= 1.0 - decay;
+                }
+            }
+        }
+
         // Render shadow → i16 once per batch. Stats reflect actual i16 delta.
         let (total_change, max_change, change_count) =
             self.shadow.quantize_into(&mut self.weights);
@@ -1485,17 +1502,33 @@ impl NNUETrainer {
     /// Rebuild the f32 shadow from the current i16 weights. Call after any
     /// external mutation of weights (e.g. loading a checkpoint mid-training).
     /// Turn on the king factoriser (see [`ShadowWeights::input_shared`]) for a
-    /// king-conditioned network. Shared rows start at zero, so the effective
-    /// weights, and the function the network computes, are unchanged.
+    /// king-conditioned network. Each shared row starts as that feature's mean
+    /// over the king buckets and each bucket keeps only its difference from the
+    /// mean, so the effective weights, and the function the network computes,
+    /// are unchanged. With `king_delta_decay` the differences are then pulled
+    /// towards zero, i.e. each bucket towards the shared weights.
     pub fn enable_king_factorizer(&mut self) {
         use crate::evaluation::nnue::KING_FEATURE_STRIDE;
         let h1 = self.weights.hidden_sizes().0;
-        let zeros = vec![vec![0.0_f32; h1]; KING_FEATURE_STRIDE];
-        if let Some(adam) = self.adam.as_mut() {
-            adam.input_shared_m = Some(zeros.clone());
-            adam.input_shared_v = Some(zeros.clone());
+        let rows = self.shadow.input_weights_1.len();
+        let nb = (rows / KING_FEATURE_STRIDE).max(1);
+        let mut shared = vec![vec![0.0_f32; h1]; KING_FEATURE_STRIDE];
+        for (r, row) in self.shadow.input_weights_1.iter().enumerate() {
+            for (s, &w) in shared[r % KING_FEATURE_STRIDE].iter_mut().zip(row) {
+                *s += w / nb as f32;
+            }
         }
-        self.shadow.input_shared = Some(zeros);
+        for (r, row) in self.shadow.input_weights_1.iter_mut().enumerate() {
+            for (w, &s) in row.iter_mut().zip(&shared[r % KING_FEATURE_STRIDE]) {
+                *w -= s;
+            }
+        }
+        if let Some(adam) = self.adam.as_mut() {
+            let zeros = vec![vec![0.0_f32; h1]; KING_FEATURE_STRIDE];
+            adam.input_shared_m = Some(zeros.clone());
+            adam.input_shared_v = Some(zeros);
+        }
+        self.shadow.input_shared = Some(shared);
     }
 
     pub fn resync_shadow_from_weights(&mut self) {

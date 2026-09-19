@@ -309,6 +309,12 @@ struct Cli {
     /// groups × home rank / second rank / further up).
     #[arg(long, default_value_t = 81)]
     king_buckets: usize,
+
+    /// With `--king-factorizer`: per-batch decay of each touched king-specific
+    /// correction towards zero (decoupled, AdamW-style), i.e. of each bucket
+    /// towards the shared weights. 0 = off.
+    #[arg(long, default_value_t = 0.0)]
+    king_delta_decay: f32,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -1137,6 +1143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.adam_beta2 = cli.adam_beta2;
     config.adam_epsilon = cli.adam_epsilon;
     config.psqt_learning_rate = cli.psqt_lr;
+    config.king_delta_decay = cli.king_delta_decay;
     // min_batch_size is irrelevant here — we drive the batching ourselves
     // via train_batch, but set it so any stray add_training_game path
     // doesn't fire unexpectedly.
