@@ -62,9 +62,34 @@ still memorise. Delta decay stops the decline (training error 0.118 → 0.114 ov
 at 0.802) but does not add strength. 64K games, with strongly correlated positions within a game, is too
 little data for king conditioning; production NNUEs train on billions of positions.
 
-## In progress
+## More data: king buckets win (6.79M positions)
 
 Another 24,000 games (`corpus_s25/run.sh`, ids from 300,000): `nnue_corpus_s25_combined.jsonl`,
 **6,790,401 positions, 64,500 games**, audit clean (0 chain breaks; 0 move-list differences from the
-teacher on 679,041 positions). Retraining all three designs on it (`weights/session26/`): single
-perspective, two perspectives, and regularised 9 buckets, to see which gains from more data.
+teacher on 679,041 positions). All three designs retrained on it (`weights/session26/`), each
+warm-started from its best 4.24M network:
+
+| network | held-out r (best epoch) | paired Elo vs `s24_lr01` |
+|---|---|---|
+| single perspective (`flat`) | 0.802 (8) | −3.5 ± 47.2 |
+| two perspectives (`dual`) | 0.805 (2) | −5.2 ± 53.5 |
+| **9 king buckets + factoriser + decay 1e-3 (`k9`)** | **0.807** (2) | **+100.0 ± 52.3** (43 pairs won, 15 lost) |
+
+`k9` vs classical: **195-2-3, paired +676 ± 259** (97 of 100 pairs won, none lost), the ceiling of what
+a depth-2 match against classical can show.
+
+With 60% more data the king-conditioned network overtakes, while the single-perspective network, which
+had driven every earlier gain, no longer improves: the small architecture is saturated and the modern
+one is now the one that scales. `k9` is `nnue/default.bin` (11 MB, untracked); the USI engine reports
+`features pov,hand,king,dual`.
+
+Recipe (from `weights/session25/dual.bin`, itself two-perspective from `s24_lr01`):
+`--use-pov-features --use-hand-features --dual-perspective --king-features --king-buckets 9
+--king-factorizer --king-delta-decay 0.001 --learning-rate 0.005 --use-sigmoid-loss --use-adam
+--output-grad-scale 1 --input-grad-scale 1 --seed 47`, material PSQT frozen (inherited).
+
+## Next
+
+1. More data again: the king network is the one that now gains from it; 81 buckets may become viable.
+2. Train the PSQT path (`--psqt-lr`), still frozen at material.
+3. Search speed (depth 3 ≈ 1 s from the opening in the USI engine; ~20K nodes/s) now limits strength.
