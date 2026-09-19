@@ -102,6 +102,20 @@ struct Cli {
     #[arg(long, default_value_t = 0.0)]
     random_move_prob: f64,
 
+    /// Play the moves with this engine instead of the teacher, so the corpus
+    /// follows the positions this engine reaches. The teacher still labels every
+    /// position. Both sides are played by it (self-play).
+    #[arg(long)]
+    player_engine: Option<PathBuf>,
+
+    /// Working directory for `--player-engine` (default: the current directory).
+    #[arg(long)]
+    player_cwd: Option<PathBuf>,
+
+    /// `go` arguments for `--player-engine`.
+    #[arg(long, default_value = "nodes 3000")]
+    player_go: String,
+
     /// Added to every game id, so corpora generated in parallel can be
     /// concatenated without colliding (the trainer's held-out split is by id).
     #[arg(long, default_value_t = 0)]
@@ -179,6 +193,8 @@ fn write_jsonl_record(
 
 fn play_one_game(
     engine: &mut UsiEngine,
+    player: &mut Option<UsiEngine>,
+    player_go: &str,
     depth: u32,
     random_plies: u8,
     max_moves: u32,
@@ -191,7 +207,7 @@ fn play_one_game(
 
     let mut board = BitboardBoard::new();
     let mut captured = CapturedPieces::new();
-    let mut player = Player::Black;
+    let mut side = Player::Black;
 
     let mut usi_moves: Vec<String> = Vec::new();
     let mut positions: Vec<PositionRecord> = Vec::new();
@@ -201,15 +217,15 @@ fn play_one_game(
 
     // Phase 1: random opening plies from our own MoveGenerator.
     for _ in 0..random_plies {
-        let legal = mg.generate_legal_moves(&board, player, &captured);
+        let legal = mg.generate_legal_moves(&board, side, &captured);
         if legal.is_empty() {
             break;
         }
         let mv = legal[rng.gen_range(0..legal.len())].clone();
-        let sfen = board.to_fen(player, &captured);
+        let sfen = board.to_fen(side, &captured);
         positions.push(PositionRecord {
             sfen,
-            player,
+            player: side,
             eval_cp: None,
             from_random_opening: true,
             ply,
@@ -217,7 +233,7 @@ fn play_one_game(
         });
         usi_moves.push(mv.to_usi_string());
         board.make_move_with_hand(&mv, &mut captured);
-        player = player.opposite();
+        side = side.opposite();
         ply += 1;
     }
 
@@ -225,10 +241,10 @@ fn play_one_game(
     engine.new_game()?;
     loop {
         // Our-side game-over checks.
-        let legal = mg.generate_legal_moves(&board, player, &captured);
+        let legal = mg.generate_legal_moves(&board, side, &captured);
         if legal.is_empty() {
-            let outcome = if board.is_king_in_check(player, &captured) {
-                match player {
+            let outcome = if board.is_king_in_check(side, &captured) {
+                match side {
                     Player::Black => Outcome::WhiteWin,
                     Player::White => Outcome::BlackWin,
                 }
@@ -238,7 +254,7 @@ fn play_one_game(
             return Ok((positions, outcome));
         }
 
-        let pos_hash = hash_calc.get_position_hash(&board, player, &captured);
+        let pos_hash = hash_calc.get_position_hash(&board, side, &captured);
         let c = pos_counts.entry(pos_hash).or_insert(0);
         *c += 1;
         if *c >= 3 {
@@ -255,30 +271,30 @@ fn play_one_game(
 
         let bestmove_str = search.bestmove.trim().to_string();
         if bestmove_str == "resign" || bestmove_str == "0000" || bestmove_str.is_empty() {
-            // Teacher resigns on behalf of the to-move player.
-            let outcome = match player {
+            // Teacher resigns on behalf of the to-move side.
+            let outcome = match side {
                 Player::Black => Outcome::WhiteWin,
                 Player::White => Outcome::BlackWin,
             };
             return Ok((positions, outcome));
         }
         if bestmove_str == "win" {
-            // Declaration of win by the to-move player (Shogi entering-king rule).
-            let outcome = match player {
+            // Declaration of win by the to-move side (Shogi entering-king rule).
+            let outcome = match side {
                 Player::Black => Outcome::BlackWin,
                 Player::White => Outcome::WhiteWin,
             };
             return Ok((positions, outcome));
         }
 
-        let sfen_before = board.to_fen(player, &captured);
+        let sfen_before = board.to_fen(side, &captured);
         let eval_cp = search.as_cp_with_mate(30_000);
 
         if verbose {
             let eval_dbg = eval_cp.map(|v| v.to_string()).unwrap_or_else(|| "?".to_string());
             println!(
                 "    ply {:3} {:?} {} (cp {})",
-                ply, player, bestmove_str, eval_dbg
+                ply, side, bestmove_str, eval_dbg
             );
         }
 
@@ -295,16 +311,34 @@ fn play_one_game(
                 usi_moves.join(" ")
             )));
         }
+        // Which move actually gets played: a random legal one, the move of the
+        // engine under training (`--player-engine`, so the corpus follows the
+        // positions that engine reaches), or the teacher's.
         let random_move = random_move_prob > 0.0 && rng.gen_bool(random_move_prob);
         let mv = if random_move {
             legal[rng.gen_range(0..legal.len())].clone()
+        } else if let Some(p) = player.as_mut() {
+            p.set_position_startpos(&usi_moves)?;
+            let pm = p.go_with(player_go)?.bestmove.trim().to_string();
+            match legal.iter().find(|m| m.to_usi_string() == pm) {
+                Some(m) => m.clone(),
+                // Resignation or an illegal move ends the game; the side to move
+                // loses, as in a real game.
+                None => {
+                    let outcome = match side {
+                        Player::Black => Outcome::WhiteWin,
+                        Player::White => Outcome::BlackWin,
+                    };
+                    return Ok((positions, outcome));
+                }
+            }
         } else {
             legal.iter().find(|m| m.to_usi_string() == bestmove_str).unwrap().clone()
         };
 
         positions.push(PositionRecord {
             sfen: sfen_before,
-            player,
+            player: side,
             eval_cp,
             from_random_opening: false,
             ply,
@@ -313,7 +347,7 @@ fn play_one_game(
 
         usi_moves.push(mv.to_usi_string());
         board.make_move_with_hand(&mv, &mut captured);
-        player = player.opposite();
+        side = side.opposite();
         ply += 1;
     }
 }
@@ -347,6 +381,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut engine = UsiEngine::spawn(&cli.engine_path, &engine_cwd)?;
     engine.handshake()?;
+
+    let mut player_engine = match &cli.player_engine {
+        Some(path) => {
+            let cwd = cli
+                .player_cwd
+                .clone()
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")));
+            let mut p = UsiEngine::spawn(path, &cwd)?;
+            p.handshake()?;
+            p.isready()?;
+            println!("  Player:       {} (go {})", path.display(), cli.player_go);
+            Some(p)
+        }
+        None => None,
+    };
 
     // Best-effort option setting. Unknown options are ignored by the engine;
     // YaneuraOu recognizes these, Apery ignores the ones it doesn't know.
@@ -383,6 +432,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         let game_start = Instant::now();
         let (positions, outcome) = play_one_game(
             &mut engine,
+            &mut player_engine,
+            &cli.player_go,
             cli.depth,
             cli.random_plies,
             cli.max_moves,
