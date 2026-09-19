@@ -143,10 +143,17 @@ impl MoveGenerator {
         // Test each on one scratch board with make/unmake: this used to clone the
         // board (and the hands, which the check test does not read) per move, the
         // single largest cost of move generation.
+        //
+        // The same test also sets `gives_check`, which pruning relies on to leave
+        // checks alone; moves from this generator never had it set.
         let mut scratch = board.clone();
         let legal_moves: Vec<Move> = pseudo_legal_moves
             .into_iter()
-            .filter(|m| king_safe_after(&mut scratch, m, player, captured_pieces))
+            .filter_map(|mut m| {
+                let (safe, check) = test_after(&mut scratch, &m, player, captured_pieces);
+                m.gives_check = check;
+                safe.then_some(m)
+            })
             .collect();
 
         crate::debug_log_fast!(&format!(
@@ -1332,10 +1339,22 @@ fn king_safe_after(
     player: Player,
     captured_pieces: &CapturedPieces,
 ) -> bool {
+    test_after(scratch, m, player, captured_pieces).0
+}
+
+/// After `m` on `scratch` (undone before returning): (is `player`'s king safe,
+/// is the opponent's king in check).
+fn test_after(
+    scratch: &mut BitboardBoard,
+    m: &Move,
+    player: Player,
+    captured_pieces: &CapturedPieces,
+) -> (bool, bool) {
     let info = scratch.make_move_with_info(m);
     let safe = !scratch.is_king_in_check(player, captured_pieces);
+    let check = safe && scratch.is_king_in_check(player.opposite(), captured_pieces);
     scratch.unmake_move(&info);
-    safe
+    (safe, check)
 }
 
 fn is_legal_drop_location(

@@ -98,7 +98,7 @@ fn play(
     a_black: bool,
     opening: &[String],
     max_moves: u32,
-) -> Result<(Res, u32, String), Box<dyn std::error::Error>> {
+) -> Result<(Res, u32, String, Vec<String>), Box<dyn std::error::Error>> {
     let mg = MoveGenerator::new();
     let hasher = ShogiHashHandler::new_default();
     let mut board = BitboardBoard::new();
@@ -120,16 +120,16 @@ fn play(
     loop {
         let legal = mg.generate_legal_moves(&board, player, &captured);
         if legal.is_empty() {
-            return Ok((win_for(player.opposite()), moves.len() as u32, "no legal moves".into()));
+            return Ok((win_for(player.opposite()), moves.len() as u32, "no legal moves".into(), moves));
         }
         let h = hasher.get_position_hash(&board, player, &captured);
         let c = seen.entry(h).or_insert(0);
         *c += 1;
         if *c >= 4 {
-            return Ok((Res::Draw, moves.len() as u32, "repetition".into()));
+            return Ok((Res::Draw, moves.len() as u32, "repetition".into(), moves));
         }
         if moves.len() as u32 >= max_moves {
-            return Ok((Res::Draw, moves.len() as u32, "move limit".into()));
+            return Ok((Res::Draw, moves.len() as u32, "move limit".into(), moves));
         }
         let side = if a_is(player) { &mut *a } else { &mut *b };
         side.engine.set_position_startpos(&moves)?;
@@ -148,9 +148,11 @@ fn play(
         let bm = result.bestmove.trim().to_string();
         match bm.as_str() {
             "resign" => {
-                return Ok((win_for(player.opposite()), moves.len() as u32, "resign".into()))
+                return Ok((win_for(player.opposite()), moves.len() as u32, "resign".into(), moves))
             }
-            "win" => return Ok((win_for(player), moves.len() as u32, "declared win".into())),
+            "win" => {
+                return Ok((win_for(player), moves.len() as u32, "declared win".into(), moves))
+            }
             _ => {}
         }
         let mv = match legal.iter().find(|x| x.to_usi_string() == bm) {
@@ -160,6 +162,7 @@ fn play(
                     win_for(player.opposite()),
                     moves.len() as u32,
                     format!("illegal move {bm}"),
+                    moves,
                 ))
             }
         };
@@ -212,7 +215,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut rng = StdRng::seed_from_u64(cli.seed);
     let mut csv = std::fs::File::create(&cli.output)?;
-    writeln!(csv, "game,a_color,result,moves,reason")?;
+    writeln!(csv, "game,a_color,result,moves,reason,record")?;
     let pairs = (cli.games + 1) / 2;
     let (mut w, mut d, mut l) = (0u32, 0u32, 0u32);
     let mut pair_points: Vec<f64> = Vec::new();
@@ -221,7 +224,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut pts = 0.0;
         for k in 0..2 {
             let a_black = k == 0;
-            let (res, n, why) = play(&mut a, &mut b, a_black, &opening, cli.max_moves)?;
+            let (res, n, why, record) = play(&mut a, &mut b, a_black, &opening, cli.max_moves)?;
             match res {
                 Res::AWin => {
                     w += 1;
@@ -234,7 +237,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
             let g = p * 2 + k + 1;
-            writeln!(csv, "{},{},{:?},{},{}", g, if a_black { "black" } else { "white" }, res, n, why)?;
+            writeln!(
+                csv,
+                "{},{},{:?},{},{},{}",
+                g,
+                if a_black { "black" } else { "white" },
+                res,
+                n,
+                why,
+                record.join(" ")
+            )?;
             csv.flush()?;
             println!(
                 "Game {:>3}: A {} {:?} in {} moves ({}) | W{} D{} L{}",

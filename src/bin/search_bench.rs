@@ -62,11 +62,34 @@ struct Cli {
     /// Search this one position instead of drawing from the corpus.
     #[arg(long)]
     sfen: Option<String>,
+    /// Search the position after these USI moves from the start position.
+    #[arg(long)]
+    moves: Option<String>,
 }
 
 fn load_sfens(cli: &Cli) -> std::io::Result<Vec<String>> {
     if let Some(s) = &cli.sfen {
         return Ok(vec![s.clone()]);
+    }
+    if let Some(ms) = &cli.moves {
+        use shogi_engine::moves::MoveGenerator;
+        let mg = MoveGenerator::new();
+        let mut board = BitboardBoard::new();
+        let mut captured = shogi_engine::types::board::CapturedPieces::new();
+        let mut player = shogi_engine::types::core::Player::Black;
+        for m in ms.split_whitespace() {
+            let legal = mg.generate_legal_moves(&board, player, &captured);
+            let mv = legal
+                .iter()
+                .find(|x| x.to_usi_string() == m)
+                .unwrap_or_else(|| panic!("illegal move {m}"))
+                .clone();
+            board.make_move_with_hand(&mv, &mut captured);
+            player = player.opposite();
+        }
+        let sfen = board.to_fen(player, &captured);
+        eprintln!("position: {sfen}");
+        return Ok(vec![sfen]);
     }
     let f = BufReader::new(File::open(&cli.corpus)?);
     let mut out = Vec::new();
@@ -139,6 +162,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // A very large budget makes the search depth-bound, so the result depends
         // only on the position and the code, not on machine speed or load.
+        for d in 0..16 {
+            use std::sync::atomic::Ordering::Relaxed;
+            shogi_engine::search::search_engine::DIAG_NODES[d].store(0, Relaxed);
+            shogi_engine::search::search_engine::DIAG_MOVES[d].store(0, Relaxed);
+            shogi_engine::search::search_engine::DIAG_CUTS[d].store(0, Relaxed);
+        }
         let mut id = IterativeDeepening::new(cli.depth, 600_000, None);
         let t0 = Instant::now();
         let best = id.search(&mut engine, &board, &captured, player);
@@ -172,6 +201,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 "      iid: searches={} nodes={}",
                 iid.iid_searches_performed, iid.total_iid_nodes
             );
+            for d in (1..16).rev() {
+                use std::sync::atomic::Ordering::Relaxed;
+                use shogi_engine::search::search_engine::{DIAG_CUTS, DIAG_MOVES, DIAG_NODES};
+                let n = DIAG_NODES[d].load(Relaxed);
+                if n > 0 {
+                    println!(
+                        "      depth {d}: nodes={n} moves={} cuts={} moves/node={:.1}",
+                        DIAG_MOVES[d].load(Relaxed),
+                        DIAG_CUTS[d].load(Relaxed),
+                        DIAG_MOVES[d].load(Relaxed) as f64 / n as f64
+                    );
+                }
+            }
             let mo = &lmr.move_ordering_stats;
             println!(
                 "      cutoffs={} first-move={:.1}% mean-index={:.2}",

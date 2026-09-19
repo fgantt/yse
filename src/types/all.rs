@@ -7663,8 +7663,11 @@ impl PruningManager {
 
     /// Fast check to skip pruning for obvious cases
     fn should_skip_pruning(&self, state: &SearchState, mv: &Move) -> bool {
-        // Skip if depth is too shallow
-        if state.depth < 2 {
+        // Futility pruning belongs at the frontier (depth 1 and a little above).
+        // This guard was `depth < 2`, which turned all pruning off exactly where
+        // it matters: in a position with 151 moves the depth-1 nodes searched ~180
+        // replies each, every one through a full quiescence search.
+        if state.depth < 1 {
             return true;
         }
 

@@ -383,6 +383,12 @@ pub static TT_TRY_READ_FAILS: AtomicU64 = AtomicU64::new(0);
 pub static TT_TRY_WRITES: AtomicU64 = AtomicU64::new(0);
 pub static TT_TRY_WRITE_SUCCESSES: AtomicU64 = AtomicU64::new(0);
 pub static TT_TRY_WRITE_FAILS: AtomicU64 = AtomicU64::new(0);
+/// Diagnostic tree-shape counters, indexed by remaining depth (capped at 15):
+/// nodes entering the move loop, moves searched there, and beta cutoffs.
+pub static DIAG_NODES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+pub static DIAG_MOVES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+pub static DIAG_CUTS: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+
 // YBWC metrics
 pub static YBWC_SIBLING_BATCHES: AtomicU64 = AtomicU64::new(0);
 pub static YBWC_SIBLINGS_EVALUATED: AtomicU64 = AtomicU64::new(0);
@@ -5961,6 +5967,12 @@ impl SearchEngine {
                 );
                 alpha = score;
             }
+            // Fail high at the root: the aspiration window was too low. Stop and
+            // let the caller widen and re-search. Continuing searched the remaining
+            // root moves with alpha >= beta, an inverted window.
+            if alpha >= beta {
+                break;
+            }
 
             // YBWC: after first move, evaluate siblings in parallel if enabled
             if move_index == 0 {
@@ -6831,6 +6843,7 @@ impl SearchEngine {
         // Position hash already added to hash_history above - no FEN string needed
 
         let mut move_index = 0;
+        DIAG_NODES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
         // Per-node facts the move loop's pruning and reduction decisions need.
         // They were recomputed for every move (a full evaluation and a material
         // count each time, twice per move counting the LMR path), which made
@@ -6983,6 +6996,7 @@ impl SearchEngine {
             // Task 2.6: Pass current move as opponent_last_move to recursive call
             // Task 7.0.1: Pass IID move for explicit exemption from LMR
             // Task 7.0.3.4: Pass entry source for TT priority management
+            DIAG_MOVES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
             // Children may return early without popping their own entry; restore
             // the path to this node's length after each one.
             let path_len = hash_history.len();
@@ -7091,6 +7105,7 @@ impl SearchEngine {
                     // Track beta cutoff (Task 5.7)
                     self.core_search_metrics.total_cutoffs += 1;
                     self.core_search_metrics.beta_cutoffs += 1;
+                    DIAG_CUTS[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
 
                     // Feed the cutoff to the orderer that actually orders moves. Its
                     // killer and history tables were never updated by the search
@@ -15256,6 +15271,13 @@ impl IterativeDeepening {
                     };
 
                     search_engine.record_depth_completion(depth, depth_completion_time);
+                    if std::env::var_os("SHOGI_DIAG_ASPIRATION").is_some() {
+                        eprintln!(
+                            "ASPIRATION depth={} research={} window=({}, {}) -> score={} move={}",
+                            depth, researches, current_alpha, current_beta, score,
+                            move_.to_usi_string()
+                        );
+                    }
 
                     if search_engine.should_stop_force(&start_time, search_time_limit) {
                         // Cut off mid-iteration: keep the previous depth's move. Only
