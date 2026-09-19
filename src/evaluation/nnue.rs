@@ -1281,13 +1281,14 @@ impl NNUEAccumulator {
     /// Optimized to avoid heap allocations by using a stack-allocated array for the
     /// second hidden layer (max 32 neurons in the default architecture).
     pub fn evaluate(&self, weights: &NNUEWeights) -> i32 {
-        let activated_1: Vec<i32> = self
-            .hidden_1
-            .iter()
-            .zip(weights.hidden_biases_1.iter())
-            .map(|(&h, &bias)| (h + bias).max(0))
-            .collect();
-        forward_from_activations(&activated_1, weights) + self.psqt
+        // Stack buffer: this is the hottest path in the search and a heap
+        // allocation per evaluation showed up in profiles.
+        let mut act = [0i32; MAX_ACTIVATIONS];
+        let n = self.hidden_1.len().min(MAX_ACTIVATIONS);
+        for i in 0..n {
+            act[i] = (self.hidden_1[i] + weights.hidden_biases_1[i]).max(0);
+        }
+        forward_from_activations(&act[..n], weights) + self.psqt
     }
 
     /// Evaluate a two-perspective network: layer 2 reads the side to move's
@@ -1298,16 +1299,19 @@ impl NNUEAccumulator {
     /// material from its own side, so for a material PSQT the two halves agree
     /// and this is just `stm.psqt`.
     pub fn evaluate_dual(stm: &Self, nstm: &Self, weights: &NNUEWeights) -> i32 {
-        let activated: Vec<i32> = stm
-            .hidden_1
-            .iter()
-            .chain(nstm.hidden_1.iter())
-            .zip(weights.hidden_biases_1.iter().chain(weights.hidden_biases_1.iter()))
-            .map(|(&h, &bias)| (h + bias).max(0))
-            .collect();
-        forward_from_activations(&activated, weights) + (stm.psqt - nstm.psqt) / 2
+        let mut act = [0i32; MAX_ACTIVATIONS];
+        let h1 = stm.hidden_1.len().min(MAX_ACTIVATIONS / 2);
+        for i in 0..h1 {
+            act[i] = (stm.hidden_1[i] + weights.hidden_biases_1[i]).max(0);
+            act[h1 + i] = (nstm.hidden_1[i] + weights.hidden_biases_1[i]).max(0);
+        }
+        forward_from_activations(&act[..2 * h1], weights) + (stm.psqt - nstm.psqt) / 2
     }
 }
+
+/// Upper bound on activated first-layer entries: `2 * DEFAULT_HIDDEN_SIZE_1`
+/// (both perspectives). Larger networks fall back to their first entries.
+const MAX_ACTIVATIONS: usize = 2 * DEFAULT_HIDDEN_SIZE_1;
 
 /// Layers 2 and 3 of the network, from the activated first layer, in
 /// centipawns without the PSQT term. `activated_1` has `hidden_size_1` entries
