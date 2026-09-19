@@ -286,6 +286,8 @@ pub struct SearchEngine {
     iterative_deepening_helper: IterativeDeepeningHelper,
     /// Time management module (Task 1.8)
     time_manager: TimeManager,
+    /// See [`Self::set_node_limit`].
+    node_limit: Option<u64>,
     /// Search statistics module (Task 1.8)
     search_statistics: SearchStatistics,
     /// Core search metrics for performance tracking
@@ -1380,6 +1382,7 @@ impl SearchEngine {
                 TimeManagementConfig::default(),
                 crate::types::TimePressureThresholds::default(),
             ),
+            node_limit: None,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
             quiescence_config,
@@ -1855,6 +1858,7 @@ impl SearchEngine {
                 convert_time_management_config(&config.time_management),
                 crate::types::TimePressureThresholds::default(),
             ),
+            node_limit: None,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
             // Convert from all:: types to types::search:: types
@@ -8014,12 +8018,17 @@ impl SearchEngine {
     /// Used when we must check time regardless of frequency (e.g., at depth
     /// boundaries)
     fn should_stop_force(&self, start_time: &TimeSource, time_limit_ms: u32) -> bool {
-        if let Some(flag) = &self.stop_flag {
-            if flag.load(Ordering::Relaxed) {
-                return true;
-            }
-        }
-        start_time.has_exceeded_limit(time_limit_ms)
+        self.time_manager.should_stop_force(
+            start_time,
+            time_limit_ms,
+            self.stop_flag.as_ref().map(|f| f.as_ref()),
+        )
+    }
+
+    /// Node limit for the next search (`go nodes N`); `None` for no limit.
+    /// Counts this engine's nodes only, not parallel-search workers'.
+    pub fn set_node_limit(&mut self, limit: Option<u64>) {
+        self.node_limit = limit;
     }
 
     fn generate_noisy_moves(
@@ -14557,6 +14566,8 @@ impl IterativeDeepening {
 
         // Task 1.0: Record start time for total search time tracking
         let start_time = TimeSource::now();
+        let node_limit = search_engine.node_limit;
+        search_engine.time_manager.begin_search(node_limit);
         // Reset total search time at the start of a new search
         search_engine.iid_stats.total_search_time_ms = 0;
 

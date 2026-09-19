@@ -94,6 +94,9 @@ pub struct ShogiEngine {
     pst_config: PieceSquareTableConfig,
     /// USI `UseNNUE`.
     use_nnue: bool,
+    /// Milliseconds subtracted from every clock-based time allocation, for GUI
+    /// and communication delay (USI option `MoveOverhead`).
+    pub move_overhead_ms: u32,
     /// USI `NNUEFile`: path to a v2 weight file that declares its feature set.
     nnue_file: String,
     /// Result of the last NNUE configuration, reported on `isready`.
@@ -123,6 +126,7 @@ impl ShogiEngine {
             parallel_options: ParallelOptions::default(),
             pst_config: PieceSquareTableConfig::default(),
             use_nnue: true,
+            move_overhead_ms: 100,
             nnue_file: DEFAULT_NNUE_FILE.to_string(),
             nnue_status: String::new(),
         };
@@ -514,6 +518,17 @@ impl ShogiEngine {
         time_limit_ms: u32,
         stop_flag: Option<Arc<AtomicBool>>,
     ) -> Option<Move> {
+        self.get_best_move_with_limits(depth, time_limit_ms, None, stop_flag)
+    }
+
+    /// [`Self::get_best_move`] with an optional node limit (`go nodes N`).
+    pub fn get_best_move_with_limits(
+        &mut self,
+        depth: u8,
+        time_limit_ms: u32,
+        node_limit: Option<u64>,
+        stop_flag: Option<Arc<AtomicBool>>,
+    ) -> Option<Move> {
         // CRITICAL DEBUG: Log the engine's internal state at the very beginning
         let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
         crate::utils::telemetry::debug_log("========================================");
@@ -606,11 +621,16 @@ impl ShogiEngine {
         ));
         let parallel_config =
             ParallelSearchConfig::from_parallel_options(&self.parallel_options, self.thread_count);
+        // A node-limited search runs on one thread: the limit counts this engine's
+        // nodes only, so parallel workers would run unbounded (with no time limit
+        // `go nodes N` never returned), and a node limit is meant to be a
+        // reproducible amount of work.
+        let threads = if node_limit.is_some() { 1 } else { self.thread_count };
         let mut searcher = search::search_engine::IterativeDeepening::new_with_threads(
             actual_depth,
             time_limit_ms,
             stop_flag,
-            self.thread_count,
+            threads,
             parallel_config,
         );
 
@@ -623,6 +643,7 @@ impl ShogiEngine {
         crate::utils::telemetry::debug_log("About to lock search engine");
         let search_result = self.search_engine.lock().map(|mut search_engine_guard| {
             crate::utils::telemetry::debug_log("Got search engine lock, starting search");
+            search_engine_guard.set_node_limit(node_limit);
             searcher.search(
                 &mut search_engine_guard,
                 &self.board,
@@ -1036,6 +1057,11 @@ impl ShogiEngine {
                         // The rebuilt engine has a fresh evaluator: reload the network.
                         self.apply_nnue_config();
                         output.push(format!("info string {}", self.nnue_status));
+                    }
+                }
+                "MoveOverhead" => {
+                    if let Ok(v) = parts[3].parse::<u32>() {
+                        self.move_overhead_ms = v.min(10_000);
                     }
                 }
                 "UseNNUE" => {

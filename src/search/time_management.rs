@@ -18,9 +18,23 @@ pub struct TimeManager {
     time_budget_stats: TimeBudgetStats,
     time_pressure_thresholds: TimePressureThresholds,
     time_check_node_counter: u32,
+    /// `go nodes N`: stop once this many nodes have been searched (counted as
+    /// calls to `should_stop`, which every search and quiescence node makes).
+    node_limit: Option<u64>,
+    nodes_this_search: u64,
 }
 
 impl TimeManager {
+    /// Start a new search: reset the node count and set the node limit.
+    pub fn begin_search(&mut self, node_limit: Option<u64>) {
+        self.node_limit = node_limit;
+        self.nodes_this_search = 0;
+    }
+
+    fn node_limit_reached(&self) -> bool {
+        self.node_limit.map_or(false, |n| self.nodes_this_search >= n)
+    }
+
     /// Create a new TimeManager with the given configuration
     pub fn new(
         config: TimeManagementConfig,
@@ -31,6 +45,8 @@ impl TimeManager {
             time_budget_stats: TimeBudgetStats::default(),
             time_pressure_thresholds,
             time_check_node_counter: 0,
+            node_limit: None,
+            nodes_this_search: 0,
         }
     }
 
@@ -65,6 +81,11 @@ impl TimeManager {
             if flag.load(std::sync::atomic::Ordering::Relaxed) {
                 return true;
             }
+        }
+
+        self.nodes_this_search += 1;
+        if self.node_limit_reached() {
+            return true;
         }
 
         // Optimize time check frequency
@@ -102,7 +123,7 @@ impl TimeManager {
                 return true;
             }
         }
-        start_time.has_exceeded_limit(time_limit_ms)
+        self.node_limit_reached() || start_time.has_exceeded_limit(time_limit_ms)
     }
 
     /// Calculate time budget for a specific depth

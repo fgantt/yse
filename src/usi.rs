@@ -39,95 +39,24 @@ impl UsiHandler {
     }
 
     fn handle_go(&mut self, parts: &[&str]) -> Vec<String> {
-        crate::utils::telemetry::trace_log("USI_GO", "Starting go command processing");
         crate::debug_utils::set_search_start_time();
-        crate::debug_utils::start_timing("go_command_parsing");
+        let limits = GoLimits::parse(parts);
+        let black_to_move = self.engine.current_player == crate::types::Player::Black;
+        let time_to_use = limits.allocate_ms(black_to_move, self.engine.move_overhead_ms);
+        let depth = limits.depth.unwrap_or(self.engine.depth);
 
-        let mut btime = 0;
-        let mut wtime = 0;
-        let mut byoyomi = 0;
-
-        let mut i = 0;
-        while i < parts.len() {
-            match parts[i] {
-                "btime" => {
-                    if i + 1 < parts.len() {
-                        btime = parts[i + 1].parse().unwrap_or(0);
-                        i += 2;
-                    } else {
-                        i += 1;
-                    }
-                }
-                "wtime" => {
-                    if i + 1 < parts.len() {
-                        wtime = parts[i + 1].parse().unwrap_or(0);
-                        i += 2;
-                    } else {
-                        i += 1;
-                    }
-                }
-                "byoyomi" => {
-                    if i + 1 < parts.len() {
-                        byoyomi = parts[i + 1].parse().unwrap_or(0);
-                        i += 2;
-                    } else {
-                        i += 1;
-                    }
-                }
-                _ => i += 1,
-            }
-        }
-
-        crate::debug_utils::end_timing("go_command_parsing", "USI_GO");
-        crate::trace_log_fast!(
-            "USI_GO",
-            &format!(
-                "Parsed time controls: btime={}ms wtime={}ms byoyomi={}ms",
-                btime, wtime, byoyomi
-            ),
-        );
-
-        let time_to_use = if byoyomi > 0 {
-            byoyomi
-        } else {
-            let time_for_player = if self.engine.current_player == crate::types::Player::Black {
-                btime
-            } else {
-                wtime
-            };
-            if time_for_player > 0 {
-                time_for_player / 40 // Use a fraction of the remaining time
-            } else {
-                5000 // Default to 5 seconds if no time control is given
-            }
-        };
-
-        crate::debug_utils::log_decision(
-            "USI_GO",
-            "Time allocation",
-            &format!("Player: {:?}, Allocated time: {}ms", self.engine.current_player, time_to_use),
-            Some(time_to_use as i32),
-        );
-
-        self.engine.stop_flag.store(false, std::sync::atomic::Ordering::Relaxed);
-
-        crate::debug_utils::start_timing("best_move_search");
-        let best_move = self.engine.get_best_move(
-            self.engine.depth,
+        // The stop flag is reset by the command loop before dispatching `go` (see
+        // `run_usi_loop`), so a `stop` that arrives during the search is honoured.
+        let best_move = self.engine.get_best_move_with_limits(
+            depth,
             time_to_use,
+            limits.nodes,
             Some(self.engine.stop_flag.clone()),
         );
-        crate::debug_utils::end_timing("best_move_search", "USI_GO");
 
-        if let Some(mv) = best_move {
-            crate::trace_log_fast!(
-                "USI_GO",
-                &format!("Best move found: {}", mv.to_usi_string()),
-            );
-            vec![format!("bestmove {}", mv.to_usi_string())]
-        } else {
-            crate::utils::telemetry::trace_log("USI_GO", "No legal moves found, resigning");
-            vec!["bestmove resign".to_string()]
+        match best_move {
+            Some(mv) => vec![format!("bestmove {}", mv.to_usi_string())],
+            None => vec!["bestmove resign".to_string()],
         }
     }
 
@@ -139,6 +68,7 @@ impl UsiHandler {
             "id author fgantt (Gemini & Cursor)".to_string(),
             "option name USI_Hash type spin default 16 min 1 max 1024".to_string(),
             "option name UseNNUE type check default true".to_string(),
+            "option name MoveOverhead type spin default 100 min 0 max 10000".to_string(),
             format!("option name NNUEFile type string default {}", crate::DEFAULT_NNUE_FILE),
             format!(
                 "option name ParallelEnable type check default {}",
@@ -222,14 +152,128 @@ impl UsiHandler {
     }
 }
 
+/// The limits of a USI `go` command.
+#[derive(Debug, Default, Clone, PartialEq)]
+pub struct GoLimits {
+    pub btime: u64,
+    pub wtime: u64,
+    pub binc: u64,
+    pub winc: u64,
+    pub byoyomi: u64,
+    pub movetime: Option<u64>,
+    pub depth: Option<u8>,
+    pub nodes: Option<u64>,
+    /// `infinite` or `ponder`: search until `stop`.
+    pub infinite: bool,
+}
+
+impl GoLimits {
+    pub fn parse(parts: &[&str]) -> Self {
+        let mut g = Self::default();
+        let mut i = 0;
+        while i < parts.len() {
+            let next = || parts.get(i + 1).and_then(|v| v.parse::<u64>().ok());
+            let mut takes_value = true;
+            match parts[i] {
+                "btime" => g.btime = next().unwrap_or(0),
+                "wtime" => g.wtime = next().unwrap_or(0),
+                "binc" => g.binc = next().unwrap_or(0),
+                "winc" => g.winc = next().unwrap_or(0),
+                "byoyomi" => g.byoyomi = next().unwrap_or(0),
+                "movetime" => g.movetime = next(),
+                "depth" => g.depth = next().map(|d| d.clamp(1, 99) as u8),
+                "nodes" => g.nodes = next(),
+                "infinite" | "ponder" => {
+                    g.infinite = true;
+                    takes_value = false;
+                }
+                _ => takes_value = false,
+            }
+            i += if takes_value { 2 } else { 1 };
+        }
+        g
+    }
+
+    /// Milliseconds to spend on this move.
+    ///
+    /// * `infinite` / `ponder`: until `stop`.
+    /// * `movetime`: that, less the overhead.
+    /// * A clock: about 1/30 of the remaining main time, plus the increment,
+    ///   plus byoyomi; never more than a quarter of the main time on top of
+    ///   increment and byoyomi, less the overhead. With byoyomi only, the
+    ///   byoyomi less the overhead.
+    /// * Only `depth` or `nodes`: no time limit.
+    /// * Nothing at all: 5 s.
+    pub fn allocate_ms(&self, black_to_move: bool, overhead_ms: u32) -> u32 {
+        const UNLIMITED: u32 = u32::MAX / 4;
+        let overhead = overhead_ms as u64;
+        if self.infinite {
+            return UNLIMITED;
+        }
+        if let Some(mt) = self.movetime {
+            return mt.saturating_sub(overhead).max(1).min(UNLIMITED as u64) as u32;
+        }
+        let (time, inc) =
+            if black_to_move { (self.btime, self.binc) } else { (self.wtime, self.winc) };
+        if time > 0 || inc > 0 || self.byoyomi > 0 {
+            let target = time / 30 + inc + self.byoyomi;
+            let cap = time / 4 + inc + self.byoyomi;
+            return target.min(cap).saturating_sub(overhead).max(10).min(UNLIMITED as u64) as u32;
+        }
+        if self.depth.is_some() || self.nodes.is_some() {
+            return UNLIMITED;
+        }
+        5000
+    }
+}
+
 pub fn run_usi_loop() {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
+
     let mut handler = UsiHandler::new();
     let mut stdout = io::stdout();
 
-    for line in io::stdin().lock().lines() {
-        let command = line.unwrap_or_else(|_| String::new());
-        if command.trim() == "quit" {
+    // Commands are read on their own thread so that `stop` (and `quit`) reach a
+    // search in progress: `go` blocks this thread until the search returns, and
+    // reading stdin here would only see `stop` after the search had ended, so
+    // `go infinite` never returned. Each line carries how many `stop`s had been
+    // read before it, so a `stop` read before its `go` was dispatched is not lost
+    // when the loop clears the flag to start the search.
+    let stop_flag = handler.engine.stop_flag.clone();
+    let stops_seen = Arc::new(AtomicU64::new(0));
+    let (tx, rx) = std::sync::mpsc::channel::<(String, u64)>();
+    {
+        let stop_flag = stop_flag.clone();
+        let stops_seen = stops_seen.clone();
+        std::thread::spawn(move || {
+            for line in io::stdin().lock().lines() {
+                let line = line.unwrap_or_default();
+                let seq = stops_seen.load(Ordering::SeqCst);
+                let cmd = line.trim();
+                if cmd == "stop" || cmd == "quit" {
+                    stops_seen.fetch_add(1, Ordering::SeqCst);
+                    stop_flag.store(true, Ordering::SeqCst);
+                }
+                if tx.send((line, seq)).is_err() {
+                    return;
+                }
+            }
+            let seq = stops_seen.load(Ordering::SeqCst);
+            let _ = tx.send(("quit".to_string(), seq));
+        });
+    }
+
+    for (command, seq) in rx {
+        let cmd = command.trim();
+        if cmd == "quit" {
             break;
+        }
+        if cmd.split_whitespace().next() == Some("go") {
+            stop_flag.store(false, Ordering::SeqCst);
+            if stops_seen.load(Ordering::SeqCst) > seq {
+                stop_flag.store(true, Ordering::SeqCst);
+            }
         }
 
         let output = handler.handle_command(&command);
@@ -243,5 +287,42 @@ pub fn run_usi_loop() {
             eprintln!("Error flushing stdout: {}", e);
             return;
         }
+    }
+}
+
+#[cfg(test)]
+mod go_limits_tests {
+    use super::GoLimits;
+
+    fn go(s: &str) -> GoLimits {
+        GoLimits::parse(&s.split_whitespace().collect::<Vec<_>>())
+    }
+
+    #[test]
+    fn parses_every_argument() {
+        let g = go("btime 60000 wtime 50000 binc 1000 winc 2000 byoyomi 500 depth 7 nodes 12345");
+        assert_eq!((g.btime, g.wtime, g.binc, g.winc, g.byoyomi), (60000, 50000, 1000, 2000, 500));
+        assert_eq!((g.depth, g.nodes), (Some(7), Some(12345)));
+        assert!(go("infinite").infinite && go("ponder btime 1 wtime 1").infinite);
+        assert_eq!(go("movetime 750").movetime, Some(750));
+    }
+
+    #[test]
+    fn allocates_time_from_the_movers_clock() {
+        // byoyomi only: byoyomi less overhead.
+        assert_eq!(go("btime 0 wtime 0 byoyomi 1000").allocate_ms(true, 100), 900);
+        // main time + increment: time/30 + inc - overhead, for the side to move.
+        assert_eq!(go("btime 60000 wtime 30000 binc 1000 winc 0").allocate_ms(true, 100), 2900);
+        assert_eq!(go("btime 60000 wtime 30000 binc 1000 winc 0").allocate_ms(false, 100), 900);
+        // main time + byoyomi.
+        assert_eq!(go("btime 9000 wtime 9000 byoyomi 1000").allocate_ms(true, 100), 1200);
+        // Never more than a quarter of the main time on top of inc/byoyomi.
+        assert!(go("btime 400 wtime 400").allocate_ms(true, 0) <= 100);
+        // movetime, depth-only, infinite, nothing.
+        assert_eq!(go("movetime 500").allocate_ms(true, 100), 400);
+        assert!(go("depth 5").allocate_ms(true, 100) > 1_000_000);
+        assert!(go("nodes 1000").allocate_ms(true, 100) > 1_000_000);
+        assert!(go("infinite").allocate_ms(true, 100) > 1_000_000);
+        assert_eq!(go("").allocate_ms(true, 100), 5000);
     }
 }
