@@ -14708,9 +14708,11 @@ impl IterativeDeepening {
 
             // For unlimited depth, use minimal buffer. For limited depth, use percentage buffer.
             let time_buffer_ms = if self.max_depth >= 100 {
-                // Unlimited depth: only stop if we have less than 500ms remaining
-                // This allows the search to use almost all available time
-                500u32
+                // Unlimited depth: keep a small reserve proportional to the budget.
+                // This was a flat 500 ms, so any budget under ~550 ms stopped after
+                // depth 1 (a 300 ms byoyomi searched 16 ms per move). Starting an
+                // iteration that cannot finish is prevented by the past-half rule.
+                (search_time_limit / 20).clamp(5, 500)
             } else {
                 // Limited depth: use 20% of time limit, with a minimum of 50ms and maximum of 2000ms
                 // This ensures we have enough time to complete at least one depth iteration
