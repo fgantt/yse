@@ -372,7 +372,13 @@ fn validation_pearson(
     let mut targets_wht_clamped: Vec<f32> = Vec::new();
     let mut n_clamped = 0usize;
     let mut total = 0;
-    for rec in records.iter() {
+    // Sample across the whole validation set, not its first `sample_size`
+    // records. A combined corpus is concatenated in blocks (one per generation
+    // run), so the first records are all one block: Session 28 mixed self-play
+    // games in ahead of the teacher games and every validation number was then
+    // computed on self-play alone, which sent early stopping to the wrong epoch.
+    let stride = (records.len() / sample_size.max(1)).max(1);
+    for rec in records.iter().step_by(stride) {
         if total >= sample_size {
             break;
         }
