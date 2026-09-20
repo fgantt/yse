@@ -438,6 +438,39 @@ pub fn snapshot_and_reset_metrics() -> SearchMetrics {
     }
 }
 
+/// Search features that can be switched off from the environment, so a
+/// regression can be bisected across the machinery without a rebuild. Each
+/// one is the difference between our search and `search_oracle`, which is
+/// plain alpha-beta over the same evaluation and move generator.
+///
+/// Read once: these sit on the hottest paths in the engine.
+#[derive(Debug, Default, Clone, Copy)]
+pub(crate) struct SearchToggles {
+    pub no_tt: bool,
+    pub no_null_move: bool,
+    pub no_lmr: bool,
+    pub no_pruning: bool,
+    pub no_check_ext: bool,
+}
+
+impl SearchToggles {
+    fn from_env() -> Self {
+        let on = |k: &str| std::env::var_os(k).is_some();
+        Self {
+            no_tt: on("SHOGI_NO_TT"),
+            no_null_move: on("SHOGI_NO_NULLMOVE"),
+            no_lmr: on("SHOGI_NO_LMR"),
+            no_pruning: on("SHOGI_NO_PRUNING"),
+            no_check_ext: on("SHOGI_NO_CHECKEXT"),
+        }
+    }
+}
+
+pub(crate) fn search_toggles() -> SearchToggles {
+    static TOGGLES: std::sync::OnceLock<SearchToggles> = std::sync::OnceLock::new();
+    *TOGGLES.get_or_init(SearchToggles::from_env)
+}
+
 fn maybe_print_search_metrics(tag: &str) {
     let silent_bench = std::env::var("SHOGI_SILENT_BENCH").is_ok();
     let manual_print = std::env::var("SHOGI_PRINT_METRICS").is_ok();
@@ -6352,7 +6385,11 @@ impl SearchEngine {
         let tt_probe_start =
             if self.auto_profiling_enabled { Some(std::time::Instant::now()) } else { None };
 
-        let tt_entry = self.transposition_table.probe_with_prefetch(position_hash, depth, None);
+        let tt_entry = if search_toggles().no_tt {
+            None
+        } else {
+            self.transposition_table.probe_with_prefetch(position_hash, depth, None)
+        };
 
         // Record TT probe profiling (Task 3.0)
         if let Some(start) = tt_probe_start {
@@ -6422,6 +6459,7 @@ impl SearchEngine {
 
         // Task 7.0.4.3: Pass cached evaluation to avoid re-evaluation
         if !skip_nmp_time_pressure
+            && !search_toggles().no_null_move
             && self.should_attempt_null_move(
                 board,
                 captured_pieces,
@@ -6956,9 +6994,10 @@ impl SearchEngine {
                 health_score: search_state.health_score,
             };
             let all_move = convert_move_to_all(move_.clone());
-            let should_consider_pruning = self
-                .pruning_manager
-                .should_apply_conditional_pruning(&all_search_state, &all_move);
+            let should_consider_pruning = !search_toggles().no_pruning
+                && self
+                    .pruning_manager
+                    .should_apply_conditional_pruning(&all_search_state, &all_move);
             if should_consider_pruning {
                 let pruning_decision =
                     self.pruning_manager.should_prune(&mut all_search_state, &all_move);
@@ -7011,6 +7050,7 @@ impl SearchEngine {
             // Bounded to the iteration depth per path so check sequences cannot run
             // away.
             let ext: u8 = if move_.gives_check
+                && !search_toggles().no_check_ext
                 && self.check_extensions_on_path < self.current_depth.max(1) as u32
             {
                 1
@@ -11477,7 +11517,7 @@ impl SearchEngine {
 
         // Check if LMR should be applied using new PruningManager (Task 3.4, 3.6)
         // Escape moves and IID moves are exempted from LMR (Task 6.5, Task 7.0.1)
-        let reduction = if is_escape || is_iid_move {
+        let reduction = if is_escape || is_iid_move || search_toggles().no_lmr {
             0 // Escape moves and IID moves are exempted from LMR
         } else {
             // Convert search_state to all::SearchState for PruningManager
