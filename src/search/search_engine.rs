@@ -6333,6 +6333,12 @@ impl SearchEngine {
             );
             return static_eval;
         }
+        // The window this node was entered with. `alpha` is raised as moves
+        // improve, so the transposition flag has to be decided against this
+        // value, not the mutated one: a node that improves alpha ends with
+        // `best_score == alpha` and was therefore stored as an UpperBound, so
+        // an exact value was never written to the table by this path at all.
+        let alpha_orig = alpha;
         // Track nodes and seldepth through SearchStatistics (Task 1.8)
         self.search_statistics.increment_nodes();
         // Track total nodes for metrics (Task 5.7)
@@ -6457,8 +6463,16 @@ impl SearchEngine {
             );
         }
 
+        // Null move is only sound on a zero window. A cutoff here returns `beta`,
+        // which is a lower bound, not a value; on a PV node (a window wider than
+        // one point) that bound replaces the node's true score and propagates to
+        // the root, so a PV move can be chosen on a null-move bound. LMR and the
+        // aspiration re-searches give us plenty of zero-window nodes, which is
+        // where null move belongs.
+        let is_pv_node = beta.saturating_sub(alpha) > 1;
         // Task 7.0.4.3: Pass cached evaluation to avoid re-evaluation
         if !skip_nmp_time_pressure
+            && !is_pv_node
             && !search_toggles().no_null_move
             && self.should_attempt_null_move(
                 board,
@@ -7277,7 +7291,7 @@ impl SearchEngine {
 
         // hash_history cleanup is done at the end of negamax_with_context
 
-        let flag = if best_score <= alpha {
+        let flag = if best_score <= alpha_orig {
             TranspositionFlag::UpperBound
         } else if best_score >= beta {
             TranspositionFlag::LowerBound
@@ -11656,7 +11670,15 @@ impl SearchEngine {
                 self.lmr_config.re_search_margin
             };
 
-            let re_search_threshold = alpha + margin;
+            // Re-search whenever the reduced search beats alpha. The reduced
+            // search ran at `depth - 1 - reduction` with the zero window
+            // (-alpha-1, -alpha), so any score above alpha is a lower bound from
+            // a shallower search, never a value this node may keep. The old
+            // condition added `re_search_margin` (default 50cp) to alpha, so a
+            // reduced move scoring alpha+1..alpha+50 was accepted on its bound
+            // and could become the node's — and the root's — best move.
+            let _ = margin;
+            let re_search_threshold = alpha;
             if score > re_search_threshold {
                 self.lmr_stats.researches_triggered += 1;
                 self.lmr_stats.re_search_margin_allowed += 1;
