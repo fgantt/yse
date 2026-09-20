@@ -53,6 +53,38 @@ pub const MAX_SCORE: i32 = i32::MAX - 1;
 pub const QUIESCENCE_ENTRY_DEPTH: u8 = 5;
 /// Score for the side to move being mated (matches negamax's convention).
 const MATED_SCORE: i32 = -100000;
+/// Scores of at least this magnitude are mates: `MATED_SCORE` offset by the ply
+/// the mate falls on. Well clear of any evaluation the network produces.
+const MATE_THRESHOLD: i32 = 90_000;
+
+/// A mate score returned by the search counts plies from the **root**, so that
+/// a mate in 3 beats a mate in 5 and being mated later beats being mated now.
+/// The transposition table is keyed by position alone, and the same position is
+/// reached at different plies, so a mate score has to be rebased onto the node
+/// before it is stored and back onto the root when it is read. Without this a
+/// mate found 6 plies from the root is handed back at ply 2 as though it were
+/// the same number of moves away, and the search cannot tell a mate it can
+/// force from one it merely reaches eventually.
+const fn mate_score_to_tt(score: i32, ply: i32) -> i32 {
+    if score >= MATE_THRESHOLD {
+        score + ply
+    } else if score <= -MATE_THRESHOLD {
+        score - ply
+    } else {
+        score
+    }
+}
+
+/// Inverse of [`mate_score_to_tt`]: node-relative back to root-relative.
+const fn mate_score_from_tt(score: i32, ply: i32) -> i32 {
+    if score >= MATE_THRESHOLD {
+        score - ply
+    } else if score <= -MATE_THRESHOLD {
+        score + ply
+    } else {
+        score
+    }
+}
 
 thread_local! {
     static YBWC_ENGINE_TLS: std::cell::RefCell<Option<SearchEngine>> = std::cell::RefCell::new(None);
@@ -96,6 +128,38 @@ macro_rules! log_move_eval {
 mod search_tests {
     use super::*;
     use crate::types::{Move, Piece, PieceType, Player, Position};
+
+    /// Mate scores count plies from the root, so they have to be rebased onto
+    /// the node on the way into the transposition table and back out again —
+    /// the same position is reached at different distances from the root.
+    #[test]
+    fn mate_scores_are_rebased_across_the_transposition_table() {
+        // An ordinary evaluation is left alone at every ply.
+        for ply in 0..8 {
+            for score in [-1500, -120, 0, 47, 900] {
+                assert_eq!(mate_score_to_tt(score, ply), score);
+                assert_eq!(mate_score_from_tt(score, ply), score);
+            }
+        }
+
+        // Round trip at the ply that wrote the entry.
+        for ply in 0..8 {
+            for score in [MATED_SCORE + 3, MATED_SCORE, -MATED_SCORE - 4, -MATED_SCORE] {
+                assert_eq!(mate_score_from_tt(mate_score_to_tt(score, ply), ply), score);
+            }
+        }
+
+        // Being mated 6 plies from the root, stored there and read back 2 plies
+        // from the root, is a mate 2 plies away from *that* node — not 6.
+        let at_ply_6 = MATED_SCORE + 6;
+        let stored = mate_score_to_tt(at_ply_6, 6);
+        assert_eq!(stored, MATED_SCORE, "stored relative to the mating node");
+        assert_eq!(mate_score_from_tt(stored, 2), MATED_SCORE + 2);
+
+        // Mating sooner beats mating later, at every ply.
+        assert!(MATED_SCORE + 6 > MATED_SCORE + 2, "being mated later is better");
+        assert!(-(MATED_SCORE + 6) < -(MATED_SCORE + 2), "mating sooner is better");
+    }
 
     #[test]
     fn test_quiescence_move_sorting_total_order() {
@@ -290,6 +354,10 @@ pub struct SearchEngine {
     node_limit: Option<u64>,
     /// Check extensions taken on the current search path (see the move loop).
     check_extensions_on_path: u32,
+    /// Plies from the root to the node currently being searched. Derived from
+    /// the search path (`hash_history`) rather than threaded through the 17
+    /// `negamax_with_context` call sites. Used to rebase mate scores.
+    node_ply: i32,
     /// Search statistics module (Task 1.8)
     search_statistics: SearchStatistics,
     /// Core search metrics for performance tracking
@@ -1425,6 +1493,7 @@ impl SearchEngine {
             ),
             node_limit: None,
             check_extensions_on_path: 0,
+            node_ply: 0,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
             quiescence_config,
@@ -1902,6 +1971,7 @@ impl SearchEngine {
             ),
             node_limit: None,
             check_extensions_on_path: 0,
+            node_ply: 0,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
             // Convert from all:: types to types::search:: types
@@ -6383,6 +6453,11 @@ impl SearchEngine {
         // Also add to hash_calculator's global history for game-wide repetition
         // tracking
         hash_history.push(position_hash);
+        // The path holds the root plus every node down to this one, so its
+        // length after the push is this node's distance from the root. Mate
+        // scores are rebased with it when they cross the transposition table.
+        let ply = (hash_history.len() as i32 - 1).max(0);
+        self.node_ply = ply;
 
         // Track TT probe (Task 5.7)
         self.core_search_metrics.total_tt_probes += 1;
@@ -6406,6 +6481,8 @@ impl SearchEngine {
         if let Some(entry) = tt_entry {
             // Track TT hit (Task 5.7)
             self.core_search_metrics.total_tt_hits += 1;
+            // Stored relative to whatever node wrote it; rebase onto this one.
+            let entry_score = mate_score_from_tt(entry.score, ply);
 
             // Track TT hit type (Task 5.7)
             match entry.flag {
@@ -6418,7 +6495,7 @@ impl SearchEngine {
                             entry.depth, entry.score
                         ),
                     );
-                    return entry.score;
+                    return entry_score;
                 }
                 TranspositionFlag::LowerBound => {
                     self.core_search_metrics.tt_lower_bound_hits += 1;
@@ -6429,9 +6506,9 @@ impl SearchEngine {
                             entry.depth, entry.score
                         ),
                     );
-                    if entry.score >= beta {
+                    if entry_score >= beta {
                         trace_log!("NEGAMAX", "TT lower bound cutoff");
-                        return entry.score;
+                        return entry_score;
                     }
                 }
                 TranspositionFlag::UpperBound => {
@@ -6443,9 +6520,9 @@ impl SearchEngine {
                             entry.depth, entry.score
                         ),
                     );
-                    if entry.score <= alpha {
+                    if entry_score <= alpha {
                         trace_log!("NEGAMAX", "TT upper bound cutoff");
-                        return entry.score;
+                        return entry_score;
                     }
                 }
             }
@@ -6683,7 +6760,10 @@ impl SearchEngine {
         let legal_moves = self.move_generator.generate_legal_moves(board, player, captured_pieces);
         if legal_moves.is_empty() {
             let is_check = board.is_king_in_check(player, captured_pieces);
-            let score = if is_check { -100000 } else { 0 };
+            // Offset by the distance from the root, so a mate that arrives
+            // sooner is worse than the same mate further away and the search
+            // prefers the quickest mate it can force.
+            let score = if is_check { MATED_SCORE + ply } else { 0 };
             crate::trace_log_fast!(
                 "NEGAMAX",
                 &format!("No legal moves: check={}, score={}", is_check, score),
@@ -7318,7 +7398,7 @@ impl SearchEngine {
         // Clone best_move_for_tt before passing to avoid move error (Task 5.12)
         // Task 7.0.3.7: Create entry with source tracking
         let entry = TranspositionEntry::new(
-            best_score,
+            mate_score_to_tt(best_score, ply),
             depth,
             flag,
             best_move_for_tt.clone(),
@@ -7692,7 +7772,10 @@ impl SearchEngine {
             )
         };
         if in_check && noisy_moves.is_empty() {
-            return MATED_SCORE;
+            // Quiescence counts down from `QUIESCENCE_ENTRY_DEPTH`, so the plies
+            // it has descended add to the node's distance from the root.
+            let q_ply = (QUIESCENCE_ENTRY_DEPTH.saturating_sub(depth)) as i32;
+            return MATED_SCORE + self.node_ply + q_ply;
         }
         // crate::trace_log_fast!("QUIESCENCE", &format!("Found {} noisy moves",
         // noisy_moves.len()));
@@ -8710,6 +8793,15 @@ impl SearchEngine {
         self.history_table = [[0; 9]; 9];
         self.killer_moves = [None, None];
         self.lmr_stats.reset();
+        // The move orderer keeps its own history, killer and counter-move
+        // tables — since Session 25 they are the ones the search actually
+        // feeds. Leaving them populated carried one game's move ordering into
+        // the next, so the same position at the same depth returned different
+        // moves depending on what had been searched before.
+        self.advanced_move_orderer = MoveOrdering::new();
+        self.move_orderer = crate::search::TranspositionMoveOrderer::new();
+        self.check_extensions_on_path = 0;
+        self.node_ply = 0;
     }
 
     #[cfg(test)]
