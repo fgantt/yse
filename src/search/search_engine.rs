@@ -11623,8 +11623,17 @@ impl SearchEngine {
 
         // Check if LMR should be applied using new PruningManager (Task 3.4, 3.6)
         // Escape moves and IID moves are exempted from LMR (Task 6.5, Task 7.0.1)
-        let reduction = if is_escape || is_iid_move || search_toggles().no_lmr {
-            0 // Escape moves and IID moves are exempted from LMR
+        // A checking move is never reduced. The caller has just *extended* it by
+        // a ply (`depth + ext`) because games here are decided by long sequences
+        // of quiet checking drops; reducing the same move cancels that extension
+        // and then some, and at the reduced depth the mate is invisible, so the
+        // move scores below alpha and the re-search never fires. The search then
+        // finds a forced mate at one depth and loses it at the next: disabling
+        // either LMR or the check extension on its own restored the mate at
+        // every depth, which is the signature of the two fighting each other.
+        let reduction = if is_escape || is_iid_move || move_.gives_check || search_toggles().no_lmr
+        {
+            0 // Escape moves, IID moves and checks are exempted from LMR
         } else {
             // Convert search_state to all::SearchState for PruningManager
             let all_search_state = crate::types::all::SearchState {
