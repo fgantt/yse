@@ -188,6 +188,65 @@ fn check_king_attack(from_pos: Position, target_pos: Position, _player: Player) 
 ///
 /// # Returns
 /// The net material gain/loss from the exchange sequence
+
+/// Sliding attackers of `to` under a hypothetical `occupied`, as (position, piece).
+///
+/// The exchange removes one piece from the board at a time, and each removal can
+/// open a line: a rook behind the bishop that just captured now bears on the
+/// square. Recomputing from the magic table under the reduced occupancy is what
+/// makes those x-ray attackers visible. Without it an exchange defended "twice"
+/// through a single file looks defended once, and SEE calls a losing capture
+/// winning.
+fn sliding_attackers(
+    board: &BitboardBoard,
+    to: Position,
+    occupied: crate::types::Bitboard,
+) -> Vec<(Position, Piece)> {
+    let Some(magic) = board.get_magic_table() else {
+        return Vec::new(); // No table: callers fall back to the static list.
+    };
+    let to_idx = to.to_index();
+    let rook_rays = magic.get_attacks(to_idx, PieceType::Rook, occupied);
+    let bishop_rays = magic.get_attacks(to_idx, PieceType::Bishop, occupied);
+
+    let mut found = Vec::new();
+    let pieces = board.get_pieces();
+    for player in [Player::Black, Player::White] {
+        for pt in [
+            PieceType::Rook,
+            PieceType::PromotedRook,
+            PieceType::Bishop,
+            PieceType::PromotedBishop,
+            PieceType::Lance,
+        ] {
+            // A lance only ever moves up its own file, so the rook rays bound
+            // it; the direction is checked below.
+            let rays = match pt {
+                PieceType::Bishop | PieceType::PromotedBishop => bishop_rays,
+                _ => rook_rays,
+            };
+            let mut bb = pieces[player as usize][pt.as_index()] & rays & occupied;
+            while let Some(sq) = crate::bitboards::integration::GlobalOptimizer::bit_scan_forward(bb)
+            {
+                bb &= crate::types::Bitboard::from_u128(bb.to_u128() - 1);
+                let pos = Position::from_index(sq);
+                if pt == PieceType::Lance {
+                    // Same file, and in front of the target from its own side.
+                    if pos.col != to.col {
+                        continue;
+                    }
+                    let forward = if player == Player::Black { pos.row > to.row } else { pos.row < to.row };
+                    if !forward {
+                        continue;
+                    }
+                }
+                found.push((pos, Piece::new(pt, player)));
+            }
+        }
+    }
+    found
+}
+
 pub fn calculate_see_internal(move_: &Move, board: &BitboardBoard) -> i32 {
     let Some(captured) = move_.captured_piece.as_ref() else {
         return 0; // No capture, no SEE value
@@ -203,12 +262,22 @@ pub fn calculate_see_internal(move_: &Move, board: &BitboardBoard) -> i32 {
     };
 
     // Everything else bearing on the square. The piece that just moved is no
-    // longer among them.
-    let mut pieces: Vec<Piece> = find_attackers_defenders(to, board)
+    // longer among them, and its square is no longer occupied — which may
+    // already have opened a line onto the target.
+    let mut occupied = board.get_occupied_bitboard();
+    if let Some(from) = move_.from {
+        occupied &= !crate::types::Bitboard::from_u128(1u128 << from.to_index());
+    }
+    let mut pieces: Vec<(Position, Piece)> = find_attackers_defenders(to, board)
         .into_iter()
         .filter(|(pos, _)| Some(*pos) != move_.from)
-        .map(|(_, p)| p)
         .collect();
+    // Sliders revealed by the mover vacating `from`.
+    for (pos, piece) in sliding_attackers(board, to, occupied) {
+        if pos != to && !pieces.iter().any(|(p, _)| *p == pos) {
+            pieces.push((pos, piece));
+        }
+    }
 
     // The standard swap list. `gain[d]` is the material balance for the side
     // to move at depth d if the exchange runs that far; folding it back with
@@ -235,14 +304,21 @@ pub fn calculate_see_internal(move_: &Move, board: &BitboardBoard) -> i32 {
         let Some(idx) = pieces
             .iter()
             .enumerate()
-            .filter(|(_, p)| p.player == side)
-            .min_by_key(|(_, p)| p.piece_type.base_value())
+            .filter(|(_, (_, p))| p.player == side)
+            .min_by_key(|(_, (_, p))| p.piece_type.base_value())
             .map(|(i, _)| i)
         else {
             break;
         };
-        on_square = pieces[idx].piece_type.base_value();
-        pieces.remove(idx);
+        let (used_pos, used_piece) = pieces.remove(idx);
+        on_square = used_piece.piece_type.base_value();
+        // That piece has left its square, which may reveal a slider behind it.
+        occupied &= !crate::types::Bitboard::from_u128(1u128 << used_pos.to_index());
+        for (pos, piece) in sliding_attackers(board, to, occupied) {
+            if pos != to && !pieces.iter().any(|(p, _)| *p == pos) {
+                pieces.push((pos, piece));
+            }
+        }
         side = side.opposite();
     }
 

@@ -395,3 +395,41 @@ fn see_scores_an_even_trade_as_even() {
     let see_free = calculate_see_internal(&capture, &undefended);
     assert!(see_free > 0, "undefended pawn should be a win, got {see_free}");
 }
+
+/// SEE must see the piece standing behind another, on the same line.
+///
+/// Black's rook takes a defended pawn; the rook directly behind it can only
+/// join the exchange once the first one has left the square. Without x-ray
+/// revelation the capture reads as losing a rook for a pawn; with it, black
+/// recaptures the defender and comes out a pawn ahead. The verdict flips sign,
+/// which is exactly the case where SEE pruning would throw away a good move.
+#[test]
+fn see_sees_through_a_piece_to_the_one_behind_it() {
+    use shogi_engine::search::move_ordering::see_calculation::calculate_see_internal;
+    use shogi_engine::types::core::{Move, Piece, PieceType, Position};
+
+    // File 5, top to bottom: white rook 5c, white pawn 5e (the target),
+    // black rook 5f, black rook 5g behind it.
+    let mut board = BitboardBoard::empty();
+    let target = Position::from_u8(4 * 9 + 4); // 5e
+    let defender = Position::from_u8(2 * 9 + 4); // 5c
+    let attacker = Position::from_u8(5 * 9 + 4); // 5f
+    let behind = Position::from_u8(6 * 9 + 4); // 5g
+    board.place_piece(Piece::new(PieceType::Pawn, Player::White), target);
+    board.place_piece(Piece::new(PieceType::Rook, Player::White), defender);
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), attacker);
+    board.place_piece(Piece::new(PieceType::Rook, Player::Black), behind);
+
+    let mut capture = Move::new_move(attacker, target, PieceType::Rook, Player::Black, false);
+    capture.is_capture = true;
+    capture.captured_piece = Some(Piece::new(PieceType::Pawn, Player::White));
+
+    // Rook takes pawn, rook recaptures, the rook behind recaptures: black is a
+    // pawn up, not a rook down.
+    let see = calculate_see_internal(&capture, &board);
+    assert!(
+        see > 0,
+        "the rook behind must join the exchange; without x-ray this reads about \
+         -900, got {see}"
+    );
+}
