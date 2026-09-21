@@ -87,19 +87,22 @@ every depth 3–7 across all five cases of the mate suite, scores improving mono
 
 **Strength, measured by paired match** (1 s/move, paired openings):
 
-* Fixed search vs the pre-fix binary, same network, 40 games: **23-2-15, +70.4 ± 111.5**. Positive and
-  consistent with every offline measure, but **the interval brackets zero** — suggestive, not
-  decision-grade. ~120 games would separate a true +70 from noise.
+* Fixed search vs the pre-fix binary, same network (only the search code differs):
+  * 40 games, seed 1: 23-2-15, **+70.4 ± 111.5** — interval brackets zero, inconclusive.
+  * 120 games, seed 2: 86-3-31, **+172.0 ± 72.9** (lower bound +99) — **decision-grade**.
+  * Pooled, 160 independent games: 109-5-46, score 0.697, **+145 Elo**.
+
+  This session's search fixes are worth roughly **+100 to +170 Elo** against our own previous engine.
+  Note how badly the 40-game match understated it: the point estimate moved +70 -> +172 when the
+  sample grew. Small matches do not merely widen the interval, they move the estimate.
 * Against YaneuraOu at 50 nodes: **2-1-21**, against 1-1-22 before. Unmoved.
 
 ## Next
 
-1. **Extend the A/B to ~120 games** for a decision-grade number on this session's work. Cheapest
-   useful thing available (~3 hours).
-2. **Build a strength yardstick that tracks play.** Two offline metrics have now pointed the wrong
+1. **Build a strength yardstick that tracks play.** Two offline metrics have now pointed the wrong
    way. Move loss over positions from our own games is suspect: it over-represents positions we reach,
    and YaneuraOu "depth 1" carries a full quiescence search, so it is not comparable to a node budget.
-3. Remaining known defects, filed not fixed: USI never emits `score mate N` (it reports
+2. Remaining known defects, filed not fixed: USI never emits `score mate N` (it reports
    `score cp 100000`); null-move subtrees restart the ply count at zero, so mate distances found
    inside them are measured from the null-move node.
-4. The gap to YaneuraOu at 50 nodes is several hundred Elo and none of this session touched it.
+3. The gap to YaneuraOu at 50 nodes is several hundred Elo and none of this session touched it.
