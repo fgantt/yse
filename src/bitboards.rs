@@ -202,34 +202,48 @@ pub(crate) fn record_attack_table_init(time_nanos: u64, memory_bytes: u64) {
 /// Returns None if magic table initialization fails
 ///
 /// Attempts to load from precomputed file first, then generates if not found.
-fn get_shared_magic_table() -> Option<Arc<MagicTable>> {
-    // Load the precomputed table only. Generating one takes minutes and
-    // validating it walks 5.6M attack patterns, neither of which belongs in the
-    // startup path of a game — `generate_magic_tables` builds the file offline.
-    // If it is missing or unreadable we return None and the caller ray-casts,
-    // which is correct, just slower.
-    static LOADED: std::sync::OnceLock<Option<Arc<MagicTable>>> = std::sync::OnceLock::new();
-    LOADED
-        .get_or_init(|| {
-            let path = magic::magic_table::get_default_magic_table_path();
-            match MagicTable::load_from_file(&path) {
-                Ok(table) => {
-                    let table = Arc::new(table);
-                    let _ = SHARED_MAGIC_TABLE.set(Arc::clone(&table));
-                    Some(table)
-                }
-                Err(e) => {
-                    crate::debug_log_fast!(&format!(
-                        "[MAGIC_TABLE] No precomputed table at {} ({}); sliding moves will be \
-                         ray-cast. Run `generate_magic_tables` to build it.",
-                        path.display(),
-                        e
-                    ));
-                    None
-                }
+/// The precomputed magic table, loaded once.
+///
+/// Load only: generating one takes minutes and validating it walks 5.6M attack
+/// patterns, neither of which belongs in the startup path of a game —
+/// `generate_magic_tables` builds the file offline. Missing or unreadable means
+/// `None`, and callers ray-cast, which is correct and only slower.
+static LOADED_MAGIC_TABLE: std::sync::OnceLock<Option<Arc<MagicTable>>> =
+    std::sync::OnceLock::new();
+
+fn load_shared_magic_table() -> &'static Option<Arc<MagicTable>> {
+    LOADED_MAGIC_TABLE.get_or_init(|| {
+        let path = magic::magic_table::get_default_magic_table_path();
+        match MagicTable::load_from_file(&path) {
+            Ok(table) => {
+                let table = Arc::new(table);
+                let _ = SHARED_MAGIC_TABLE.set(Arc::clone(&table));
+                Some(table)
             }
-        })
-        .clone()
+            Err(e) => {
+                crate::debug_log_fast!(&format!(
+                    "[MAGIC_TABLE] No precomputed table at {} ({}); sliding moves will be \
+                     ray-cast. Run `generate_magic_tables` to build it.",
+                    path.display(),
+                    e
+                ));
+                None
+            }
+        }
+    })
+}
+
+fn get_shared_magic_table() -> Option<Arc<MagicTable>> {
+    load_shared_magic_table().clone()
+}
+
+/// Borrow the shared table without touching the Arc's refcount.
+///
+/// `get_attack_pattern` runs on every sliding piece of every node, so an atomic
+/// increment and decrement per call is not free.
+#[inline]
+fn shared_magic_table_ref() -> Option<&'static MagicTable> {
+    load_shared_magic_table().as_deref()
 }
 
 /// Initialize the shared magic table singleton explicitly
@@ -1393,10 +1407,18 @@ impl BitboardBoard {
     /// Get attack pattern for a square using magic bitboards
     /// Task 2.0.2.3: Added telemetry tracking for magic vs fallback usage
     pub fn get_attack_pattern(&self, square: Position, piece_type: PieceType) -> Bitboard {
-        if let Some(ref magic_table) = self.magic_table {
-            MAGIC_TELEMETRY
-                .magic_lookup_count
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // Prefer this board's own table, then the shared precomputed one. This
+        // consulted only the field, which nothing in the engine ever populates,
+        // so every call here ray-cast even with a table loaded — and this is one
+        // of the hottest paths in the profile.
+        //
+        // No telemetry counter on the hit path: it is a relaxed atomic per
+        // sliding piece per node, which is not free at this call volume.
+        let magic_table: Option<&MagicTable> = match self.magic_table {
+            Some(ref t) => Some(&**t),
+            None => shared_magic_table_ref(),
+        };
+        if let Some(magic_table) = magic_table {
             magic_table.get_attacks(square.to_index(), piece_type, self.occupied)
         } else {
             // Fallback to ray-casting
