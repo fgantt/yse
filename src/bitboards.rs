@@ -203,26 +203,33 @@ pub(crate) fn record_attack_table_init(time_nanos: u64, memory_bytes: u64) {
 ///
 /// Attempts to load from precomputed file first, then generates if not found.
 fn get_shared_magic_table() -> Option<Arc<MagicTable>> {
-    Some(
-        SHARED_MAGIC_TABLE
-            .get_or_init(|| {
-                let default_path = magic::magic_table::get_default_magic_table_path();
-
-                // Try to load or generate magic table
-                let table =
-                    MagicTable::try_load_or_generate(&default_path, true).unwrap_or_else(|e| {
-                        crate::debug_log_fast!(&format!(
-                            "[MAGIC_TABLE] Failed to load or generate magic table: {}, using \
-                             default",
-                            e
-                        ));
-                        MagicTable::default()
-                    });
-
-                Arc::new(table)
-            })
-            .clone(),
-    )
+    // Load the precomputed table only. Generating one takes minutes and
+    // validating it walks 5.6M attack patterns, neither of which belongs in the
+    // startup path of a game — `generate_magic_tables` builds the file offline.
+    // If it is missing or unreadable we return None and the caller ray-casts,
+    // which is correct, just slower.
+    static LOADED: std::sync::OnceLock<Option<Arc<MagicTable>>> = std::sync::OnceLock::new();
+    LOADED
+        .get_or_init(|| {
+            let path = magic::magic_table::get_default_magic_table_path();
+            match MagicTable::load_from_file(&path) {
+                Ok(table) => {
+                    let table = Arc::new(table);
+                    let _ = SHARED_MAGIC_TABLE.set(Arc::clone(&table));
+                    Some(table)
+                }
+                Err(e) => {
+                    crate::debug_log_fast!(&format!(
+                        "[MAGIC_TABLE] No precomputed table at {} ({}); sliding moves will be \
+                         ray-cast. Run `generate_magic_tables` to build it.",
+                        path.display(),
+                        e
+                    ));
+                    None
+                }
+            }
+        })
+        .clone()
 }
 
 /// Initialize the shared magic table singleton explicitly
@@ -1447,7 +1454,12 @@ impl BitboardBoard {
 
     /// Get magic table reference
     pub fn get_magic_table(&self) -> Option<Arc<MagicTable>> {
-        self.magic_table.clone()
+        // Fall back to the shared precomputed table. Boards are built through
+        // `new()` everywhere in the engine and `new_with_magic_support()` was
+        // called from nowhere but a README example, so `magic_table` was always
+        // None and every rook, bishop, lance, dragon and horse move was
+        // ray-cast. The table is an Arc behind a OnceLock: one load, shared.
+        self.magic_table.clone().or_else(get_shared_magic_table)
     }
 
     /// Initialize sliding move generator with magic table

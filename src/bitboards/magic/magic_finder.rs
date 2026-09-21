@@ -4,6 +4,7 @@
 //! used in magic bitboard implementations for efficient sliding piece move
 //! generation.
 
+use crate::bitboards::magic::attack_generator::AttackGenerator;
 use crate::types::core::PieceType;
 use crate::types::{Bitboard, MagicError, MagicGenerationResult};
 use rand::rngs::ThreadRng;
@@ -90,14 +91,27 @@ impl MagicFinder {
     ) -> Result<MagicGenerationResult, MagicError> {
         let mask = self.generate_relevant_mask(square, piece_type);
         let shift = self.calculate_shift(mask);
-        let max_attempts = 100_000;
+        let max_attempts = 1_000_000;
 
         // Pre-generate blocker configs to avoid re-generating them for every attempt
         let blocker_configs = self.generate_all_blocker_configs(mask);
+        // The attack set each config must map to. Two configs may share an index
+        // as long as they attack the same squares — see below.
+        let attacks: Vec<Bitboard> = blocker_configs
+            .iter()
+            .map(|b| self.attacks_for(square, piece_type, *b))
+            .collect();
 
         for _ in 0..max_attempts {
-            let candidate = self.rng.gen::<u128>();
-            if self.validate_magic_fast_with_configs(candidate, &blocker_configs, shift) {
+            // Magic candidates must be *sparse*. A uniformly random u128 spreads
+            // the multiply's carries across every bit and practically never
+            // produces a usable index function: this search drew dense
+            // candidates and failed on square 2 for the rook after 100k tries,
+            // which is what left magic bitboards switched off. AND-ing three
+            // draws gives roughly one bit in eight, the standard recipe.
+            let candidate =
+                self.rng.gen::<u128>() & self.rng.gen::<u128>() & self.rng.gen::<u128>();
+            if self.validate_magic_with_attacks(candidate, &blocker_configs, &attacks, shift) {
                 return Ok(MagicGenerationResult {
                     magic_number: candidate,
                     mask,
@@ -345,10 +359,12 @@ impl MagicFinder {
         // Count the number of set bits in the mask
         let bit_count = mask.count_ones() as u8;
 
-        // The shift is 128 - number of relevant bits - 3
-        // We use a larger table size (8x) to make finding magic numbers easier for u128
-        // This trades memory for generation success rate
-        128 - bit_count - 3
+        // Exactly 2^bit_count slots. This used to pad by 8x to make magics
+        // easier to find, which a rook's 16-bit mask turns into 524_288 entries
+        // per square — over a gigabyte across the board. Sparse candidates and
+        // constructive collisions find exact-size magics readily, so the
+        // padding is no longer worth the memory.
+        128 - bit_count
     }
 
     /// Fast magic number validation
@@ -373,6 +389,39 @@ impl MagicFinder {
             used_indices.insert(index);
         }
 
+        true
+    }
+
+    /// The attack set a slider reaches from `square` given `blockers`.
+    fn attacks_for(&self, square: u8, piece_type: PieceType, blockers: Bitboard) -> Bitboard {
+        AttackGenerator::new().generate_attack_pattern_uncached(square, piece_type, blockers)
+    }
+
+    /// Validate a magic candidate, allowing *constructive* collisions.
+    ///
+    /// Two blocker configurations may hash to the same index as long as they
+    /// reach the same squares — the table stores attack sets, so an entry
+    /// shared by configurations that agree is correct. Demanding a perfect hash
+    /// instead (as `validate_magic_fast_with_configs` does) rejects the great
+    /// majority of usable magics and is the other half of why generation failed.
+    fn validate_magic_with_attacks(
+        &self,
+        magic: u128,
+        blocker_configs: &[Bitboard],
+        attacks: &[Bitboard],
+        shift: u8,
+    ) -> bool {
+        let mut table: HashMap<usize, Bitboard> = HashMap::new();
+        for (blockers, attack) in blocker_configs.iter().zip(attacks.iter()) {
+            let index = ((blockers.to_u128().wrapping_mul(magic)) >> shift) as usize;
+            match table.get(&index) {
+                Some(existing) if existing != attack => return false,
+                Some(_) => {}
+                None => {
+                    table.insert(index, *attack);
+                }
+            }
+        }
         true
     }
 

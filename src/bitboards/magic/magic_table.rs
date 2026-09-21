@@ -98,32 +98,58 @@ pub fn get_default_magic_table_path() -> std::path::PathBuf {
         return std::path::PathBuf::from(custom_path);
     }
 
-    // Try to find workspace root or use current directory
-    let base_path = if let Ok(exe_path) = std::env::current_exe() {
-        // In production, try relative to executable
-        if let Some(exe_dir) = exe_path.parent() {
-            exe_dir.join("resources").join("magic_tables")
-        } else {
-            std::path::PathBuf::from("resources").join("magic_tables")
-        }
-    } else {
-        // Fallback: try to find workspace root
-        let mut current = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        loop {
-            let resources = current.join("resources").join("magic_tables");
-            if resources.exists() || current.join("Cargo.toml").exists() {
-                return resources.join("magic_table.bin");
-            }
-            if let Some(parent) = current.parent() {
-                current = parent.to_path_buf();
-            } else {
-                break;
-            }
-        }
-        std::path::PathBuf::from("resources").join("magic_tables")
-    };
+    const REL: &str = "resources/magic_tables/magic_table.bin";
 
-    base_path.join("magic_table.bin")
+    // Return the first candidate that exists. This used to prefer the
+    // executable's directory unconditionally, so a table generated into the
+    // working directory (where `generate_magic_tables` writes it) was never
+    // found and every board silently fell back to ray-casting.
+    let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+    if let Ok(exe_path) = std::env::current_exe() {
+        if let Some(exe_dir) = exe_path.parent() {
+            candidates.push(exe_dir.join(REL));
+            // target/<profile>/<exe> -> walk up to the crate root
+            for ancestor in exe_dir.ancestors().take(4) {
+                candidates.push(ancestor.join(REL));
+            }
+        }
+    }
+    if let Ok(cwd) = std::env::current_dir() {
+        for ancestor in cwd.ancestors().take(4) {
+            candidates.push(ancestor.join(REL));
+        }
+    }
+    candidates.push(std::path::PathBuf::from(REL));
+
+    for candidate in &candidates {
+        if candidate.exists() {
+            return candidate.clone();
+        }
+    }
+    // Nothing on disk yet: hand back the working-directory path so a generator
+    // writes somewhere a later load will look.
+    std::path::PathBuf::from(REL)
+}
+
+/// The eight squares a king reaches from `square`, clipped to the board.
+///
+/// Dragons and horses are their slider plus these, and they share the plain
+/// slider's magics, so the lookup has to add them back.
+fn king_steps(square: u8) -> Bitboard {
+    let (row, col) = ((square / 9) as i32, (square % 9) as i32);
+    let mut steps = Bitboard::default();
+    for dr in -1i32..=1 {
+        for dc in -1i32..=1 {
+            if dr == 0 && dc == 0 {
+                continue;
+            }
+            let (r, c) = (row + dr, col + dc);
+            if (0..9).contains(&r) && (0..9).contains(&c) {
+                steps |= Bitboard::from_u128(1u128 << (r * 9 + c));
+            }
+        }
+    }
+    steps
 }
 
 impl MagicTable {
@@ -309,11 +335,21 @@ impl MagicTable {
 
         // Lookup attack pattern with bounds checking
         let attack_index = magic_entry.attack_base + hash as usize;
-        if attack_index < self.attack_storage.len() {
+        let sliding = if attack_index < self.attack_storage.len() {
             self.attack_storage[attack_index]
         } else {
             // Bounds check failed - fallback to ray-casting
-            self.get_attacks_fallback(square, piece_type, occupied)
+            return self.get_attacks_fallback(square, piece_type, occupied);
+        };
+
+        // A dragon is a rook *plus* the king's steps, a horse a bishop plus the
+        // same, and both share the plain piece's magics above — so the table
+        // alone gives only the sliding half. Without this a dragon on an empty
+        // board could not step diagonally and a horse could not step
+        // orthogonally.
+        match piece_type {
+            PieceType::PromotedRook | PieceType::PromotedBishop => sliding | king_steps(square),
+            _ => sliding,
         }
     }
 

@@ -39,21 +39,26 @@ impl MemoryPool {
     ///
     /// Returns the base index where the allocated memory starts
     pub fn allocate(&mut self, size: usize) -> Result<usize, MagicError> {
+        // The caller indexes one flat `attack_storage` vector with what this
+        // returns, so bases have to be globally unique and monotonic. The
+        // previous version returned an offset *within the current block* and
+        // reset to 0 whenever it started a new one: every table allocated after
+        // the first block landed on top of an earlier one. Square 0's rook
+        // table was overwritten by a later square's, which is what made
+        // `validate()` fail at square 0 with no blockers.
         if self.blocks.is_empty() {
             self.allocate_new_block()?;
         }
-
-        // Check if current block has enough space
-        if self.current_offset + size <= self.block_size {
-            let offset = self.current_offset;
-            self.current_offset += size;
-            return Ok(offset);
+        let base = self.current_block * self.block_size + self.current_offset;
+        let mut end = self.current_offset + size;
+        // A request may span several blocks; `allocate_new_block` advances
+        // `current_block` by one each time.
+        while end > self.block_size {
+            self.allocate_new_block()?;
+            end -= self.block_size;
         }
-
-        // Allocate new block
-        self.allocate_new_block()?;
-        self.current_offset = size;
-        Ok(0)
+        self.current_offset = end;
+        Ok(base)
     }
 
     /// Allocate new memory block
@@ -186,11 +191,30 @@ mod tests {
         assert_eq!(pool.current_offset(), 80);
         assert_eq!(pool.block_count(), 1);
 
-        // Allocate beyond first block
+        // Allocate beyond the first block. The base must keep climbing: the
+        // caller indexes one flat vector with it, so restarting at 0 for each
+        // new block (as this asserted, and as the pool used to do) hands out a
+        // region that overlaps the very first allocation.
         let offset3 = pool.allocate(50).unwrap();
-        assert_eq!(offset3, 0); // New block starts at 0
-        assert_eq!(pool.current_offset(), 50);
+        assert_eq!(offset3, 80, "bases are global, not block-relative");
         assert_eq!(pool.block_count(), 2);
+
+        // No two allocations may overlap, across any number of blocks.
+        let mut pool = MemoryPool::with_block_size(100);
+        let mut spans: Vec<(usize, usize)> = Vec::new();
+        for size in [30usize, 50, 40, 120, 10, 90] {
+            let base = pool.allocate(size).unwrap();
+            for (prev_base, prev_size) in &spans {
+                let overlaps = base < prev_base + prev_size && *prev_base < base + size;
+                assert!(
+                    !overlaps,
+                    "allocation {base}..{} overlaps {prev_base}..{}",
+                    base + size,
+                    prev_base + prev_size
+                );
+            }
+            spans.push((base, size));
+        }
     }
 
     #[test]
