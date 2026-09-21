@@ -75,6 +75,24 @@ const fn mate_score_to_tt(score: i32, ply: i32) -> i32 {
     }
 }
 
+/// Magnitude of a mate at the root, before the ply offset is applied.
+const MATE_VALUE: i32 = -MATED_SCORE;
+
+/// The `score` field of a USI `info` line: `mate <plies>` when the score is a
+/// mate, `cp <x>` otherwise. A positive `mate n` is a mate we deliver in n
+/// plies, a negative one a mate we are dealt. The engine reported every mate as
+/// `cp 100000` until now, which a GUI or match harness reads as a nonsense
+/// centipawn value rather than a mate announcement.
+pub(crate) fn usi_score_field(score: i32) -> String {
+    if score >= MATE_THRESHOLD {
+        format!("mate {}", (MATE_VALUE - score).max(1))
+    } else if score <= -MATE_THRESHOLD {
+        format!("mate -{}", (score + MATE_VALUE).max(1))
+    } else {
+        format!("cp {}", score)
+    }
+}
+
 /// Inverse of [`mate_score_to_tt`]: node-relative back to root-relative.
 const fn mate_score_from_tt(score: i32, ply: i32) -> i32 {
     if score >= MATE_THRESHOLD {
@@ -128,6 +146,30 @@ macro_rules! log_move_eval {
 mod search_tests {
     use super::*;
     use crate::types::{Move, Piece, PieceType, Player, Position};
+
+    /// USI wants `score mate <plies>`; every mate used to go out as
+    /// `score cp 100000`, which a GUI reads as a centipawn value.
+    #[test]
+    fn usi_reports_mates_as_mates() {
+        // Ordinary evaluations stay centipawns, including large ones.
+        assert_eq!(usi_score_field(0), "cp 0");
+        assert_eq!(usi_score_field(-250), "cp -250");
+        assert_eq!(usi_score_field(2000), "cp 2000");
+
+        // We mate: distance in plies, counting from the root.
+        assert_eq!(usi_score_field(MATE_VALUE), "mate 1");
+        assert_eq!(usi_score_field(MATE_VALUE - 3), "mate 3");
+        assert_eq!(usi_score_field(MATE_VALUE - 7), "mate 7");
+
+        // We are mated: the same distance, negated.
+        assert_eq!(usi_score_field(MATED_SCORE), "mate -1");
+        assert_eq!(usi_score_field(MATED_SCORE + 4), "mate -4");
+
+        // A nearer mate reports a smaller number than a further one.
+        let near = usi_score_field(MATE_VALUE - 2);
+        let far = usi_score_field(MATE_VALUE - 8);
+        assert_eq!((near.as_str(), far.as_str()), ("mate 2", "mate 8"));
+    }
 
     /// Mate scores count plies from the root, so they have to be rebased onto
     /// the node on the way into the transposition table and back out again —
@@ -358,6 +400,11 @@ pub struct SearchEngine {
     /// the search path (`hash_history`) rather than threaded through the 17
     /// `negamax_with_context` call sites. Used to rebase mate scores.
     node_ply: i32,
+    /// Length of the path when this search began. The path a search is handed
+    /// may already hold the game's move history, so the distance from the root
+    /// is measured against this, not against zero — otherwise a mate in 3 in a
+    /// 50-move game was reported as a mate in 54.
+    root_path_len: usize,
     /// Search statistics module (Task 1.8)
     search_statistics: SearchStatistics,
     /// Core search metrics for performance tracking
@@ -1494,6 +1541,7 @@ impl SearchEngine {
             node_limit: None,
             check_extensions_on_path: 0,
             node_ply: 0,
+            root_path_len: 0,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
             quiescence_config,
@@ -1972,6 +2020,7 @@ impl SearchEngine {
             node_limit: None,
             check_extensions_on_path: 0,
             node_ply: 0,
+            root_path_len: 0,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
             // Convert from all:: types to types::search:: types
@@ -5946,6 +5995,8 @@ impl SearchEngine {
         // Use hash-based history instead of FEN strings (Task 5.1-5.2)
         let mut hash_history: Vec<u64> =
             vec![self.hash_calculator.get_position_hash(board, player, captured_pieces)];
+        // Anchor the ply count for mate scores at this search's root.
+        self.root_path_len = hash_history.len();
 
         for (move_index, move_) in sorted_moves.iter().enumerate() {
             if self.should_stop(&start_time, time_limit_ms) {
@@ -6005,6 +6056,15 @@ impl SearchEngine {
                 &mut hash_history,
                 true,
             );
+            // Each child pushes its own position onto the path and leaves it to
+            // its parent to pop. The root loop never did, so the path grew by
+            // one per root move: in a 50-move game the last root move searched
+            // at an apparent depth of ~50 from the root. That inflated every
+            // mate distance (a mate in 3 was reported as a mate in 54) and fed
+            // root-level repetition detection a path that was never on the
+            // board. Session 25 fixed exactly this inside negamax; the root was
+            // missed.
+            hash_history.truncate(self.root_path_len);
             crate::debug_utils::end_timing(&format!("move_eval_{}", move_index), "SEARCH_AT_DEPTH");
 
             // Restore board state by unmaking the move
@@ -6456,7 +6516,7 @@ impl SearchEngine {
         // The path holds the root plus every node down to this one, so its
         // length after the push is this node's distance from the root. Mate
         // scores are rebased with it when they cross the transposition table.
-        let ply = (hash_history.len() as i32 - 1).max(0);
+        let ply = (hash_history.len().saturating_sub(self.root_path_len.max(1))) as i32;
         self.node_ply = ply;
 
         // Track TT probe (Task 5.7)
@@ -15098,18 +15158,11 @@ impl IterativeDeepening {
                                 continue; // Skip - no valid data
                             }
 
-                            // Task: Fix score reporting for mate scores
-                            let mate_threshold = MAX_SCORE - 10000;
-                            let score_string = if current_score.abs() > mate_threshold {
-                                let moves_to_mate = if current_score > 0 {
-                                    (MAX_SCORE - current_score + 1) / 2
-                                } else {
-                                    -(MAX_SCORE + current_score + 1) / 2
-                                };
-                                format!("mate {}", moves_to_mate)
-                            } else {
-                                format!("cp {}", current_score)
-                            };
+                            // This tested against `MAX_SCORE - 10000` (~2.1 billion),
+                            // which a mate score of 100000 never reaches, so every mate
+                            // went out as `cp`. It also halved the ply count, a different
+                            // convention from the final info line. One formatter now.
+                            let score_string = usi_score_field(current_score);
 
                             let info_string = if !current_pv.is_empty() {
                                 format!(
@@ -15816,9 +15869,9 @@ impl IterativeDeepening {
                     };
                     
                     let info_string = format!(
-                        "info depth {} seldepth {} multipv 1 score cp {} time {} nodes {} nps {} \
+                        "info depth {} seldepth {} multipv 1 score {} time {} nodes {} nps {} \
                          pv {}{}",
-                        depth, seldepth, score, time_searched, nodes_for_info, nps, pv_string, nnue_indicator
+                        depth, seldepth, usi_score_field(score), time_searched, nodes_for_info, nps, pv_string, nnue_indicator
                     );
 
                     // Print the info message to stdout for USI protocol (skip during silent

@@ -1136,11 +1136,13 @@ impl ParallelSearchEngine {
                 if std::env::var("SHOGI_SILENT_BENCH").is_err() {
                     if !best_pv.is_empty() {
                         println!(
-                            "info depth {} seldepth {} multipv 1 score cp {} time {} nodes {} nps \
+                            "info depth {} seldepth {} multipv 1 score {} time {} nodes {} nps \
                              {} pv {}",
                             depth,
                             seldepth,
-                            if let Ok(g) = best_for_consumer.lock() { g.1 } else { score },
+                            crate::search::search_engine::usi_score_field(
+                                if let Ok(g) = best_for_consumer.lock() { g.1 } else { score }
+                            ),
                             elapsed,
                             nodes,
                             nps,
@@ -1347,9 +1349,15 @@ impl ParallelSearchEngine {
 
                 if !pv_string.is_empty() {
                     println!(
-                        "info depth {} seldepth {} multipv 1 score cp {} time {} nodes {} nps {} \
+                        "info depth {} seldepth {} multipv 1 score {} time {} nodes {} nps {} \
                          pv {}",
-                        depth, seldepth_final, *best_score, elapsed, nodes, nps, pv_string
+                        depth,
+                        seldepth_final,
+                        crate::search::search_engine::usi_score_field(*best_score),
+                        elapsed,
+                        nodes,
+                        nps,
+                        pv_string
                     );
                     let _ = std::io::Write::flush(&mut std::io::stdout());
                 }
