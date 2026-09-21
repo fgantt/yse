@@ -367,7 +367,10 @@ impl MoveGenerator {
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> Vec<Move> {
-        let mut moves = Vec::new();
+        // Shogi positions routinely exceed a hundred legal moves, and drops add
+        // many more; growing from empty reallocated and memmoved this list
+        // several times per node.
+        let mut moves = Vec::with_capacity(192);
         moves.extend(self.generate_all_piece_moves(board, player));
         moves.extend(self.generate_drop_moves(board, player, captured_pieces));
         moves
@@ -425,7 +428,7 @@ impl MoveGenerator {
                 }
             }
 
-            let mut moves = Vec::new();
+            let mut moves = Vec::with_capacity(160);
 
             // Use SIMD batch generation for sliding pieces if magic table is available and
             // SIMD is enabled
@@ -448,7 +451,7 @@ impl MoveGenerator {
                     crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_move_gen();
                     // Fallback: use scalar generation if magic table not available
                     for (pos, piece) in &sliding_pieces {
-                        moves.extend(self.generate_moves_for_single_piece(board, piece, *pos));
+                        self.generate_moves_for_single_piece_into(board, piece, *pos, &mut moves);
                     }
                 }
             } else {
@@ -456,13 +459,13 @@ impl MoveGenerator {
                 crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_move_gen();
                 // Fallback: use scalar generation if SIMD disabled or no sliding pieces
                 for (pos, piece) in &sliding_pieces {
-                    moves.extend(self.generate_moves_for_single_piece(board, piece, *pos));
+                    self.generate_moves_for_single_piece_into(board, piece, *pos, &mut moves);
                 }
             }
 
             // Generate moves for non-sliding pieces using existing logic
             for (pos, piece) in non_sliding_pieces {
-                moves.extend(self.generate_moves_for_single_piece(board, &piece, pos));
+                self.generate_moves_for_single_piece_into(board, &piece, pos, &mut moves);
             }
 
             moves
@@ -478,7 +481,7 @@ impl MoveGenerator {
                     let pos = Position::new(r, c);
                     if let Some(piece) = board.get_piece(pos) {
                         if piece.player == player {
-                            moves.extend(self.generate_moves_for_single_piece(board, &piece, pos));
+                            self.generate_moves_for_single_piece_into(board, &piece, pos, &mut moves);
                         }
                     }
                 }
@@ -487,13 +490,19 @@ impl MoveGenerator {
         }
     }
 
-    fn generate_moves_for_single_piece(
+    /// Append this piece's moves to `out`.
+    ///
+    /// Callers immediately fold the result into a larger list, so returning a
+    /// fresh `Vec` here meant one allocation and one free per piece per node —
+    /// malloc/free and the memmove behind `raw_vec::finish_grow` were ~15% of
+    /// search time. Appending in place removes that traffic.
+    fn generate_moves_for_single_piece_into(
         &self,
         board: &BitboardBoard,
         piece: &Piece,
         pos: Position,
-    ) -> Vec<Move> {
-        let mut moves = Vec::new();
+        out: &mut Vec<Move>,
+    ) {
         let player = piece.player;
 
         let handle_move = |moves: &mut Vec<Move>, to_pos: Position| {
@@ -551,7 +560,7 @@ impl MoveGenerator {
                         }
                     }
                     
-                    handle_move(&mut moves, target_pos);
+                    handle_move(out, target_pos);
                 }
             }
             PieceType::Knight => {
@@ -565,7 +574,7 @@ impl MoveGenerator {
                 while !remaining.is_empty() {
                     if let Some(target_square) = GlobalOptimizer::bit_scan_forward(remaining) {
                         let target_pos = Position::from_index(target_square);
-                        handle_move(&mut moves, target_pos);
+                        handle_move(out, target_pos);
                         remaining &= Bitboard::from_u128(remaining.to_u128() - 1);
                     } else {
                         break;
@@ -596,7 +605,7 @@ impl MoveGenerator {
                         }
 
                         current_pos = Position::new(new_row as u8, new_col as u8);
-                        handle_move(&mut moves, current_pos);
+                        handle_move(out, current_pos);
 
                         if board.is_square_occupied(current_pos) {
                             break;
@@ -614,7 +623,7 @@ impl MoveGenerator {
                 use crate::bitboards::integration::GlobalOptimizer;
                 let mut remaining = attacks;
                 while let Some(target_square) = GlobalOptimizer::bit_scan_forward(remaining) {
-                    handle_move(&mut moves, Position::from_index(target_square));
+                    handle_move(out, Position::from_index(target_square));
                     remaining &= Bitboard::from_u128(remaining.to_u128() - 1);
                 }
             }
@@ -635,7 +644,7 @@ impl MoveGenerator {
                 while !remaining.is_empty() {
                     if let Some(target_square) = GlobalOptimizer::bit_scan_forward(remaining) {
                         let target_pos = Position::from_index(target_square);
-                        handle_move(&mut moves, target_pos);
+                        handle_move(out, target_pos);
                         remaining &= Bitboard::from_u128(remaining.to_u128() - 1);
                     } else {
                         break;
@@ -643,7 +652,18 @@ impl MoveGenerator {
                 }
             }
         }
-        moves
+    }
+
+    /// Convenience wrapper for callers that want an owned list.
+    fn generate_moves_for_single_piece(
+        &self,
+        board: &BitboardBoard,
+        piece: &Piece,
+        pos: Position,
+    ) -> Vec<Move> {
+        let mut out = Vec::new();
+        self.generate_moves_for_single_piece_into(board, piece, pos, &mut out);
+        out
     }
 
     fn generate_drop_moves(
