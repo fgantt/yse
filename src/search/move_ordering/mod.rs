@@ -63,7 +63,7 @@ pub use capture_ordering::{
     score_promotion_move_inline as score_promotion_move_inline_helper,
 };
 
-mod see_calculation;
+pub mod see_calculation;
 
 pub use see_calculation::{
     calculate_see_internal as calculate_see_internal_helper,

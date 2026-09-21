@@ -189,102 +189,68 @@ fn check_king_attack(from_pos: Position, target_pos: Position, _player: Player) 
 /// # Returns
 /// The net material gain/loss from the exchange sequence
 pub fn calculate_see_internal(move_: &Move, board: &BitboardBoard) -> i32 {
-    let from = move_.from.unwrap_or(Position::new(0, 0));
+    let Some(captured) = move_.captured_piece.as_ref() else {
+        return 0; // No capture, no SEE value
+    };
     let to = move_.to;
-    let moving_player = move_.player;
-    let opponent = moving_player.opposite();
+    let mover = move_.player;
 
-    // Get the piece being captured
-    let captured_piece = match &move_.captured_piece {
-        Some(piece) => piece,
-        None => return 0, // No capture, no SEE value
+    // Value of whatever now stands on the target square: it is what the
+    // opponent wins if they recapture.
+    let mut on_square = match move_.from.and_then(|f| board.get_piece(f)) {
+        Some(p) => p.piece_type.base_value(),
+        None => move_.piece_type.base_value(), // drop
     };
 
-    // Get the attacking piece (the piece making the capture)
-    let attacking_piece = match board.get_piece(from) {
-        Some(piece) => piece.clone(),
-        None => {
-            // Drop move - use the piece type from the move
-            Piece::new(move_.piece_type, moving_player)
-        }
-    };
-
-    // Start with the value of the captured piece, subtract the attacker's value
-    let mut gain = captured_piece.piece_type.base_value() - attacking_piece.piece_type.base_value();
-
-    // Find all pieces that can attack the target square
-    let all_attackers = find_attackers_defenders(to, board);
-
-    // Separate attackers and defenders by player
-    // Attackers: pieces from the moving player that can continue the exchange
-    // Defenders: pieces from the opponent that can recapture
-    let attackers: Vec<Piece> = all_attackers
-        .iter()
-        .filter(|(pos, p)| p.player == moving_player && *pos != from)
-        .map(|(_, p)| p.clone())
-        .collect();
-    let defenders: Vec<Piece> = all_attackers
-        .iter()
-        .filter(|(_, p)| p.player == opponent)
-        .map(|(_, p)| p.clone())
+    // Everything else bearing on the square. The piece that just moved is no
+    // longer among them.
+    let mut pieces: Vec<Piece> = find_attackers_defenders(to, board)
+        .into_iter()
+        .filter(|(pos, _)| Some(*pos) != move_.from)
+        .map(|(_, p)| p)
         .collect();
 
-    // If no defenders, it's a winning capture
-    if defenders.is_empty() {
-        return gain;
-    }
+    // The standard swap list. `gain[d]` is the material balance for the side
+    // to move at depth d if the exchange runs that far; folding it back with
+    // the negamax maximum lets either side stand pat when continuing would
+    // lose, which is what makes SEE an exchange evaluation rather than a sum.
+    //
+    // What this replaces did two things wrong: it subtracted the moving
+    // piece's value up front, though that piece is only lost if it is
+    // recaptured, and on each recapture it subtracted the value of the piece
+    // *doing* the capturing rather than the piece being taken. An even
+    // pawn-for-pawn trade defended by a rook came out at -990.
+    let mut gain = [0i32; 40];
+    gain[0] = captured.piece_type.base_value();
+    let mut d = 0usize;
+    let mut side = mover.opposite();
 
-    // Simulate the exchange sequence
-    // The exchange continues with the least valuable piece at each step
-    // We alternate between attackers and defenders
-    // After the initial capture, the opponent recaptures, then we can recapture,
-    // etc.
-
-    // Start with defenders (opponent recaptures after the initial capture)
-    let mut current_side = defenders; // Current side's pieces (opponent recaptures first)
-    let mut other_side = attackers; // Other side's pieces (we can recapture)
-
-    // Continue the exchange until one side runs out of pieces
-    loop {
-        // Find the least valuable piece on the current side
-        if current_side.is_empty() {
-            break; // Current side can't continue, exchange ends (we win)
-        }
-
-        // Find least valuable piece
-        let mut min_value = i32::MAX;
-        let mut min_index = None;
-        for (index, piece) in current_side.iter().enumerate() {
-            let value = piece.piece_type.base_value();
-            if value < min_value {
-                min_value = value;
-                min_index = Some(index);
-            }
-        }
-
-        if min_index.is_none() {
+    while d + 1 < gain.len() {
+        d += 1;
+        gain[d] = on_square - gain[d - 1];
+        // Neither side will enter an exchange that loses by every measure.
+        if (-gain[d - 1]).max(gain[d]) < 0 {
             break;
         }
-
-        let capturing_piece = current_side.remove(min_index.unwrap());
-
-        // Subtract the value of the capturing piece (we lose this piece)
-        gain -= capturing_piece.piece_type.base_value();
-
-        // If the other side can't recapture, we win the exchange
-        if other_side.is_empty() {
+        let Some(idx) = pieces
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| p.player == side)
+            .min_by_key(|(_, p)| p.piece_type.base_value())
+            .map(|(i, _)| i)
+        else {
             break;
-        }
-
-        // Switch sides - the other side now captures
-        std::mem::swap(&mut current_side, &mut other_side);
-
-        // Add the value of the captured piece (the piece that was just captured)
-        // This is the piece we just captured from the opponent
-        gain += capturing_piece.piece_type.base_value();
+        };
+        on_square = pieces[idx].piece_type.base_value();
+        pieces.remove(idx);
+        side = side.opposite();
     }
 
-    gain
+    while d > 1 {
+        d -= 1;
+        gain[d - 1] = -((-gain[d - 1]).max(gain[d]));
+    }
+    gain[0]
 }
 
 /// Score a move using Static Exchange Evaluation (SEE)

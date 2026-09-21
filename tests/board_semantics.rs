@@ -353,3 +353,45 @@ fn attack_test_matches_reference_in_random_games() {
     }
     assert!(checked > 100_000);
 }
+
+/// Static exchange evaluation scores an exchange, not a running total.
+///
+/// The old implementation subtracted the moving piece's value up front and, on
+/// each recapture, subtracted the value of the piece doing the capturing rather
+/// than the one being taken. An even pawn trade defended by a rook came out
+/// around -990, which is why SEE could not be used for move ordering.
+#[test]
+fn see_scores_an_even_trade_as_even() {
+    use shogi_engine::search::move_ordering::see_calculation::calculate_see_internal;
+    use shogi_engine::types::core::{Move, Piece, PieceType, Position};
+
+    // White pawn on 5e, defended by a white rook behind it on 5c.
+    // Black pawn on 5f captures it.
+    let mut board = BitboardBoard::empty();
+    let white_pawn = Position::from_u8(4 * 9 + 4); // 5e
+    let white_rook = Position::from_u8(2 * 9 + 4); // 5c, same file
+    let black_pawn = Position::from_u8(5 * 9 + 4); // 5f
+    board.place_piece(Piece::new(PieceType::Pawn, Player::White), white_pawn);
+    board.place_piece(Piece::new(PieceType::Rook, Player::White), white_rook);
+    board.place_piece(Piece::new(PieceType::Pawn, Player::Black), black_pawn);
+
+    let mut capture = Move::new_move(
+        black_pawn,
+        white_pawn,
+        PieceType::Pawn,
+        Player::Black,
+        false,
+    );
+    capture.is_capture = true;
+    capture.captured_piece = Some(Piece::new(PieceType::Pawn, Player::White));
+
+    let see = calculate_see_internal(&capture, &board);
+    assert_eq!(see, 0, "pawn takes pawn, rook recaptures: an even trade");
+
+    // The same capture with nothing defending is worth a clean pawn.
+    let mut undefended = BitboardBoard::empty();
+    undefended.place_piece(Piece::new(PieceType::Pawn, Player::White), white_pawn);
+    undefended.place_piece(Piece::new(PieceType::Pawn, Player::Black), black_pawn);
+    let see_free = calculate_see_internal(&capture, &undefended);
+    assert!(see_free > 0, "undefended pawn should be a win, got {see_free}");
+}
