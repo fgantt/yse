@@ -1141,6 +1141,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         None => Vec::new(),
     };
+    // Hold out a slice of ranking groups, never trained on. Held-out ranking
+    // error is the only per-epoch number measured directly on the quantity this
+    // objective exists to improve -- Session 28's lesson was that held-out
+    // Pearson r on position values misranks checkpoints, so it cannot be the
+    // gate here.
+    let rank_val: Vec<RankRecord> = if rank_records.len() > 2000 {
+        let keep = rank_records.len() - (rank_records.len() / 20).max(500);
+        let v = rank_records.split_off(keep);
+        println!("  held out {} ranking groups for validation", v.len());
+        v
+    } else {
+        Vec::new()
+    };
 
     // Hold out every `VALIDATION_GAME_STRIDE`-th game for validation. Splitting by
     // game (not by record) keeps adjacent plies of the same game on one side of
@@ -1477,6 +1490,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(r) => format!(" r_clamp={:+.3}", r),
             None => String::new(),
         };
+        // Held-out ranking error, measured without touching the weights.
+        let val_rank_str = if rank_val.is_empty() {
+            String::new()
+        } else {
+            let mut cursor = 0_usize;
+            let groups = next_rank_groups(&rank_val, &mut cursor, rank_val.len(), &trainer, &cli);
+            format!(
+                " val_rank={:.4}",
+                trainer.measure_rank_error(&groups, cli.rank_temperature)
+            )
+        };
+
         // Mean |p - t| over sibling moves: how far the network's move preference
         // sits from the teacher's. Unlike td_err and r, this one is measured on
         // the quantity we are actually trying to fix.
@@ -1486,7 +1511,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             String::new()
         };
         println!(
-            "Epoch {:3}/{:3}: {:6} pos, {:4} batches, avg td_err={:.4}{}{}, t={:.1}s",
+            "Epoch {:3}/{:3}: {:6} pos, {:4} batches, avg td_err={:.4}{}{}{}, t={:.1}s",
             epoch + 1,
             total_epochs,
             total_positions,
@@ -1494,6 +1519,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             epoch_avg_td,
             pearson_str,
             rank_str,
+            val_rank_str,
             epoch_start.elapsed().as_secs_f64()
         );
 

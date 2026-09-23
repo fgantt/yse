@@ -1238,6 +1238,42 @@ impl NNUETrainer {
         self.train_batch_mixed(positions, &[], 0.0, 1.0)
     }
 
+    /// Mean |p - t| over sibling moves, without touching the weights.
+    ///
+    /// Held-out ranking error is the one number measured directly on the
+    /// quantity we are trying to improve. It exists as its own method because
+    /// `train_batch_mixed` with `rank_weight = 0` would *not* be inert: under
+    /// Adam a zero gradient still decays the moment estimates and takes a step
+    /// from them, so "measuring" that way would quietly train the network.
+    pub fn measure_rank_error(&self, groups: &[RankingGroup], rank_temperature: f32) -> f32 {
+        let mut sum = 0.0_f32;
+        let mut n = 0_usize;
+        for group in groups {
+            let k = group.children.len();
+            if k < 2 || group.scores.len() != k {
+                continue;
+            }
+            let pred_logits: Vec<f32> = group
+                .children
+                .iter()
+                .map(|c| -self.forward_position(c).output_cp / rank_temperature)
+                .collect();
+            let target_logits: Vec<f32> =
+                group.scores.iter().map(|&s| s / rank_temperature).collect();
+            let p = softmax(&pred_logits);
+            let t = softmax(&target_logits);
+            for i in 0..k {
+                sum += (p[i] - t[i]).abs();
+                n += 1;
+            }
+        }
+        if n > 0 {
+            sum / n as f32
+        } else {
+            0.0
+        }
+    }
+
     /// Train on a batch of positions under the value objective, sibling groups
     /// under the ranking objective, or both at once.
     ///
