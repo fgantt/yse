@@ -58,15 +58,18 @@ fn det_weights(num_features: usize, h1: usize, h2: usize) -> NNUEWeights {
     let hidden_biases_2: Vec<i32> = (0..h2).map(|_| next(-50, 50)).collect();
     let output_weights: Vec<i16> = (0..h2).map(|_| next(-2000, 2000) as i16).collect();
 
-    NNUEWeights {
+    let mut w = NNUEWeights {
         input_weights_1,
         hidden_biases_1,
         input_weights_2: Some(input_weights_2),
         hidden_biases_2: Some(hidden_biases_2),
         output_weights,
         output_bias: 0,
+        flat_weights_2: Vec::new(),
         psqt: Vec::new(),
-    }
+    };
+    w.rebuild_flat_weights_2();
+    w
 }
 
 /// Rotate a board 180 degrees and swap piece colours. The result is the
@@ -456,15 +459,18 @@ fn material_balance(board: &BitboardBoard, captured: &CapturedPieces, stm: Playe
 /// A network whose layers are all zero, so its output is the PSQT path alone.
 fn material_only_weights() -> NNUEWeights {
     let (h1, h2) = (8, 4);
-    NNUEWeights {
+    let mut w = NNUEWeights {
         input_weights_1: vec![vec![0; h1]; NUM_NNUE_FEATURES_WITH_HAND_TOTAL],
         hidden_biases_1: vec![0; h1],
         input_weights_2: Some(vec![vec![0; h2]; h1]),
         hidden_biases_2: Some(vec![0; h2]),
         output_weights: vec![0; h2],
         output_bias: 0,
+        flat_weights_2: Vec::new(),
         psqt: NNUEWeights::material_psqt(NUM_NNUE_FEATURES_WITH_HAND_TOTAL),
-    }
+    };
+    w.rebuild_flat_weights_2();
+    w
 }
 
 const MATERIAL_FENS: &[&str] = &[

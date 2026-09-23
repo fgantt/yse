@@ -287,6 +287,15 @@ pub struct NNUEWeights {
     pub input_weights_2: Option<Vec<Vec<i16>>>,
     /// Hidden-2 biases: [hidden_size_2] (if hidden_size_2 > 0)
     pub hidden_biases_2: Option<Vec<i32>>,
+    /// Row-major copy of `input_weights_2`, `hidden_size_1 * hidden_size_2`
+    /// entries. Derived, never loaded or saved; rebuild with
+    /// [`Self::rebuild_flat_weights_2`] after touching `input_weights_2`.
+    ///
+    /// `Vec<Vec<i16>>` is one allocation per row, so the second layer's inner
+    /// loop cannot be vectorised: the compiler knows nothing about the
+    /// alignment of each row or whether it aliases the accumulator. This is the
+    /// same 16_384 multiply-accumulates laid out contiguously.
+    pub flat_weights_2: Vec<i16>,
     /// Hidden-2-to-output weights: [hidden_size_2] or [hidden_size_1] if no layer 2
     pub output_weights: Vec<i16>,
     /// Output bias
@@ -492,15 +501,18 @@ impl NNUEWeights {
             b.clamp(-32768.0, 32767.0) as i32
         };
 
-        Self {
+        let mut built = Self {
             input_weights_1,
             hidden_biases_1,
             input_weights_2,
             hidden_biases_2,
+            flat_weights_2: Vec::new(),
             output_weights,
             output_bias,
             psqt: Vec::new(),
-        }
+        };
+        built.rebuild_flat_weights_2();
+        built
     }
 
     /// Load weights from file. Dispatches by extension: `.bin` → bincode,
@@ -573,14 +585,34 @@ impl NNUEWeights {
             input_weights_1.push(vec![0i16; row_len]);
         }
 
-        Self {
+        let mut built = Self {
             input_weights_1,
             hidden_biases_1: file_data.hidden_biases_1,
             input_weights_2: file_data.input_weights_2,
             hidden_biases_2: file_data.hidden_biases_2,
+            flat_weights_2: Vec::new(),
             output_weights: file_data.output_weights,
             output_bias: file_data.output_bias,
             psqt: Vec::new(),
+        };
+        built.rebuild_flat_weights_2();
+        built
+    }
+
+    /// Rebuild [`Self::flat_weights_2`] from `input_weights_2`. Call after any
+    /// change to that field; the forward pass falls back to the nested rows
+    /// whenever the flat copy is not exactly the right length, so a stale or
+    /// missing rebuild costs speed and never correctness.
+    pub fn rebuild_flat_weights_2(&mut self) {
+        self.flat_weights_2.clear();
+        let Some(rows) = self.input_weights_2.as_ref() else { return };
+        let Some(cols) = rows.first().map(|r| r.len()) else { return };
+        if rows.iter().any(|r| r.len() != cols) {
+            return; // ragged: leave empty and use the nested path
+        }
+        self.flat_weights_2.reserve(rows.len() * cols);
+        for row in rows {
+            self.flat_weights_2.extend_from_slice(row);
         }
     }
 
@@ -1338,14 +1370,35 @@ fn forward_from_activations(activated_1: &[i32], weights: &NNUEWeights) -> i32 {
         let hidden_size_2 = biases_2.len();
         debug_assert!(hidden_size_2 <= 32, "Hidden layer 2 size exceeds stack buffer");
         let mut h2_values = [0i64; 32];
-        for (i, &act_1) in activated_1.iter().enumerate() {
-            if act_1 == 0 {
-                continue; // Skip zero activations (ReLU killed)
+        // Prefer the contiguous copy: with `Vec<Vec<i16>>` each row is its own
+        // allocation, so the compiler cannot vectorise the inner loop -- it
+        // knows nothing about a row's alignment or whether it aliases the
+        // accumulator. One flat slice of known stride solves both. Falls back
+        // to the nested rows whenever the flat copy is not exactly the right
+        // length, so a stale rebuild costs speed and never correctness.
+        let flat = &weights.flat_weights_2;
+        if flat.len() == weights_2.len() * hidden_size_2 && hidden_size_2 > 0 {
+            for (i, &act_1) in activated_1.iter().enumerate() {
+                if act_1 == 0 {
+                    continue; // Skip zero activations (ReLU killed)
+                }
+                let base = i * hidden_size_2;
+                let Some(row) = flat.get(base..base + hidden_size_2) else { break };
+                let a = act_1 as i64;
+                for (j, &weight) in row.iter().enumerate() {
+                    h2_values[j] += a * weight as i64;
+                }
             }
-            let Some(row) = weights_2.get(i) else { break };
-            let a = act_1 as i64;
-            for (j, &weight) in row.iter().enumerate() {
-                h2_values[j] += a * weight as i64;
+        } else {
+            for (i, &act_1) in activated_1.iter().enumerate() {
+                if act_1 == 0 {
+                    continue; // Skip zero activations (ReLU killed)
+                }
+                let Some(row) = weights_2.get(i) else { break };
+                let a = act_1 as i64;
+                for (j, &weight) in row.iter().enumerate() {
+                    h2_values[j] += a * weight as i64;
+                }
             }
         }
         // `output_bias` is in post-shift units (the trainer adds it without
