@@ -34,7 +34,7 @@ use shogi_engine::evaluation::nnue_training::{
     extract_active_features_halfkp_with_stm_and_hand, extract_active_features_with_hand,
     extract_features_frame,
     extract_active_features_with_stm, extract_active_features_with_stm_and_hand, NNUETrainer,
-    NNUETrainingConfig, TrainingPosition,
+    NNUETrainingConfig, RankingGroup, TrainingPosition,
 };
 use shogi_engine::types::board::CapturedPieces;
 use shogi_engine::types::core::Player;
@@ -315,6 +315,37 @@ struct Cli {
     /// towards the shared weights. 0 = off.
     #[arg(long, default_value_t = 0.0)]
     king_delta_decay: f32,
+
+    /// Sibling-ranking corpus from `rank-gen`: one group of scored legal moves
+    /// per line. Trains the network to put a position's moves in the teacher's
+    /// order, which is the question a search asks — as opposed to the value
+    /// corpus, which only asks what a position is worth.
+    ///
+    /// Session 28 measured the difference: r = 0.81 against the teacher on
+    /// position values, while choosing moves at roughly twice the teacher's
+    /// error. Used alongside `--corpus`, not instead of it.
+    #[arg(long)]
+    rank_corpus: Option<PathBuf>,
+
+    /// Weight of the ranking term against the value term. 0 disables ranking.
+    #[arg(long, default_value_t = 1.0)]
+    rank_weight: f32,
+
+    /// Softmax temperature in centipawns, for both the teacher's target
+    /// distribution and the network's. Lower = the target concentrates harder
+    /// on the single best move; it also scales the gradient by 1/T.
+    #[arg(long, default_value_t = 100.0)]
+    rank_temperature: f32,
+
+    /// Clamp sibling scores to +/- this before the softmax. A move that loses
+    /// and a move that loses to forced mate are not a distinction worth a large
+    /// gradient, and unclamped mate scores would make the target one-hot.
+    #[arg(long, default_value_t = 2000)]
+    rank_clamp: i32,
+
+    /// Ranking groups per batch, alongside `--batch-size` value positions.
+    #[arg(long, default_value_t = 32)]
+    rank_groups_per_batch: usize,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -698,6 +729,106 @@ fn load_corpus(path: &Path, skip_null_eval: bool) -> std::io::Result<Vec<CorpusR
 /// hand). Our `BitboardBoard::from_fen` already handles this. Session 19:
 /// returns the parsed `CapturedPieces` alongside the board so the trainer's
 /// hand-feature path has the data it needs.
+/// One position's legal moves with the teacher's score for each, as written by
+/// `rank-gen`. `children[i]` is the position after move i, so its side to move
+/// is the opponent; `scores[i]` is from the *moving* side's point of view.
+struct RankRecord {
+    children: Vec<String>,
+    scores: Vec<f32>,
+    /// Side to move in the parent. Each child's perspective is its opposite.
+    player: Player,
+}
+
+/// Load a ranking corpus, clamping sibling scores.
+///
+/// Scores are clamped because `rank-gen` maps mate to +/-30000: left alone, a
+/// single mating sibling makes the softmax target exactly one-hot and swamps
+/// every other move in the group.
+fn load_rank_corpus(path: &Path, clamp: i32) -> std::io::Result<Vec<RankRecord>> {
+    let reader = BufReader::new(File::open(path)?);
+    let clamp = clamp.max(1) as f32;
+    let mut out = Vec::new();
+    for line in reader.lines() {
+        let line = line?;
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else { continue };
+        let player = match v.get("player").and_then(|p| p.as_str()) {
+            Some("black") => Player::Black,
+            Some("white") => Player::White,
+            _ => continue,
+        };
+        let (Some(children), Some(scores)) = (
+            v.get("children").and_then(|c| c.as_array()),
+            v.get("scores").and_then(|s| s.as_array()),
+        ) else {
+            continue;
+        };
+        if children.len() != scores.len() || children.len() < 2 {
+            continue;
+        }
+        let children: Vec<String> =
+            children.iter().filter_map(|c| c.as_str().map(str::to_string)).collect();
+        let scores: Vec<f32> = scores
+            .iter()
+            .filter_map(|s| s.as_i64())
+            .map(|s| (s as f32).clamp(-clamp, clamp))
+            .collect();
+        if children.len() != scores.len() {
+            continue;
+        }
+        out.push(RankRecord { children, scores, player });
+    }
+    Ok(out)
+}
+
+/// Take the next `n` ranking groups round-robin and turn each child SFEN into a
+/// `TrainingPosition`.
+///
+/// Children are built fresh against the current weights every time a group is
+/// used, because their accumulators must reflect the network as it is now — the
+/// value path does the same for its positions. A child whose SFEN will not parse
+/// is dropped, and a group left with fewer than two usable children is skipped:
+/// one move on its own carries no ordering information.
+fn next_rank_groups(
+    records: &[RankRecord],
+    cursor: &mut usize,
+    n: usize,
+    trainer: &NNUETrainer,
+    cli: &Cli,
+) -> Vec<RankingGroup> {
+    if records.is_empty() || n == 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(n);
+    for _ in 0..n {
+        let rec = &records[*cursor % records.len()];
+        *cursor += 1;
+        let child_player = rec.player.opposite();
+        let mut children = Vec::with_capacity(rec.children.len());
+        let mut scores = Vec::with_capacity(rec.scores.len());
+        for (sfen, &score) in rec.children.iter().zip(rec.scores.iter()) {
+            if let Some(pos) = build_position_at(
+                sfen,
+                child_player,
+                None,
+                0,
+                trainer.get_weights(),
+                cli.use_stm_feature,
+                cli.use_halfkp,
+                cli.use_hand_features,
+                cli.use_pov_features,
+                cli.king_features,
+            ) {
+                children.push(pos);
+                scores.push(score);
+            }
+        }
+        if children.len() >= 2 {
+            out.push(RankingGroup { children, scores });
+        }
+    }
+    out
+}
+
 fn board_from_sfen(sfen: &str) -> Option<(BitboardBoard, CapturedPieces)> {
     BitboardBoard::from_fen(sfen).ok().map(|(board, _p, cap)| (board, cap))
 }
@@ -776,27 +907,61 @@ fn build_position(
         use_sigmoid,
         sigmoid_eval_scale,
     )?;
-    let (board, captured) = board_from_sfen(&rec.sfen)?;
+    build_position_at(
+        &rec.sfen,
+        rec.player,
+        Some(target),
+        rec.eval_cp.unwrap_or(0),
+        weights,
+        use_stm_feature,
+        use_halfkp,
+        use_hand_features,
+        use_pov,
+        use_king,
+    )
+}
+
+/// Build a `TrainingPosition` for one board, with the supervised target already
+/// decided (or absent).
+///
+/// Split out of `build_position` because ranking groups need the same feature
+/// extraction and accumulator setup for each child position, but have no value
+/// target of their own — their signal is entirely in how they compare to their
+/// siblings.
+#[allow(clippy::too_many_arguments)]
+fn build_position_at(
+    sfen: &str,
+    player: Player,
+    target: Option<f32>,
+    pst_evaluation: i32,
+    weights: &NNUEWeights,
+    use_stm_feature: bool,
+    use_halfkp: bool,
+    use_hand_features: bool,
+    use_pov: bool,
+    use_king: bool,
+) -> Option<TrainingPosition> {
+    let (board, captured) = board_from_sfen(sfen)?;
     let active_features = if use_pov {
         // Perspective normalisation supersedes the stm bit: the mover is always
         // "Black" in the normalised frame, so the bit carries no information.
-        extract_features_frame(&board, rec.player, &captured, use_hand_features, king_buckets(weights, use_king))
+        extract_features_frame(&board, player, &captured, use_hand_features, king_buckets(weights, use_king))
     } else if use_halfkp {
         if use_hand_features && use_stm_feature {
-            extract_active_features_halfkp_with_stm_and_hand(&board, rec.player, &captured)
+            extract_active_features_halfkp_with_stm_and_hand(&board, player, &captured)
         } else if use_hand_features {
-            extract_active_features_halfkp_with_hand(&board, rec.player, &captured)
+            extract_active_features_halfkp_with_hand(&board, player, &captured)
         } else if use_stm_feature {
-            extract_active_features_halfkp_with_stm(&board, rec.player)
+            extract_active_features_halfkp_with_stm(&board, player)
         } else {
-            extract_active_features_halfkp(&board, rec.player)
+            extract_active_features_halfkp(&board, player)
         }
     } else if use_hand_features && use_stm_feature {
-        extract_active_features_with_stm_and_hand(&board, rec.player, &captured)
+        extract_active_features_with_stm_and_hand(&board, player, &captured)
     } else if use_hand_features {
         extract_active_features_with_hand(&board, &captured)
     } else if use_stm_feature {
-        extract_active_features_with_stm(&board, rec.player)
+        extract_active_features_with_stm(&board, player)
     } else {
         extract_active_features(&board)
     };
@@ -813,24 +978,24 @@ fn build_position(
     accumulator.king_mode = use_king;
     let hand_base = if use_halfkp { HAND_FEATURE_BASE_HALFKP } else { HAND_FEATURE_BASE_FLAT };
     if use_pov {
-        accumulator.refresh_pov(&board, rec.player, weights);
+        accumulator.refresh_pov(&board, player, weights);
     } else if use_halfkp {
-        accumulator.refresh_halfkp(&board, rec.player, weights, use_stm_feature);
+        accumulator.refresh_halfkp(&board, player, weights, use_stm_feature);
     } else if use_stm_feature {
-        accumulator.refresh_with_stm(&board, rec.player, weights);
+        accumulator.refresh_with_stm(&board, player, weights);
     } else {
         accumulator.refresh(&board, weights);
     }
     if use_hand_features {
         if use_pov {
-            accumulator.add_hand_contributions_pov(&captured, rec.player, weights, hand_base);
+            accumulator.add_hand_contributions_pov(&captured, player, weights, hand_base);
         } else {
             accumulator.add_hand_contributions(&captured, weights, hand_base);
         }
     }
     // Two-perspective networks also need the opponent's view of the position.
     let (active_features_nstm, accumulator_nstm) = if use_pov && weights.is_dual() {
-        let other = rec.player.opposite();
+        let other = player.opposite();
         let mut acc = NNUEAccumulator::new(h1, h2);
         acc.king_mode = use_king;
         acc.refresh_pov(&board, other, weights);
@@ -858,11 +1023,11 @@ fn build_position(
         active_features,
         accumulator,
         evaluation: nnue_eval,
-        pst_evaluation: rec.eval_cp.unwrap_or(0),
-        player: rec.player,
+        pst_evaluation,
+        player: player,
         move_made: None,
         outcome: None,
-        td_target: Some(target),
+        td_target: target,
         active_features_nstm,
         accumulator_nstm,
     })
@@ -957,6 +1122,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     if all_records.is_empty() {
         return Err("no usable records in corpus".into());
     }
+
+    let mut rank_records: Vec<RankRecord> = match cli.rank_corpus.as_ref() {
+        Some(p) => {
+            let r = load_rank_corpus(p, cli.rank_clamp)?;
+            let siblings: usize = r.iter().map(|g| g.children.len()).sum();
+            println!(
+                "Loaded {} ranking groups ({:.2} siblings each) from {}",
+                r.len(),
+                siblings as f64 / r.len().max(1) as f64,
+                p.display()
+            );
+            println!(
+                "  rank weight {} temperature {} cp, clamp +/-{} cp, {} groups/batch",
+                cli.rank_weight, cli.rank_temperature, cli.rank_clamp, cli.rank_groups_per_batch
+            );
+            r
+        }
+        None => Vec::new(),
+    };
 
     // Hold out every `VALIDATION_GAME_STRIDE`-th game for validation. Splitting by
     // game (not by record) keeps adjacent plies of the same game on one side of
@@ -1189,11 +1373,18 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for epoch in 0..total_epochs {
         let epoch_start = Instant::now();
         records.shuffle(&mut rng);
+        rank_records.shuffle(&mut rng);
 
         let mut batch = Vec::with_capacity(cli.batch_size);
         let mut batch_count = 0_usize;
         let mut epoch_td_sum = 0.0_f64;
         let mut epoch_batches = 0_usize;
+        // Ranking groups are consumed round-robin alongside the value batches.
+        // There are far fewer of them than value positions, so the cursor wraps
+        // several times per epoch rather than running out.
+        let mut rank_cursor = 0_usize;
+        let mut epoch_rank_sum = 0.0_f64;
+        let mut epoch_rank_batches = 0_usize;
 
         for rec in records.iter() {
             if let Some(pos) = build_position(
@@ -1213,9 +1404,25 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 batch.push(pos);
             }
             if batch.len() >= cli.batch_size {
-                let stats = trainer.train_batch_accumulated(&batch);
+                let groups = next_rank_groups(
+                    &rank_records,
+                    &mut rank_cursor,
+                    cli.rank_groups_per_batch,
+                    &trainer,
+                    &cli,
+                );
+                let stats = trainer.train_batch_mixed(
+                    &batch,
+                    &groups,
+                    cli.rank_weight,
+                    cli.rank_temperature,
+                );
                 epoch_td_sum += stats.avg_td_error as f64;
                 epoch_batches += 1;
+                if stats.rank_groups > 0 {
+                    epoch_rank_sum += stats.avg_rank_error as f64;
+                    epoch_rank_batches += 1;
+                }
                 if cli.verbose && batch_count % 20 == 0 {
                     println!(
                         "  epoch {:3} batch {:4}: td_err={:.4} w_chg={:.3}",
@@ -1231,9 +1438,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
         // Tail batch
         if !batch.is_empty() {
-            let stats = trainer.train_batch_accumulated(&batch);
+            let groups = next_rank_groups(
+                &rank_records,
+                &mut rank_cursor,
+                cli.rank_groups_per_batch,
+                &trainer,
+                &cli,
+            );
+            let stats =
+                trainer.train_batch_mixed(&batch, &groups, cli.rank_weight, cli.rank_temperature);
             epoch_td_sum += stats.avg_td_error as f64;
             epoch_batches += 1;
+            if stats.rank_groups > 0 {
+                epoch_rank_sum += stats.avg_rank_error as f64;
+                epoch_rank_batches += 1;
+            }
             batch.clear();
         }
 
@@ -1258,14 +1477,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Some(r) => format!(" r_clamp={:+.3}", r),
             None => String::new(),
         };
+        // Mean |p - t| over sibling moves: how far the network's move preference
+        // sits from the teacher's. Unlike td_err and r, this one is measured on
+        // the quantity we are actually trying to fix.
+        let rank_str = if epoch_rank_batches > 0 {
+            format!(" rank_err={:.4}", epoch_rank_sum / epoch_rank_batches as f64)
+        } else {
+            String::new()
+        };
         println!(
-            "Epoch {:3}/{:3}: {:6} pos, {:4} batches, avg td_err={:.4}{}, t={:.1}s",
+            "Epoch {:3}/{:3}: {:6} pos, {:4} batches, avg td_err={:.4}{}{}, t={:.1}s",
             epoch + 1,
             total_epochs,
             total_positions,
             epoch_batches,
             epoch_avg_td,
             pearson_str,
+            rank_str,
             epoch_start.elapsed().as_secs_f64()
         );
 

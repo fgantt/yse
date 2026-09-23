@@ -622,3 +622,89 @@ fn king_factorizer_split_preserves_the_network() {
     trainer.get_shadow().quantize_into(&mut rendered);
     assert_eq!(rendered.input_weights_1, w.input_weights_1);
 }
+
+/// The ranking loss must move a move's score towards the teacher's preference.
+///
+/// A child position is evaluated from the *opponent's* point of view, so the
+/// mover's score for move i is `-eval(child_i)`. A sign error there would train
+/// the network to prefer exactly the moves the teacher rejected while the loss
+/// still fell, so the direction has to be asserted directly.
+///
+/// The assertion is differential — the same starting weights trained once with
+/// the teacher preferring A and once preferring B — rather than "the gap to A
+/// widens". That weaker form does not discriminate: cross-entropy also
+/// calibrates *confidence*, so a network that already prefers A far more
+/// strongly than the teacher does gets pulled back towards A's rival no matter
+/// which way the sign points.
+#[test]
+fn ranking_loss_follows_the_teachers_preference() {
+    use shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES;
+    use shogi_engine::evaluation::nnue_training::{
+        extract_active_features, NNUETrainer, NNUETrainingConfig, RankingGroup, TrainingPosition,
+    };
+
+    // Two real children of one position, from the ranking corpus. Black to move
+    // in the parent, so both children have White to move.
+    const CHILD_A: &str = "lns3snl/2r1gkgb1/ppppppppp/9/8P/8R/PPPPPPPP1/1BS6/LN1GKGSNL w -";
+    const CHILD_B: &str = "lns3snl/2r1gkgb1/ppppppppp/9/8P/6P2/PPPPPP1P1/1BS5R/LN1GKGSNL w -";
+
+    let make_position = |sfen: &str, w: &NNUEWeights| -> TrainingPosition {
+        let (board, _p, _cap) = BitboardBoard::from_fen(sfen).expect("valid sfen");
+        let features = extract_active_features(&board);
+        let (h1, h2) = w.hidden_sizes();
+        let mut acc = NNUEAccumulator::new(h1, h2);
+        acc.refresh(&board, w);
+        let eval = acc.evaluate(w);
+        TrainingPosition {
+            active_features: features,
+            accumulator: acc,
+            evaluation: eval,
+            pst_evaluation: 0,
+            player: Player::White,
+            move_made: None,
+            outcome: None,
+            td_target: None,
+            active_features_nstm: Vec::new(),
+            accumulator_nstm: None,
+        }
+    };
+
+    // Train from identical weights under one teacher preference, and report
+    // `eval(B) - eval(A)`. The mover's score for a move is the negation of its
+    // child's evaluation, so preferring A means driving this quantity up.
+    let train_with = |scores: Vec<f32>| -> f32 {
+        let weights = det_weights(NUM_NNUE_FEATURES, 8, 4);
+        let mut config = NNUETrainingConfig::default();
+        config.use_adam = true;
+        config.learning_rate = 0.01;
+        let mut trainer = NNUETrainer::new(weights, config);
+        for _ in 0..10 {
+            let group = RankingGroup {
+                children: vec![
+                    make_position(CHILD_A, trainer.get_weights()),
+                    make_position(CHILD_B, trainer.get_weights()),
+                ],
+                scores: scores.clone(),
+            };
+            // A temperature far above the usual 100 cp on purpose: these
+            // random weights score the two children ~11600 cp apart, which at
+            // 100 cp saturates the softmax to p = 1.0 and leaves the network
+            // unable to move either way. The sign convention under test does
+            // not depend on the temperature; the softmax's responsiveness does.
+            trainer.train_batch_mixed(&[], std::slice::from_ref(&group), 1.0, 20_000.0);
+        }
+        let w = trainer.get_weights();
+        (make_position(CHILD_B, w).evaluation - make_position(CHILD_A, w).evaluation) as f32
+    };
+
+    let gap_prefer_a = train_with(vec![20_000.0, -20_000.0]);
+    let gap_prefer_b = train_with(vec![-20_000.0, 20_000.0]);
+
+    assert!(
+        gap_prefer_a > gap_prefer_b,
+        "a teacher preferring the move to A must leave the network keener on A than a \
+         teacher preferring B does: prefer_a={} prefer_b={}",
+        gap_prefer_a,
+        gap_prefer_b
+    );
+}

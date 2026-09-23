@@ -189,6 +189,36 @@ pub struct TrainingStats {
     pub avg_game_length: f32,
     /// Average positions per game
     pub avg_positions_per_game: f32,
+    /// Mean |p - t| over sibling moves in ranking groups: how far the network's
+    /// move preference sits from the teacher's. 0 = identical ordering *and*
+    /// identical confidence.
+    pub avg_rank_error: f32,
+    /// Ranking groups processed in the last batch.
+    pub rank_groups: usize,
+}
+
+/// One position's legal moves, scored against each other by the teacher.
+///
+/// `children[i]` is the position *after* move i, so its side to move is the
+/// opponent and the network's score for the move is `-output_cp(children[i])`.
+/// `scores[i]` is the teacher's centipawn score for that move from the moving
+/// side's point of view — the same convention MultiPV reports.
+pub struct RankingGroup {
+    pub children: Vec<TrainingPosition>,
+    pub scores: Vec<f32>,
+}
+
+/// Numerically stable softmax.
+fn softmax(logits: &[f32]) -> Vec<f32> {
+    let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+    let mut out: Vec<f32> = logits.iter().map(|&x| (x - max).exp()).collect();
+    let sum: f32 = out.iter().sum();
+    if sum > 0.0 {
+        for v in out.iter_mut() {
+            *v /= sum;
+        }
+    }
+    out
 }
 
 /// A game position with its evaluation and outcome
@@ -1205,6 +1235,26 @@ impl NNUETrainer {
         }
     }
     pub fn train_batch_accumulated(&mut self, positions: &[TrainingPosition]) -> TrainingStats {
+        self.train_batch_mixed(positions, &[], 0.0, 1.0)
+    }
+
+    /// Train on a batch of positions under the value objective, sibling groups
+    /// under the ranking objective, or both at once.
+    ///
+    /// Both objectives accumulate into the same gradient buffers and are applied
+    /// in a single weight update, so the network is never pulled in one
+    /// direction and then the other within a batch.
+    ///
+    /// `rank_weight` scales the ranking term against the value term;
+    /// `rank_temperature` is in centipawns and sets both how peaked the
+    /// teacher's target distribution is and, as 1/T, the gradient's scale.
+    pub fn train_batch_mixed(
+        &mut self,
+        positions: &[TrainingPosition],
+        groups: &[RankingGroup],
+        rank_weight: f32,
+        rank_temperature: f32,
+    ) -> TrainingStats {
         let (h1_size, _) = self.weights.hidden_sizes();
         let num_features = self.weights.input_weights_1.len();
         let h2_size = self
@@ -1291,6 +1341,66 @@ impl NNUETrainer {
                 error * decisive_mult * pred_deriv,
                 &mut accs,
             );
+        }
+
+        // Ranking objective.
+        //
+        // The value loss asks each position what it is worth. This asks what a
+        // search actually needs to know: among the moves available *here*, which
+        // is best, and by how much.
+        //
+        // A child position's evaluation is from the opponent's point of view, so
+        // the network's score for move i is `-output_cp(child_i)`. Taking a
+        // softmax over those against a softmax over the teacher's scores gives
+        // `dL/dz_i = p_i - t_i`, and the chain through `z_i = -output_cp_i / T`
+        // contributes `-1/T`. We pass `-dL/d(output_cp_i)`, matching the
+        // convention the value path uses.
+        //
+        // Note that `sum_i (p_i - t_i) = 0`: this gradient is pure contrast
+        // between siblings and cannot move the network's overall scale. That is
+        // exactly what we want from it, and also why the value term has to stay
+        // — a search needs absolute scores for aspiration windows, futility
+        // margins and mate bounds, and ranking alone would let them drift.
+        let mut rank_error_sum = 0.0_f32;
+        let mut rank_child_count = 0_usize;
+        let mut rank_group_count = 0_usize;
+        // Measured whenever groups are supplied, but only applied when weighted:
+        // `--rank-weight 0` is the control arm, and it has to report the same
+        // number a weighted run does or the comparison means nothing.
+        if !groups.is_empty() {
+            for group in groups {
+                let k = group.children.len();
+                if k < 2 || group.scores.len() != k {
+                    continue;
+                }
+                let fs: Vec<ForwardState> =
+                    group.children.iter().map(|c| self.forward_position(c)).collect();
+                let pred_logits: Vec<f32> =
+                    fs.iter().map(|f| -f.output_cp / rank_temperature).collect();
+                let target_logits: Vec<f32> =
+                    group.scores.iter().map(|&s| s / rank_temperature).collect();
+                let p = softmax(&pred_logits);
+                let t = softmax(&target_logits);
+
+                // Mean over the list rather than sum, so a group counts for
+                // about as much as one position however many siblings the
+                // teacher happened to return.
+                let norm = rank_weight / (k as f32 * rank_temperature);
+                for i in 0..k {
+                    let diff = p[i] - t[i];
+                    rank_error_sum += diff.abs();
+                    rank_child_count += 1;
+                    if rank_weight != 0.0 {
+                        self.accumulate_position_grads(
+                            &group.children[i],
+                            &fs[i],
+                            diff * norm,
+                            &mut accs,
+                        );
+                    }
+                }
+                rank_group_count += 1;
+            }
         }
 
         // Apply accumulated gradients to the f32 shadow (no clamping, no
@@ -1536,6 +1646,12 @@ impl NNUETrainer {
             self.stats.avg_weight_change = avg_change;
             self.stats.max_weight_change = max_change;
         }
+        self.stats.rank_groups = rank_group_count;
+        self.stats.avg_rank_error = if rank_child_count > 0 {
+            rank_error_sum / rank_child_count as f32
+        } else {
+            0.0
+        };
         self.stats.clone()
     }
 
