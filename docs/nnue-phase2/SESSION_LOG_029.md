@@ -15,7 +15,13 @@ legal moves the way the teacher does, rather than only to predict what positions
 >    move loss did not improve. See *The softmax trap*.
 > 2. **A pairwise hinge does work**, on the 1-ply proxy. It closes the shortcut because
 >    shrinking the score spread *increases* the loss.
+>    Every conclusion below was reached at *fixed depth*, which is the one search mode the defect
+>    in item 4 does not touch.
 > 3. **A fixed seed does not make a training run reproducible** when the king factoriser is on.
+> 4. **The engine searches ~5% of the node budget it is given.** Found at the end of this session,
+>    from a real game. It does not affect the fixed-depth measurements here, but it does affect
+>    every `nodes`-limited match in Session 28 — including the handicap-ladder calibration — and it
+>    is a far larger effect than anything this session's training produced. See *Postscript*.
 
 ---
 
@@ -209,3 +215,48 @@ measurably worse, a two-hour head-to-head could not have been justified. The han
   reports the same numbers a weighted run does.
 - **Judge by per-epoch checkpoints, not the trainer's "best" file.** That file is selected on
   held-out Pearson r, which Session 28 showed rises monotonically while Elo moves the other way.
+
+
+---
+
+## Postscript: the engine was searching 5% of its budget
+
+A user-played 8-piece handicap game, lost from a position worth +3400 cp, prompted a replay of the
+losing moves through both engines. The engine had dropped a gold onto a defended square, then fed
+pawns one at a time into the same capture for ten moves.
+
+It was searching at **depth 2**.
+
+| requested | nodes actually searched | depth |
+|---|---|---|
+| `nodes 20000`, handicap middlegame | **852** | 2 |
+| `nodes 20000`, startpos | **1,160** | 3 |
+| YaneuraOu, `nodes 20000` | 20,017 | 10–13 |
+
+**Cause.** `TimeManager::should_stop` increments `nodes_this_search` itself, and three of its five
+call sites sit *inside move loops* (`search_engine.rs` lines 6002, 7056, and quiescence's 7923)
+rather than at node entry. The budget is therefore consumed at roughly `1 + moves_per_node` per
+real node. The arithmetic matches: 852 × ~23 legal moves ≈ 20,000, and 1,160 × ~17 ≈ 20,000. The
+same inflated counter drives `time_check_node_counter`, which is why `movetime 1000` returns after
+413 ms.
+
+The defect is worst exactly where branching is widest — middlegames with pieces in hand, which is
+where games are decided.
+
+**What this invalidates.** Every `nodes`-limited match in Session 28 was measuring an engine
+searching ~4% of its stated budget, including the handicap ladder that produced "six-piece odds is
+the sparring partner". Fixed-depth work (`search_oracle`, the move-loss sets, this session's
+training arms) is unaffected.
+
+**What it reopens.** Session 28 concluded the gap is evaluation quality and not search, on the
+grounds that our machinery beats plain alpha-beta — a comparison run at fixed depth, where this
+defect is invisible. That conclusion should be re-derived, not inherited.
+
+**A second, separate problem.** Even at matched *actual* node counts we reach half the depth:
+20,510 nodes → depth 5 against YaneuraOu's 20,017 → depth 10. Effective branching factor ~4-6
+against their ~2. Fixing the budget is worth about two plies; this is the ceiling after that.
+
+**An awkward consequence for this session's result.** In real games the engine currently plays at
+depth 2-3 — the regime where the pairwise network is *better* (median 108-111 vs 120-138). It
+would likely win a match today. That is a gain contingent on a bug, and it should not be banked
+before the bug is fixed and the comparison re-run at honest depth.
