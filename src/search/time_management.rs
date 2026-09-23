@@ -18,21 +18,43 @@ pub struct TimeManager {
     time_budget_stats: TimeBudgetStats,
     time_pressure_thresholds: TimePressureThresholds,
     time_check_node_counter: u32,
-    /// `go nodes N`: stop once this many nodes have been searched (counted as
-    /// calls to `should_stop`, which every search and quiescence node makes).
+    /// `go nodes N`: stop once this many nodes have been searched.
     node_limit: Option<u64>,
-    nodes_this_search: u64,
 }
 
 impl TimeManager {
-    /// Start a new search: reset the node count and set the node limit.
+    /// Start a new search: set the node limit and reset the cumulative node
+    /// count the limit is measured against.
     pub fn begin_search(&mut self, node_limit: Option<u64>) {
         self.node_limit = node_limit;
-        self.nodes_this_search = 0;
+        crate::search::statistics::GLOBAL_SEARCH_NODES
+            .store(0, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// Has the search used up its `go nodes` budget?
+    ///
+    /// Counted against `GLOBAL_SEARCH_NODES` — the same counter reported as
+    /// `info nodes` — so "ask for N nodes, search N nodes" holds by
+    /// construction.
+    ///
+    /// It must be that counter and not `GLOBAL_NODES_SEARCHED`, which is reset
+    /// at the start of every depth iteration: measuring the budget against it
+    /// would grant N nodes *per iteration* rather than N for the search.
+    ///
+    /// It used to be counted with a local tally incremented inside
+    /// `should_stop`, on the assumption that every node calls that exactly
+    /// once. Three of its five call sites are inside *move* loops, so the tally
+    /// actually advanced by roughly `1 + moves_per_node`, and a search asked for
+    /// 20,000 nodes stopped after 852 of them — depth 2 where the budget was
+    /// worth depth 5, and worst in the wide middlegames where games are decided.
+    /// Reading the authoritative counter cannot drift that way no matter how
+    /// often, or from where, the check is called.
     fn node_limit_reached(&self) -> bool {
-        self.node_limit.map_or(false, |n| self.nodes_this_search >= n)
+        self.node_limit.map_or(false, |n| {
+            crate::search::statistics::GLOBAL_SEARCH_NODES
+                .load(std::sync::atomic::Ordering::Relaxed)
+                >= n
+        })
     }
 
     /// Create a new TimeManager with the given configuration
@@ -46,7 +68,6 @@ impl TimeManager {
             time_pressure_thresholds,
             time_check_node_counter: 0,
             node_limit: None,
-            nodes_this_search: 0,
         }
     }
 
@@ -83,7 +104,6 @@ impl TimeManager {
             }
         }
 
-        self.nodes_this_search += 1;
         if self.node_limit_reached() {
             return true;
         }

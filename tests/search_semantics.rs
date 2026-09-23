@@ -548,3 +548,49 @@ fn unlimited_depth_search_respects_the_time_limit() {
     assert!(result.is_some(), "must return a move");
     assert!(elapsed < 1500, "500 ms search took {elapsed} ms");
 }
+
+/// `go nodes N` must actually search about N nodes.
+///
+/// It did not, for a long time: the budget was tracked by a counter
+/// incremented inside `should_stop`, which three of its five call sites invoke
+/// once per *move* rather than once per node. A search asked for 20,000 nodes
+/// stopped after 852 — depth 2 where the budget was worth depth 5 — and the
+/// shortfall was worst in wide middlegames, the positions that decide games.
+///
+/// Nothing caught it because every strength measurement we trusted ran at fixed
+/// depth, which ignores the node budget entirely. This test is the one that
+/// would have.
+#[test]
+fn a_node_limited_search_spends_about_its_whole_budget() {
+    use shogi_engine::search::statistics::GLOBAL_SEARCH_NODES;
+    use std::sync::atomic::Ordering;
+    use std::sync::Mutex;
+
+    // The node counter is process-global, so two searches at once would see
+    // each other's nodes.
+    static SERIALISE: Mutex<()> = Mutex::new(());
+    let _guard = SERIALISE.lock().unwrap_or_else(|e| e.into_inner());
+
+    let (board, _p, captured) =
+        BitboardBoard::from_fen("lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1")
+            .expect("valid sfen");
+
+    const BUDGET: u64 = 50_000;
+    let mut engine = SearchEngine::new(None, 16);
+    engine.set_node_limit(Some(BUDGET));
+    // Depth and time both far out of reach, so the node budget is the only
+    // thing that can stop this search.
+    let mut id = IterativeDeepening::new(64, 600_000, None);
+    let _ = id.search(&mut engine, &board, &captured, Player::Black).expect("a legal move");
+
+    let nodes = GLOBAL_SEARCH_NODES.load(Ordering::Relaxed);
+    assert!(
+        nodes >= BUDGET / 2,
+        "searched only {nodes} of a {BUDGET}-node budget; the budget is being \
+         consumed by something other than nodes"
+    );
+    assert!(
+        nodes <= BUDGET * 2,
+        "searched {nodes} on a {BUDGET}-node budget; the limit is not being enforced"
+    );
+}

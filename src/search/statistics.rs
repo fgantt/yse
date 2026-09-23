@@ -10,6 +10,16 @@ use std::sync::atomic::{AtomicU64, Ordering};
 /// Global aggregate of nodes searched across all threads for live reporting.
 pub static GLOBAL_NODES_SEARCHED: AtomicU64 = AtomicU64::new(0);
 
+/// Nodes searched since the start of the *whole* search, across every
+/// iterative-deepening iteration.
+///
+/// Distinct from [`GLOBAL_NODES_SEARCHED`], which is reset at the start of each
+/// depth iteration and so only ever holds the current iteration's count. A
+/// `go nodes N` budget spans the entire search, and `info nodes` is cumulative
+/// by USI convention, so both read this one. Reset in
+/// `TimeManager::begin_search`.
+pub static GLOBAL_SEARCH_NODES: AtomicU64 = AtomicU64::new(0);
+
 /// Global maximum search depth reached (seldepth) across all threads for live
 /// reporting.
 pub static GLOBAL_SELDEPTH: AtomicU64 = AtomicU64::new(0);
@@ -129,6 +139,7 @@ impl SearchStatistics {
         self.nodes_searched += 1;
         self.core_metrics.total_nodes += 1;
         GLOBAL_NODES_SEARCHED.fetch_add(1, Ordering::Relaxed);
+        GLOBAL_SEARCH_NODES.fetch_add(1, Ordering::Relaxed);
     }
 
     /// Update selective depth (maximum depth reached)

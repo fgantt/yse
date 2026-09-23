@@ -14962,6 +14962,12 @@ impl IterativeDeepening {
         );
         trace_log!("ITERATIVE_DEEPENING", "Starting depth iteration loop");
 
+        // Cumulative wall clock for the whole search. The per-depth instant below
+        // measures one iteration, which is the right base for that iteration's
+        // internal bookkeeping but the wrong one for `info time`, which USI
+        // defines as time since the search began.
+        let search_start_instant = std::time::Instant::now();
+
         for depth in 1..=effective_max_depth {
             // Reset global node counter for this depth and start periodic reporter
             GLOBAL_NODES_SEARCHED.store(0, Ordering::Relaxed);
@@ -15038,7 +15044,6 @@ impl IterativeDeepening {
             let info_sender_cancel = Arc::new(AtomicBool::new(false));
             let info_sender_cancel_clone = info_sender_cancel.clone();
             let depth_clone = depth;
-            let depth_start_time_instant = std::time::Instant::now(); // Capture instant for elapsed time
             let _board_clone = board.clone();
             let _captured_clone = captured_pieces.clone();
             let _player_clone = player;
@@ -15100,8 +15105,15 @@ impl IterativeDeepening {
                     std::thread::park_timeout(std::time::Duration::from_millis(100));
 
                     if last_info_time.elapsed() >= info_interval {
-                        let elapsed = depth_start_time_instant.elapsed().as_millis() as u32;
-                        let nodes = GLOBAL_NODES_SEARCHED.load(Ordering::Relaxed);
+                        // Both cumulative, so `nodes`, `time` and the `nps`
+                        // derived from them agree with each other and with what
+                        // other engines report. Reporting the per-depth counter
+                        // here made our node count and nps look like a fraction
+                        // of what the search was actually doing, and made the
+                        // figure jump backwards at every new iteration.
+                        let elapsed = search_start_instant.elapsed().as_millis() as u32;
+                        let nodes =
+                            crate::search::statistics::GLOBAL_SEARCH_NODES.load(Ordering::Relaxed);
 
                         if nodes == 0 {
                             continue; // Skip if no nodes searched yet
@@ -15836,8 +15848,14 @@ impl IterativeDeepening {
                     pv.iter().map(|m| m.to_usi_string()).collect::<Vec<String>>().join(" ")
                 };
                 let time_searched = start_time.elapsed_ms();
-                // Use GLOBAL_NODES_SEARCHED for accurate node count across threads
-                let nodes_for_info = GLOBAL_NODES_SEARCHED.load(Ordering::Relaxed);
+                // Cumulative across the whole search, as USI expects, and as the
+                // `time` field beside it already is. GLOBAL_NODES_SEARCHED is
+                // reset every depth iteration, so reporting it here counted only
+                // the last iteration while dividing by the total elapsed time —
+                // understating both our node count and our nps against any
+                // engine we compared with.
+                let nodes_for_info =
+                    crate::search::statistics::GLOBAL_SEARCH_NODES.load(Ordering::Relaxed);
                 let nps = if time_searched > 0 {
                     nodes_for_info.saturating_mul(1000) / (time_searched as u64)
                 } else {
