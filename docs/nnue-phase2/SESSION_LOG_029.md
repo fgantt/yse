@@ -260,3 +260,51 @@ against their ~2. Fixing the budget is worth about two plies; this is the ceilin
 depth 2-3 — the regime where the pairwise network is *better* (median 108-111 vs 120-138). It
 would likely win a match today. That is a gain contingent on a bug, and it should not be banked
 before the bug is fixed and the comparison re-run at honest depth.
+
+---
+
+## Postscript 2: "we only use half our clock" was not a bug
+
+At byoyomi 1000 the search returned after 428–596 ms of a ~900 ms allocation, and iterative
+deepening's gate was the reason:
+
+```rust
+let past_half = self.max_depth >= 100 && depth > 1 && elapsed_ms * 2 > search_time_limit;
+```
+
+It refuses to start an iteration once half the budget is gone. The comment beside it explains why:
+an unfinished iteration's result is discarded, so its time would be spent for nothing.
+
+The obvious repair is to make partial results usable and relax the gate. Tried, in three
+increasingly careful forms, and measured over 150 neutral positions at 1 s/move:
+
+| build | mean | median |
+|---|---|---|
+| baseline | **284** | **80** |
+| partial result, guarded by "a root move completed" + exact score | 313 | 129 |
+| plus "only if it improves on the previous iteration" | 308 | 92 |
+
+Time utilisation rose from 43–80% to 85–97%, and average depth did not move at all (2.4 either
+way) — the extra time almost never completes an iteration, so every difference came from adopting
+partial results, and they play worse.
+
+The second guard is instructive. The damaging case is a root fail-low: the previous best move is
+refuted a ply deeper, the next alternative beats that *refuted* score, and it gets played although
+the remaining root moves were never searched. Requiring an improvement over the previous
+iteration recovered most of the loss (129 → 92 cp) and still did not reach baseline.
+
+**Reverted.** The 50% figure is not waste; it is the correct consequence of discarding unfinished
+iterations. Spending that time well needs the real machinery — fail-low detection with time
+extension, so a refuted PV gets resolved rather than replaced — which is a larger piece of work
+than "relax the gate".
+
+It is also the wrong thing to build next. At an effective branching factor of 6, a partial extra
+ply is worth far less than halving the tree, and the branching factor is where the depth gap
+against YaneuraOu (3 vs 16 at the same clock) actually lives.
+
+**Correction to Postscript 1.** The node-budget defect does not affect time-controlled play at all:
+`btime`/`byoyomi` searches set no node limit, so the broken counter never applied to them. It
+invalidated node-limited *measurements* — the handicap ladder, every `nodes`-limited match, and the
+`--player-go "nodes 3000"` used to generate every self-play corpus since Session 25 — but the game
+that prompted the investigation was lost at depth 3 for the reasons in this postscript and the
+next, not because of that bug.
