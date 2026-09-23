@@ -104,3 +104,64 @@ floor; the medians are stabler.
    untested lever.
 3. Do not retry 81 king buckets on this premise. Its rationale was that data volume limited the
    Session 24 result; that is now at best half true.
+
+---
+
+## Addendum: the handicap ladder, and a failed hypothesis
+
+### Even-material matches against YaneuraOu carry no information
+
+Ours at 20,000 nodes against YaneuraOu at 1, 5, 20 and 50 nodes: 3, 5, 2 and 1 wins of 24. The win
+rate is **flat across a 50× change in its search budget** — its evaluation alone decides the games,
+and our own improvements cannot register. Every "1 in 24" result in these logs says the same thing
+regardless of how much we improved.
+
+### The ladder (commit `8e816bb`)
+
+`usi_match --start-sfen` plays from a handicap position. Counting only our games on the side holding
+the odds, against YaneuraOu at 50 nodes:
+
+| handicap | record | score |
+|---|---|---|
+| four-piece | 2W-1D-9L | 21% |
+| **six-piece** | **5W-1D-6L** | **46%** |
+| eight-piece | 8W-2D-2L | 75% |
+
+**Six-piece odds is the sparring partner.** At 46% the win rate responds to real changes; at even
+material nothing does.
+
+Two traps, both of which invalidated a first attempt: the handicap belongs to one colour while the
+harness alternates colours, so the aggregate is meaningless and only the per-colour split counts; and
+`--random-plies 8` squanders a material advantage asymmetrically, because the side with more pieces
+has more to hang. Use 2 or fewer.
+
+### Failed: widening the training target
+
+56.9% of our self-play positions sit past the ±2000 cp clamp, so more than half the corpus carried an
+identical target. The inference — that the network is therefore blind where games are decided, and
+that this is why it cannot convert — was wrong.
+
+Retrained with `--eval-clamp 6000 --sigmoid-eval-scale 1200` (both are needed; at scale 410 a 2000 cp
+position already targets 0.992, so raising the clamp alone changes nothing). Conversion at four-piece
+odds:
+
+| network | record |
+|---|---|
+| deployed | 2W-1D-9L |
+| wide target, epoch 2 | 1W-2D-9L |
+| wide target, epoch 4 | 0W-0D-12L |
+
+Worse, and monotonically worse with training. The cost of widening — losing resolution near equality,
+where a 500 cp edge drops from target 0.772 to 0.603 — evidently dominates. Scale 410 is standard
+practice for good reason. Nothing was deployed.
+
+Held-out r rose 0.880 → 0.895 across the run, which is *not* evidence: it is computed against the
+clamp, and the clamp changed.
+
+### Why conversion fails, without needing a bug
+
+Our median per-move loss on neutral ground is 121 cp against YaneuraOu's 64 — a deficit of ~57 cp per
+move. A four-piece handicap is worth roughly 2,400 cp, which at that rate is consumed in about 42
+moves; these games run past 100. Losing from four-piece odds is the arithmetic of the per-move gap,
+not a separate defect in how won positions are played. The earlier framing of this as "structurally
+wrong" over-read it.
