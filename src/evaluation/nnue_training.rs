@@ -510,6 +510,40 @@ pub struct NNUETrainer {
     stats: TrainingStats,
 }
 
+/// The intermediate values of one forward pass, kept so that the backward pass
+/// can run as a separate step.
+///
+/// Splitting the two is what lets a ranking objective exist at all: a ranking
+/// loss for one position depends on the network's scores for its *siblings*, so
+/// every move in a group must be forwarded before any of them can be
+/// backpropagated. The value objective does not need the split, and gets the
+/// same numbers either way.
+struct ForwardState {
+    h1_pre: Vec<f32>,
+    h1_act: Vec<f32>,
+    h2_pre: Vec<f32>,
+    final_values: Vec<f32>,
+    /// The network's evaluation in centipawns, from `position.player`'s view.
+    output_cp: f32,
+    /// `output_cp` mapped through tanh/sigmoid into target units.
+    prediction: f32,
+}
+
+/// Everything one position's backward pass writes into.
+///
+/// Bundled behind mutable references so the accumulation code can be shared by
+/// both objectives without moving the caller's locals, which the weight-update
+/// half of `train_batch_accumulated` still reads by name.
+struct GradAccumulators<'a> {
+    output_w: &'a mut Vec<f32>,
+    output_b: &'a mut f32,
+    w2: &'a mut Vec<Vec<f32>>,
+    b2: &'a mut Vec<f32>,
+    input_w: &'a mut std::collections::HashMap<usize, Vec<f32>>,
+    b1: &'a mut Vec<f32>,
+    psqt: &'a mut std::collections::HashMap<usize, f32>,
+}
+
 impl NNUETrainer {
     /// Create a new trainer with given weights and configuration
     pub fn new(weights: NNUEWeights, config: NNUETrainingConfig) -> Self {
@@ -926,6 +960,250 @@ impl NNUETrainer {
     /// Equivalent to: i16 weight = round(init_i16 + Σ_batches f32_grad_update),
     /// so any gradient direction that's consistent across many batches
     /// eventually crosses the quantization threshold and bumps the i16 weight.
+    /// Forward one position through the network, in f32, keeping the
+    /// intermediates the backward pass needs.
+    ///
+    /// NOTE: this arithmetic is duplicated in `update_weights_for_position`,
+    /// which the *online* TD(lambda) trainer uses. The offline trainer reaches
+    /// only this one. Any change here must be mirrored there, and vice versa —
+    /// editing one silently leaves the other alone.
+    fn forward_position(&self, position: &TrainingPosition) -> ForwardState {
+        let (h1_size, _) = self.weights.hidden_sizes();
+        let h2_size = self
+            .weights
+            .hidden_biases_2
+            .as_ref()
+            .map(|b| b.len())
+            .unwrap_or(0);
+        let dual = self.weights.is_dual();
+        let f32_input_forward = self.config.f32_input_forward;
+
+        // Default path: read `position.accumulator.hidden_1` (i32, computed
+        // from the i16 input weights at refresh time) and add the i32 bias.
+        //
+        // f32-input-forward path (Session 12 Experiment B): recompute `h1_pre`
+        // from scratch using the f32 shadow `input_weights_1` and
+        // `hidden_biases_1`. This bypasses the i16 quantization applied to the
+        // input layer once per batch in `quantize_into`, so the forward pass
+        // during training sees the un-rounded weight values that subsequent
+        // gradient updates are accumulating into.
+        let first_layer = |acc: &NNUEAccumulator, features: &[usize]| -> Vec<f32> {
+            if f32_input_forward {
+                let mut v = self.shadow.hidden_biases_1.clone();
+                for &feat in features {
+                    if feat < self.shadow.input_weights_1.len() {
+                        let row = &self.shadow.input_weights_1[feat];
+                        for (i, &w) in row.iter().enumerate() {
+                            v[i] += w;
+                        }
+                        if let Some(sh) = self.shadow.input_shared.as_ref() {
+                            let srow = &sh[feat % crate::evaluation::nnue::KING_FEATURE_STRIDE];
+                            for (i, &w) in srow.iter().enumerate() {
+                                v[i] += w;
+                            }
+                        }
+                    }
+                }
+                v
+            } else {
+                acc.hidden_1
+                    .iter()
+                    .zip(self.weights.hidden_biases_1.iter())
+                    .map(|(&h, &b)| (h + b) as f32)
+                    .collect()
+            }
+        };
+        // Two-perspective networks read the side to move's first layer followed
+        // by the opponent's; `h1_pre` is then `2 × h1_size` long and index
+        // `h1_size + i` belongs to the opponent perspective.
+        let mut h1_pre: Vec<f32> = first_layer(&position.accumulator, &position.active_features);
+        if dual {
+            let nstm = position
+                .accumulator_nstm
+                .as_ref()
+                .expect("two-perspective training needs accumulator_nstm");
+            h1_pre.extend(first_layer(nstm, &position.active_features_nstm));
+        }
+        let h1_act: Vec<f32> = h1_pre.iter().map(|&x| x.max(0.0)).collect();
+
+        // `/ 64.0` is hoisted out of the inner loop to mirror the engine's
+        // single `>> 6`. In f32 that is the same value either way; the engine is
+        // where the per-term *floor* lived (audit Finding 3).
+        let (h2_pre, final_values) = if let Some(ref w2) = self.weights.input_weights_2 {
+            let biases_2 = self.weights.hidden_biases_2.as_ref().unwrap();
+            let mut h2_pre = vec![0.0_f32; h2_size];
+            for (i, &a1) in h1_act.iter().enumerate() {
+                for (j, &w) in w2[i].iter().enumerate() {
+                    h2_pre[j] += a1 * (w as f32);
+                }
+            }
+            for (j, &b) in biases_2.iter().enumerate() {
+                h2_pre[j] = h2_pre[j] / 64.0 + b as f32;
+            }
+            let h2_act: Vec<f32> = h2_pre.iter().map(|&x| x.max(0.0)).collect();
+            (h2_pre, h2_act)
+        } else {
+            (Vec::new(), h1_act.clone())
+        };
+
+        let mut dot = 0.0_f32;
+        for (i, &v) in final_values.iter().enumerate() {
+            if i < self.weights.output_weights.len() {
+                dot += v * (self.weights.output_weights[i] as f32);
+            }
+        }
+        let raw_output = self.weights.output_bias as f32 + dot / 64.0;
+        // The PSQT path adds straight to the output in centipawns, as in the
+        // engine's `NNUEAccumulator::evaluate`. Read from the f32 shadow so that
+        // sub-centipawn updates are seen before they round.
+        let psqt_sum = |features: &[usize]| -> f32 {
+            features.iter().filter_map(|&f| self.shadow.psqt.get(f)).sum()
+        };
+        // Two perspectives: (stm - nstm) / 2, as in `evaluate_dual`.
+        let psqt_cp: f32 = if dual {
+            (psqt_sum(&position.active_features) - psqt_sum(&position.active_features_nstm)) / 2.0
+        } else {
+            psqt_sum(&position.active_features)
+        };
+        let output_cp = raw_output * SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32 + psqt_cp;
+        // Session 13: prediction either tanh (legacy) over [-1,1] or sigmoid
+        // (new) over [0,1]. Both accept output_cp; tanh uses SCALE_FACTOR (=400)
+        // as its cp scale, sigmoid uses sigmoid_eval_scale (=410 by default).
+        let prediction = if self.config.use_sigmoid_loss {
+            1.0 / (1.0 + (-output_cp / self.config.sigmoid_eval_scale).exp())
+        } else {
+            (output_cp / SCALE_FACTOR_F32).tanh()
+        };
+
+        ForwardState { h1_pre, h1_act, h2_pre, final_values, output_cp, prediction }
+    }
+
+    /// Backpropagate one position, given `d_cp` — the gradient of the loss with
+    /// respect to this position's `output_cp`, sign-flipped so that adding it to
+    /// the weights descends the loss.
+    ///
+    /// Every objective reduces to this one scalar. The value objective sets it
+    /// to `error * d(prediction)/d(output_cp)`; the ranking objective sets it
+    /// from a softmax over the position's siblings. Nothing below this line
+    /// knows which one it was.
+    fn accumulate_position_grads(
+        &self,
+        position: &TrainingPosition,
+        fs: &ForwardState,
+        d_cp: f32,
+        accs: &mut GradAccumulators<'_>,
+    ) {
+        let (h1_size, _) = self.weights.hidden_sizes();
+        let num_features = self.weights.input_weights_1.len();
+        let h2_size = self
+            .weights
+            .hidden_biases_2
+            .as_ref()
+            .map(|b| b.len())
+            .unwrap_or(0);
+        let dual = self.weights.is_dual();
+        let psqt_trainable = self.config.psqt_learning_rate > 0.0 && !self.shadow.psqt.is_empty();
+
+        // d(output_cp)/d(raw_output) = SCALE_FACTOR / OUTPUT_DIVISOR.
+        let scale_deriv = SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
+        let d_raw = d_cp * scale_deriv;
+
+        // d(output_cp)/d(psqt[f]) = 1 for every active feature.
+        if psqt_trainable {
+            let (g_stm, g_nstm) = if dual { (0.5, -0.5) } else { (1.0, 0.0) };
+            for &f in &position.active_features {
+                if f < self.shadow.psqt.len() {
+                    *accs.psqt.entry(f).or_insert(0.0) += g_stm * d_cp;
+                }
+            }
+            if dual {
+                for &f in &position.active_features_nstm {
+                    if f < self.shadow.psqt.len() {
+                        *accs.psqt.entry(f).or_insert(0.0) += g_nstm * d_cp;
+                    }
+                }
+            }
+        }
+
+        for (i, &v) in fs.final_values.iter().enumerate() {
+            if i < accs.output_w.len() {
+                accs.output_w[i] += d_raw * (v / 64.0);
+            }
+        }
+        *accs.output_b += d_raw;
+
+        let d_h2: Vec<f32> = if h2_size > 0 {
+            (0..h2_size)
+                .map(|j| {
+                    if j < self.weights.output_weights.len() {
+                        d_raw * (self.weights.output_weights[j] as f32 / 64.0)
+                    } else {
+                        0.0
+                    }
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        let h1_total = fs.h1_act.len();
+        let mut d_h1 = vec![0.0_f32; h1_total];
+        if let Some(ref w2) = self.weights.input_weights_2 {
+            for i in 0..h1_total {
+                for j in 0..h2_size {
+                    if fs.h2_pre[j] > 0.0 {
+                        d_h1[i] += d_h2[j] * (w2[i][j] as f32 / 64.0);
+                    }
+                }
+            }
+            for i in 0..h1_total {
+                for j in 0..h2_size {
+                    if fs.h2_pre[j] > 0.0 {
+                        accs.w2[i][j] += d_h2[j] * (fs.h1_act[i] / 64.0);
+                    }
+                }
+            }
+            for j in 0..h2_size {
+                if fs.h2_pre[j] > 0.0 {
+                    accs.b2[j] += d_h2[j];
+                }
+            }
+        } else {
+            for i in 0..h1_size {
+                if i < self.weights.output_weights.len() {
+                    d_h1[i] = d_raw * (self.weights.output_weights[i] as f32 / 64.0);
+                }
+            }
+        }
+
+        // Both perspectives share one feature transformer: each perspective's
+        // active rows take the gradient of its own half of `d_h1`.
+        let mut halves: Vec<(&[usize], usize)> = vec![(&position.active_features, 0)];
+        if dual {
+            halves.push((&position.active_features_nstm, h1_size));
+        }
+        for (features, off) in halves {
+            for &feature_idx in features {
+                if feature_idx >= num_features {
+                    continue;
+                }
+                let entry = accs
+                    .input_w
+                    .entry(feature_idx)
+                    .or_insert_with(|| vec![0.0_f32; h1_size]);
+                for i in 0..h1_size {
+                    if fs.h1_pre[off + i] > 0.0 {
+                        entry[i] += d_h1[off + i];
+                    }
+                }
+            }
+            for i in 0..h1_size {
+                if fs.h1_pre[off + i] > 0.0 {
+                    accs.b1[i] += d_h1[off + i];
+                }
+            }
+        }
+    }
     pub fn train_batch_accumulated(&mut self, positions: &[TrainingPosition]) -> TrainingStats {
         let (h1_size, _) = self.weights.hidden_sizes();
         let num_features = self.weights.input_weights_1.len();
@@ -961,134 +1239,36 @@ impl NNUETrainer {
         let use_sigmoid_loss = self.config.use_sigmoid_loss;
         let sigmoid_eval_scale = self.config.sigmoid_eval_scale;
 
+        let mut accs = GradAccumulators {
+            output_w: &mut acc_output_w,
+            output_b: &mut acc_output_b,
+            w2: &mut acc_w2,
+            b2: &mut acc_b2,
+            input_w: &mut acc_input_w,
+            b1: &mut acc_b1,
+            psqt: &mut acc_psqt,
+        };
+
         for position in positions {
             let target = match position.td_target {
                 Some(t) => t,
                 None => continue,
             };
 
-            // Forward pass in f32.
-            //
-            // Default path: read `position.accumulator.hidden_1` (i32, computed
-            // from the i16 input weights at refresh time) and add the i32 bias.
-            //
-            // f32-input-forward path (Session 12 Experiment B): recompute
-            // `h1_pre` from scratch using the f32 shadow `input_weights_1`
-            // and `hidden_biases_1`. This bypasses the i16 quantization that
-            // is applied to the input layer once per batch in
-            // `quantize_into`, so the forward pass during training sees the
-            // un-rounded weight values that subsequent gradient updates are
-            // accumulating into. Active features come straight from the
-            // `position.active_features` list the offline trainer populates.
-            let first_layer = |acc: &NNUEAccumulator, features: &[usize]| -> Vec<f32> {
-                if f32_input_forward {
-                    let mut v = self.shadow.hidden_biases_1.clone();
-                    for &feat in features {
-                        if feat < self.shadow.input_weights_1.len() {
-                            let row = &self.shadow.input_weights_1[feat];
-                            for (i, &w) in row.iter().enumerate() {
-                                v[i] += w;
-                            }
-                            if let Some(sh) = self.shadow.input_shared.as_ref() {
-                                let srow = &sh[feat % crate::evaluation::nnue::KING_FEATURE_STRIDE];
-                                for (i, &w) in srow.iter().enumerate() {
-                                    v[i] += w;
-                                }
-                            }
-                        }
-                    }
-                    v
-                } else {
-                    acc.hidden_1
-                        .iter()
-                        .zip(self.weights.hidden_biases_1.iter())
-                        .map(|(&h, &b)| (h + b) as f32)
-                        .collect()
-                }
-            };
-            // Two-perspective networks read the side to move's first layer
-            // followed by the opponent's; `h1_pre` is then `2 × h1_size` long and
-            // index `h1_size + i` belongs to the opponent perspective.
-            let mut h1_pre: Vec<f32> = first_layer(&position.accumulator, &position.active_features);
-            if dual {
-                let nstm = position
-                    .accumulator_nstm
-                    .as_ref()
-                    .expect("two-perspective training needs accumulator_nstm");
-                h1_pre.extend(first_layer(nstm, &position.active_features_nstm));
-            }
-            let h1_act: Vec<f32> = h1_pre.iter().map(|&x| x.max(0.0)).collect();
+            let fs = self.forward_position(position);
 
-            // NOTE: this forward pass is duplicated in
-            // `update_weights_for_position`, which the *online* TD(λ) trainer uses.
-            // The offline trainer only ever reaches this one. Any change to the
-            // arithmetic here must be mirrored there, and vice versa — editing one
-            // silently leaves the other alone.
-            //
-            // `/ 64.0` is hoisted out of the inner loop to mirror the engine's
-            // single `>> 6`. In f32 that is the same value either way; the engine
-            // is where the per-term *floor* lived (audit Finding 3).
-            let (h2_pre, final_values) = if let Some(ref w2) = self.weights.input_weights_2 {
-                let biases_2 = self.weights.hidden_biases_2.as_ref().unwrap();
-                let mut h2_pre = vec![0.0_f32; h2_size];
-                for (i, &a1) in h1_act.iter().enumerate() {
-                    for (j, &w) in w2[i].iter().enumerate() {
-                        h2_pre[j] += a1 * (w as f32);
-                    }
-                }
-                for (j, &b) in biases_2.iter().enumerate() {
-                    h2_pre[j] = h2_pre[j] / 64.0 + b as f32;
-                }
-                let h2_act: Vec<f32> = h2_pre.iter().map(|&x| x.max(0.0)).collect();
-                (h2_pre, h2_act)
-            } else {
-                (Vec::new(), h1_act.clone())
-            };
-
-            let mut dot = 0.0_f32;
-            for (i, &v) in final_values.iter().enumerate() {
-                if i < self.weights.output_weights.len() {
-                    dot += v * (self.weights.output_weights[i] as f32);
-                }
-            }
-            let raw_output = self.weights.output_bias as f32 + dot / 64.0;
-            // The PSQT path adds straight to the output in centipawns, as in the
-            // engine's `NNUEAccumulator::evaluate`. Read from the f32 shadow so
-            // that sub-centipawn updates are seen before they round.
-            let psqt_sum = |features: &[usize]| -> f32 {
-                features.iter().filter_map(|&f| self.shadow.psqt.get(f)).sum()
-            };
-            // Two perspectives: (stm - nstm) / 2, as in `evaluate_dual`.
-            let psqt_cp: f32 = if dual {
-                (psqt_sum(&position.active_features) - psqt_sum(&position.active_features_nstm))
-                    / 2.0
-            } else {
-                psqt_sum(&position.active_features)
-            };
-            let output_cp = raw_output * SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32 + psqt_cp;
-            // Session 13: prediction either tanh (legacy) over [-1,1] or
-            // sigmoid (new) over [0,1]. Both forms accept output_cp; tanh uses
-            // SCALE_FACTOR (=400) as its cp scale, sigmoid uses
-            // sigmoid_eval_scale (=410 by default).
-            let prediction = if use_sigmoid_loss {
-                1.0 / (1.0 + (-output_cp / sigmoid_eval_scale).exp())
-            } else {
-                (output_cp / SCALE_FACTOR_F32).tanh()
-            };
-
-            let error = target - prediction;
+            let error = target - fs.prediction;
             total_error += error.abs();
             count += 1;
 
             // Session 12 Experiment C: scale gradient on decisive positions.
             // The trainer sees `pst_evaluation` populated with the teacher's
-            // centipawn evaluation (the offline trainer wires it that way),
-            // so positions with |teacher cp| above `decisive_threshold_cp`
-            // contribute `decisive_weight` × the usual gradient. Multiplying
-            // `error` cascades through `d_raw` and all downstream gradient
-            // accumulators — equivalent to a per-position learning rate.
-            // total_error above is NOT reweighted, so the reported td_err
-            // remains directly comparable to runs with weight=1.0.
+            // centipawn evaluation (the offline trainer wires it that way), so
+            // positions with |teacher cp| above `decisive_threshold_cp`
+            // contribute `decisive_weight` × the usual gradient — equivalent to
+            // a per-position learning rate. total_error above is NOT
+            // reweighted, so the reported td_err remains directly comparable to
+            // runs with weight=1.0.
             let decisive_mult = if decisive_weight != 1.0
                 && position.pst_evaluation.abs() > decisive_threshold_cp
             {
@@ -1096,114 +1276,21 @@ impl NNUETrainer {
             } else {
                 1.0
             };
-            let weighted_error = error * decisive_mult;
 
-            // Session 13: chain rule for prediction → output_cp → raw_output.
+            // Session 13: chain rule for prediction → output_cp.
             //   tanh:    d(p)/d(output_cp) = (1 - p^2) / SCALE_FACTOR
             //   sigmoid: d(p)/d(output_cp) = p(1 - p) / sigmoid_eval_scale
-            // d(output_cp)/d(raw_output) = SCALE_FACTOR / OUTPUT_DIVISOR.
             let pred_deriv = if use_sigmoid_loss {
-                prediction * (1.0 - prediction) / sigmoid_eval_scale
+                fs.prediction * (1.0 - fs.prediction) / sigmoid_eval_scale
             } else {
-                (1.0 - prediction * prediction) / SCALE_FACTOR_F32
+                (1.0 - fs.prediction * fs.prediction) / SCALE_FACTOR_F32
             };
-            let scale_deriv = SCALE_FACTOR_F32 / OUTPUT_DIVISOR_F32;
-            let d_raw = weighted_error * pred_deriv * scale_deriv;
-            // d(output_cp)/d(psqt[f]) = 1 for every active feature.
-            if psqt_trainable {
-                let (g_stm, g_nstm) = if dual { (0.5, -0.5) } else { (1.0, 0.0) };
-                for &f in &position.active_features {
-                    if f < self.shadow.psqt.len() {
-                        *acc_psqt.entry(f).or_insert(0.0) += g_stm * weighted_error * pred_deriv;
-                    }
-                }
-                if dual {
-                    for &f in &position.active_features_nstm {
-                        if f < self.shadow.psqt.len() {
-                            *acc_psqt.entry(f).or_insert(0.0) +=
-                                g_nstm * weighted_error * pred_deriv;
-                        }
-                    }
-                }
-            }
-
-            for (i, &v) in final_values.iter().enumerate() {
-                if i < acc_output_w.len() {
-                    acc_output_w[i] += d_raw * (v / 64.0);
-                }
-            }
-            acc_output_b += d_raw;
-
-            let d_h2: Vec<f32> = if h2_size > 0 {
-                (0..h2_size)
-                    .map(|j| {
-                        if j < self.weights.output_weights.len() {
-                            d_raw * (self.weights.output_weights[j] as f32 / 64.0)
-                        } else {
-                            0.0
-                        }
-                    })
-                    .collect()
-            } else {
-                Vec::new()
-            };
-
-            let h1_total = h1_act.len();
-            let mut d_h1 = vec![0.0_f32; h1_total];
-            if let Some(ref w2) = self.weights.input_weights_2 {
-                for i in 0..h1_total {
-                    for j in 0..h2_size {
-                        if h2_pre[j] > 0.0 {
-                            d_h1[i] += d_h2[j] * (w2[i][j] as f32 / 64.0);
-                        }
-                    }
-                }
-                for i in 0..h1_total {
-                    for j in 0..h2_size {
-                        if h2_pre[j] > 0.0 {
-                            acc_w2[i][j] += d_h2[j] * (h1_act[i] / 64.0);
-                        }
-                    }
-                }
-                for j in 0..h2_size {
-                    if h2_pre[j] > 0.0 {
-                        acc_b2[j] += d_h2[j];
-                    }
-                }
-            } else {
-                for i in 0..h1_size {
-                    if i < self.weights.output_weights.len() {
-                        d_h1[i] = d_raw * (self.weights.output_weights[i] as f32 / 64.0);
-                    }
-                }
-            }
-
-            // Both perspectives share one feature transformer: each perspective's
-            // active rows take the gradient of its own half of `d_h1`.
-            let mut halves: Vec<(&[usize], usize)> = vec![(&position.active_features, 0)];
-            if dual {
-                halves.push((&position.active_features_nstm, h1_size));
-            }
-            for (features, off) in halves {
-                for &feature_idx in features {
-                    if feature_idx >= num_features {
-                        continue;
-                    }
-                    let entry = acc_input_w
-                        .entry(feature_idx)
-                        .or_insert_with(|| vec![0.0_f32; h1_size]);
-                    for i in 0..h1_size {
-                        if h1_pre[off + i] > 0.0 {
-                            entry[i] += d_h1[off + i];
-                        }
-                    }
-                }
-                for i in 0..h1_size {
-                    if h1_pre[off + i] > 0.0 {
-                        acc_b1[i] += d_h1[off + i];
-                    }
-                }
-            }
+            self.accumulate_position_grads(
+                position,
+                &fs,
+                error * decisive_mult * pred_deriv,
+                &mut accs,
+            );
         }
 
         // Apply accumulated gradients to the f32 shadow (no clamping, no
