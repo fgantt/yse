@@ -7,6 +7,7 @@
 //! Used by the NNUE training pipeline (`src/bin/corpus_gen.rs`) to generate
 //! `(position, teacher_eval, outcome)` training tuples.
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
@@ -48,6 +49,33 @@ impl SearchResult {
     /// Convert the engine's last-reported score into a centipawn value, mapping
     /// mate scores to a large magnitude so downstream training code can treat
     /// them as very-winning/losing evaluations.
+    pub fn as_cp_with_mate(&self, mate_magnitude: i32) -> Option<i32> {
+        if let Some(m) = self.score_mate {
+            let v = mate_magnitude.saturating_sub(m.abs());
+            return Some(if m > 0 { v } else { -v });
+        }
+        self.score_cp
+    }
+}
+
+/// One line of a MultiPV search: a legal move, and the engine's score for it
+/// from the side-to-move's point of view.
+///
+/// This is the shape a ranking objective needs and a plain `go` cannot give:
+/// several *siblings* of one position, scored against each other by the same
+/// search. A single `bestmove` says which move is best but nothing about how
+/// much better it is than the alternatives.
+#[derive(Debug, Clone)]
+pub struct RankedMove {
+    pub mv: String,
+    pub score_cp: Option<i32>,
+    pub score_mate: Option<i32>,
+    pub depth: u32,
+}
+
+impl RankedMove {
+    /// Centipawn score, mapping mates to a large magnitude — same convention as
+    /// [`SearchResult::as_cp_with_mate`].
     pub fn as_cp_with_mate(&self, mate_magnitude: i32) -> Option<i32> {
         if let Some(m) = self.score_mate {
             let v = mate_magnitude.saturating_sub(m.abs());
@@ -165,6 +193,40 @@ impl UsiEngine {
         self.read_search_result()
     }
 
+    /// Set how many principal variations the engine reports. `1` restores the
+    /// default single-line behaviour.
+    pub fn set_multipv(&mut self, k: usize) -> Result<(), UsiError> {
+        self.set_option("MultiPV", &k.to_string())
+    }
+
+    /// Search to `depth` and return every principal variation the engine
+    /// reported, ordered best-first.
+    ///
+    /// Requires a prior [`set_multipv`] call — with MultiPV at its default of 1
+    /// this returns a single-element vector. Info lines arrive once per
+    /// iteration per line, so we keep the deepest report for each `multipv`
+    /// index and discard bound-only lines, whose scores are not yet resolved.
+    pub fn go_multipv(&mut self, depth: u32) -> Result<Vec<RankedMove>, UsiError> {
+        self.send(&format!("go depth {}", depth))?;
+        let mut best: BTreeMap<usize, RankedMove> = BTreeMap::new();
+        loop {
+            let line = self.read_line()?;
+            let trimmed = line.trim();
+            if let Some(rest) = trimmed.strip_prefix("info ") {
+                if let Some((idx, ranked)) = parse_multipv_line(rest) {
+                    match best.get(&idx) {
+                        Some(prev) if prev.depth >= ranked.depth => {}
+                        _ => {
+                            best.insert(idx, ranked);
+                        }
+                    }
+                }
+            } else if trimmed.starts_with("bestmove ") {
+                return Ok(best.into_values().collect());
+            }
+        }
+    }
+
     #[allow(dead_code)]
     pub fn go_movetime(&mut self, ms: u32) -> Result<SearchResult, UsiError> {
         self.send(&format!("go movetime {}", ms))?;
@@ -201,6 +263,54 @@ impl UsiEngine {
         let _ = self.child.wait();
         Ok(())
     }
+}
+
+/// Pull `(multipv index, move + score)` out of one info line.
+///
+/// Returns `None` for lines that are not a resolved MultiPV report: lines with
+/// no `multipv` field, no `pv`, or a `lowerbound`/`upperbound` marker, whose
+/// score is a window edge rather than the move's value.
+fn parse_multipv_line(rest: &str) -> Option<(usize, RankedMove)> {
+    let tokens: Vec<&str> = rest.split_whitespace().collect();
+    let mut index: Option<usize> = None;
+    let mut mv: Option<String> = None;
+    let mut score_cp = None;
+    let mut score_mate = None;
+    let mut depth = 0_u32;
+    let mut i = 0;
+    while i < tokens.len() {
+        match tokens[i] {
+            "lowerbound" | "upperbound" => return None,
+            "multipv" if i + 1 < tokens.len() => {
+                index = tokens[i + 1].parse::<usize>().ok();
+                i += 2;
+            }
+            "depth" if i + 1 < tokens.len() => {
+                depth = tokens[i + 1].parse::<u32>().unwrap_or(0);
+                i += 2;
+            }
+            "score" if i + 2 < tokens.len() => {
+                match tokens[i + 1] {
+                    "cp" => score_cp = tokens[i + 2].parse::<i32>().ok(),
+                    "mate" => score_mate = tokens[i + 2].parse::<i32>().ok(),
+                    _ => {}
+                }
+                i += 3;
+            }
+            // `pv` is last; the move we want is the one token after it.
+            "pv" if i + 1 < tokens.len() => {
+                mv = Some(tokens[i + 1].to_string());
+                break;
+            }
+            _ => i += 1,
+        }
+    }
+    let index = index?;
+    let mv = mv?;
+    if score_cp.is_none() && score_mate.is_none() {
+        return None;
+    }
+    Some((index, RankedMove { mv, score_cp, score_mate, depth }))
 }
 
 fn parse_info_line(rest: &str, result: &mut SearchResult) {
@@ -248,5 +358,46 @@ fn parse_info_line(rest: &str, result: &mut SearchResult) {
                 i += 1;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn multipv_line_yields_the_move_and_its_score() {
+        let line = "depth 8 seldepth 9 multipv 2 score cp 102 nodes 17782 nps 1481833 \
+                    hashfull 0 time 12 pv 2g2f 7c7d 2h3g";
+        let (idx, ranked) = parse_multipv_line(line).expect("should parse");
+        assert_eq!(idx, 2);
+        assert_eq!(ranked.mv, "2g2f");
+        assert_eq!(ranked.score_cp, Some(102));
+        assert_eq!(ranked.depth, 8);
+    }
+
+    #[test]
+    fn multipv_mate_scores_become_a_large_magnitude() {
+        let line = "depth 6 multipv 1 score mate 3 pv 5e5d 4c4d";
+        let (_, ranked) = parse_multipv_line(line).expect("should parse");
+        assert_eq!(ranked.score_mate, Some(3));
+        assert_eq!(ranked.as_cp_with_mate(30_000), Some(29_997));
+
+        let line = "depth 6 multipv 4 score mate -2 pv 5e5d";
+        let (_, ranked) = parse_multipv_line(line).expect("should parse");
+        assert_eq!(ranked.as_cp_with_mate(30_000), Some(-29_998));
+    }
+
+    #[test]
+    fn bound_lines_are_rejected_because_their_score_is_a_window_edge() {
+        let line = "depth 8 multipv 1 score cp 102 lowerbound pv 2g2f";
+        assert!(parse_multipv_line(line).is_none());
+    }
+
+    #[test]
+    fn lines_without_a_pv_or_a_multipv_index_are_rejected() {
+        assert!(parse_multipv_line("depth 8 multipv 1 score cp 102 nodes 5").is_none());
+        assert!(parse_multipv_line("depth 8 score cp 102 pv 2g2f").is_none());
+        assert!(parse_multipv_line("string loading eval file").is_none());
     }
 }
