@@ -208,6 +208,41 @@ pub struct RankingGroup {
     pub scores: Vec<f32>,
 }
 
+/// How the ranking objective is shaped.
+#[derive(Debug, Clone, Copy)]
+pub struct RankConfig {
+    /// Scales the ranking term against the value term. 0 measures without
+    /// training.
+    pub weight: f32,
+    /// Centipawn temperature. Under `softmax` it sets how peaked both
+    /// distributions are; under `pairwise` it serves only as the gradient's
+    /// scale, keeping `weight` comparable between the two.
+    pub temperature: f32,
+    /// Use a pairwise hinge instead of softmax cross-entropy.
+    ///
+    /// Softmax CE has a shortcut: when the network's spread across siblings is
+    /// far wider than the teacher's, the cheapest way to cut the loss is to
+    /// become less confident, which reorders nothing. Measured on a 3-epoch
+    /// run, it moved |p - t| 0.1259 -> 0.1208 against a control where that rose,
+    /// while top-1 agreement stayed flat at 0.29 and one-ply move loss did not
+    /// improve.
+    ///
+    /// The hinge has no such shortcut. It is zero once a pair is ordered
+    /// correctly by the required margin, and shrinking the spread *increases*
+    /// it, so the only way down is to reorder.
+    pub pairwise: bool,
+    /// Largest score gap the hinge will ask for, in centipawns. Without a cap, a
+    /// pair the teacher separates by 2000 cp would demand our gap match it,
+    /// which is a value target wearing a ranking costume.
+    pub margin_cap: f32,
+}
+
+impl Default for RankConfig {
+    fn default() -> Self {
+        Self { weight: 0.0, temperature: 100.0, pairwise: false, margin_cap: 400.0 }
+    }
+}
+
 /// Numerically stable softmax.
 fn softmax(logits: &[f32]) -> Vec<f32> {
     let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
@@ -572,6 +607,25 @@ struct GradAccumulators<'a> {
     input_w: &'a mut std::collections::HashMap<usize, Vec<f32>>,
     b1: &'a mut Vec<f32>,
     psqt: &'a mut std::collections::HashMap<usize, f32>,
+}
+
+/// What a ranking measurement reports.
+///
+/// `mean_abs_diff` is the training loss's own units and is the weakest of the
+/// three: it is dominated by *confidence* rather than order. A network whose
+/// scores spread far wider across siblings than the teacher's can cut it
+/// substantially just by becoming less certain, without reordering a single
+/// move. `move_loss_cp` is the one that corresponds to playing strength.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RankMetrics {
+    /// Mean |p - t| over sibling moves — the ranking loss's own units.
+    pub mean_abs_diff: f32,
+    /// Fraction of groups where the network's best move is the teacher's best.
+    pub top1_agreement: f32,
+    /// Mean centipawns given up by playing the network's choice instead of the
+    /// teacher's, judged by the teacher's own scores. This is move loss at one
+    /// ply, computed without running a search.
+    pub move_loss_cp: f32,
 }
 
 impl NNUETrainer {
@@ -1235,29 +1289,33 @@ impl NNUETrainer {
         }
     }
     pub fn train_batch_accumulated(&mut self, positions: &[TrainingPosition]) -> TrainingStats {
-        self.train_batch_mixed(positions, &[], 0.0, 1.0)
+        self.train_batch_mixed(positions, &[], &RankConfig::default())
     }
 
-    /// Mean |p - t| over sibling moves, without touching the weights.
+    /// Measure how well the network orders sibling moves, without touching the
+    /// weights.
     ///
-    /// Held-out ranking error is the one number measured directly on the
-    /// quantity we are trying to improve. It exists as its own method because
-    /// `train_batch_mixed` with `rank_weight = 0` would *not* be inert: under
-    /// Adam a zero gradient still decays the moment estimates and takes a step
-    /// from them, so "measuring" that way would quietly train the network.
-    pub fn measure_rank_error(&self, groups: &[RankingGroup], rank_temperature: f32) -> f32 {
+    /// This exists as its own method rather than `train_batch_mixed` with
+    /// `rank_weight = 0`, because that would not be inert: under Adam a zero
+    /// gradient still decays the moment estimates and takes a step from them, so
+    /// "measuring" that way would quietly train the network.
+    pub fn measure_rank(&self, groups: &[RankingGroup], rank_temperature: f32) -> RankMetrics {
         let mut sum = 0.0_f32;
         let mut n = 0_usize;
+        let mut groups_scored = 0_usize;
+        let mut top1 = 0_usize;
+        let mut move_loss = 0.0_f32;
         for group in groups {
             let k = group.children.len();
             if k < 2 || group.scores.len() != k {
                 continue;
             }
-            let pred_logits: Vec<f32> = group
+            let scores: Vec<f32> = group
                 .children
                 .iter()
-                .map(|c| -self.forward_position(c).output_cp / rank_temperature)
+                .map(|c| -self.forward_position(c).output_cp)
                 .collect();
+            let pred_logits: Vec<f32> = scores.iter().map(|s| s / rank_temperature).collect();
             let target_logits: Vec<f32> =
                 group.scores.iter().map(|&s| s / rank_temperature).collect();
             let p = softmax(&pred_logits);
@@ -1266,11 +1324,30 @@ impl NNUETrainer {
                 sum += (p[i] - t[i]).abs();
                 n += 1;
             }
+
+            let argmax = |xs: &[f32]| -> usize {
+                let mut best = 0;
+                for (i, v) in xs.iter().enumerate() {
+                    if *v > xs[best] {
+                        best = i;
+                    }
+                }
+                best
+            };
+            let ours = argmax(&scores);
+            let theirs = argmax(&group.scores);
+            if ours == theirs {
+                top1 += 1;
+            }
+            // The teacher's own verdict on the move we would have played.
+            move_loss += (group.scores[theirs] - group.scores[ours]).max(0.0);
+            groups_scored += 1;
         }
-        if n > 0 {
-            sum / n as f32
-        } else {
-            0.0
+        let g = groups_scored.max(1) as f32;
+        RankMetrics {
+            mean_abs_diff: if n > 0 { sum / n as f32 } else { 0.0 },
+            top1_agreement: top1 as f32 / g,
+            move_loss_cp: move_loss / g,
         }
     }
 
@@ -1281,16 +1358,15 @@ impl NNUETrainer {
     /// in a single weight update, so the network is never pulled in one
     /// direction and then the other within a batch.
     ///
-    /// `rank_weight` scales the ranking term against the value term;
-    /// `rank_temperature` is in centipawns and sets both how peaked the
-    /// teacher's target distribution is and, as 1/T, the gradient's scale.
+    /// See [`RankConfig`] for how the ranking term is shaped.
     pub fn train_batch_mixed(
         &mut self,
         positions: &[TrainingPosition],
         groups: &[RankingGroup],
-        rank_weight: f32,
-        rank_temperature: f32,
+        rank: &RankConfig,
     ) -> TrainingStats {
+        let rank_weight = rank.weight;
+        let rank_temperature = rank.temperature;
         let (h1_size, _) = self.weights.hidden_sizes();
         let num_features = self.weights.input_weights_1.len();
         let h2_size = self
@@ -1411,28 +1487,71 @@ impl NNUETrainer {
                 }
                 let fs: Vec<ForwardState> =
                     group.children.iter().map(|c| self.forward_position(c)).collect();
-                let pred_logits: Vec<f32> =
-                    fs.iter().map(|f| -f.output_cp / rank_temperature).collect();
-                let target_logits: Vec<f32> =
-                    group.scores.iter().map(|&s| s / rank_temperature).collect();
-                let p = softmax(&pred_logits);
-                let t = softmax(&target_logits);
+                // The mover's score for move i, in centipawns.
+                let q: Vec<f32> = fs.iter().map(|f| -f.output_cp).collect();
 
-                // Mean over the list rather than sum, so a group counts for
-                // about as much as one position however many siblings the
-                // teacher happened to return.
-                let norm = rank_weight / (k as f32 * rank_temperature);
+                // Reported in the loss's own units either way, so the two modes
+                // stay comparable.
+                let p = softmax(&q.iter().map(|v| v / rank_temperature).collect::<Vec<_>>());
+                let t = softmax(
+                    &group.scores.iter().map(|v| v / rank_temperature).collect::<Vec<_>>(),
+                );
                 for i in 0..k {
-                    let diff = p[i] - t[i];
-                    rank_error_sum += diff.abs();
+                    rank_error_sum += (p[i] - t[i]).abs();
                     rank_child_count += 1;
-                    if rank_weight != 0.0 {
-                        self.accumulate_position_grads(
-                            &group.children[i],
-                            &fs[i],
-                            diff * norm,
-                            &mut accs,
-                        );
+                }
+
+                let mut d_cp = vec![0.0_f32; k];
+                if rank.pairwise {
+                    // Hinge over every ordered pair the teacher separates. For a
+                    // pair where the teacher prefers i to j, we ask our own gap
+                    // to be at least as large, capped: loss is
+                    // max(0, margin - (q_i - q_j)), so a pair already ordered by
+                    // enough contributes nothing and cannot be traded against
+                    // the rest.
+                    let mut pairs = 0_usize;
+                    for i in 0..k {
+                        for j in 0..k {
+                            if group.scores[i] <= group.scores[j] {
+                                continue;
+                            }
+                            pairs += 1;
+                            let margin =
+                                (group.scores[i] - group.scores[j]).min(rank.margin_cap);
+                            if q[i] - q[j] < margin {
+                                // d(loss)/d(q_i) = -1, d(q_i)/d(output_cp_i) = -1,
+                                // and we pass -d(loss)/d(output_cp).
+                                d_cp[i] -= 1.0;
+                                d_cp[j] += 1.0;
+                            }
+                        }
+                    }
+                    let norm = rank_weight / (pairs.max(1) as f32 * rank_temperature);
+                    for v in d_cp.iter_mut() {
+                        *v *= norm;
+                    }
+                } else {
+                    // Softmax cross-entropy. dL/dz_i = p_i - t_i, and the chain
+                    // through z_i = -output_cp_i / T contributes -1/T; we pass
+                    // -dL/d(output_cp_i). Mean over the list rather than sum, so
+                    // a group counts about as much as one position however many
+                    // siblings the teacher returned.
+                    let norm = rank_weight / (k as f32 * rank_temperature);
+                    for i in 0..k {
+                        d_cp[i] = (p[i] - t[i]) * norm;
+                    }
+                }
+
+                if rank_weight != 0.0 {
+                    for i in 0..k {
+                        if d_cp[i] != 0.0 {
+                            self.accumulate_position_grads(
+                                &group.children[i],
+                                &fs[i],
+                                d_cp[i],
+                                &mut accs,
+                            );
+                        }
                     }
                 }
                 rank_group_count += 1;

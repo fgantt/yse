@@ -29,6 +29,7 @@ use shogi_engine::evaluation::nnue::{
     HAND_FEATURE_BASE_HALFKP,
 };
 use shogi_engine::evaluation::nnue_training::{
+    RankConfig,
     extract_active_features, extract_active_features_halfkp,
     extract_active_features_halfkp_with_hand, extract_active_features_halfkp_with_stm,
     extract_active_features_halfkp_with_stm_and_hand, extract_active_features_with_hand,
@@ -346,6 +347,23 @@ struct Cli {
     /// Ranking groups per batch, alongside `--batch-size` value positions.
     #[arg(long, default_value_t = 32)]
     rank_groups_per_batch: usize,
+
+    /// Use a pairwise hinge instead of softmax cross-entropy.
+    ///
+    /// Softmax CE can be minimised by lowering confidence rather than by
+    /// reordering: measured over 3 epochs it moved |p - t| 0.1259 -> 0.1208
+    /// against a control where that rose, while top-1 agreement stayed flat at
+    /// 0.29 and one-ply move loss did not improve. The hinge is zero once a
+    /// pair is correctly ordered by the margin, so shrinking the spread makes
+    /// it worse, not better.
+    #[arg(long)]
+    rank_pairwise: bool,
+
+    /// Largest score gap the hinge will ask our network to reproduce, in
+    /// centipawns. Uncapped, a pair the teacher separates by 2000 cp would
+    /// demand our gap match it, which is value regression in disguise.
+    #[arg(long, default_value_t = 400.0)]
+    rank_margin_cap: f32,
 }
 
 /// Compute Pearson correlation r between the network's cp evaluation and the
@@ -1134,13 +1152,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 p.display()
             );
             println!(
-                "  rank weight {} temperature {} cp, clamp +/-{} cp, {} groups/batch",
+                "  rank {} weight {} temperature {} cp, clamp +/-{} cp, {} groups/batch",
+                if cli.rank_pairwise { "pairwise-hinge" } else { "softmax-ce" },
                 cli.rank_weight, cli.rank_temperature, cli.rank_clamp, cli.rank_groups_per_batch
             );
             r
         }
         None => Vec::new(),
     };
+    let rank_cfg = RankConfig {
+        weight: cli.rank_weight,
+        temperature: cli.rank_temperature,
+        pairwise: cli.rank_pairwise,
+        margin_cap: cli.rank_margin_cap,
+    };
+
     // Hold out a slice of ranking groups, never trained on. Held-out ranking
     // error is the only per-epoch number measured directly on the quantity this
     // objective exists to improve -- Session 28's lesson was that held-out
@@ -1424,12 +1450,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     &trainer,
                     &cli,
                 );
-                let stats = trainer.train_batch_mixed(
-                    &batch,
-                    &groups,
-                    cli.rank_weight,
-                    cli.rank_temperature,
-                );
+                let stats = trainer.train_batch_mixed(&batch, &groups, &rank_cfg);
                 epoch_td_sum += stats.avg_td_error as f64;
                 epoch_batches += 1;
                 if stats.rank_groups > 0 {
@@ -1458,8 +1479,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &trainer,
                 &cli,
             );
-            let stats =
-                trainer.train_batch_mixed(&batch, &groups, cli.rank_weight, cli.rank_temperature);
+            let stats = trainer.train_batch_mixed(&batch, &groups, &rank_cfg);
             epoch_td_sum += stats.avg_td_error as f64;
             epoch_batches += 1;
             if stats.rank_groups > 0 {
@@ -1496,9 +1516,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         } else {
             let mut cursor = 0_usize;
             let groups = next_rank_groups(&rank_val, &mut cursor, rank_val.len(), &trainer, &cli);
+            let m = trainer.measure_rank(&groups, cli.rank_temperature);
+            // move_loss is the one to watch: |p - t| can fall through
+            // confidence alone, without reordering a single move.
             format!(
-                " val_rank={:.4}",
-                trainer.measure_rank_error(&groups, cli.rank_temperature)
+                " val[diff={:.4} top1={:.3} loss={:.0}cp]",
+                m.mean_abs_diff, m.top1_agreement, m.move_loss_cp
             )
         };
 

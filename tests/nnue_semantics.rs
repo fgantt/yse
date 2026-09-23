@@ -640,7 +640,8 @@ fn king_factorizer_split_preserves_the_network() {
 fn ranking_loss_follows_the_teachers_preference() {
     use shogi_engine::evaluation::nnue::NUM_NNUE_FEATURES;
     use shogi_engine::evaluation::nnue_training::{
-        extract_active_features, NNUETrainer, NNUETrainingConfig, RankingGroup, TrainingPosition,
+        extract_active_features, NNUETrainer, NNUETrainingConfig, RankConfig, RankingGroup,
+        TrainingPosition,
     };
 
     // Two real children of one position, from the ranking corpus. Black to move
@@ -672,7 +673,7 @@ fn ranking_loss_follows_the_teachers_preference() {
     // Train from identical weights under one teacher preference, and report
     // `eval(B) - eval(A)`. The mover's score for a move is the negation of its
     // child's evaluation, so preferring A means driving this quantity up.
-    let train_with = |scores: Vec<f32>| -> f32 {
+    let train_with = |scores: Vec<f32>, cfg: RankConfig| -> f32 {
         let weights = det_weights(NUM_NNUE_FEATURES, 8, 4);
         let mut config = NNUETrainingConfig::default();
         config.use_adam = true;
@@ -691,20 +692,36 @@ fn ranking_loss_follows_the_teachers_preference() {
             // 100 cp saturates the softmax to p = 1.0 and leaves the network
             // unable to move either way. The sign convention under test does
             // not depend on the temperature; the softmax's responsiveness does.
-            trainer.train_batch_mixed(&[], std::slice::from_ref(&group), 1.0, 20_000.0);
+            trainer.train_batch_mixed(&[], std::slice::from_ref(&group), &cfg);
         }
         let w = trainer.get_weights();
         (make_position(CHILD_B, w).evaluation - make_position(CHILD_A, w).evaluation) as f32
     };
 
-    let gap_prefer_a = train_with(vec![20_000.0, -20_000.0]);
-    let gap_prefer_b = train_with(vec![-20_000.0, 20_000.0]);
-
-    assert!(
-        gap_prefer_a > gap_prefer_b,
-        "a teacher preferring the move to A must leave the network keener on A than a \
-         teacher preferring B does: prefer_a={} prefer_b={}",
-        gap_prefer_a,
-        gap_prefer_b
-    );
+    // Both objectives must obey the same convention. The softmax needs an
+    // unsaturated temperature to respond at all (see the comment above); the
+    // hinge does not, since its gradient does not pass through a softmax.
+    let cases = [
+        ("softmax", RankConfig { weight: 1.0, temperature: 20_000.0, ..Default::default() }),
+        (
+            "pairwise",
+            RankConfig {
+                weight: 1.0,
+                temperature: 100.0,
+                pairwise: true,
+                margin_cap: 400.0,
+            },
+        ),
+    ];
+    for (name, cfg) in cases {
+        let gap_prefer_a = train_with(vec![20_000.0, -20_000.0], cfg);
+        let gap_prefer_b = train_with(vec![-20_000.0, 20_000.0], cfg);
+        assert!(
+            gap_prefer_a > gap_prefer_b,
+            "{name}: a teacher preferring the move to A must leave the network keener on A \
+             than a teacher preferring B does: prefer_a={} prefer_b={}",
+            gap_prefer_a,
+            gap_prefer_b
+        );
+    }
 }
