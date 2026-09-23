@@ -128,7 +128,21 @@ impl UsiEngine {
     /// Set position via `position startpos moves m1 m2 ...`. Empty moves slice
     /// is equivalent to `position startpos`.
     pub fn set_position_startpos(&mut self, moves: &[String]) -> Result<(), UsiError> {
-        let mut cmd = String::from("position startpos");
+        self.set_position(None, moves)
+    }
+
+    /// `position sfen <sfen> moves ...`, or `position startpos moves ...` when
+    /// `sfen` is None. Handicap games start from an SFEN, which is how an
+    /// engine far ahead of ours can still be a useful sparring partner.
+    pub fn set_position(
+        &mut self,
+        sfen: Option<&str>,
+        moves: &[String],
+    ) -> Result<(), UsiError> {
+        let mut cmd = match sfen {
+            Some(s) => format!("position sfen {}", s),
+            None => String::from("position startpos"),
+        };
         if !moves.is_empty() {
             cmd.push_str(" moves");
             for m in moves {

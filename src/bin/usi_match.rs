@@ -63,6 +63,13 @@ struct Cli {
     max_moves: u32,
     #[arg(long, default_value_t = 1)]
     seed: u64,
+    /// Start every game from this SFEN instead of the initial position. Use it
+    /// for handicap games: an opponent far stronger than us is uninformative at
+    /// even material (we score ~3/24 against YaneuraOu whether it searches 1
+    /// node or 50), but at the right handicap the win rate becomes sensitive to
+    /// our own improvements again.
+    #[arg(long)]
+    start_sfen: Option<String>,
     #[arg(long, default_value = "usi_match.csv")]
     output: PathBuf,
 }
@@ -98,12 +105,14 @@ fn play(
     a_black: bool,
     opening: &[String],
     max_moves: u32,
+    start_sfen: Option<&str>,
 ) -> Result<(Res, u32, String, Vec<String>), Box<dyn std::error::Error>> {
     let mg = MoveGenerator::new();
     let hasher = ShogiHashHandler::new_default();
-    let mut board = BitboardBoard::new();
-    let mut captured = CapturedPieces::new();
-    let mut player = Player::Black;
+    let (mut board, mut player, mut captured) = match start_sfen {
+        Some(sfen) => BitboardBoard::from_fen(sfen)?,
+        None => (BitboardBoard::new(), Player::Black, CapturedPieces::new()),
+    };
     let mut moves: Vec<String> = Vec::new();
     let mut seen: HashMap<u64, u8> = HashMap::new();
     for m in opening {
@@ -132,7 +141,7 @@ fn play(
             return Ok((Res::Draw, moves.len() as u32, "move limit".into(), moves));
         }
         let side = if a_is(player) { &mut *a } else { &mut *b };
-        side.engine.set_position_startpos(&moves)?;
+        side.engine.set_position(start_sfen, &moves)?;
         let t0 = Instant::now();
         let result = side.engine.go_with(&side.go)?;
         let took = t0.elapsed().as_millis();
@@ -172,11 +181,12 @@ fn play(
     }
 }
 
-fn random_opening(rng: &mut StdRng, plies: u32) -> Vec<String> {
+fn random_opening(rng: &mut StdRng, plies: u32, start_sfen: Option<&str>) -> Vec<String> {
     let mg = MoveGenerator::new();
-    let mut board = BitboardBoard::new();
-    let mut captured = CapturedPieces::new();
-    let mut player = Player::Black;
+    let (mut board, mut player, mut captured) = match start_sfen {
+        Some(sfen) => BitboardBoard::from_fen(sfen).expect("valid --start-sfen"),
+        None => (BitboardBoard::new(), Player::Black, CapturedPieces::new()),
+    };
     let mut out = Vec::new();
     for _ in 0..plies {
         let legal = mg.generate_legal_moves(&board, player, &captured);
@@ -220,11 +230,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (mut w, mut d, mut l) = (0u32, 0u32, 0u32);
     let mut pair_points: Vec<f64> = Vec::new();
     for p in 0..pairs {
-        let opening = random_opening(&mut rng, cli.random_plies);
+        let opening = random_opening(&mut rng, cli.random_plies, cli.start_sfen.as_deref());
         let mut pts = 0.0;
         for k in 0..2 {
             let a_black = k == 0;
-            let (res, n, why, record) = play(&mut a, &mut b, a_black, &opening, cli.max_moves)?;
+            let (res, n, why, record) = play(&mut a, &mut b, a_black, &opening, cli.max_moves, cli.start_sfen.as_deref())?;
             match res {
                 Res::AWin => {
                     w += 1;
