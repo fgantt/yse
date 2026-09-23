@@ -75,6 +75,10 @@ name = "corpus-gen"
 path = "src/bin/corpus_gen.rs"
 
 [[bin]]
+name = "search-diag"
+path = "src/bin/search_diag.rs"
+
+[[bin]]
 name = "rank-gen"
 path = "src/bin/rank_gen.rs"
 

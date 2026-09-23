@@ -506,6 +506,32 @@ pub static DIAG_NODES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
 pub static DIAG_MOVES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
 pub static DIAG_CUTS: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
 
+/// Beta cutoffs bucketed by the index of the move that caused them: 0, 1, 2, 3,
+/// 4-7, 8-15, 16-31, 32+.
+///
+/// This is *the* move-ordering diagnostic. A well-ordered search cuts on the
+/// first move it tries ~90% of the time; every cutoff further down the list
+/// means the moves before it were searched for nothing, and the effective
+/// branching factor rises accordingly. `average_cutoff_index` has existed in
+/// the metrics struct for a long time hardcoded to 0.0 with the comment "would
+/// need calculation", so the number has never actually been looked at.
+pub static DIAG_CUT_INDEX: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
+/// Interior (non-quiescence) nodes, and quiescence nodes, since the search
+/// began. Their ratio says how much of the tree is quiescence.
+pub static DIAG_INTERIOR_NODES: AtomicU64 = AtomicU64::new(0);
+pub static DIAG_QUIESCENCE_NODES: AtomicU64 = AtomicU64::new(0);
+
+/// Bucket a cutoff's move index for `DIAG_CUT_INDEX`.
+pub fn cut_index_bucket(index: usize) -> usize {
+    match index {
+        0..=3 => index,
+        4..=7 => 4,
+        8..=15 => 5,
+        16..=31 => 6,
+        _ => 7,
+    }
+}
+
 // YBWC metrics
 pub static YBWC_SIBLING_BATCHES: AtomicU64 = AtomicU64::new(0);
 pub static YBWC_SIBLINGS_EVALUATED: AtomicU64 = AtomicU64::new(0);
@@ -7040,6 +7066,7 @@ impl SearchEngine {
 
         let mut move_index = 0;
         DIAG_NODES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
+        DIAG_INTERIOR_NODES.fetch_add(1, Ordering::Relaxed);
         // Per-node facts the move loop's pruning and reduction decisions need.
         // They were recomputed for every move (a full evaluation and a material
         // count each time, twice per move counting the LMR path), which made
@@ -7319,6 +7346,10 @@ impl SearchEngine {
                     self.core_search_metrics.total_cutoffs += 1;
                     self.core_search_metrics.beta_cutoffs += 1;
                     DIAG_CUTS[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
+                    // `move_index` is incremented before the move is searched,
+                    // so it is 1-based here; the buckets are 0-based.
+                    DIAG_CUT_INDEX[cut_index_bucket(move_index.saturating_sub(1))]
+                        .fetch_add(1, Ordering::Relaxed);
 
                     // Feed the cutoff to the orderer that actually orders moves. Its
                     // killer and history tables were never updated by the search
@@ -7656,6 +7687,7 @@ impl SearchEngine {
 
         // Update statistics
         self.quiescence_stats.nodes_searched += 1;
+        DIAG_QUIESCENCE_NODES.fetch_add(1, Ordering::Relaxed);
         // Update seldepth (selective depth) - quiescence extends beyond normal depth
         // When we enter quiescence, depth is 0, so we've reached current_depth plies
         // Quiescence can extend deeper: current_depth + (max_quiescence_depth - depth)
