@@ -276,12 +276,28 @@ impl SlidingMoveGenerator {
         pieces: &[(Position, Piece)],
         player: Player,
     ) -> Vec<Move> {
+        let mut moves = Vec::new();
+        self.generate_sliding_moves_batch_vectorized_into(board, pieces, player, &mut moves);
+        moves
+    }
+
+    /// [`Self::generate_sliding_moves_batch_vectorized`], appending to `all_moves`
+    /// instead of returning a fresh `Vec`, so the move generator's hot path
+    /// can build one list per node rather than allocating and copying one per
+    /// piece group.
+    #[cfg(feature = "simd")]
+    pub fn generate_sliding_moves_batch_vectorized_into(
+        &self,
+        board: &BitboardBoard,
+        pieces: &[(Position, Piece)],
+        player: Player,
+        all_moves: &mut Vec<Move>,
+    ) {
         if pieces.is_empty() {
-            return Vec::new();
+            return;
         }
 
         let occupied = board.get_occupied_bitboard();
-        let mut all_moves = Vec::new();
 
         // Process pieces in batches using AlignedBitboardArray
         // For now, process in chunks of 4 (can be increased if needed)
@@ -537,8 +553,6 @@ impl SlidingMoveGenerator {
                 }
             }
         }
-
-        all_moves
     }
 
     /// Check if magic bitboards are enabled

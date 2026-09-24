@@ -4,7 +4,6 @@ use crate::bitboards::*;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{Move, Piece, PieceType, Player, Position};
 use crate::types::Bitboard;
-use std::collections::HashSet;
 
 pub struct MoveGenerator {
     // Cache for move generation to avoid redundant work
@@ -146,15 +145,15 @@ impl MoveGenerator {
         //
         // The same test also sets `gives_check`, which pruning relies on to leave
         // checks alone; moves from this generator never had it set.
+        //
+        // Filtered in place, keeping order, so the list is allocated once.
         let mut scratch = board.clone();
-        let legal_moves: Vec<Move> = pseudo_legal_moves
-            .into_iter()
-            .filter_map(|mut m| {
-                let (safe, check) = test_after(&mut scratch, &m, player, captured_pieces);
-                m.gives_check = check;
-                safe.then_some(m)
-            })
-            .collect();
+        let mut legal_moves = pseudo_legal_moves;
+        legal_moves.retain_mut(|m| {
+            let (safe, check) = test_after(&mut scratch, m, player, captured_pieces);
+            m.gives_check = check;
+            safe
+        });
 
         crate::debug_log_fast!(&format!(
             "[GENERATE_LEGAL_MOVES] Final legal moves: {}",
@@ -371,8 +370,8 @@ impl MoveGenerator {
         // many more; growing from empty reallocated and memmoved this list
         // several times per node.
         let mut moves = Vec::with_capacity(192);
-        moves.extend(self.generate_all_piece_moves(board, player));
-        moves.extend(self.generate_drop_moves(board, player, captured_pieces));
+        self.generate_all_piece_moves_into(board, player, &mut moves);
+        self.generate_drop_moves_into(board, player, captured_pieces, &mut moves);
         moves
     }
 
@@ -400,11 +399,28 @@ impl MoveGenerator {
     /// These optimizations provide an additional 5-10% performance improvement
     /// on top of SIMD optimizations.
     pub fn generate_all_piece_moves(&self, board: &BitboardBoard, player: Player) -> Vec<Move> {
+        let mut moves = Vec::with_capacity(160);
+        self.generate_all_piece_moves_into(board, player, &mut moves);
+        moves
+    }
+
+    /// [`Self::generate_all_piece_moves`], appending to `moves`. The search
+    /// calls this once per node, so it allocates nothing of its own: the piece
+    /// lists live on the stack (a side has at most 40 pieces, inside 64 slots) and every
+    /// generator writes straight into the caller's list.
+    pub fn generate_all_piece_moves_into(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        moves: &mut Vec<Move>,
+    ) {
         #[cfg(feature = "simd")]
         {
             // Collect pieces by type for batch processing
-            let mut sliding_pieces: Vec<(Position, Piece)> = Vec::new();
-            let mut non_sliding_pieces: Vec<(Position, Piece)> = Vec::new();
+            let mut sliding_pieces: smallvec::SmallVec<[(Position, Piece); 8]> =
+                smallvec::SmallVec::new();
+            let mut non_sliding_pieces: smallvec::SmallVec<[(Position, Piece); 64]> =
+                smallvec::SmallVec::new();
 
             for r in 0..9 {
                 for c in 0..9 {
@@ -428,8 +444,6 @@ impl MoveGenerator {
                 }
             }
 
-            let mut moves = Vec::with_capacity(160);
-
             // Use SIMD batch generation for sliding pieces if magic table is available and
             // SIMD is enabled
             if !sliding_pieces.is_empty() && self.simd_config.enable_simd_move_generation {
@@ -440,18 +454,18 @@ impl MoveGenerator {
                     // Record SIMD move generation call
                     crate::utils::telemetry::SIMD_TELEMETRY.record_simd_move_gen();
                     let sliding_generator = SlidingMoveGenerator::new(magic_table);
-                    let sliding_moves = sliding_generator.generate_sliding_moves_batch_vectorized(
+                    sliding_generator.generate_sliding_moves_batch_vectorized_into(
                         board,
                         &sliding_pieces,
                         player,
+                        moves,
                     );
-                    moves.extend(sliding_moves);
                 } else {
                     // Record scalar move generation call
                     crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_move_gen();
                     // Fallback: use scalar generation if magic table not available
                     for (pos, piece) in &sliding_pieces {
-                        self.generate_moves_for_single_piece_into(board, piece, *pos, &mut moves);
+                        self.generate_moves_for_single_piece_into(board, piece, *pos, moves);
                     }
                 }
             } else {
@@ -459,34 +473,30 @@ impl MoveGenerator {
                 crate::utils::telemetry::SIMD_TELEMETRY.record_scalar_move_gen();
                 // Fallback: use scalar generation if SIMD disabled or no sliding pieces
                 for (pos, piece) in &sliding_pieces {
-                    self.generate_moves_for_single_piece_into(board, piece, *pos, &mut moves);
+                    self.generate_moves_for_single_piece_into(board, piece, *pos, moves);
                 }
             }
 
             // Generate moves for non-sliding pieces using existing logic
             for (pos, piece) in non_sliding_pieces {
-                self.generate_moves_for_single_piece_into(board, &piece, pos, &mut moves);
+                self.generate_moves_for_single_piece_into(board, &piece, pos, moves);
             }
-
-            moves
         }
 
         #[cfg(not(feature = "simd"))]
         {
             // Scalar implementation (fallback when SIMD feature is disabled)
             // Note: No telemetry tracking when SIMD feature is disabled
-            let mut moves = Vec::new();
             for r in 0..9 {
                 for c in 0..9 {
                     let pos = Position::new(r, c);
                     if let Some(piece) = board.get_piece(pos) {
                         if piece.player == player {
-                            self.generate_moves_for_single_piece_into(board, &piece, pos, &mut moves);
+                            self.generate_moves_for_single_piece_into(board, &piece, pos, moves);
                         }
                     }
                 }
             }
-            moves
         }
     }
 
@@ -666,25 +676,25 @@ impl MoveGenerator {
         out
     }
 
-    fn generate_drop_moves(
+    /// Append every legal drop square for each piece type in hand, in the order
+    /// the types first appear in the hand list.
+    ///
+    /// Runs once per node. It used to build a `HashSet` to skip repeated types
+    /// and a `HashMap` of counts that nothing read -- two allocations and a
+    /// SipHash per piece in hand; a 14-entry flag array does the first job.
+    fn generate_drop_moves_into(
         &self,
         board: &BitboardBoard,
         player: Player,
         captured_pieces: &CapturedPieces,
-    ) -> Vec<Move> {
-        let mut moves = Vec::new();
-        let mut processed_pieces = HashSet::new();
+        moves: &mut Vec<Move>,
+    ) {
+        let mut processed = [false; PieceType::COUNT];
         let captured =
             if player == Player::Black { &captured_pieces.black } else { &captured_pieces.white };
 
-        // CRITICAL: Count pieces in hand to verify we're generating correct drops
-        let mut piece_counts: std::collections::HashMap<PieceType, u8> = std::collections::HashMap::new();
         for &piece_type in captured {
-            *piece_counts.entry(piece_type).or_insert(0) += 1;
-        }
-
-        for &piece_type in captured {
-            if !processed_pieces.insert(piece_type) {
+            if std::mem::replace(&mut processed[piece_type.as_index()], true) {
                 continue;
             }
             
@@ -736,7 +746,6 @@ impl MoveGenerator {
                 }
             }
         }
-        moves
     }
 
     /// Generate all moves that give check to the opponent
