@@ -447,3 +447,28 @@ single item in it.
 The priority argued in Postscript 3 — that nps merely unlocks latent pruning gains — was right
 about the mechanism and wrong to treat pruning as a separate lever: the pruning is already working
 as designed.
+
+---
+
+## Postscript 5: these measurements were of an engine we do not ship
+
+Every nps and depth figure above was taken with `ParallelEnable value false`, because that is what
+the diagnostic harnesses set to keep runs reproducible. The engine's default is parallel search:
+
+| config | startpos | midgame (pieces in hand) |
+|---|---|---|
+| `ParallelEnable=false` | 59k nps, depth 5 | 40k nps, depth 3 |
+| **engine defaults** | **164k nps**, depth 5 | **164k nps, depth 4** |
+
+So "28× slower than YaneuraOu" describes a configuration nobody runs; in real play it is closer to
+8×, and the wide midgame reaches depth 4 rather than 3. The gap is still the dominant problem and
+the conclusion is unchanged — speed limits depth, and the NNUE forward pass is the largest single
+item — but the size of it was overstated throughout.
+
+Parallel nps is also not worth its face value: threads duplicate work, so 4× the nodes is less than
+4× the search. The honest read is the depth, which gained one ply.
+
+Reported separately by the user: nps shown in a USI monitor is now 150-250k, up from "tens of
+thousands". Part of that is the parallel default, and part is commit `932a145`, which made
+`info nodes` cumulative — it had been reporting one iteration's nodes over the whole search's
+elapsed time, understating our own figure.
