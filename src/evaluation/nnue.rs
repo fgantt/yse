@@ -1377,7 +1377,10 @@ fn forward_from_activations(activated_1: &[i32], weights: &NNUEWeights) -> i32 {
         // to the nested rows whenever the flat copy is not exactly the right
         // length, so a stale rebuild costs speed and never correctness.
         let flat = &weights.flat_weights_2;
-        if flat.len() == weights_2.len() * hidden_size_2 && hidden_size_2 > 0 {
+        if hidden_size_2 == DEFAULT_HIDDEN_SIZE_2 && flat.len() == weights_2.len() * hidden_size_2
+        {
+            layer_2_fixed(activated_1, flat, &mut h2_values);
+        } else if flat.len() == weights_2.len() * hidden_size_2 && hidden_size_2 > 0 {
             for (i, &act_1) in activated_1.iter().enumerate() {
                 if act_1 == 0 {
                     continue; // Skip zero activations (ReLU killed)
@@ -1417,6 +1420,72 @@ fn forward_from_activations(activated_1: &[i32], weights: &NNUEWeights) -> i32 {
         }
         let output = weights.output_bias + (dot >> 6) as i32;
         (output * SCALE_FACTOR) / OUTPUT_DIVISOR
+    }
+}
+
+/// Layer 2 for the default width, `h2 += a_i * row_i` over the activated first
+/// layer. Same arithmetic as the generic loop in [`forward_from_activations`],
+/// so results are bit-identical.
+///
+/// The generic loop compiles to one scalar multiply per weight plus a bounds
+/// check, with no SIMD at all: LLVM will not vectorise a 64-bit multiply on
+/// NEON, even though `smlal` (widening i32 x i32 -> i64 multiply-accumulate) is
+/// exactly this operation. So on aarch64 it is written out with intrinsics.
+/// NEON is part of the aarch64 baseline, so no runtime detection is needed.
+#[inline]
+fn layer_2_fixed(activated_1: &[i32], flat: &[i16], h2: &mut [i64; DEFAULT_HIDDEN_SIZE_2]) {
+    #[cfg(target_arch = "aarch64")]
+    {
+        layer_2_neon(activated_1, flat, h2);
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        let rows = flat.chunks_exact(DEFAULT_HIDDEN_SIZE_2);
+        for (&act_1, row) in activated_1.iter().zip(rows) {
+            if act_1 == 0 {
+                continue; // Skip zero activations (ReLU killed)
+            }
+            let a = act_1 as i64;
+            for (h, &w) in h2.iter_mut().zip(row) {
+                *h += a * w as i64;
+            }
+        }
+    }
+}
+
+/// NEON body of [`layer_2_fixed`]. Each 32-weight row is four `int16x8` loads,
+/// widened to eight `int32x4`, then sixteen `smlal`s into sixteen `int64x2`
+/// accumulators held in registers for the whole layer.
+#[cfg(target_arch = "aarch64")]
+#[inline]
+fn layer_2_neon(activated_1: &[i32], flat: &[i16], h2: &mut [i64; DEFAULT_HIDDEN_SIZE_2]) {
+    use std::arch::aarch64::*;
+    const _: () = assert!(DEFAULT_HIDDEN_SIZE_2 == 32);
+    // SAFETY: NEON is mandatory on aarch64. Every load reads 8 lanes starting
+    // at `row.as_ptr() + 8k` for k < 4, inside the 32-element row that
+    // `chunks_exact` guarantees; every store writes 2 lanes at `h2 + 2k` for
+    // k < 16, inside the 32-element array; the initial loads read the same.
+    unsafe {
+        let mut acc: [int64x2_t; 16] =
+            std::array::from_fn(|k| vld1q_s64(h2.as_ptr().add(2 * k)));
+        for (&act_1, row) in activated_1.iter().zip(flat.chunks_exact(DEFAULT_HIDDEN_SIZE_2)) {
+            if act_1 == 0 {
+                continue; // Skip zero activations (ReLU killed)
+            }
+            let p = row.as_ptr();
+            for k in 0..4 {
+                let w16 = vld1q_s16(p.add(8 * k));
+                let lo = vmovl_s16(vget_low_s16(w16));
+                let hi = vmovl_high_s16(w16);
+                acc[4 * k] = vmlal_n_s32(acc[4 * k], vget_low_s32(lo), act_1);
+                acc[4 * k + 1] = vmlal_high_n_s32(acc[4 * k + 1], lo, act_1);
+                acc[4 * k + 2] = vmlal_n_s32(acc[4 * k + 2], vget_low_s32(hi), act_1);
+                acc[4 * k + 3] = vmlal_high_n_s32(acc[4 * k + 3], hi, act_1);
+            }
+        }
+        for (k, a) in acc.iter().enumerate() {
+            vst1q_s64(h2.as_mut_ptr().add(2 * k), *a);
+        }
     }
 }
 
@@ -3145,6 +3214,32 @@ mod tests {
                 "{}: diagnostic acc.evaluate ({}) != search-time evaluate_incremental ({})",
                 name, path_a, path_b
             );
+        }
+    }
+
+    /// The fixed-width layer-2 kernel (NEON on aarch64) must match plain i64
+    /// arithmetic exactly, including activations and weights large enough that
+    /// the products and their sum overflow i32, and zero (skipped) activations.
+    #[test]
+    fn test_layer_2_fixed_matches_scalar() {
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(29);
+        let n = 2 * DEFAULT_HIDDEN_SIZE_1;
+        for _ in 0..50 {
+            let act: Vec<i32> = (0..n)
+                .map(|_| if rng.gen_bool(0.3) { 0 } else { rng.gen_range(0..200_000) })
+                .collect();
+            let flat: Vec<i16> =
+                (0..n * DEFAULT_HIDDEN_SIZE_2).map(|_| rng.gen_range(i16::MIN..=i16::MAX)).collect();
+            let mut expected = [0i64; DEFAULT_HIDDEN_SIZE_2];
+            for (i, &a) in act.iter().enumerate() {
+                for (j, e) in expected.iter_mut().enumerate() {
+                    *e += a as i64 * flat[i * DEFAULT_HIDDEN_SIZE_2 + j] as i64;
+                }
+            }
+            let mut got = [0i64; DEFAULT_HIDDEN_SIZE_2];
+            layer_2_fixed(&act, &flat, &mut got);
+            assert_eq!(got, expected);
         }
     }
 
