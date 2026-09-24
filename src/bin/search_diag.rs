@@ -22,7 +22,8 @@
 use clap::Parser;
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::search::search_engine::{
-    IterativeDeepening, SearchEngine, DIAG_CUT_INDEX, DIAG_INTERIOR_NODES, DIAG_QUIESCENCE_NODES,
+    IterativeDeepening, SearchEngine, DIAG_CUT_INDEX, DIAG_INTERIOR_NODES, DIAG_PVS_RESEARCHES,
+    DIAG_PVS_SCOUTS, DIAG_QUIESCENCE_NODES,
 };
 use shogi_engine::search::statistics::GLOBAL_SEARCH_NODES;
 use std::sync::atomic::Ordering;
@@ -62,6 +63,8 @@ fn reset() {
     }
     DIAG_INTERIOR_NODES.store(0, Ordering::Relaxed);
     DIAG_QUIESCENCE_NODES.store(0, Ordering::Relaxed);
+    DIAG_PVS_SCOUTS.store(0, Ordering::Relaxed);
+    DIAG_PVS_RESEARCHES.store(0, Ordering::Relaxed);
 }
 
 fn main() {
@@ -93,15 +96,30 @@ fn main() {
             );
             let mut id = IterativeDeepening::new(depth, 600_000, None);
             let _ = id.search(&mut engine, &board, &captured, player);
+            let nm = engine.get_null_move_stats().clone();
             let nodes = GLOBAL_SEARCH_NODES.load(Ordering::Relaxed);
             let q = DIAG_QUIESCENCE_NODES.load(Ordering::Relaxed);
             let interior = DIAG_INTERIOR_NODES.load(Ordering::Relaxed);
             let ratio = if prev_nodes > 0 { nodes as f64 / prev_nodes as f64 } else { 0.0 };
             let qshare =
                 if q + interior > 0 { 100.0 * q as f64 / (q + interior) as f64 } else { 0.0 };
-            println!("{depth:>5}  {nodes:>12}  {ratio:>7.2}  {qshare:>8.0}%");
+            let scouts = DIAG_PVS_SCOUTS.load(Ordering::Relaxed);
+            let researches = DIAG_PVS_RESEARCHES.load(Ordering::Relaxed);
+            let rr = if scouts > 0 { 100.0 * researches as f64 / scouts as f64 } else { 0.0 };
+            println!(
+                "{depth:>5}  {nodes:>12}  {ratio:>7.2}  {qshare:>8.0}%  scouts {scouts:>8}  \
+                 re-search {rr:>5.1}%"
+            );
             prev_nodes = nodes;
 
+            if depth == cli.max_depth {
+                println!(
+                    "\n  null move: attempts {}  tried {}  cutoffs {}  \
+                     disabled-in-check {}  skipped-time-pressure {}",
+                    nm.attempts, nm.null_moves_tried, nm.cutoffs_after_null_move,
+                    nm.disabled_in_check, nm.skipped_time_pressure
+                );
+            }
             if depth == cli.max_depth {
                 let cuts: Vec<u64> =
                     DIAG_CUT_INDEX.iter().map(|c| c.load(Ordering::Relaxed)).collect();

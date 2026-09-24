@@ -516,6 +516,12 @@ pub static DIAG_CUTS: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
 /// the metrics struct for a long time hardcoded to 0.0 with the comment "would
 /// need calculation", so the number has never actually been looked at.
 pub static DIAG_CUT_INDEX: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
+/// Null-window scouts performed, and those that had to be re-searched with the
+/// full window. A healthy principal variation search re-searches only a small
+/// fraction; a high rate means move ordering is putting the best move late, and
+/// the scouts are being paid for twice.
+pub static DIAG_PVS_SCOUTS: AtomicU64 = AtomicU64::new(0);
+pub static DIAG_PVS_RESEARCHES: AtomicU64 = AtomicU64::new(0);
 /// Interior (non-quiescence) nodes, and quiescence nodes, since the search
 /// began. Their ratio says how much of the tree is quiescence.
 pub static DIAG_INTERIOR_NODES: AtomicU64 = AtomicU64::new(0);
@@ -589,6 +595,9 @@ pub fn snapshot_and_reset_metrics() -> SearchMetrics {
 pub(crate) struct SearchToggles {
     pub no_tt: bool,
     pub no_null_move: bool,
+    /// Disable principal variation search: search every move with the full
+    /// window, as the engine did before PVS existed.
+    pub no_pvs: bool,
     pub no_lmr: bool,
     pub no_pruning: bool,
     pub no_check_ext: bool,
@@ -600,6 +609,7 @@ impl SearchToggles {
         Self {
             no_tt: on("SHOGI_NO_TT"),
             no_null_move: on("SHOGI_NO_NULLMOVE"),
+            no_pvs: on("SHOGI_NO_PVS"),
             no_lmr: on("SHOGI_NO_LMR"),
             no_pruning: on("SHOGI_NO_PRUNING"),
             no_check_ext: on("SHOGI_NO_CHECKEXT"),
@@ -11980,25 +11990,96 @@ impl SearchEngine {
                 return score;
             }
         } else {
-            // No reduction - perform full-depth search
-            // Task 7.0.3.7: Main search path uses propagated entry source
-            let score = -self.negamax_with_context(
-                board,
-                captured_pieces,
-                player.opposite(),
-                depth - 1,
-                beta.saturating_neg(),
-                alpha.saturating_neg(),
-                start_time,
-                time_limit_ms,
-                hash_history,
-                true,
-                false, // not root
-                has_capture,
-                has_check,
-                opponent_last_move, // Propagate opponent's last move
-                entry_source,       // Task 7.0.3.7: Propagate entry source through search
-            );
+            // Principal variation search.
+            //
+            // The first move establishes the PV and needs the full window. Every
+            // later move is only worth asking one question about — "does this beat
+            // alpha?" — so it is scouted with a null window, which prunes far
+            // harder and is much cheaper to refute. Only a scout that comes back
+            // above alpha has to be re-searched for its true value.
+            //
+            // Its absence was the reason forward pruning did nothing here. Null
+            // move requires a zero-window node (`!is_pv_node`), and without
+            // scouting almost every node had a wide window, so null move
+            // contributed exactly 0% of nodes at every position measured while
+            // LMR — the only other source of null windows — carried the whole
+            // job alone and managed 10%. The effective branching factor sat at
+            // ~7 against a raw branching factor of ~30: textbook alpha-beta,
+            // which is what a search without forward pruning is.
+            //
+            // `move_index` is 1-based here: the caller increments it before
+            // searching the move.
+            let is_first_move = move_index <= 1 || search_toggles().no_pvs;
+            // A node that is already a zero window has nothing to scout.
+            let already_zero_window = beta.saturating_sub(alpha) <= 1;
+            let path_len = hash_history.len();
+
+            let score = if is_first_move || already_zero_window {
+                -self.negamax_with_context(
+                    board,
+                    captured_pieces,
+                    player.opposite(),
+                    depth - 1,
+                    beta.saturating_neg(),
+                    alpha.saturating_neg(),
+                    start_time,
+                    time_limit_ms,
+                    hash_history,
+                    true,
+                    false, // not root
+                    has_capture,
+                    has_check,
+                    opponent_last_move.clone(),
+                    entry_source,
+                )
+            } else {
+                DIAG_PVS_SCOUTS.fetch_add(1, Ordering::Relaxed);
+                let scout = -self.negamax_with_context(
+                    board,
+                    captured_pieces,
+                    player.opposite(),
+                    depth - 1,
+                    alpha.saturating_neg().saturating_sub(1),
+                    alpha.saturating_neg(),
+                    start_time,
+                    time_limit_ms,
+                    hash_history,
+                    true,
+                    false, // not root
+                    has_capture,
+                    has_check,
+                    opponent_last_move.clone(),
+                    entry_source,
+                );
+                // The scout only returns a bound. A score inside the window means
+                // this move may be the new principal variation, and its real value
+                // has to be established with the full window.
+                if scout > alpha && scout < beta {
+                    DIAG_PVS_RESEARCHES.fetch_add(1, Ordering::Relaxed);
+                    // The scout's children may have returned early without popping
+                    // their own entry, as the caller's own truncate acknowledges.
+                    hash_history.truncate(path_len);
+                    -self.negamax_with_context(
+                        board,
+                        captured_pieces,
+                        player.opposite(),
+                        depth - 1,
+                        beta.saturating_neg(),
+                        alpha.saturating_neg(),
+                        start_time,
+                        time_limit_ms,
+                        hash_history,
+                        true,
+                        false, // not root
+                        has_capture,
+                        has_check,
+                        opponent_last_move.clone(),
+                        entry_source,
+                    )
+                } else {
+                    scout
+                }
+            };
 
             // Track phase statistics for non-reduced moves (Task 4.6)
             self.lmr_stats.record_phase_stats(
