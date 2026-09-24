@@ -2265,22 +2265,20 @@ impl MoveOrdering {
         // Validate the move first
         self.validate_move(move_)?;
 
-        let start_time = TimeSource::now();
+        // No timers here. This runs once per move ordered, and it used to read
+        // the clock five times per call -- 7% of all search time -- to measure
+        // a sub-microsecond operation in whole milliseconds, so every sample
+        // recorded zero. The `*_time_us` hot-path fields and the move-scoring
+        // and cache timing stats are therefore no longer fed from here.
         self.stats.hot_path_stats.score_move_calls += 1;
 
-        let hash_start = TimeSource::now();
         let move_hash = self.get_move_hash_fast(move_);
-        self.stats.hot_path_stats.hash_time_us += hash_start.elapsed_ms() as u64 * 1000;
         self.stats.hot_path_stats.hash_calculations += 1;
-
-        let cache_start = TimeSource::now();
 
         // Task 1.22: Use MoveScoreCache which handles both fast and main cache
         if let Some(cached_score) = self.move_score_cache.get(move_hash) {
             self.stats.cache_hits += 1;
             self.stats.hot_path_stats.cache_lookups += 1;
-            self.stats.hot_path_stats.cache_time_us += cache_start.elapsed_ms() as u64 * 1000;
-            self.stats.hot_path_stats.score_move_time_us += start_time.elapsed_ms() as u64 * 1000;
             return Ok(cached_score);
         }
 
@@ -2341,17 +2339,6 @@ impl MoveOrdering {
 
         // Task 1.22: Cache the score (MoveScoreCache handles size limits internally)
         self.move_score_cache.insert(move_hash, score);
-
-        // OPTIMIZATION: Update profiling statistics
-        let total_time = start_time.elapsed_ms() as u64 * 1000;
-        let cache_time = cache_start.elapsed_ms() as u64 * 1000;
-
-        self.stats.hot_path_stats.cache_time_us += cache_time;
-        self.stats.hot_path_stats.score_move_time_us += total_time;
-
-        // Update detailed timing statistics
-        self.record_timing("move_scoring", total_time);
-        self.record_timing("cache", cache_time);
 
         // Update heuristic statistics
         self.update_heuristic_stats("capture", move_.is_capture, score_capture);
