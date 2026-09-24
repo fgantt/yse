@@ -386,3 +386,64 @@ Black holding the odds (20 games per rung):
 Six-piece odds remains the responsive rung. Session 28 measured 46% there with a search that was
 really using ~850 nodes; 50% now is within noise at this sample size, so the node-budget fix cannot
 be claimed as a strength gain.
+
+---
+
+## Postscript 4: the search machinery is sound; speed is the constraint
+
+Chasing per-node cost turned up two defects, neither of them slow code.
+
+**The quiescence transposition table was keyed by a FEN string.**
+`format!("q_{}", board.to_fen(..))` — a board-to-string conversion, a second allocation for the
+format, a SipHash over the result and a string-comparing lookup, at every quiescence node, which is
+~87% of all nodes. The main search had used 64-bit Zobrist keys throughout. Fixing it: 8% fewer
+nodes and 8% less wall time, with nps unchanged, because the saving is fewer nodes rather than
+cheaper ones.
+
+**`get_position_hash` returned a hardcoded 0** ("For now, return 0 as a placeholder"). It feeds
+`search_state`, and `analyze_position` caches its result by that key, so every node after the first
+was handed the *first* node's position type, tactical potential, king safety, quietness and
+complexity. The adaptive half of pruning had been reading one stale analysis for whole searches.
+
+That stub was nearly shipped into the new quiescence key, which would have collapsed every position
+onto one entry: a large, fake speedup with a broken search. Reading the function before trusting
+its name is the only reason it did not land.
+
+### LMR was accused twice and is innocent
+
+`lmr: considered=589759 reduced=748` — one move in 800 — looked like a dead technique, and this log
+said so. Instrumenting every rejection path in `should_apply_lmr` (commit `08b1fc9`) shows the
+denominator was wrong:
+
+| reason | share |
+|---|---|
+| **applied** | 6.8% |
+| move number below threshold | 25.6% |
+| **depth below threshold** | **67.5%** |
+| check, capture, promotion, killer, TT, escape — combined | ~0.1% |
+
+Two thirds of rejections are nodes at or below the depth threshold, where LMR is deliberately off.
+Of the 2,166 moves clearing both gates, LMR applies to 2,119 — **97.8%**. Alpha-beta always has
+most of its nodes beside the leaves, so a low ratio against *all* moves considered is what a
+healthy engine looks like.
+
+### Where that leaves the engine
+
+Every component suspected this session has now been measured and cleared:
+
+| component | verdict |
+|---|---|
+| move ordering | fine — 81–99% first-move cutoffs |
+| LMR | fine — 97.8% of eligible moves |
+| null move | fires now that PVS supplies zero-window nodes (0% → 20%) |
+| quiescence share | high, but cutting it does not cut total nodes |
+| effective branching factor | ~√b, which is what alpha-beta gives |
+
+The search machinery is sound. What limits depth is nodes per second: ~14k in `search_bench`
+against YaneuraOu's ~1.36M, which is the whole of the depth-3-versus-16 gap. **Per-node cost is the
+binding constraint after all**, and the NNUE forward pass, at 31% of the profile, is the largest
+single item in it.
+
+The priority argued in Postscript 3 — that nps merely unlocks latent pruning gains — was right
+about the mechanism and wrong to treat pruning as a separate lever: the pruning is already working
+as designed.
