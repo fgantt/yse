@@ -10,5 +10,6 @@
 //! - common: small general-purpose helpers
 
 pub mod common;
+pub mod fast_hash;
 pub mod telemetry;
 pub mod time;

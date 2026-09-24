@@ -10,7 +10,7 @@
 use crate::bitboards::BitboardBoard;
 use crate::types::board::GamePhase;
 use crate::types::core::{Move, PieceType, Position};
-use std::collections::HashMap;
+use crate::utils::fast_hash::FastMap;
 
 /// History key "source square" for drops (off the board: rows are 0..9).
 pub const DROP_FROM: Position = Position { row: 9, col: 0 };
@@ -92,19 +92,19 @@ impl Default for HistoryConfig {
 pub struct HistoryHeuristicManager {
     /// History table for move scoring (absolute history)
     /// Maps (piece_type, from_square, to_square) -> history score
-    history_table: HashMap<(PieceType, Position, Position), u32>,
+    history_table: FastMap<(PieceType, Position, Position), u32>,
     /// Relative history table (Task 4.0)
     /// Maps (from_square, to_square) -> HistoryEntry (when enable_relative is
     /// true)
-    relative_history_table: HashMap<(Position, Position), HistoryEntry>,
+    relative_history_table: FastMap<(Position, Position), HistoryEntry>,
     /// Quiet-move-only history table (Task 4.0)
     /// Maps (piece_type, from_square, to_square) -> HistoryEntry (when
     /// enable_quiet_only is true)
-    quiet_history_table: HashMap<(PieceType, Position, Position), HistoryEntry>,
+    quiet_history_table: FastMap<(PieceType, Position, Position), HistoryEntry>,
     /// Phase-aware history tables (Task 4.0)
     /// Maps GamePhase -> history table
     phase_history_tables:
-        HashMap<GamePhase, HashMap<(PieceType, Position, Position), HistoryEntry>>,
+        FastMap<GamePhase, FastMap<(PieceType, Position, Position), HistoryEntry>>,
     /// Current game phase (Task 4.0)
     current_game_phase: GamePhase,
     /// Time-based aging counter (Task 4.0)
@@ -117,10 +117,10 @@ impl HistoryHeuristicManager {
     /// Create a new history heuristic manager
     pub fn new() -> Self {
         Self {
-            history_table: HashMap::new(),
-            relative_history_table: HashMap::new(),
-            quiet_history_table: HashMap::new(),
-            phase_history_tables: HashMap::new(),
+            history_table: FastMap::default(),
+            relative_history_table: FastMap::default(),
+            quiet_history_table: FastMap::default(),
+            phase_history_tables: FastMap::default(),
             current_game_phase: GamePhase::Opening,
             time_aging_counter: 0,
             history_update_counter: 0,
@@ -297,7 +297,7 @@ impl HistoryHeuristicManager {
                 let phase_table = self
                     .phase_history_tables
                     .entry(self.current_game_phase)
-                    .or_insert_with(HashMap::new);
+                    .or_insert_with(FastMap::default);
                 let current_entry = phase_table.get(&key).cloned();
                 let current_score = current_entry.as_ref().map(|e| e.score).unwrap_or(0);
                 let new_score = current_score + bonus;
