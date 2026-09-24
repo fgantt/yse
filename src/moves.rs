@@ -149,8 +149,9 @@ impl MoveGenerator {
         // Filtered in place, keeping order, so the list is allocated once.
         let mut scratch = board.clone();
         let mut legal_moves = pseudo_legal_moves;
+        let filter = MoveTestFilter::new(board, player, is_in_check, captured_pieces);
         legal_moves.retain_mut(|m| {
-            let (safe, check) = test_after(&mut scratch, m, player, captured_pieces);
+            let (safe, check) = filter.test(&mut scratch, m, player, captured_pieces);
             m.gives_check = check;
             safe
         });
@@ -1249,6 +1250,41 @@ impl MoveGenerator {
 mod tests {
     use super::*;
     use crate::bitboards::BitboardBoard;
+
+    /// `MoveTestFilter` must give exactly `test_after`'s answers, for every
+    /// pseudo-legal move of every position along random games -- which pass
+    /// through checks, captures, drops and promotions.
+    #[test]
+    fn move_test_filter_matches_full_test() {
+        use rand::{seq::SliceRandom, SeedableRng};
+        let mg = MoveGenerator::new();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(31);
+        let (mut compared, mut checks, mut unsafe_moves) = (0u64, 0u64, 0u64);
+        for _ in 0..40 {
+            let mut board = BitboardBoard::new();
+            let mut captured = CapturedPieces::new();
+            let mut player = Player::Black;
+            for _ in 0..160 {
+                let in_check = board.is_king_in_check(player, &captured);
+                let filter = MoveTestFilter::new(&board, player, in_check, &captured);
+                let mut scratch = board.clone();
+                for m in mg.generate_pseudo_legal_moves(&board, player, &captured) {
+                    let full = test_after(&mut scratch, &m, player, &captured);
+                    let fast = filter.test(&mut scratch, &m, player, &captured);
+                    assert_eq!(fast, full, "{} in {}", m.to_usi_string(), board.to_fen(player, &captured));
+                    compared += 1;
+                    checks += full.1 as u64;
+                    unsafe_moves += (!full.0) as u64;
+                }
+                let legal = mg.generate_legal_moves(&board, player, &captured);
+                let Some(m) = legal.choose(&mut rng) else { break };
+                board.make_move_with_hand(m, &mut captured);
+                player = player.opposite();
+            }
+        }
+        // The positions must actually exercise both answers.
+        assert!(checks > 100 && unsafe_moves > 100, "{compared} {checks} {unsafe_moves}");
+    }
     use crate::types::Bitboard;
     use crate::types::{CapturedPieces, Piece, PieceType, Player, Position};
 
@@ -1369,6 +1405,119 @@ fn king_safe_after(
     captured_pieces: &CapturedPieces,
 ) -> bool {
     test_after(scratch, m, player, captured_pieces).0
+}
+
+/// Squares from which some shogi piece can attack square `k`, on an empty
+/// board: the rook and bishop lines through `k` plus the knight jumps of either
+/// colour. Every piece's attack set -- steps, jumps, slides, lances -- lies
+/// inside it.
+const fn reach_masks() -> ([u128; 81], [u128; 81]) {
+    let mut lines = [0u128; 81];
+    let mut reach = [0u128; 81];
+    let dirs: [(i8, i8); 8] = [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)];
+    let knights: [(i8, i8); 4] = [(2, 1), (2, -1), (-2, 1), (-2, -1)];
+    let mut k = 0;
+    while k < 81 {
+        let (r, c) = ((k / 9) as i8, (k % 9) as i8);
+        let mut d = 0;
+        while d < 8 {
+            let (mut rr, mut cc) = (r + dirs[d].0, c + dirs[d].1);
+            while rr >= 0 && rr < 9 && cc >= 0 && cc < 9 {
+                lines[k] |= 1u128 << (rr as usize * 9 + cc as usize);
+                rr += dirs[d].0;
+                cc += dirs[d].1;
+            }
+            d += 1;
+        }
+        reach[k] = lines[k];
+        let mut j = 0;
+        while j < 4 {
+            let (rr, cc) = (r + knights[j].0, c + knights[j].1);
+            if rr >= 0 && rr < 9 && cc >= 0 && cc < 9 {
+                reach[k] |= 1u128 << (rr as usize * 9 + cc as usize);
+            }
+            j += 1;
+        }
+        k += 1;
+    }
+    (lines, reach)
+}
+
+/// `.0`: rook/bishop lines through each square. `.1`: those plus knight jumps.
+static REACH: ([u128; 81], [u128; 81]) = reach_masks();
+
+/// [`test_after`] with the attack tests it can answer without making the move.
+///
+/// The legality filter ran two full attack tests per pseudo-legal move, ~23%
+/// of search time. Most of them have a known answer:
+///
+/// * If the mover is not in check, a move can expose its king only by moving
+///   the king or by vacating a square on a line through it (a discovered
+///   attack). Occupying `to` only blocks, and a capture leaves `to` occupied.
+/// * Likewise, if the opponent is not in check, a move can check it only by
+///   landing where some piece could attack its king (`REACH`), or by vacating a
+///   square on a line through it.
+///
+/// Anything else -- either side already in check, a missing king -- takes the
+/// full test, so the answers are exactly those of [`test_after`].
+struct MoveTestFilter {
+    /// Own king square, when not in check (otherwise every move is tested).
+    own_king: Option<usize>,
+    own_in_check: bool,
+    /// Opponent king square, when it is not in check.
+    opp_king: Option<usize>,
+    opp_in_check: bool,
+}
+
+impl MoveTestFilter {
+    fn new(
+        board: &BitboardBoard,
+        player: Player,
+        own_in_check: bool,
+        captured_pieces: &CapturedPieces,
+    ) -> Self {
+        let opp_in_check = board.is_king_in_check(player.opposite(), captured_pieces);
+        Self {
+            own_king: board.find_king_position(player).map(|p| p.to_index() as usize),
+            own_in_check,
+            opp_king: board.find_king_position(player.opposite()).map(|p| p.to_index() as usize),
+            opp_in_check,
+        }
+    }
+
+    fn test(
+        &self,
+        scratch: &mut BitboardBoard,
+        m: &Move,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+    ) -> (bool, bool) {
+        let from_bit = m.from.map_or(0, |f| 1u128 << f.to_index());
+        let to_bit = 1u128 << m.to.to_index();
+        // No king means `is_king_in_check` answers false: safe, and no check.
+        let safety_known = match self.own_king {
+            None => true,
+            Some(k) => {
+                !self.own_in_check
+                    && m.piece_type != PieceType::King
+                    && REACH.0[k] & from_bit == 0
+            }
+        };
+        let check_known = match self.opp_king {
+            None => true,
+            Some(k) => !self.opp_in_check && REACH.1[k] & to_bit == 0 && REACH.0[k] & from_bit == 0,
+        };
+        if safety_known && check_known {
+            return (true, false);
+        }
+        let info = scratch.make_move_with_info(m);
+        let safe = safety_known || !scratch.is_king_in_check(player, captured_pieces);
+        let check =
+            safe && !check_known && scratch.is_king_in_check(player.opposite(), captured_pieces);
+        scratch.unmake_move(&info);
+        (safe, check)
+    }
+
 }
 
 /// After `m` on `scratch` (undone before returning): (is `player`'s king safe,
