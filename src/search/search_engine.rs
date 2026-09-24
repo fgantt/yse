@@ -3661,26 +3661,15 @@ impl SearchEngine {
         complexity
     }
 
-    /// Count tactical threats (checks, captures, promotions)
+    /// Legal captures plus legal promotions, for both sides, ignoring hands.
+    ///
+    /// This used to generate every legal move for both sides and count, which
+    /// made it ~30% of search time; the count is the same without the quiet
+    /// moves. See [`MoveGenerator::count_legal_captures_and_promotions`].
     fn count_tactical_threats(&self, board: &BitboardBoard) -> usize {
         let generator = MoveGenerator::new();
-        let captured_pieces = CapturedPieces::new();
-        let mut threats = 0;
-
-        let black_moves = generator.generate_legal_moves(board, Player::Black, &captured_pieces);
-        let white_moves = generator.generate_legal_moves(board, Player::White, &captured_pieces);
-
-        // Count captures and promotions
-        for mv in black_moves.iter().chain(white_moves.iter()) {
-            if mv.is_capture {
-                threats += 1;
-            }
-            if mv.is_promotion {
-                threats += 1;
-            }
-        }
-
-        threats
+        generator.count_legal_captures_and_promotions(board, Player::Black)
+            + generator.count_legal_captures_and_promotions(board, Player::White)
     }
     /// Calculate dynamic IID depth based on position complexity
     /// Task 4.0: Enhanced to work independently for Dynamic strategy and use

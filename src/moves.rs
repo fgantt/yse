@@ -170,6 +170,28 @@ impl MoveGenerator {
         legal_moves
     }
 
+    /// Number of `player`'s legal board moves that capture, plus the number that
+    /// promote (a capturing promotion counts twice), with no pieces in hand.
+    ///
+    /// Exactly what counting over `generate_legal_moves` with empty hands gives,
+    /// without building that list or testing the legality of quiet moves,
+    /// which contribute nothing: the search asks this for both sides at most
+    /// nodes, and the full generation was ~30% of search time.
+    pub fn count_legal_captures_and_promotions(&self, board: &BitboardBoard, player: Player) -> usize {
+        let no_hands = CapturedPieces::new();
+        let mut moves = Vec::with_capacity(160);
+        self.generate_all_piece_moves_into(board, player, &mut moves);
+        let in_check = board.is_king_in_check(player, &no_hands);
+        let filter = MoveTestFilter::new(board, player, in_check, &no_hands);
+        let mut scratch = board.clone();
+        moves
+            .iter()
+            .filter(|m| m.is_capture || m.is_promotion)
+            .filter(|m| filter.is_safe(&mut scratch, m, player, &no_hands))
+            .map(|m| m.is_capture as usize + m.is_promotion as usize)
+            .sum()
+    }
+
     pub fn generate_legal_captures(
         &self,
         board: &BitboardBoard,
@@ -1285,6 +1307,39 @@ mod tests {
         // The positions must actually exercise both answers.
         assert!(checks > 100 && unsafe_moves > 100, "{compared} {checks} {unsafe_moves}");
     }
+
+    /// `count_legal_captures_and_promotions` must equal the count it replaced:
+    /// captures plus promotions over `generate_legal_moves` with empty hands.
+    #[test]
+    fn capture_promotion_count_matches_full_generation() {
+        use rand::{seq::SliceRandom, SeedableRng};
+        let mg = MoveGenerator::new();
+        let no_hands = CapturedPieces::new();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(32);
+        let mut nonzero = 0;
+        for _ in 0..30 {
+            let mut board = BitboardBoard::new();
+            let mut captured = CapturedPieces::new();
+            let mut player = Player::Black;
+            for _ in 0..160 {
+                for side in [Player::Black, Player::White] {
+                    let expected: usize = mg
+                        .generate_legal_moves(&board, side, &no_hands)
+                        .iter()
+                        .map(|m| m.is_capture as usize + m.is_promotion as usize)
+                        .sum();
+                    let got = mg.count_legal_captures_and_promotions(&board, side);
+                    assert_eq!(got, expected, "{:?} in {}", side, board.to_fen(player, &captured));
+                    nonzero += (expected > 0) as usize;
+                }
+                let legal = mg.generate_legal_moves(&board, player, &captured);
+                let Some(m) = legal.choose(&mut rng) else { break };
+                board.make_move_with_hand(m, &mut captured);
+                player = player.opposite();
+            }
+        }
+        assert!(nonzero > 1000, "{nonzero}");
+    }
     use crate::types::Bitboard;
     use crate::types::{CapturedPieces, Piece, PieceType, Player, Position};
 
@@ -1518,6 +1573,30 @@ impl MoveTestFilter {
         (safe, check)
     }
 
+    /// The first half of [`Self::test`] alone: is `player`'s king safe after `m`.
+    fn is_safe(
+        &self,
+        scratch: &mut BitboardBoard,
+        m: &Move,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+    ) -> bool {
+        let known = match self.own_king {
+            None => true,
+            Some(k) => {
+                !self.own_in_check
+                    && m.piece_type != PieceType::King
+                    && REACH.0[k] & m.from.map_or(0, |f| 1u128 << f.to_index()) == 0
+            }
+        };
+        if known {
+            return true;
+        }
+        let info = scratch.make_move_with_info(m);
+        let safe = !scratch.is_king_in_check(player, captured_pieces);
+        scratch.unmake_move(&info);
+        safe
+    }
 }
 
 /// After `m` on `scratch` (undone before returning): (is `player`'s king safe,
