@@ -202,10 +202,12 @@ impl MoveGenerator {
             self.generate_pseudo_legal_captures(board, player, captured_pieces);
 
         // Filter out moves that leave the king in check
+        let in_check = board.is_king_in_check(player, captured_pieces);
+        let filter = MoveTestFilter::new(board, player, in_check, captured_pieces);
         let mut scratch = board.clone();
         pseudo_legal_moves
             .into_iter()
-            .filter(|m| king_safe_after(&mut scratch, m, player, captured_pieces))
+            .filter(|m| filter.is_safe(&mut scratch, m, player, captured_pieces))
             .collect()
     }
 
@@ -778,27 +780,8 @@ impl MoveGenerator {
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> Vec<Move> {
-        let mut check_moves = Vec::new();
-        let opponent = player.opposite();
-
-        // Generate all pseudo-legal moves
         let all_moves = self.generate_pseudo_legal_moves(board, player, captured_pieces);
-
-        for mut move_ in all_moves {
-            // Make the move on a temporary board
-            let mut temp_board = board.clone();
-            let mut temp_captured = captured_pieces.clone();
-
-            temp_board.make_move_with_hand(&move_, &mut temp_captured);
-
-            // Check if this move gives check to the opponent
-            if temp_board.is_king_in_check(opponent, &temp_captured) {
-                move_.gives_check = true;
-                check_moves.push(move_);
-            }
-        }
-
-        check_moves
+        checks_among(board, player, captured_pieces, &all_moves)
     }
 
     /// Generate all promotion moves
@@ -808,18 +791,11 @@ impl MoveGenerator {
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> Vec<Move> {
-        let mut promotion_moves = Vec::new();
-
-        // Generate all pseudo-legal moves
-        let all_moves = self.generate_pseudo_legal_moves(board, player, captured_pieces);
-
-        for move_ in all_moves {
-            if move_.is_promotion {
-                promotion_moves.push(move_);
-            }
-        }
-
-        promotion_moves
+        let _ = captured_pieces; // drops never promote
+        let mut moves = Vec::with_capacity(160);
+        self.generate_all_piece_moves_into(board, player, &mut moves);
+        moves.retain(|m| m.is_promotion);
+        moves
     }
 
     /// Generate moves that create tactical threats
@@ -934,11 +910,19 @@ impl MoveGenerator {
         captured_pieces: &CapturedPieces,
         include_checks: bool,
     ) -> Vec<Move> {
+        // The same three lists as `generate_legal_captures`, `generate_promotions`
+        // and `generate_checks`, in the same order -- the sort below breaks ties
+        // by position and the dedup ignores the promotion flag, so the order
+        // decides which duplicate survives. The piece moves are generated once
+        // and shared; drops come after them and never promote.
         let mut moves = Vec::with_capacity(32);
         moves.extend(self.generate_legal_captures(board, player, captured_pieces));
-        moves.extend(self.generate_promotions(board, player, captured_pieces));
+        let mut pseudo = Vec::with_capacity(192);
+        self.generate_all_piece_moves_into(board, player, &mut pseudo);
+        moves.extend(pseudo.iter().filter(|m| m.is_promotion).cloned());
         if include_checks {
-            moves.extend(self.generate_checks(board, player, captured_pieces));
+            self.generate_drop_moves_into(board, player, captured_pieces, &mut pseudo);
+            moves.extend(checks_among(board, player, captured_pieces, &pseudo));
         }
         self.deduplicate_and_sort_quiescence_moves(&mut moves);
         moves
@@ -1308,6 +1292,70 @@ mod tests {
         assert!(checks > 100 && unsafe_moves > 100, "{compared} {checks} {unsafe_moves}");
     }
 
+    /// The quiescence generators must return exactly what the old code did:
+    /// captures filtered with the full `test_after`, promotions from the full
+    /// pseudo-legal list, and checks found by playing each move on a clone.
+    #[test]
+    fn quiescence_generators_match_reference() {
+        use rand::{seq::SliceRandom, SeedableRng};
+        let mg = MoveGenerator::new();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(33);
+        let key = |m: &Move| (m.to_usi_string(), m.gives_check, m.is_capture, m.is_promotion);
+        let (mut checks_seen, mut positions) = (0usize, 0usize);
+        for _ in 0..30 {
+            let mut board = BitboardBoard::new();
+            let mut captured = CapturedPieces::new();
+            let mut player = Player::Black;
+            for _ in 0..160 {
+                let pseudo = mg.generate_pseudo_legal_moves(&board, player, &captured);
+                let mut scratch = board.clone();
+                let ref_caps: Vec<Move> = mg
+                    .generate_pseudo_legal_captures(&board, player, &captured)
+                    .into_iter()
+                    .filter(|m| test_after(&mut scratch, m, player, &captured).0)
+                    .collect();
+                let ref_promos: Vec<Move> = pseudo.iter().filter(|m| m.is_promotion).cloned().collect();
+                let ref_checks: Vec<Move> = pseudo
+                    .iter()
+                    .filter_map(|m| {
+                        let mut b = board.clone();
+                        let mut c = captured.clone();
+                        b.make_move_with_hand(m, &mut c);
+                        b.is_king_in_check(player.opposite(), &c).then(|| {
+                            let mut m = m.clone();
+                            m.gives_check = true;
+                            m
+                        })
+                    })
+                    .collect();
+                let eq = |a: &[Move], b: &[Move]| {
+                    a.iter().map(key).collect::<Vec<_>>() == b.iter().map(key).collect::<Vec<_>>()
+                };
+                assert!(eq(&mg.generate_legal_captures(&board, player, &captured), &ref_caps));
+                assert!(eq(&mg.generate_promotions(&board, player, &captured), &ref_promos));
+                assert!(eq(&mg.generate_checks(&board, player, &captured), &ref_checks));
+                for include_checks in [false, true] {
+                    let mut reference = ref_caps.clone();
+                    reference.extend(ref_promos.iter().cloned());
+                    if include_checks {
+                        reference.extend(ref_checks.iter().cloned());
+                    }
+                    mg.deduplicate_and_sort_quiescence_moves(&mut reference);
+                    let got =
+                        mg.generate_quiescence_moves_bounded(&board, player, &captured, include_checks);
+                    assert!(eq(&got, &reference), "{}", board.to_fen(player, &captured));
+                }
+                checks_seen += ref_checks.len();
+                positions += 1;
+                let legal = mg.generate_legal_moves(&board, player, &captured);
+                let Some(m) = legal.choose(&mut rng) else { break };
+                board.make_move_with_hand(m, &mut captured);
+                player = player.opposite();
+            }
+        }
+        assert!(checks_seen > 1000 && positions > 1000, "{checks_seen} {positions}");
+    }
+
     /// `count_legal_captures_and_promotions` must equal the count it replaced:
     /// captures plus promotions over `generate_legal_moves` with empty hands.
     #[test]
@@ -1451,17 +1499,6 @@ fn must_promote(piece_type: PieceType, player: Player, to: Position) -> bool {
     }
 }
 
-/// Whether `player`'s king is safe after `m`, tested on `scratch` (a copy of the
-/// current board) and undone before returning.
-fn king_safe_after(
-    scratch: &mut BitboardBoard,
-    m: &Move,
-    player: Player,
-    captured_pieces: &CapturedPieces,
-) -> bool {
-    test_after(scratch, m, player, captured_pieces).0
-}
-
 /// Squares from which some shogi piece can attack square `k`, on an empty
 /// board: the rook and bishop lines through `k` plus the knight jumps of either
 /// colour. Every piece's attack set -- steps, jumps, slides, lances -- lies
@@ -1573,6 +1610,31 @@ impl MoveTestFilter {
         (safe, check)
     }
 
+    /// Is the opponent in check after `m`, whether or not `m` is legal.
+    fn gives_check(
+        &self,
+        scratch: &mut BitboardBoard,
+        m: &Move,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+    ) -> bool {
+        let known = match self.opp_king {
+            None => true,
+            Some(k) => {
+                !self.opp_in_check
+                    && REACH.1[k] & (1u128 << m.to.to_index()) == 0
+                    && REACH.0[k] & m.from.map_or(0, |f| 1u128 << f.to_index()) == 0
+            }
+        };
+        if known {
+            return false;
+        }
+        let info = scratch.make_move_with_info(m);
+        let check = scratch.is_king_in_check(player.opposite(), captured_pieces);
+        scratch.unmake_move(&info);
+        check
+    }
+
     /// The first half of [`Self::test`] alone: is `player`'s king safe after `m`.
     fn is_safe(
         &self,
@@ -1599,8 +1661,35 @@ impl MoveTestFilter {
     }
 }
 
+/// The moves of `moves` that leave the opponent in check, in order, with
+/// `gives_check` set. Legality is not tested (this never did).
+///
+/// Each used to be played on a fresh clone of the board and the hands; now
+/// one scratch board is made and unmade, and moves that cannot check are
+/// skipped (see [`MoveTestFilter`]).
+fn checks_among(
+    board: &BitboardBoard,
+    player: Player,
+    captured_pieces: &CapturedPieces,
+    moves: &[Move],
+) -> Vec<Move> {
+    let filter = MoveTestFilter::new(board, player, false, captured_pieces);
+    let mut scratch = board.clone();
+    let mut out = Vec::new();
+    for m in moves {
+        if filter.gives_check(&mut scratch, m, player, captured_pieces) {
+            let mut m = m.clone();
+            m.gives_check = true;
+            out.push(m);
+        }
+    }
+    out
+}
+
 /// After `m` on `scratch` (undone before returning): (is `player`'s king safe,
-/// is the opponent's king in check).
+/// is the opponent's king in check). The reference [`MoveTestFilter`] is tested
+/// against.
+#[cfg(test)]
 fn test_after(
     scratch: &mut BitboardBoard,
     m: &Move,
