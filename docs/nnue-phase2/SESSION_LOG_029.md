@@ -308,3 +308,81 @@ invalidated node-limited *measurements* — the handicap ladder, every `nodes`-l
 `--player-go "nodes 3000"` used to generate every self-play corpus since Session 25 — but the game
 that prompted the investigation was lost at depth 3 for the reasons in this postscript and the
 next, not because of that bug.
+
+---
+
+## Postscript 3: the search had no PVS, so its forward pruning did nothing
+
+`search-diag` (commit `d94a7f0`) reports the three things that decide how wide the tree is. At
+depth 4 with the deployed network:
+
+| | startpos | midgame |
+|---|---|---|
+| first-move cutoff rate | 81% | 99% |
+| quiescence share | 82% | 84% |
+| per-ply node ratio | 5.5–7.4 | 4.3–7.4 |
+
+Move ordering was the obvious suspect and is fine. Quiescence share is high, but disabling
+quiescence checks moves the share (84% → 62%) without changing the total (52,406 → 52,222): the
+main search simply expands to fill the gap.
+
+Disabling each pruning technique in turn found the real answer:
+
+| disabled | startpos d4 | midgame d4 |
+|---|---|---|
+| (baseline) | 7,743 | 52,406 |
+| null-move | 7,743 (**0%**) | 52,406 (**0%**) |
+| LMR | 8,641 (−10%) | 52,406 (**0%**) |
+| other pruning | 8,347 | 344,670 (−85%) |
+
+Null-move contributed nothing anywhere, and `null_move_stats.attempts` was **zero**: it had never
+once fired. The cause was one line. Non-first moves were searched with the full window
+`(-beta, -alpha)` instead of a null-window scout, so `beta - alpha > 1` nearly everywhere and null
+move's `!is_pv_node` gate never opened. LMR, the only other source of zero-window nodes, was
+carrying the job alone.
+
+### PVS (commit `4a49471`)
+
+Scout non-first moves with `(-alpha-1, -alpha)`; re-search only when the scout lands inside the
+window. Depth 6, start position:
+
+| | nodes | null-move | LMR |
+|---|---|---|---|
+| PVS off | 60,108 | 0% | 10% |
+| PVS on | 51,916 | **20%** | **55%** |
+
+Null-move attempts over the same search: 14 → 221. Re-search rate 2.7–12%.
+
+**The first measurement said the opposite.** At depth 4, PVS *costs* 21–28%: the
+scout-plus-re-search overhead dominates until the pruning it enables has enough depth to pay, and
+the crossover is near depth 5. Stopping at the depth that happened to be measured first would have
+reverted a change that removes 14% of the tree and switches on two dead techniques.
+
+### It buys no strength today
+
+150 neutral positions at 1 s/move, PVS off vs on: mean 321 → 327, median 114 → 92, >200 cp 37%
+either way, **depth 2.4 both**. No detectable difference, which is what depth 2.4 predicts — we
+never reach the crossover.
+
+**This inverts the priority argued earlier in this session.** The claim that branching factor is
+worth ~8× more than nps came from `depth = log(nodes)/log(EBF)`, which assumes we operate in the
+regime where EBF governs. We do not: the pruning only engages from depth 5 and we reach 2.4, so
+today EBF improvements buy nothing and raw speed decides everything. The two are not alternatives —
+**nps is what unlocks the pruning gains.** With ~37k nps against YaneuraOu's ~1.36M, per-node cost
+(task #13) is the binding constraint.
+
+### The ladder, recalibrated
+
+With `go nodes N` honest again, ours at 20,000 nodes vs YaneuraOu at 50, counting only our games as
+Black holding the odds (20 games per rung):
+
+| rung | W–D–L | score |
+|---|---|---|
+| even | 3–1–16 | 18% |
+| two-piece | 6–0–14 | 30% |
+| four-piece | 8–0–12 | 40% |
+| **six-piece** | 10–0–10 | **50%** |
+
+Six-piece odds remains the responsive rung. Session 28 measured 46% there with a search that was
+really using ~850 nodes; 50% now is within noise at this sample size, so the node-budget fix cannot
+be claimed as a strength gain.
