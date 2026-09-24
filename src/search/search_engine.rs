@@ -376,7 +376,14 @@ pub struct SearchEngine {
     hash_calculator: crate::search::ShogiHashHandler,
     move_orderer: crate::search::TranspositionMoveOrderer,
     advanced_move_orderer: MoveOrdering,
-    quiescence_tt: HashMap<String, QuiescenceEntry>,
+    /// Keyed by Zobrist hash, not by a FEN string.
+    ///
+    /// It used to build `format!("q_{}", board.to_fen(..))` at every quiescence
+    /// node — a board-to-string conversion, a second allocation for the format,
+    /// a SipHash over the result and a string-comparing lookup. Quiescence is
+    /// ~87% of all nodes, so that ran on almost every node the engine visits,
+    /// while the main search had been using 64-bit hashes all along.
+    quiescence_tt: HashMap<u64, QuiescenceEntry>,
     quiescence_tt_age: u64, // Age counter for LRU tracking
     history_table: [[i32; 9]; 9],
     killer_moves: [Option<Move>; 2],
@@ -7744,7 +7751,7 @@ impl SearchEngine {
                 self.cleanup_quiescence_tt(self.quiescence_config.tt_cleanup_threshold / 2);
             }
 
-            let fen_key = format!("q_{}", board.to_fen(player, captured_pieces));
+            let fen_key = self.hash_calculator.get_position_hash(board, player, captured_pieces);
             if let Some(entry) = self.quiescence_tt.get_mut(&fen_key) {
                 if entry.depth >= depth {
                     self.quiescence_stats.tt_hits += 1;
@@ -7893,7 +7900,7 @@ impl SearchEngine {
 
             // Store result in transposition table (Task 6.0)
             if self.quiescence_config.enable_tt {
-                let fen_key = format!("q_{}", board.to_fen(player, captured_pieces));
+                let fen_key = self.hash_calculator.get_position_hash(board, player, captured_pieces);
                 let flag = TranspositionFlag::Exact; // Exact score since no moves to search
 
                 // Task 6.0: Update or create entry with stand-pat cached
@@ -7907,8 +7914,7 @@ impl SearchEngine {
                         existing_entry.flag = flag;
                     }
                 } else {
-                    // Use position hash for hash_key instead of fen_key string
-                    let position_hash = self.get_position_hash(board);
+                    let position_hash = fen_key;
                     self.quiescence_tt.insert(
                         fen_key,
                         QuiescenceEntry {
@@ -8163,7 +8169,7 @@ impl SearchEngine {
                 );
                 // Store result in transposition table
                 if self.quiescence_config.enable_tt {
-                    let fen_key = format!("q_{}", board.to_fen(player, captured_pieces));
+                    let fen_key = self.hash_calculator.get_position_hash(board, player, captured_pieces);
                     let flag = TranspositionFlag::LowerBound;
                     // Task 6.0: At beta cutoff, we don't have stand-pat for the position after the
                     // move We could evaluate it, but that would be expensive.
@@ -8171,7 +8177,7 @@ impl SearchEngine {
                     // the position is fully evaluated later.
                     let stand_pat_for_beta = None; // Don't cache stand-pat at beta cutoff (position not fully evaluated)
 
-                    let position_hash = self.get_position_hash(board);
+                    let position_hash = fen_key;
                     self.quiescence_tt.insert(
                         fen_key,
                         QuiescenceEntry {
@@ -8211,7 +8217,7 @@ impl SearchEngine {
 
         // Store result in transposition table
         if self.quiescence_config.enable_tt {
-            let fen_key = format!("q_{}", board.to_fen(player, captured_pieces));
+            let fen_key = self.hash_calculator.get_position_hash(board, player, captured_pieces);
             let flag = if alpha <= -beta {
                 TranspositionFlag::UpperBound
             } else if alpha >= beta {
@@ -8243,7 +8249,7 @@ impl SearchEngine {
                 }
             } else {
                 // Create new entry with stand-pat cached
-                let position_hash = self.get_position_hash(board);
+                let position_hash = fen_key;
                 self.quiescence_tt.insert(
                     fen_key,
                     QuiescenceEntry {
@@ -9760,7 +9766,7 @@ impl SearchEngine {
         match self.quiescence_config.tt_replacement_policy {
             TTReplacementPolicy::Simple => {
                 // Simple cleanup: clear half the entries arbitrarily
-                let keys_to_remove: Vec<String> =
+                let keys_to_remove: Vec<u64> =
                     self.quiescence_tt.keys().take(entries_to_remove).cloned().collect();
 
                 for key in keys_to_remove {
@@ -9769,14 +9775,14 @@ impl SearchEngine {
             }
             TTReplacementPolicy::LRU => {
                 // LRU: Remove least recently used entries
-                let mut entries: Vec<(String, &QuiescenceEntry)> =
+                let mut entries: Vec<(u64, &QuiescenceEntry)> =
                     self.quiescence_tt.iter().map(|(k, v)| (k.clone(), v)).collect();
 
                 // Sort by last_access_age (ascending) - oldest first
                 entries.sort_by_key(|(_, entry)| entry.last_access_age);
 
                 // Remove oldest entries
-                let keys_to_remove: Vec<String> =
+                let keys_to_remove: Vec<u64> =
                     entries.iter().take(entries_to_remove).map(|(key, _)| key.clone()).collect();
                 for key in keys_to_remove {
                     self.quiescence_tt.remove(&key);
@@ -9784,13 +9790,13 @@ impl SearchEngine {
             }
             TTReplacementPolicy::DepthPreferred => {
                 // Depth-preferred: Remove shallow entries (keep deeper tactical results)
-                let mut entries: Vec<(String, &QuiescenceEntry)> =
+                let mut entries: Vec<(u64, &QuiescenceEntry)> =
                     self.quiescence_tt.iter().map(|(k, v)| (k.clone(), v)).collect();
 
                 // Sort by depth (ascending) - shallowest first
                 // For same depth, prefer keeping entries with lower last_access_age (older)
                 // Use indexed approach to ensure total order even when entries are identical
-                let mut indexed_entries: Vec<(usize, (String, &QuiescenceEntry))> = entries.iter().enumerate().map(|(i, (k, v))| (i, (k.clone(), *v))).collect();
+                let mut indexed_entries: Vec<(usize, (u64, &QuiescenceEntry))> = entries.iter().enumerate().map(|(i, (k, v))| (i, (k.clone(), *v))).collect();
                 indexed_entries.sort_by(|(idx_a, (_, a)), (idx_b, (_, b))| {
                     let depth_cmp = a.depth.cmp(&b.depth);
                     if depth_cmp != std::cmp::Ordering::Equal {
@@ -9808,7 +9814,7 @@ impl SearchEngine {
                 entries = indexed_entries.into_iter().map(|(_, item)| item).collect();
 
                 // Remove shallowest entries
-                let keys_to_remove: Vec<String> =
+                let keys_to_remove: Vec<u64> =
                     entries.iter().take(entries_to_remove).map(|(key, _)| key.clone()).collect();
                 for key in keys_to_remove {
                     self.quiescence_tt.remove(&key);
@@ -9822,7 +9828,7 @@ impl SearchEngine {
                 let depth_weight = 1000u64; // Weight for depth (prefer deeper)
                 let age_weight = 1u64; // Weight for recency (prefer recent)
 
-                let mut entries: Vec<(String, u64)> = self
+                let mut entries: Vec<(u64, u64)> = self
                     .quiescence_tt
                     .iter()
                     .map(|(k, v)| {
@@ -9838,7 +9844,7 @@ impl SearchEngine {
                 entries.sort_by_key(|(_, score)| *score);
 
                 // Remove entries with lowest scores
-                let keys_to_remove: Vec<String> =
+                let keys_to_remove: Vec<u64> =
                     entries.iter().take(entries_to_remove).map(|(key, _)| key.clone()).collect();
                 for key in keys_to_remove {
                     self.quiescence_tt.remove(&key);
@@ -11655,7 +11661,17 @@ impl SearchEngine {
         self.lmr_stats.moves_considered += 1;
 
         // Probe transposition table for best move (Task 3.2, 3.3)
-        let position_hash = self.get_position_hash(board);
+        // This fed `search_state` from a `get_position_hash` stub that returned a
+        // hardcoded 0 ("For now, return 0 as a placeholder"). `analyze_position`
+        // caches its result by this key, so every node after the first was handed
+        // the *first* node's position type, king safety, quietness and
+        // complexity — the adaptive half of pruning was reading one stale
+        // analysis for the whole search.
+        //
+        // Taken from the path rather than recomputed: the caller pushes this
+        // node's hash before the move loop, and a fresh full-board hash here cost
+        // ~2.5% of nps for a number we already had.
+        let position_hash = hash_history.last().copied().unwrap_or(0);
         let tt_move = self.get_best_move_from_tt(board, captured_pieces, player, depth);
 
         // Create search state for advanced pruning
@@ -14692,12 +14708,6 @@ impl SearchEngine {
     }
 
     /// Get the position hash for the current board state
-    pub fn get_position_hash(&self, _board: &BitboardBoard) -> u64 {
-        // This should use the existing position hashing logic
-        // For now, return 0 as a placeholder
-        0
-    }
-
     /// Determine the current game phase based on material
     pub fn get_game_phase(&self, board: &BitboardBoard) -> GamePhase {
         let material_count = self.count_material_for_phase(board);
