@@ -2498,19 +2498,33 @@ impl SearchEngine {
             return false;
         }
 
-        // Task 7.7, 7.8: Assess complexity once and reuse throughout the method
-        // (for adaptive min depth, skip conditions, and adaptive move count threshold)
-        let complexity_opt = if let (Some(board), Some(captured)) = (board, captured_pieces) {
-            Some(self.assess_position_complexity(board, captured))
-        } else {
-            None
-        };
+        // Task 7.7, 7.8: Assess complexity at most once, and only when a decision
+        // needs it. It is a full position analysis (both sides' captures and
+        // promotions among it) and used to run first, at every node, although
+        // the depth and TT-move gates below reject most nodes without it: ~14%
+        // of search time. Computing it lazily gives the same decisions.
+        let mut complexity_cache: Option<Option<PositionComplexity>> = None;
+        macro_rules! complexity {
+            () => {
+                *complexity_cache.get_or_insert_with(|| {
+                    if let (Some(board), Some(captured)) = (board, captured_pieces) {
+                        Some(self.assess_position_complexity(board, captured))
+                    } else {
+                        None
+                    }
+                })
+            };
+        }
 
-        // Task 4.9: Review minimum depth threshold - make adaptive if enabled
-        let min_depth_threshold = if self.iid_config.adaptive_min_depth {
+        // Task 4.9: Review minimum depth threshold - make adaptive if enabled.
+        // The adaptive threshold is never above `min_depth`, so it can only
+        // matter below it.
+        let min_depth_threshold = if self.iid_config.adaptive_min_depth
+            && depth < self.iid_config.min_depth
+        {
             // Task 4.9: Adaptive minimum depth based on position characteristics
             // Lower threshold for complex positions where IID is more valuable
-            if let Some(complexity) = complexity_opt {
+            if let Some(complexity) = complexity!() {
                 match complexity {
                     PositionComplexity::High => {
                         let reduced = (self.iid_config.min_depth as i32).saturating_sub(1).max(2);
@@ -2608,7 +2622,7 @@ impl SearchEngine {
 
         // Task 7.8: Calculate adaptive move count threshold
         let move_count_threshold = if self.iid_config.enable_adaptive_move_count_threshold {
-            if let Some(complexity) = complexity_opt {
+            if let Some(complexity) = complexity!() {
                 match complexity {
                     crate::types::search::PositionComplexity::High => {
                         // Tactical positions: allow more moves (IID is still valuable)
@@ -2643,7 +2657,7 @@ impl SearchEngine {
 
         // Task 7.7: Skip IID in very simple positions (complexity might be Low with
         // very few pieces)
-        if let Some(complexity) = complexity_opt {
+        if let Some(complexity) = complexity!() {
             // Very simple positions: skip IID to save time (no tactical complexity)
             if complexity == PositionComplexity::Low && legal_moves.len() < 5 {
                 // Only skip if position is both Low complexity AND has very few moves
@@ -2721,6 +2735,7 @@ impl SearchEngine {
         // Task 5.6, 5.7, 9.1-9.5: Update time pressure detection to use dynamic
         // calculation
         if self.iid_config.enable_time_pressure_detection {
+            let complexity_opt = complexity!();
             let in_time_pressure = self.is_time_pressure(
                 start_time,
                 time_limit_ms,
