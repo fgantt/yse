@@ -20,6 +20,18 @@ pub static GLOBAL_NODES_SEARCHED: AtomicU64 = AtomicU64::new(0);
 /// `TimeManager::begin_search`.
 pub static GLOBAL_SEARCH_NODES: AtomicU64 = AtomicU64::new(0);
 
+/// Why late move reductions did not apply, bucketed by reason.
+///
+/// LMR reduces on the order of one move in 800 of those "considered", which
+/// looks like a broken technique. The denominator is the question: moves at
+/// depths where LMR is deliberately off are counted too, so the raw ratio
+/// cannot tell a misconfigured gate from a search that is simply too shallow
+/// to reach the depths LMR applies at.
+///
+/// Indices: 0 applied, 1 move number below threshold, 2 depth below threshold,
+/// 3 in check, 4 capture, 5 promotion, 6 killer, 7 TT move, 8 escape move.
+pub static DIAG_LMR_REJECT: [AtomicU64; 9] = [const { AtomicU64::new(0) }; 9];
+
 /// Global maximum search depth reached (seldepth) across all threads for live
 /// reporting.
 pub static GLOBAL_SELDEPTH: AtomicU64 = AtomicU64::new(0);

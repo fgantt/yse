@@ -25,7 +25,7 @@ use shogi_engine::search::search_engine::{
     IterativeDeepening, SearchEngine, DIAG_CUT_INDEX, DIAG_INTERIOR_NODES, DIAG_PVS_RESEARCHES,
     DIAG_PVS_SCOUTS, DIAG_QUIESCENCE_NODES,
 };
-use shogi_engine::search::statistics::GLOBAL_SEARCH_NODES;
+use shogi_engine::search::statistics::{DIAG_LMR_REJECT, GLOBAL_SEARCH_NODES};
 use std::sync::atomic::Ordering;
 
 #[derive(Parser, Debug)]
@@ -65,6 +65,9 @@ fn reset() {
     DIAG_QUIESCENCE_NODES.store(0, Ordering::Relaxed);
     DIAG_PVS_SCOUTS.store(0, Ordering::Relaxed);
     DIAG_PVS_RESEARCHES.store(0, Ordering::Relaxed);
+    for c in DIAG_LMR_REJECT.iter() {
+        c.store(0, Ordering::Relaxed);
+    }
 }
 
 fn main() {
@@ -124,6 +127,20 @@ fn main() {
                 let cuts: Vec<u64> =
                     DIAG_CUT_INDEX.iter().map(|c| c.load(Ordering::Relaxed)).collect();
                 let total: u64 = cuts.iter().sum();
+                let lmr: Vec<u64> =
+                    DIAG_LMR_REJECT.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+                let lmr_total: u64 = lmr.iter().sum();
+                if lmr_total > 0 {
+                    println!("\n  LMR decisions (depth {depth}):");
+                    let labels = [
+                        "APPLIED", "move# too low", "depth too low", "in check", "capture",
+                        "promotion", "killer", "tt move", "escape",
+                    ];
+                    for (label, n) in labels.iter().zip(lmr.iter()) {
+                        let pct = 100.0 * *n as f64 / lmr_total as f64;
+                        println!("    {label:>14} {pct:>5.1}%  {n}");
+                    }
+                }
                 if total > 0 {
                     println!("\n  beta cutoffs by move index (depth {depth}):");
                     let labels = ["1st", "2nd", "3rd", "4th", "5-8th", "9-16th", "17-32nd", "33+"];

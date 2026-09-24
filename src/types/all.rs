@@ -8013,34 +8013,41 @@ impl PruningManager {
         is_killer_move: bool,
         tt_move: Option<&Move>,
     ) -> bool {
+        use crate::search::statistics::DIAG_LMR_REJECT;
+        use std::sync::atomic::Ordering as DiagOrdering;
+        let reject = |i: usize| {
+            DIAG_LMR_REJECT[i].fetch_add(1, DiagOrdering::Relaxed);
+            false
+        };
+
         // Basic conditions: must meet depth and move index thresholds
         if state.move_number <= self.parameters.lmr_move_threshold {
-            return false;
+            return reject(1);
         }
         if state.depth <= self.parameters.lmr_depth_threshold {
-            return false;
+            return reject(2);
         }
 
         // Basic exemptions: checks (always exempt)
         if state.is_in_check {
-            return false;
+            return reject(3);
         }
 
         // Captures remain exempt from reduction by default
         if self.is_capture_move(mv) {
-            return false;
+            return reject(4);
         }
 
         // Promotions remain exempt from reduction by default
         if self.is_promotion_move(mv) {
-            return false;
+            return reject(5);
         }
 
         // Extended exemptions if enabled
         if self.parameters.lmr_enable_extended_exemptions {
             // Check killer move exemption
             if is_killer_move {
-                return false;
+                return reject(6);
             }
 
             // Check TT move exemption (Task 3.4, 3.5, 3.6)
@@ -8048,16 +8055,17 @@ impl PruningManager {
             let tt_move_to_check = state.tt_move.as_ref().or(tt_move);
             if let Some(tt_mv) = tt_move_to_check {
                 if self.moves_equal(mv, tt_mv) {
-                    return false;
+                    return reject(7);
                 }
             }
 
             // Check escape move exemption (move from center to edge)
             if self.is_escape_move(mv) {
-                return false;
+                return reject(8);
             }
         }
 
+        DIAG_LMR_REJECT[0].fetch_add(1, DiagOrdering::Relaxed);
         true
     }
 
