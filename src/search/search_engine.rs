@@ -1682,9 +1682,21 @@ impl SearchEngine {
     ) {
         // Update game phase for position-specific strategies
         let move_count = self.search_statistics.get_nodes_searched() as usize; // Approximate move count
-        let material_balance = self.evaluate_position(board, player, captured_pieces);
-        let tactical_complexity =
-            self.calculate_tactical_complexity(board, captured_pieces, player);
+
+        // `determine_game_phase` reads material and tactical complexity only when
+        // `move_count` is in 20..=60; below that the phase is Opening and above
+        // it Endgame. Since `move_count` is really the node count, that is only
+        // the first 60 nodes of a search. Computing both at every node -- an
+        // evaluation, plus a legal-move generation that replays every move to
+        // count checks -- was ~9% of search time for values nothing read.
+        let (material_balance, tactical_complexity) = if (20..=60).contains(&move_count) {
+            (
+                self.evaluate_position(board, player, captured_pieces),
+                self.calculate_tactical_complexity(board, captured_pieces, player),
+            )
+        } else {
+            (0, 0.0)
+        };
 
         self.advanced_move_orderer.update_game_phase(
             move_count,
