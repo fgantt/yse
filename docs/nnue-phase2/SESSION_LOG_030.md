@@ -15,14 +15,14 @@ start with the NNUE forward pass, then take whatever the profile says is next.
 >    perft to depth 5 and match YaneuraOu's legal-move lists on 6,741 positions.
 > 2. **It plays better: +117 ± 72 Elo** against the pre-session engine, 1 s/move, 120 games
 >    (76-7-37). Neutral-set move loss leaned the same way but could not resolve it.
-> 5. **The default (parallel) search never played a mate in one.** A root move that mated was
->    ranked worst. Found from a user's handicap game drawn at move 595 from a won position;
->    fixed in `79f4380`. Every game result before that commit carries the defect.
 > 3. **Profile the engine you ship.** Three commits worth +38% in single-threaded `search_bench`
 >    moved the parallel engine's nodes at 1 s/move from 90k to 92k. A profile of `usi-engine`
 >    itself found a different top item, and fixing that moved it to 111k.
 > 4. **A fixed-depth search here still reads the clock.** IID decisions use elapsed time, so a
 >    pure speedup changed one slow fingerprint position's result. Proven not to be the change.
+> 5. **The default (parallel) search never played a mate in one.** A root move that mated was
+>    ranked worst. Found from a user's handicap game drawn at move 595 from a won position;
+>    fixed in `79f4380`. Every game result before that commit carries the defect.
 
 ---
 
