@@ -610,9 +610,39 @@ impl ThreadLocalSearchContext {
                 }
             }
         }
+        // A root move that leaves the opponent without a legal move ends the
+        // game here. `search_at_depth` has no move to return from such a
+        // position and answers `None`, which the caller ranks as the worst
+        // possible result -- so the engine never played a mate in one, took a
+        // longer mate instead, and found the same mate in one declined again
+        // next turn: hundreds of moves without finishing a won game.
+        //
+        // Scored as the single-threaded search scores a node with no moves: one
+        // ply from the root.
+        use crate::search::search_engine::{MATED_SCORE, MATE_THRESHOLD};
+        let opponent = player.opposite();
+        if self.search_engine.has_no_legal_moves(board, opponent, captured) {
+            return Some(if board.is_king_in_check(opponent, captured) {
+                MATED_SCORE + 1
+            } else {
+                0
+            });
+        }
+        // `search_at_depth` counts plies from this child, one ply below the real
+        // root, so its mate scores are one ply short. Rebase them, so a mate
+        // reports the same distance as in the single-threaded search (a mate in
+        // 5 used to show as `mate 4`).
         self.search_engine
-            .search_at_depth(board, captured, player.opposite(), depth, time_limit_ms, alpha, beta)
-            .map(|(_, score)| score)
+            .search_at_depth(board, captured, opponent, depth, time_limit_ms, alpha, beta)
+            .map(|(_, score)| {
+                if score <= -MATE_THRESHOLD {
+                    score + 1
+                } else if score >= MATE_THRESHOLD {
+                    score - 1
+                } else {
+                    score
+                }
+            })
     }
 
     pub fn flush_and_get_pv(&mut self, player: Player, depth: u8) -> Vec<Move> {

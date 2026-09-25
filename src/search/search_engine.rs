@@ -52,10 +52,10 @@ pub const MAX_SCORE: i32 = i32::MAX - 1;
 /// checks are generated only at this first ply (see `generate_noisy_moves`).
 pub const QUIESCENCE_ENTRY_DEPTH: u8 = 5;
 /// Score for the side to move being mated (matches negamax's convention).
-const MATED_SCORE: i32 = -100000;
+pub(crate) const MATED_SCORE: i32 = -100000;
 /// Scores of at least this magnitude are mates: `MATED_SCORE` offset by the ply
 /// the mate falls on. Well clear of any evaluation the network produces.
-const MATE_THRESHOLD: i32 = 90_000;
+pub(crate) const MATE_THRESHOLD: i32 = 90_000;
 
 /// A mate score returned by the search counts plies from the **root**, so that
 /// a mate in 3 beats a mate in 5 and being mated later beats being mated now.
@@ -1732,6 +1732,18 @@ impl SearchEngine {
                 depth,
             );
         }
+    }
+
+    /// Whether `player` has no legal move: checkmate if in check. Used by the
+    /// parallel root split, which must score a root move that ends the game
+    /// before handing the position to `search_at_depth`.
+    pub fn has_no_legal_moves(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+    ) -> bool {
+        self.move_generator.generate_legal_moves(board, player, captured_pieces).is_empty()
     }
 
     /// Expose nodes searched for external aggregators/monitors.

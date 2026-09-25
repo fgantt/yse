@@ -594,3 +594,40 @@ fn a_node_limited_search_spends_about_its_whole_budget() {
         "searched {nodes} on a {BUDGET}-node budget; the limit is not being enforced"
     );
 }
+
+/// Parallel search must play a mate in one.
+///
+/// Its root split made each root move and searched the resulting position;
+/// when that position was checkmate it had no move to return, and the move
+/// was ranked worst. The engine then preferred longer mates and never
+/// delivered one: a user's 8-piece handicap game against YaneuraOu, winning
+/// from move ~60, was drawn at move 595. This is that game's position at move
+/// 86 (Black to move; `6d6c+`, `6b7b` and others mate).
+#[test]
+fn parallel_search_plays_mate_in_one() {
+    use shogi_engine::moves::MoveGenerator;
+    use shogi_engine::search::ParallelSearchConfig;
+    let (board, player, captured) = BitboardBoard::from_fen(
+        "2+P+P5/3+P5/+N1k6/G2P4G/2S3+B2/1P3PP1P/+p5NPL/+p1PR1S2K/3G2G1L b 6P 172",
+    )
+    .unwrap();
+    for threads in [1, 4] {
+        let mut engine = SearchEngine::new(None, 16);
+        let mut id = if threads > 1 {
+            IterativeDeepening::new_with_threads(4, 5000, None, threads, ParallelSearchConfig::new(threads))
+        } else {
+            IterativeDeepening::new(4, 5000, None)
+        };
+        let (mv, score) = id.search(&mut engine, &board, &captured, player).expect("a move");
+        let mut after = board.clone();
+        let mut hands = captured.clone();
+        after.make_move_with_hand(&mv, &mut hands);
+        let replies = MoveGenerator::new().generate_legal_moves(&after, player.opposite(), &hands);
+        assert!(
+            replies.is_empty() && after.is_king_in_check(player.opposite(), &hands),
+            "{threads} thread(s): {} does not mate (score {score})",
+            mv.to_usi_string()
+        );
+        assert_eq!(score, 99_999, "{threads} thread(s): mate in one should score as mate in one");
+    }
+}
