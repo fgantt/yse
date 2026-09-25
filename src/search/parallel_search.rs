@@ -1187,11 +1187,85 @@ impl ParallelSearchEngine {
         let shared_tt = self.transposition_table.clone();
         let generation_id = NEXT_CONTEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
 
+        // Search one root move on a worker's context with the root-relative
+        // window (a, b). Returns the root-relative score and PV, or `None` when
+        // the search produced no score (stopped before it started).
+        let search_one = |holder: &mut ThreadContextHolder, mv: &Move, a: i32, b: i32| {
+            holder.context.update_stop_flag(Some(search_stop.clone()));
+            if holder.generation != generation_id {
+                holder.context.refresh_root_state(board, captured_pieces);
+                holder
+                    .context
+                    .search_engine_mut()
+                    .set_shared_transposition_table(shared_tt.clone());
+                self.configure_worker_engine(holder.context.search_engine_mut());
+                holder.generation = generation_id;
+            } else {
+                holder.context.reset_to_root();
+            }
+            let search_depth = if depth > 0 { depth - 1 } else { 0 };
+            let result = holder
+                .context
+                .search_root_child(mv, player, search_depth, time_limit_ms, -b, -a)
+                .map(|score_child| {
+                    let seldepth =
+                        crate::search::search_engine::GLOBAL_SELDEPTH.load(Ordering::Relaxed) as u8;
+                    let pv_depth = if seldepth > 0 { seldepth } else { 64 };
+                    let pv_moves = holder.context.flush_and_get_pv(player.opposite(), pv_depth);
+                    let mut pv_string = mv.to_usi_string();
+                    for child in pv_moves.iter() {
+                        pv_string.push(' ');
+                        pv_string.push_str(&child.to_usi_string());
+                    }
+                    (-score_child, pv_string)
+                });
+            holder.context.reset_to_root();
+            result
+        };
+
+        // Principal variation splitting ("young brothers wait"). The root moves
+        // used to be searched all at once, each with the full window and no
+        // knowledge of the others' scores, in move-generator order -- so no root
+        // move could be refuted cheaply by a good one found earlier, and every
+        // root subtree cost about as much as the principal variation's.
+        //
+        // Now the moves arrive ordered, best guess first (see the caller). The
+        // first is searched alone with the full window, which sets a bound; the
+        // rest are searched in parallel with a zero window against the best
+        // score found so far, and re-searched with a full window only when they
+        // beat it. A scout that fails low reports a bound no better than a score
+        // already sent, so it can never be chosen.
+        let best_alpha = std::sync::atomic::AtomicI32::new(alpha);
         self.thread_pool.install(|| {
-            moves
-                .par_iter()
-                .enumerate()
-                .with_min_len((moves.len() / (self.config.num_threads * 2).max(1)).max(1))
+            let (first, rest) = match moves.split_first() {
+                Some(x) => x,
+                None => return,
+            };
+            if search_stop.load(Ordering::Relaxed) {
+                return; // stopped before the search began: no result
+            }
+            let mut first_holder = ThreadContextHolder::new(
+                board,
+                captured_pieces,
+                player,
+                Some(search_stop.clone()),
+                hash_size_mb,
+            );
+            match search_one(&mut first_holder, first, alpha, beta) {
+                Some((score, pv)) => {
+                    best_alpha.fetch_max(score, Ordering::Relaxed);
+                    let _ = tx.send((first.clone(), score, pv));
+                    if score >= beta {
+                        return; // fail high: the caller widens the window
+                    }
+                }
+                None => {
+                    let _ = tx.send((first.clone(), i32::MIN / 2, first.to_usi_string()));
+                }
+            }
+
+            rest.par_iter()
+                .with_min_len((rest.len() / (self.config.num_threads * 2).max(1)).max(1))
                 .for_each_init(
                     || {
                         ThreadContextHolder::new(
@@ -1202,76 +1276,34 @@ impl ParallelSearchEngine {
                             hash_size_mb,
                         )
                     },
-                    |holder, (idx, mv)| {
+                    |holder, mv| {
                         if search_stop.load(Ordering::Relaxed) {
-                            crate::utils::telemetry::debug_log(
-                                "Stop flag set before worker started move; skipping",
-                            );
                             return;
                         }
-
-                        holder.context.update_stop_flag(Some(search_stop.clone()));
-
-                        if holder.generation != generation_id {
-                            holder.context.refresh_root_state(board, captured_pieces);
-                            holder
-                                .context
-                                .search_engine_mut()
-                                .set_shared_transposition_table(shared_tt.clone());
-                            self.configure_worker_engine(holder.context.search_engine_mut());
-                            holder.generation = generation_id;
-                        } else {
-                            holder.context.reset_to_root();
-                        }
-
-                        let search_depth = if depth > 0 { depth - 1 } else { 0 };
-
                         if env::var("SHOGI_FORCE_WORKER_PANIC").ok().as_deref() == Some("1")
-                            && idx == 0
+                            && std::ptr::eq(mv, &rest[0])
                         {
                             panic!("Forced worker panic for testing");
                         }
-
-                        let search_score = holder.context.search_root_child(
-                            mv,
-                            player,
-                            search_depth,
-                            time_limit_ms,
-                            -beta,
-                            -alpha,
-                        );
-
-                        if let Some(score_child) = search_score {
-                            let seldepth = crate::search::search_engine::GLOBAL_SELDEPTH
-                                .load(Ordering::Relaxed)
-                                as u8;
-                            let pv_depth = if seldepth > 0 { seldepth } else { 64 };
-                            let pv_moves =
-                                holder.context.flush_and_get_pv(player.opposite(), pv_depth);
-                            let mv_root = mv.to_usi_string();
-                            let mut pv_string =
-                                String::with_capacity(mv_root.len() + pv_moves.len() * 4);
-                            pv_string.push_str(&mv_root);
-                            for child in pv_moves.iter() {
-                                pv_string.push(' ');
-                                pv_string.push_str(&child.to_usi_string());
-                            }
-                            if search_stop.load(Ordering::Relaxed) {
-                                crate::utils::telemetry::debug_log(
-                                    "Stop flag observed after move search; reporting partial and \
-                                     returning",
-                                );
-                            }
-                            let score = -score_child;
-                            let _ = tx.send((mv.clone(), score, pv_string));
-                        } else {
-                            crate::utils::telemetry::debug_log(
-                                "Search_at_depth returned None; reporting move with no PV",
-                            );
-                            let _ = tx.send((mv.clone(), i32::MIN / 2, mv.to_usi_string()));
+                        let a = best_alpha.load(Ordering::Relaxed);
+                        if a >= beta {
+                            return; // another move already failed high
                         }
-
-                        holder.context.reset_to_root();
+                        let mut result = search_one(holder, mv, a, a.saturating_add(1));
+                        if let Some((score, _)) = result {
+                            if score > a && score < beta && !search_stop.load(Ordering::Relaxed) {
+                                result = search_one(holder, mv, a, beta).or(result);
+                            }
+                        }
+                        match result {
+                            Some((score, pv)) => {
+                                best_alpha.fetch_max(score, Ordering::Relaxed);
+                                let _ = tx.send((mv.clone(), score, pv));
+                            }
+                            None => {
+                                let _ = tx.send((mv.clone(), i32::MIN / 2, mv.to_usi_string()));
+                            }
+                        }
                     },
                 );
         });

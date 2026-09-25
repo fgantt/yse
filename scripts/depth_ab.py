@@ -1,14 +1,16 @@
-"""Depth and nodes reached by two USI engines at 1 s/move, alternating per position.
+"""Depth and nodes reached by two USI engines at a fixed time per move, alternating per position.
 
 Usage (from the repo root):
-    python3 scripts/depth_ab.py <engine old> <engine new> nnue_corpus_yaneura_d10.jsonl <n>
+    python3 scripts/depth_ab.py <engine old> <engine new> nnue_corpus_yaneura_d10.jsonl <n> [byoyomi_ms]
 
 Positions: every 2011th corpus record (the `search_bench` stride), at most n;
-the d10 corpus yields 34. Default engine options, so parallel search, as shipped.
+the d10 corpus yields 34. Default engine options, so parallel search, as shipped;
+byoyomi_ms defaults to 1000.
 """
 import subprocess, sys, json, statistics, time
 engines = {"old": sys.argv[1], "new": sys.argv[2]}
 corpus, n, stride = sys.argv[3], int(sys.argv[4]), 2011
+byoyomi = int(sys.argv[5]) if len(sys.argv) > 5 else 1000
 sfens = []
 for i, l in enumerate(open(corpus)):
     if i % stride == 0:
@@ -31,7 +33,7 @@ for p in procs.values():
 res = {k: [] for k in engines}
 for idx, sf in enumerate(sfens):
     for k, p in procs.items():
-        send(p, "position sfen " + sf); send(p, "go btime 0 wtime 0 byoyomi 1000")
+        send(p, "position sfen " + sf); send(p, f"go btime 0 wtime 0 byoyomi {byoyomi}")
         t0 = time.time(); lines = until(p, "bestmove"); dt = time.time() - t0
         depth = nodes = 0
         for l in lines:

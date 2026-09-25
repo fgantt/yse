@@ -15623,11 +15623,36 @@ impl IterativeDeepening {
                 let parallel_result = if self.thread_count > 1 && depth >= self.parallel_min_depth {
                     if let Some(ref parallel_engine) = self.parallel_engine {
                         parallel_engine.set_nnue_template(search_engine.get_evaluator());
+                        // The parallel root searches the first move alone to set a
+                        // bound, so give it the moves ordered as the single-threaded
+                        // root would, with the previous iteration's best first.
+                        let mut root_moves = search_engine.order_moves_for_negamax(
+                            &legal_moves,
+                            board,
+                            captured_pieces,
+                            player,
+                            depth,
+                            current_alpha,
+                            current_beta,
+                            None,
+                            None,
+                        );
+                        if let Some(prev) = &best_move {
+                            if let Some(i) = root_moves.iter().position(|m| {
+                                m.from == prev.from
+                                    && m.to == prev.to
+                                    && m.piece_type == prev.piece_type
+                                    && m.is_promotion == prev.is_promotion
+                            }) {
+                                let m = root_moves.remove(i);
+                                root_moves.insert(0, m);
+                            }
+                        }
                         parallel_engine.search_root_moves(
                             board,
                             captured_pieces,
                             player,
-                            &legal_moves,
+                            &root_moves,
                             depth,
                             remaining_time,
                             current_alpha,
