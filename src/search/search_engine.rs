@@ -8951,6 +8951,39 @@ impl SearchEngine {
                                         // expose capacity
     }
 
+    /// The principal variation for `mv` as the chosen move: `mv`, then the
+    /// table's line from the position after it.
+    ///
+    /// `get_pv` from the root follows whatever the root entry holds, which can
+    /// be an earlier line -- a failed aspiration attempt, the previous depth,
+    /// or a parallel worker's scout -- so the reported PV often began with a
+    /// move the engine did not play. Every reported PV goes through this.
+    fn pv_line_for(
+        &self,
+        board: &BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        mv: &Move,
+        depth: u8,
+    ) -> Vec<Move> {
+        let pv = self.get_pv(board, captured_pieces, player, depth);
+        let same = |m: &Move| {
+            m.from == mv.from
+                && m.to == mv.to
+                && m.piece_type == mv.piece_type
+                && m.is_promotion == mv.is_promotion
+        };
+        if pv.first().map_or(false, same) {
+            return pv;
+        }
+        let mut after = board.clone();
+        let mut after_hands = captured_pieces.clone();
+        after.make_move_with_hand(mv, &mut after_hands);
+        let mut line = vec![mv.clone()];
+        line.extend(self.get_pv(&after, &after_hands, player.opposite(), depth.saturating_sub(1)));
+        line
+    }
+
     fn get_pv(
         &self,
         board: &BitboardBoard,
@@ -15207,10 +15240,11 @@ impl IterativeDeepening {
             let initial_best_score = best_score;
             let initial_pv_string = if let Some(ref prev_move) = best_move {
                 // Try to get PV for previous move
-                let pv_for_info = search_engine.get_pv(
+                let pv_for_info = search_engine.pv_line_for(
                     board,
                     captured_pieces,
                     player,
+                    prev_move,
                     depth.saturating_sub(1).max(1),
                 );
                 if pv_for_info.is_empty() {
@@ -15733,21 +15767,9 @@ impl IterativeDeepening {
                         // from a failed search, so it is shown to the info sender but
                         // not adopted: adopting it made the engine play whichever move
                         // an interrupted re-search happened to be holding.
-                        let move_clone = move_.clone();
-
-                        // Update shared state with current best move
-                        let pv_for_info =
-                            search_engine.get_pv(board, captured_pieces, player, depth_clone);
-                        let pv_string = if pv_for_info.is_empty() {
-                            move_clone.to_usi_string()
-                        } else {
-                            pv_for_info
-                                .iter()
-                                .map(|m| m.to_usi_string())
-                                .collect::<Vec<String>>()
-                                .join(" ")
-                        };
-                        update_shared_state(Some(move_clone), score, pv_string);
+                        // Not published to the `info` heartbeat either: it showed
+                        // this unadopted move, so when the iteration was then cut off
+                        // the last line a GUI saw was not the move that was played.
 
                         log_decision!(
                             "ASPIRATION_WINDOW",
@@ -15778,21 +15800,9 @@ impl IterativeDeepening {
 
                     if score >= current_beta {
                         // Fail-high: widen window upward. Not adopted, as for fail-low.
-                        let move_clone = move_.clone();
-
-                        // Update shared state with current best move
-                        let pv_for_info =
-                            search_engine.get_pv(board, captured_pieces, player, depth_clone);
-                        let pv_string = if pv_for_info.is_empty() {
-                            move_clone.to_usi_string()
-                        } else {
-                            pv_for_info
-                                .iter()
-                                .map(|m| m.to_usi_string())
-                                .collect::<Vec<String>>()
-                                .join(" ")
-                        };
-                        update_shared_state(Some(move_clone), score, pv_string);
+                        // Not published to the `info` heartbeat either: it showed
+                        // this unadopted move, so when the iteration was then cut off
+                        // the last line a GUI saw was not the move that was played.
 
                         log_decision!(
                             "ASPIRATION_WINDOW",
@@ -15833,8 +15843,13 @@ impl IterativeDeepening {
                     previous_scores.push(score);
 
                     // Update shared state for periodic info messages
-                    let pv_for_info =
-                        search_engine.get_pv(board, captured_pieces, player, depth_clone);
+                    let pv_for_info = search_engine.pv_line_for(
+                        board,
+                        captured_pieces,
+                        player,
+                        &move_clone,
+                        depth_clone,
+                    );
                     let pv_string = if pv_for_info.is_empty() {
                         move_clone.to_usi_string()
                     } else {
@@ -16015,7 +16030,7 @@ impl IterativeDeepening {
                 // Use seldepth for PV building to get the full PV line, not just the iteration
                 // depth This ensures we show all moves in the PV that were
                 // actually searched
-                let pv = search_engine.get_pv(board, captured_pieces, player, seldepth);
+                let pv = search_engine.pv_line_for(board, captured_pieces, player, &mv_final, seldepth);
                 let pv_string = if pv.is_empty() {
                     // Fallback to at least show the best root move when PV unavailable (e.g.,
                     // parallel path)

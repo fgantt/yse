@@ -7,7 +7,8 @@ Usage (from the repo root):
 Positions: evenly spaced from the held-out teacher self-play games
 (`nnue_corpus_yaneura_d10.jsonl`, `game_id % 20 == 0`, excluded from training
 since Session 29). Engines run from the repo root, so each loads
-`nnue/default.bin`, with default options, at `byoyomi 1000`, one at a time.
+`nnue/default.bin`, with default options, at `byoyomi 1000` (or
+`$MOVE_LOSS_BYOYOMI` ms), one at a time.
 With two engines it also reports the paired difference. Per-position rows go
 to `move_loss_rows.jsonl` in the current directory.
 
@@ -19,7 +20,7 @@ loss = clamp(best score) - clamp(score of the played move), both from
 `go depth D` on the same position (the second with `searchmoves`), 0 when the
 engine played the judge's best move. Scores clamp to +-3000 cp; mate = +-3000.
 """
-import json, subprocess, sys, statistics
+import json, os, subprocess, sys, statistics
 
 CORPUS = "nnue_corpus_yaneura_d10.jsonl"
 YANE = "/Users/fgantt/projects/vibe/shogi-game/yaneuraou-V900-git-mac-all/NNUE_halfkpvm_256x2_32_32/YaneuraOu_NNUE_halfkpvm_256x2_32_32-V900Git_APPLEM1"
@@ -72,7 +73,7 @@ def main():
         e = Engine(path)
         moves = []
         for sf in sfens:
-            mv, _ = e.go(sf, "btime 0 wtime 0 byoyomi 1000")
+            mv, _ = e.go(sf, f"btime 0 wtime 0 byoyomi {os.environ.get('MOVE_LOSS_BYOYOMI', 1000)}")
             moves.append(mv)
         e.quit(); played[name] = moves
         print(f"{name}: {n} moves chosen", flush=True)

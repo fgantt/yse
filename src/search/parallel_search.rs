@@ -1141,46 +1141,20 @@ impl ParallelSearchEngine {
         let best_shared: Arc<Mutex<(Option<Move>, i32)>> = Arc::new(Mutex::new((None, i32::MIN)));
         let best_for_consumer = best_shared.clone();
 
-        // Start consumer thread to stream info lines as results arrive
+        // Consumer thread: keeps the best result as root moves report in.
         let consumer = thread::spawn(move || {
-            let mut best_pv = String::new();
-            while let Ok((mv, score, pv)) = rx.recv() {
+            while let Ok((mv, score, _pv)) = rx.recv() {
                 // Update best-so-far
                 if let Ok(mut guard) = best_for_consumer.lock() {
                     if score > guard.1 {
                         *guard = (Some(mv.clone()), score);
-                        best_pv = pv.clone();
                     }
                 }
-                let elapsed = bench_start.elapsed().as_millis() as u64;
-                let nodes = GLOBAL_NODES_SEARCHED.load(Ordering::Relaxed);
-                let nps =
-                    if elapsed > 0 { nodes.saturating_mul(1000) / (elapsed as u64) } else { 0 };
-                // Get actual seldepth (selective depth) - the maximum depth reached
-                // If seldepth wasn't updated during search (shouldn't happen), use depth as
-                // fallback
-                let seldepth_raw =
-                    crate::search::search_engine::GLOBAL_SELDEPTH.load(Ordering::Relaxed) as u8;
-                let seldepth = if seldepth_raw == 0 { depth } else { seldepth_raw.max(depth) };
-                // Emit real USI info line with score and PV (skip during silent benches)
-                if std::env::var("SHOGI_SILENT_BENCH").is_err() {
-                    if !best_pv.is_empty() {
-                        println!(
-                            "info depth {} seldepth {} multipv 1 score {} time {} nodes {} nps \
-                             {} pv {}",
-                            depth,
-                            seldepth,
-                            crate::search::search_engine::usi_score_field(
-                                if let Ok(g) = best_for_consumer.lock() { g.1 } else { score }
-                            ),
-                            elapsed,
-                            nodes,
-                            nps,
-                            best_pv
-                        );
-                    }
-                    let _ = std::io::Write::flush(&mut std::io::stdout());
-                }
+                // No `info` line here. This thread measured time and nodes from the
+                // start of the current iteration, not of the search, so its lines
+                // jumped backwards at every new depth and interleaved with the
+                // iterative-deepening reporter's; that reporter prints the
+                // once-a-second heartbeat and each iteration's result.
             }
         });
 
@@ -1353,77 +1327,11 @@ impl ParallelSearchEngine {
                 tt.store(entry);
             }
 
-            // IMPORTANT: Before building PV from root, we need to ensure all worker threads
-            // have flushed their TT buffers. However, worker threads are already done at
-            // this point. The issue might be that some positions along the PV
-            // simply weren't searched deeply enough, or their TT entries don't
-            // have best_move. We've already fixed storing best_move,
-            // so if PV is still short, it likely means the search depth itself is limited.
-
-            // Now rebuild the full PV from the root position using the shared TT
-            // This ensures we get the complete PV chain, not just from child positions
-            let seldepth =
-                crate::search::search_engine::GLOBAL_SELDEPTH.load(Ordering::Relaxed) as u8;
-            let pv_depth = if seldepth > 0 { seldepth } else { depth };
-
-            // Create a temporary search engine context to build PV from root
-            let mut temp_context = ThreadLocalSearchContext::new(
-                board,
-                captured_pieces,
-                player,
-                self.stop_flag.clone(),
-                16,
-            );
-            temp_context
-                .search_engine_mut()
-                .set_shared_transposition_table(self.transposition_table.clone());
-
-            // Build full PV from root position - try multiple times if first attempt is
-            // short This helps if there's a race condition with TT writes
-            let mut full_pv = temp_context.search_engine_mut().get_pv_for_reporting(
-                board,
-                captured_pieces,
-                player,
-                pv_depth,
-            );
-
-            // If PV is shorter than expected, try building again after a brief delay
-            // to allow any remaining TT writes to flush
-            if full_pv.len() < (depth as usize).min(10) {
-                std::thread::sleep(std::time::Duration::from_millis(5));
-                full_pv = temp_context.search_engine_mut().get_pv_for_reporting(
-                    board,
-                    captured_pieces,
-                    player,
-                    pv_depth,
-                );
-            }
-
-            // Emit final info line with the complete PV if we have at least 2 moves
-            if full_pv.len() >= 2 && std::env::var("SHOGI_SILENT_BENCH").is_err() {
-                let elapsed = bench_start.elapsed().as_millis() as u64;
-                let nodes = GLOBAL_NODES_SEARCHED.load(Ordering::Relaxed);
-                let nps =
-                    if elapsed > 0 { nodes.saturating_mul(1000) / (elapsed as u64) } else { 0 };
-                let seldepth_final = if seldepth == 0 { depth } else { seldepth.max(depth) };
-                let pv_string: String =
-                    full_pv.iter().map(|m| m.to_usi_string()).collect::<Vec<String>>().join(" ");
-
-                if !pv_string.is_empty() {
-                    println!(
-                        "info depth {} seldepth {} multipv 1 score {} time {} nodes {} nps {} \
-                         pv {}",
-                        depth,
-                        seldepth_final,
-                        crate::search::search_engine::usi_score_field(*best_score),
-                        elapsed,
-                        nodes,
-                        nps,
-                        pv_string
-                    );
-                    let _ = std::io::Write::flush(&mut std::io::stdout());
-                }
-            }
+            // The iteration's `info` line is printed by iterative deepening,
+            // which makes its PV start with the move actually chosen. A second
+            // line used to be printed here, timed from the start of this
+            // iteration and with a PV rebuilt from the shared table that need
+            // not begin with the chosen move.
         }
 
         // Aggregate queue stats to estimate contention and synchronization overhead
