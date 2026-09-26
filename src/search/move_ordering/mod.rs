@@ -6276,7 +6276,7 @@ impl MoveOrdering {
 
         // A quiet move or drop that hangs the moved piece goes below every other
         // quiet move, worst loss last, so LMR reduces it and cutoffs come from
-        // moves that keep the material.
+        // moves that keep the material. (Near the leaves the search prunes them.)
         if !crate::search::search_engine::search_toggles().no_see_quiet
             && board.is_square_attacked_by(move_.to, move_.player.opposite())
         {

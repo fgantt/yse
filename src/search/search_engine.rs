@@ -7128,6 +7128,15 @@ impl SearchEngine {
             &format!("Starting move evaluation loop with {} moves", sorted_moves.len()),
         );
 
+        // Nodes where quiet moves that hang a piece may be pruned (see the loop).
+        // `has_check` is not a reliable in-check flag (the plain `negamax` entry
+        // passes false), so check is tested here, once, and only when it matters.
+        let see_prune_node = depth <= 2
+            && beta.saturating_sub(alpha) <= 1
+            && !search_toggles().no_pruning
+            && !search_toggles().no_see_quiet
+            && !board.is_king_in_check(player, captured_pieces);
+
         for move_ in &sorted_moves {
             if self.should_stop(&start_time, time_limit_ms) {
                 trace_log!("NEGAMAX", "Time limit reached, stopping move evaluation",);
@@ -7239,6 +7248,26 @@ impl SearchEngine {
                     );
                     continue; // Skip this move
                 }
+            }
+
+            // SEE pruning of quiet moves that hang the moved piece: a drop or
+            // quiet move onto a square the opponent wins outright. Near the
+            // leaves such a move is almost never better than one already
+            // searched, and in positions with many pieces in hand there are
+            // dozens of them per node; they were searched like any other, and
+            // with the horizon a ply away some looked good -- in a user's game a
+            // silver was dropped where it was simply lost, costing ~1,500 cp.
+            // Only at zero-window nodes, not in check, once a move has been
+            // searched, and never for a move that gives check.
+            if see_prune_node
+                && best_score > -200000
+                && !move_.is_capture
+                && !move_.is_promotion
+                && !move_.gives_check
+                && board.is_square_attacked_by(move_.to, player.opposite())
+                && crate::search::move_ordering::see_calculation::see_quiet(move_, board) < 0
+            {
+                continue;
             }
 
             // Use move unmaking instead of board cloning
