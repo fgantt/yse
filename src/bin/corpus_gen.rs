@@ -120,6 +120,14 @@ struct Cli {
     /// concatenated without colliding (the trainer's held-out split is by id).
     #[arg(long, default_value_t = 0)]
     game_id_offset: u32,
+
+    /// Start games from this SFEN instead of the initial position; repeat the
+    /// flag to rotate through several (game n uses start n mod count). For
+    /// handicap games: the teacher self-play corpus has no positions where one
+    /// side is far ahead in material, and the network misjudges them -- it
+    /// rewarded stacking promoted pawns in a corner of a won handicap game.
+    #[arg(long)]
+    start_sfen: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -192,6 +200,7 @@ fn write_jsonl_record(
 }
 
 fn play_one_game(
+    start_sfen: Option<&str>,
     engine: &mut UsiEngine,
     player: &mut Option<UsiEngine>,
     player_go: &str,
@@ -205,9 +214,12 @@ fn play_one_game(
     let mg = MoveGenerator::new();
     let hash_calc = ShogiHashHandler::new_default();
 
-    let mut board = BitboardBoard::new();
-    let mut captured = CapturedPieces::new();
-    let mut side = Player::Black;
+    let (mut board, mut side, mut captured) = match start_sfen {
+        Some(sfen) => BitboardBoard::from_fen(sfen).map_err(|e| {
+            UsiError::ProtocolError(format!("bad --start-sfen '{}': {}", sfen, e))
+        })?,
+        None => (BitboardBoard::new(), Player::Black, CapturedPieces::new()),
+    };
 
     let mut usi_moves: Vec<String> = Vec::new();
     let mut positions: Vec<PositionRecord> = Vec::new();
@@ -266,7 +278,7 @@ fn play_one_game(
         }
 
         // Send position and ask teacher for its move.
-        engine.set_position_startpos(&usi_moves)?;
+        engine.set_position(start_sfen, &usi_moves)?;
         let search = engine.go_depth(depth)?;
 
         let bestmove_str = search.bestmove.trim().to_string();
@@ -305,7 +317,7 @@ fn play_one_game(
         if !legal.iter().any(|m| m.to_usi_string() == bestmove_str) {
             return Err(UsiError::ProtocolError(format!(
                 "teacher move '{}' is not legal by our move generator in {} \
-                 (moves from startpos: {})",
+                 (moves from the start position: {})",
                 bestmove_str,
                 sfen_before,
                 usi_moves.join(" ")
@@ -318,7 +330,7 @@ fn play_one_game(
         let mv = if random_move {
             legal[rng.gen_range(0..legal.len())].clone()
         } else if let Some(p) = player.as_mut() {
-            p.set_position_startpos(&usi_moves)?;
+            p.set_position(start_sfen, &usi_moves)?;
             let pm = p.go_with(player_go)?.bestmove.trim().to_string();
             match legal.iter().find(|m| m.to_usi_string() == pm) {
                 Some(m) => m.clone(),
@@ -430,7 +442,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     let start = Instant::now();
     for game_id in 0..cli.games {
         let game_start = Instant::now();
+        let start_sfen = if cli.start_sfen.is_empty() {
+            None
+        } else {
+            Some(cli.start_sfen[game_id as usize % cli.start_sfen.len()].as_str())
+        };
         let (positions, outcome) = play_one_game(
+            start_sfen,
             &mut engine,
             &mut player_engine,
             &cli.player_go,
