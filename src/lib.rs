@@ -106,6 +106,33 @@ pub struct ShogiEngine {
 /// Default network location. Not matched by the `nnue_weights_*` gitignore rule.
 pub const DEFAULT_NNUE_FILE: &str = "nnue/default.bin";
 
+/// Where to read a network file from. A relative path is tried against the
+/// working directory first, then against the executable's directory and its
+/// ancestors (a few levels), so `engines/usi-engine-stable` and
+/// `target/release/usi-engine` both find the repository's `nnue/default.bin`.
+///
+/// GUIs launch engines from their own working directory. The default path was
+/// only ever resolved against it, so from anywhere but the repository root the
+/// engine silently fell back to classical evaluation.
+pub fn resolve_nnue_path(file: &str) -> std::path::PathBuf {
+    let given = std::path::PathBuf::from(file);
+    if given.is_absolute() || given.exists() {
+        return given;
+    }
+    if let Ok(exe) = std::env::current_exe() {
+        let exe = exe.canonicalize().unwrap_or(exe);
+        if let Some(dir) = exe.parent() {
+            for base in dir.ancestors().take(4) {
+                let candidate = base.join(&given);
+                if candidate.exists() {
+                    return candidate;
+                }
+            }
+        }
+    }
+    given
+}
+
 impl ShogiEngine {
     pub fn new() -> Self {
         let stop_flag = Arc::new(AtomicBool::new(false));
@@ -235,9 +262,10 @@ impl ShogiEngine {
                 evaluator.disable_nnue();
                 "NNUE disabled (UseNNUE=false); classical evaluation".to_string()
             } else {
-                match evaluator.enable_nnue_with_weights(&self.nnue_file) {
+                let path = resolve_nnue_path(&self.nnue_file);
+                match evaluator.enable_nnue_with_weights(&path) {
                     Ok(()) => match evaluator.nnue_declared_feature_set() {
-                        Some(fs) => format!("NNUE enabled: {} (features {})", self.nnue_file, fs),
+                        Some(fs) => format!("NNUE enabled: {} (features {})", path.display(), fs),
                         None => {
                             evaluator.disable_nnue();
                             format!(
