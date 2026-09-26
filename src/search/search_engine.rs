@@ -608,6 +608,9 @@ pub(crate) struct SearchToggles {
     pub no_lmr: bool,
     pub no_pruning: bool,
     pub no_check_ext: bool,
+    /// Disable SEE handling of quiet moves (pruning and ordering of moves that
+    /// hang the moved piece).
+    pub no_see_quiet: bool,
 }
 
 impl SearchToggles {
@@ -620,6 +623,7 @@ impl SearchToggles {
             no_lmr: on("SHOGI_NO_LMR"),
             no_pruning: on("SHOGI_NO_PRUNING"),
             no_check_ext: on("SHOGI_NO_CHECKEXT"),
+            no_see_quiet: on("SHOGI_NO_SEE_QUIET"),
         }
     }
 }

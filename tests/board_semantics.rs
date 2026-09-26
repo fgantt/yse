@@ -433,3 +433,40 @@ fn see_sees_through_a_piece_to_the_one_behind_it() {
          -900, got {see}"
     );
 }
+
+/// SEE of a quiet move or drop: 0 when the piece is safe on its new square,
+/// otherwise minus what the opponent nets by taking it. The search prunes and
+/// orders drops by this; a silver dropped where it was simply lost cost a
+/// user's game ~1,500 cp.
+#[test]
+fn see_quiet_scores_hanging_drops() {
+    use shogi_engine::search::move_ordering::see_calculation::see_quiet;
+    use shogi_engine::types::core::{Move, Piece, PieceType, Position};
+    let sq = |row: u8, col: u8| Position::from_u8(row * 9 + col);
+    let e5 = sq(4, 4);
+    let silver = PieceType::Silver.base_value();
+
+    // A white pawn on 5d attacks 5e; a black silver dropped there is lost.
+    let mut board = BitboardBoard::empty();
+    board.place_piece(Piece::new(PieceType::Pawn, Player::White), sq(3, 4));
+    let drop = Move::new_drop(PieceType::Silver, e5, Player::Black);
+    assert_eq!(see_quiet(&drop, &board), -silver, "undefended: the whole silver");
+
+    // Defended by a gold on 5f it is still a loss: silver for a pawn. (The
+    // swap list stops once neither side can come out ahead, so the magnitude
+    // is not exact; the sign is what pruning and ordering use.)
+    board.place_piece(Piece::new(PieceType::Gold, Player::Black), sq(5, 4));
+    assert!(see_quiet(&drop, &board) < 0, "defended: silver for a pawn is still a loss");
+
+    // A pawn dropped on 5e, attacked by a white gold on 5d and defended by a
+    // black silver on 4f: taking it costs White the gold, so it is safe.
+    let mut board = BitboardBoard::empty();
+    board.place_piece(Piece::new(PieceType::Gold, Player::White), sq(3, 4));
+    board.place_piece(Piece::new(PieceType::Silver, Player::Black), sq(5, 5));
+    let pawn_drop = Move::new_drop(PieceType::Pawn, e5, Player::Black);
+    assert_eq!(see_quiet(&pawn_drop, &board), 0, "defended pawn: White will not trade a gold for it");
+
+    // Nothing attacks the square: safe.
+    let empty = BitboardBoard::empty();
+    assert_eq!(see_quiet(&drop, &empty), 0);
+}

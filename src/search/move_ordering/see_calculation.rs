@@ -23,36 +23,62 @@ pub type SEEResult<T> = Result<T, String>;
 /// loops Task 3.0.3.4: Uses iter_pieces for efficient iteration over board
 /// pieces
 pub fn find_attackers_defenders(square: Position, board: &BitboardBoard) -> Vec<(Position, Piece)> {
-    let mut all_attackers = Vec::new();
-
-    // Check both players' pieces
+    // Built on the board's own attack tables -- the ones `is_square_attacked_by`
+    // uses and the board oracle tests cover. The hand-written version this
+    // replaces had pawns, lances and knights moving the wrong way for both
+    // colours and gave golds, silvers and promoted minors a king's eight
+    // squares, so SEE saw attackers that were not there and missed ones that
+    // were.
+    use crate::bitboards::integration::GlobalOptimizer;
+    let pieces = board.get_pieces();
+    let mut found: Vec<(Position, Piece)> = Vec::new();
+    let push_all = |mut bb: crate::types::Bitboard, player: Player, pt: PieceType, found: &mut Vec<(Position, Piece)>| {
+        while let Some(sq) = GlobalOptimizer::bit_scan_forward(bb) {
+            bb &= crate::types::Bitboard::from_u128(bb.to_u128() - 1);
+            let pos = Position::from_index(sq);
+            if pos != square && !found.iter().any(|(p, _)| *p == pos) {
+                found.push((pos, Piece::new(pt, player)));
+            }
+        }
+    };
     for player in [Player::Black, Player::White] {
-        // Get all pieces of this player that can attack the target square
-        // We iterate through all squares and check if pieces attack the target
-        // This is more efficient than checking every piece individually
-        for (position, piece) in board.iter_pieces() {
-            // Skip the target square itself and pieces of the wrong player
-            if position == square || piece.player != player {
-                continue;
-            }
-
-            // Check if this piece attacks the target square
-            if piece_attacks_square(&piece, position, square, board) {
-                all_attackers.push((position, piece.clone()));
-            }
+        let own = &pieces[player as usize];
+        // Step attacks, looked up from the target: pieces are point-symmetric
+        // between the colours, so `player`'s pieces that attack `square` sit on
+        // the squares a same-type piece of the other colour attacks from it.
+        for pt in [
+            PieceType::Pawn,
+            PieceType::Knight,
+            PieceType::Silver,
+            PieceType::Gold,
+            PieceType::PromotedPawn,
+            PieceType::PromotedLance,
+            PieceType::PromotedKnight,
+            PieceType::PromotedSilver,
+        ] {
+            let bb = board.get_attack_pattern_precomputed(square, pt, player.opposite()) & own[pt.as_index()];
+            push_all(bb, player, pt, &mut found);
+        }
+        // The king, and the one-step moves of dragon and horse.
+        let adjacent = board.get_attack_pattern_precomputed(square, PieceType::King, player);
+        for pt in [PieceType::King, PieceType::PromotedRook, PieceType::PromotedBishop] {
+            push_all(adjacent & own[pt.as_index()], player, pt, &mut found);
+        }
+    }
+    // Sliders (rook, bishop, dragon, horse rays, lance) under the current occupancy.
+    for (pos, piece) in sliding_attackers(board, square, board.get_occupied_bitboard()) {
+        if pos != square && !found.iter().any(|(p, _)| *p == pos) {
+            found.push((pos, piece));
         }
     }
 
     // Sort by piece value (ascending) - least valuable first for SEE
-    all_attackers.sort_by_key(|(_, p)| p.piece_type.base_value());
-
-    all_attackers
+    found.sort_by_key(|(_, p)| p.piece_type.base_value());
+    found
 }
 
-/// Check if a specific piece attacks a square
-///
-/// This duplicates the logic from BitboardBoard::piece_attacks_square
-/// since that method is private.
+/// Whether `piece` standing on `from_pos` attacks `target_pos`, from the
+/// board's attack tables (sliders along rays under the current occupancy).
 pub fn piece_attacks_square(
     piece: &Piece,
     from_pos: Position,
@@ -60,76 +86,32 @@ pub fn piece_attacks_square(
     board: &BitboardBoard,
 ) -> bool {
     let player = piece.player;
-
-    // Early bounds check
     if from_pos.row >= 9 || from_pos.col >= 9 || target_pos.row >= 9 || target_pos.col >= 9 {
         return false;
     }
-
+    let target_bit = crate::types::Bitboard::from_u128(1u128 << target_pos.to_index());
+    let step = |pt: PieceType| {
+        !(board.get_attack_pattern_precomputed(from_pos, pt, player) & target_bit).is_empty()
+    };
     match piece.piece_type {
-        PieceType::Pawn => {
-            let dir: i8 = if player == Player::Black { 1 } else { -1 };
-            let new_row = from_pos.row as i8 + dir;
-            if new_row >= 0 && new_row < 9 {
-                let attack_pos = Position::new(new_row as u8, from_pos.col);
-                return attack_pos == target_pos;
-            }
-            false
-        }
-        PieceType::Knight => {
-            let dir: i8 = if player == Player::Black { 1 } else { -1 };
-            let move_offsets = [(2 * dir, 1), (2 * dir, -1)];
-            for (dr, dc) in move_offsets.iter() {
-                let new_row = from_pos.row as i8 + dr;
-                let new_col = from_pos.col as i8 + dc;
-                if new_row >= 0 && new_col >= 0 && new_row < 9 && new_col < 9 {
-                    let attack_pos = Position::new(new_row as u8, new_col as u8);
-                    if attack_pos == target_pos {
-                        return true;
-                    }
-                }
-            }
-            false
-        }
         PieceType::Lance => {
-            let dir: i8 = if player == Player::Black { 1 } else { -1 };
+            // Towards the opponent: decreasing rows for Black.
+            let dir: i8 = if player == Player::Black { -1 } else { 1 };
             check_ray_attack(from_pos, target_pos, (dir, 0), board)
         }
-        PieceType::Rook => {
-            check_ray_attack(from_pos, target_pos, (1, 0), board)
-                || check_ray_attack(from_pos, target_pos, (-1, 0), board)
-                || check_ray_attack(from_pos, target_pos, (0, 1), board)
-                || check_ray_attack(from_pos, target_pos, (0, -1), board)
+        PieceType::Rook | PieceType::PromotedRook => {
+            [(1, 0), (-1, 0), (0, 1), (0, -1)]
+                .iter()
+                .any(|&d| check_ray_attack(from_pos, target_pos, d, board))
+                || (piece.piece_type == PieceType::PromotedRook && step(PieceType::King))
         }
-        PieceType::Bishop => {
-            check_ray_attack(from_pos, target_pos, (1, 1), board)
-                || check_ray_attack(from_pos, target_pos, (1, -1), board)
-                || check_ray_attack(from_pos, target_pos, (-1, 1), board)
-                || check_ray_attack(from_pos, target_pos, (-1, -1), board)
+        PieceType::Bishop | PieceType::PromotedBishop => {
+            [(1, 1), (1, -1), (-1, 1), (-1, -1)]
+                .iter()
+                .any(|&d| check_ray_attack(from_pos, target_pos, d, board))
+                || (piece.piece_type == PieceType::PromotedBishop && step(PieceType::King))
         }
-        PieceType::PromotedBishop => {
-            // Bishop + King moves
-            check_ray_attack(from_pos, target_pos, (1, 1), board)
-                || check_ray_attack(from_pos, target_pos, (1, -1), board)
-                || check_ray_attack(from_pos, target_pos, (-1, 1), board)
-                || check_ray_attack(from_pos, target_pos, (-1, -1), board)
-                || check_king_attack(from_pos, target_pos, player)
-        }
-        PieceType::PromotedRook => {
-            // Rook + King moves
-            check_ray_attack(from_pos, target_pos, (1, 0), board)
-                || check_ray_attack(from_pos, target_pos, (-1, 0), board)
-                || check_ray_attack(from_pos, target_pos, (0, 1), board)
-                || check_ray_attack(from_pos, target_pos, (0, -1), board)
-                || check_king_attack(from_pos, target_pos, player)
-        }
-        PieceType::Silver
-        | PieceType::Gold
-        | PieceType::King
-        | PieceType::PromotedPawn
-        | PieceType::PromotedLance
-        | PieceType::PromotedKnight
-        | PieceType::PromotedSilver => check_king_attack(from_pos, target_pos, player),
+        pt => step(pt),
     }
 }
 
@@ -166,15 +148,6 @@ fn check_ray_attack(
     }
 
     false
-}
-
-/// Check if a king-like piece attacks target_pos
-fn check_king_attack(from_pos: Position, target_pos: Position, _player: Player) -> bool {
-    let row_diff = (from_pos.row as i8 - target_pos.row as i8).abs();
-    let col_diff = (from_pos.col as i8 - target_pos.col as i8).abs();
-
-    // King attacks adjacent squares (including diagonals)
-    row_diff <= 1 && col_diff <= 1 && (row_diff != 0 || col_diff != 0)
 }
 
 /// Calculate Static Exchange Evaluation (SEE) for a move
@@ -251,6 +224,22 @@ pub fn calculate_see_internal(move_: &Move, board: &BitboardBoard) -> i32 {
     let Some(captured) = move_.captured_piece.as_ref() else {
         return 0; // No capture, no SEE value
     };
+    swap_value(move_, board, captured.piece_type.base_value())
+}
+
+/// Exchange value of a quiet move or drop: 0 if the piece is safe on its new
+/// square, otherwise minus the material the opponent nets by capturing it
+/// (and whatever exchange follows). A drop onto a square the opponent attacks
+/// and we do not defend scores minus the dropped piece.
+///
+/// Capturing moves use [`calculate_see_internal`].
+pub fn see_quiet(move_: &Move, board: &BitboardBoard) -> i32 {
+    swap_value(move_, board, 0)
+}
+
+/// The swap-list exchange on `move_.to`, starting from `first_gain` -- the
+/// value of what the move itself captures, 0 for a quiet move.
+fn swap_value(move_: &Move, board: &BitboardBoard, first_gain: i32) -> i32 {
     let to = move_.to;
     let mover = move_.player;
 
@@ -290,7 +279,7 @@ pub fn calculate_see_internal(move_: &Move, board: &BitboardBoard) -> i32 {
     // *doing* the capturing rather than the piece being taken. An even
     // pawn-for-pawn trade defended by a rook came out at -990.
     let mut gain = [0i32; 40];
-    gain[0] = captured.piece_type.base_value();
+    gain[0] = first_gain;
     let mut d = 0usize;
     let mut side = mover.opposite();
 
