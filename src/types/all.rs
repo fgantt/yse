@@ -5033,7 +5033,7 @@ impl Default for AspirationWindowConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            base_window_size: 50, // 50 centipawns
+            base_window_size: 200, // see AspirationWindowConfig in types/search.rs
             dynamic_scaling: true,
             max_window_size: 200, // 200 centipawns
             min_depth: 2,         // Start at depth 2

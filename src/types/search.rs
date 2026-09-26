@@ -1742,7 +1742,11 @@ impl Default for AspirationWindowConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            base_window_size: 50,
+            // ±200: our scores move by hundreds of centipawns between depths in
+            // sharp positions, so ±50 failed and re-searched at most depths.
+            // Measured over 15 positions at depth 5: 11% fewer nodes and half
+            // the re-searches; ±400 and no window at all were both worse.
+            base_window_size: 200,
             max_window_size: 200,
             min_depth: 2,
             dynamic_scaling: true,
