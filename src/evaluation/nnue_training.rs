@@ -84,6 +84,28 @@ pub struct NNUETrainingConfig {
     /// the `decisive_weight` multiplier.
     #[serde(default = "default_decisive_threshold_cp")]
     pub decisive_threshold_cp: i32,
+    /// Weight of a linear centipawn term for positions the teacher scores
+    /// beyond `win_linear_threshold_cp`. 0 = off (default).
+    ///
+    /// The sigmoid loss saturates: at scale 410 a +2,000 and a +3,500 position
+    /// both target ~1.0, so the network's centipawn values in won positions
+    /// are effectively unconstrained -- and the search reads raw centipawns.
+    /// In a won handicap game the network scored far-corner promotions
+    /// ~200 cp above moves the teacher rated equal, and the engine shuffled
+    /// promotions for 60 moves. `decisive_weight` cannot fix this: it
+    /// multiplies a gradient that is already ~0. This term adds
+    /// `w * ((t - out) / s)^2 / 2` on centipawns, `t` the teacher score clamped
+    /// to `win_linear_clamp_cp`, so relative values in won positions are held
+    /// to the teacher's without widening the sigmoid (which Session 28 found
+    /// costs resolution near equality).
+    #[serde(default)]
+    pub win_linear_weight: f32,
+    #[serde(default = "default_win_linear_threshold_cp")]
+    pub win_linear_threshold_cp: f32,
+    #[serde(default = "default_win_linear_clamp_cp")]
+    pub win_linear_clamp_cp: f32,
+    #[serde(default = "default_win_linear_scale_cp")]
+    pub win_linear_scale_cp: f32,
     /// Session 13: switch the trainer's loss from `tanh(eval/scale) + L2` (over
     /// targets in [-1,1]) to `sigmoid(eval/scale) + L2` (over targets in
     /// [0,1]). The sigmoid derivative `p(1-p)` peaks at `p=0.5` rather than
@@ -136,6 +158,9 @@ fn default_input_grad_scale() -> f32 { 1e6 }
 fn default_decisive_weight() -> f32 { 1.0 }
 fn default_decisive_threshold_cp() -> i32 { 500 }
 fn default_sigmoid_eval_scale() -> f32 { 410.0 }
+fn default_win_linear_threshold_cp() -> f32 { 1500.0 }
+fn default_win_linear_clamp_cp() -> f32 { 6000.0 }
+fn default_win_linear_scale_cp() -> f32 { 1000.0 }
 fn default_adam_beta1() -> f32 { 0.9 }
 fn default_adam_beta2() -> f32 { 0.999 }
 fn default_adam_epsilon() -> f32 { 1e-8 }
@@ -158,6 +183,10 @@ impl Default for NNUETrainingConfig {
             f32_input_forward: false,
             decisive_weight: default_decisive_weight(),
             decisive_threshold_cp: default_decisive_threshold_cp(),
+            win_linear_weight: 0.0,
+            win_linear_threshold_cp: default_win_linear_threshold_cp(),
+            win_linear_clamp_cp: default_win_linear_clamp_cp(),
+            win_linear_scale_cp: default_win_linear_scale_cp(),
             use_sigmoid_loss: false,
             sigmoid_eval_scale: default_sigmoid_eval_scale(),
             use_adam: false,
@@ -1400,6 +1429,10 @@ impl NNUETrainer {
         let decisive_threshold_cp = self.config.decisive_threshold_cp;
         let use_sigmoid_loss = self.config.use_sigmoid_loss;
         let sigmoid_eval_scale = self.config.sigmoid_eval_scale;
+        let win_w = self.config.win_linear_weight;
+        let win_threshold = self.config.win_linear_threshold_cp;
+        let win_clamp = self.config.win_linear_clamp_cp;
+        let win_scale = self.config.win_linear_scale_cp.max(1.0);
 
         let mut accs = GradAccumulators {
             output_w: &mut acc_output_w,
@@ -1447,10 +1480,19 @@ impl NNUETrainer {
             } else {
                 (1.0 - fs.prediction * fs.prediction) / SCALE_FACTOR_F32
             };
+            // Linear centipawn term in won positions (see `win_linear_weight`).
+            // `-dL/d(output_cp)` for `L = w * ((t - out) / s)^2 / 2`.
+            let teacher_cp = position.pst_evaluation as f32;
+            let win_grad = if win_w > 0.0 && teacher_cp.abs() > win_threshold {
+                let t = teacher_cp.clamp(-win_clamp, win_clamp);
+                win_w * (t - fs.output_cp) / (win_scale * win_scale)
+            } else {
+                0.0
+            };
             self.accumulate_position_grads(
                 position,
                 &fs,
-                error * decisive_mult * pred_deriv,
+                error * decisive_mult * pred_deriv + win_grad,
                 &mut accs,
             );
         }

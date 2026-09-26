@@ -159,6 +159,18 @@ struct Cli {
     #[arg(long, default_value_t = 500)]
     decisive_threshold_cp: i32,
 
+    /// Weight of a linear centipawn loss term for positions the teacher scores
+    /// beyond --win-linear-threshold (0 = off). Holds relative values in won
+    /// positions, where the sigmoid loss gives almost no gradient.
+    #[arg(long, default_value_t = 0.0)]
+    win_linear_weight: f32,
+    #[arg(long, default_value_t = 1500.0)]
+    win_linear_threshold: f32,
+    #[arg(long, default_value_t = 6000.0)]
+    win_linear_clamp: f32,
+    #[arg(long, default_value_t = 1000.0)]
+    win_linear_scale: f32,
+
     /// Session 13: switch the trainer's target/loss from
     /// `tanh(eval/target_eval_scale) + L2` (over targets in [-1,1]) to
     /// `sigmoid(eval/sigmoid_eval_scale) + L2` (over targets in [0,1]).
@@ -1365,6 +1377,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.f32_input_forward = cli.f32_input_forward;
     config.decisive_weight = cli.decisive_weight;
     config.decisive_threshold_cp = cli.decisive_threshold_cp;
+    config.win_linear_weight = cli.win_linear_weight;
+    config.win_linear_threshold_cp = cli.win_linear_threshold;
+    config.win_linear_clamp_cp = cli.win_linear_clamp;
+    config.win_linear_scale_cp = cli.win_linear_scale;
     config.use_sigmoid_loss = cli.use_sigmoid_loss;
     config.sigmoid_eval_scale = cli.sigmoid_eval_scale;
     config.use_adam = cli.use_adam;
