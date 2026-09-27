@@ -15079,6 +15079,46 @@ impl IterativeDeepening {
                 .generate_legal_moves(board, player, captured_pieces);
         let legal_move_count = legal_moves.len();
 
+        // Mate search first: a df-pn solver over checking sequences (see
+        // `mate_search`). The main search sees 5-7 plies at a game time
+        // control, and in won handicap games the engine took twenty moves to
+        // deliver mates it could have forced in nine or eleven. A proved mate
+        // is played at once. The budget scales with the move's time (about 10
+        // nodes per millisecond, 5k-200k nodes); every checking mate in the
+        // games that prompted this was settled within ~3,300 nodes.
+        if legal_move_count > 0 && std::env::var_os("SHOGI_NO_MATE_SEARCH").is_none() {
+            let budget = (self.time_limit_ms as u64 * 10).clamp(5_000, 200_000);
+            let mate_start = std::time::Instant::now();
+            let mut solver = crate::search::mate_search::MateSearch::new(budget);
+            if let Some(line) = solver.solve(board, captured_pieces, player) {
+                let first = &line[0];
+                if let Some(mv) = legal_moves.iter().find(|m| {
+                    m.from == first.from
+                        && m.to == first.to
+                        && m.piece_type == first.piece_type
+                        && m.is_promotion == first.is_promotion
+                }) {
+                    let plies = line.len() as i32;
+                    let score = MATE_VALUE - plies;
+                    if std::env::var("SHOGI_SILENT_BENCH").is_err() {
+                        let ms = mate_start.elapsed().as_millis();
+                        println!(
+                            "info depth {} seldepth {} multipv 1 score {} time {} nodes {} pv {}",
+                            plies,
+                            plies,
+                            usi_score_field(score),
+                            ms,
+                            solver.nodes(),
+                            line.iter().map(|m| m.to_usi_string()).collect::<Vec<_>>().join(" ")
+                        );
+                        let _ = std::io::Write::flush(&mut std::io::stdout());
+                    }
+                    crate::debug_utils::end_timing("iterative_deepening_total", "ITERATIVE_DEEPENING");
+                    return Some((mv.clone(), score));
+                }
+            }
+        }
+
         // Adjust search parameters for check positions with few moves (Task 4.3, 4.4)
         // Only apply check optimization if the user hasn't requested unlimited depth
         // (depth 0 = 100) Check optimization should respect user's depth

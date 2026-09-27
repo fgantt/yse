@@ -1,5 +1,6 @@
 pub mod board_trait;
 pub mod iterative_deepening;
+pub mod mate_search;
 pub mod null_move;
 pub mod parallel_search;
 pub mod pvs;
