@@ -116,6 +116,31 @@ Our 1 s score against YaneuraOu's along the game: ~0.5x YaneuraOu's centipawns w
 White's attack built (moves 46-63), and +420..+735 at moves 64-66 where YaneuraOu says −867 to
 −2,365.
 
+## A second six-piece loss
+
+`matches/user_games/2026-09-28_6mai_game2.txt`, lost in 53. Its YaneuraOu review at 3M nodes
+shows four of our drops (26 P\*5c, 36 S\*8d, 39 S\*7c, 46 G\*6b) each followed by a 600-1,000 cp
+fall in the judge's next evaluation. **At 30M nodes all four are as good as YaneuraOu's own
+choice** (S\*8d 2088 vs S\*5e 2042; G\*6b −60 vs 5h5g −153): the falls were the judge at 3M
+misjudging sharp positions and correcting itself a move later. No single move lost this game
+within a 30M-node judge's horizon.
+
+What it does show is the blind spot again. Deep (30M) YaneuraOu against our 1 s score:
+
+| moves | YaneuraOu | ours |
+|---|---|---|
+| 20-26 | +2,990 to +3,410 | +1,350 to +1,660 |
+| 40-46 | +148 to −150 | **+915 to +1,344** |
+| 47-48 | −1,101, −1,320 | +752, +800 |
+
+A fixed-node judge's per-move loss is only as good as its horizon: before calling a move a
+blunder in a sharp position, check it with a deeper search and `searchmoves`.
+
+Added to the set (936 positions from seven games). The close subset grows to 89; with our king
+under mid+high pressure 0.201 (depth 1) / 0.184 (depth 3), +0.14. Fourteen close positions are
+tagged low pressure yet carry an error of 0.355, all optimistic: the pressure tag misses the
+danger in them.
+
 ## The eval-gap set
 
 `scripts/eval_gap_build.py` labels every position of `matches/user_games/*.txt` (both sides to
