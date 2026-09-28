@@ -1,0 +1,87 @@
+diff --git a/src/moves.rs b/src/moves.rs
+index b57a8fe..7a9462e 100644
+--- a/src/moves.rs
++++ b/src/moves.rs
+@@ -915,14 +915,39 @@ impl MoveGenerator {
+         // by position and the dedup ignores the promotion flag, so the order
+         // decides which duplicate survives. The piece moves are generated once
+         // and shared; drops come after them and never promote.
++        //
++        // All three are legal. Promotions and checks used to come straight from
++        // the pseudo-legal list, and quiescence plays what it is given without a
++        // legality test: a pinned piece could promote, or give a discovered
++        // check, and leave its own king en prise.
++        let in_check = board.is_king_in_check(player, captured_pieces);
++        let filter = MoveTestFilter::new(board, player, in_check, captured_pieces);
++        let mut scratch = board.clone();
+         let mut moves = Vec::with_capacity(32);
+-        moves.extend(self.generate_legal_captures(board, player, captured_pieces));
++        moves.extend(
++            self.generate_pseudo_legal_captures(board, player, captured_pieces)
++                .into_iter()
++                .filter(|m| filter.is_safe(&mut scratch, m, player, captured_pieces)),
++        );
+         let mut pseudo = Vec::with_capacity(192);
+         self.generate_all_piece_moves_into(board, player, &mut pseudo);
+-        moves.extend(pseudo.iter().filter(|m| m.is_promotion).cloned());
++        moves.extend(
++            pseudo
++                .iter()
++                .filter(|m| {
++                    m.is_promotion && filter.is_safe(&mut scratch, m, player, captured_pieces)
++                })
++                .cloned(),
++        );
+         if include_checks {
+             self.generate_drop_moves_into(board, player, captured_pieces, &mut pseudo);
+-            moves.extend(checks_among(board, player, captured_pieces, &pseudo));
++            for m in &pseudo {
++                if filter.test(&mut scratch, m, player, captured_pieces) == (true, true) {
++                    let mut m = m.clone();
++                    m.gives_check = true;
++                    moves.push(m);
++                }
++            }
+         }
+         self.deduplicate_and_sort_quiescence_moves(&mut moves);
+         moves
+@@ -1301,7 +1326,7 @@ mod tests {
+         let mg = MoveGenerator::new();
+         let mut rng = rand::rngs::StdRng::seed_from_u64(33);
+         let key = |m: &Move| (m.to_usi_string(), m.gives_check, m.is_capture, m.is_promotion);
+-        let (mut checks_seen, mut positions) = (0usize, 0usize);
++        let (mut checks_seen, mut positions, mut illegal_seen) = (0usize, 0usize, 0usize);
+         for _ in 0..30 {
+             let mut board = BitboardBoard::new();
+             let mut captured = CapturedPieces::new();
+@@ -1334,11 +1359,19 @@ mod tests {
+                 assert!(eq(&mg.generate_legal_captures(&board, player, &captured), &ref_caps));
+                 assert!(eq(&mg.generate_promotions(&board, player, &captured), &ref_promos));
+                 assert!(eq(&mg.generate_checks(&board, player, &captured), &ref_checks));
++                // Quiescence takes only the legal promotions and checks.
++                let mut legal = |ms: &[Move]| -> Vec<Move> {
++                    ms.iter().filter(|m| test_after(&mut scratch, m, player, &captured).0).cloned().collect()
++                };
++                let (legal_promos, legal_checks) = (legal(&ref_promos), legal(&ref_checks));
++                illegal_seen += ref_promos.len() + ref_checks.len()
++                    - legal_promos.len()
++                    - legal_checks.len();
+                 for include_checks in [false, true] {
+                     let mut reference = ref_caps.clone();
+-                    reference.extend(ref_promos.iter().cloned());
++                    reference.extend(legal_promos.iter().cloned());
+                     if include_checks {
+-                        reference.extend(ref_checks.iter().cloned());
++                        reference.extend(legal_checks.iter().cloned());
+                     }
+                     mg.deduplicate_and_sort_quiescence_moves(&mut reference);
+                     let got =
+@@ -1354,6 +1387,8 @@ mod tests {
+             }
+         }
+         assert!(checks_seen > 1000 && positions > 1000, "{checks_seen} {positions}");
++        // The filter must have had something to remove.
++        assert!(illegal_seen > 0, "no illegal promotion or check in {positions} positions");
+     }
+ 
+     /// `count_legal_captures_and_promotions` must equal the count it replaced:

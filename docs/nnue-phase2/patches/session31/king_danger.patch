@@ -1,0 +1,130 @@
+diff --git a/src/evaluation.rs b/src/evaluation.rs
+index c2e2628..986b0a8 100644
+--- a/src/evaluation.rs
++++ b/src/evaluation.rs
+@@ -33,6 +33,7 @@ pub mod castles;
+ pub mod config;
+ pub mod endgame_patterns;
+ pub mod integration;
++pub mod king_danger;
+ pub mod king_safety;
+ pub mod material;
+ pub mod material_value_loader;
+@@ -672,7 +673,8 @@ impl PositionEvaluator {
+     ) -> i32 {
+         if self.use_nnue {
+             if let Some(ref mut nnue) = self.nnue_evaluator {
+-                return nnue.evaluate_for(board, player, captured_pieces);
++                return nnue.evaluate_for(board, player, captured_pieces)
++                    + king_danger::evaluate(board, player, captured_pieces);
+             }
+         }
+ 
+diff --git a/src/evaluation/king_danger.rs b/src/evaluation/king_danger.rs
+new file mode 100644
+index 0000000..70c529c
+--- /dev/null
++++ b/src/evaluation/king_danger.rs
+@@ -0,0 +1,74 @@
++//! King danger: a term added to the NNUE score for attacks on a king.
++//!
++//! On positions from the user's handicap games against YaneuraOu, the network
++//! agrees with YaneuraOu when neither king is under attack and is far too
++//! optimistic when ours is (`scripts/eval_gap.py`): it counts the material we
++//! still have and misses the attack the opponent's pieces in hand can make.
++//!
++//! Attack units on a king, in half-points: two per square next to it that the
++//! enemy attacks, plus the enemy's pieces in hand -- two for a gold, silver,
++//! rook or bishop, one for a knight or lance (pawns are not counted). The
++//! danger is `scale * units^2 / 64` centipawns, so it stays near zero for a
++//! castled king and grows fast in a real attack. `scale` is the USI option
++//! `KingDanger`; 0 turns the term off.
++
++use crate::bitboards::BitboardBoard;
++use crate::types::board::CapturedPieces;
++use crate::types::core::{PieceType, Player, Position};
++use std::sync::atomic::{AtomicI32, Ordering};
++
++static SCALE: AtomicI32 = AtomicI32::new(0);
++
++pub fn set_scale(scale: i32) {
++    SCALE.store(scale.max(0), Ordering::Relaxed);
++}
++
++pub fn scale() -> i32 {
++    SCALE.load(Ordering::Relaxed)
++}
++
++/// Attack units on `king_owner`'s king (see the module docs).
++pub fn attack_units(board: &BitboardBoard, king_owner: Player, captured: &CapturedPieces) -> i32 {
++    let Some(king) = board.find_king_position(king_owner) else {
++        return 0;
++    };
++    let enemy = king_owner.opposite();
++    let mut units = 0;
++    for dr in -1i8..=1 {
++        for dc in -1i8..=1 {
++            if dr == 0 && dc == 0 {
++                continue;
++            }
++            let (r, c) = (king.row as i8 + dr, king.col as i8 + dc);
++            if (0..9).contains(&r)
++                && (0..9).contains(&c)
++                && board.is_square_attacked_by(Position::new(r as u8, c as u8), enemy)
++            {
++                units += 2;
++            }
++        }
++    }
++    let hand = if enemy == Player::Black { &captured.black } else { &captured.white };
++    for pt in hand {
++        units += match pt {
++            PieceType::Gold | PieceType::Silver | PieceType::Rook | PieceType::Bishop => 2,
++            PieceType::Knight | PieceType::Lance => 1,
++            _ => 0,
++        };
++    }
++    units
++}
++
++/// The king-danger term from `player`'s point of view: the danger to the
++/// opponent's king minus the danger to `player`'s. 0 when the term is off.
++pub fn evaluate(board: &BitboardBoard, player: Player, captured: &CapturedPieces) -> i32 {
++    let scale = scale();
++    if scale == 0 {
++        return 0;
++    }
++    let danger = |owner: Player| {
++        let u = attack_units(board, owner, captured);
++        scale * u * u / 64
++    };
++    danger(player.opposite()) - danger(player)
++}
+diff --git a/src/lib.rs b/src/lib.rs
+index 18f06c7..2938dc0 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1097,6 +1097,11 @@ impl ShogiEngine {
+                     self.apply_nnue_config();
+                     output.push(format!("info string {}", self.nnue_status));
+                 }
++                "KingDanger" => {
++                    if let Ok(scale) = parts[3].parse::<i32>() {
++                        crate::evaluation::king_danger::set_scale(scale);
++                    }
++                }
+                 "NNUEFile" => {
+                     self.nnue_file = parts[3..].join(" ").trim().to_string();
+                     self.apply_nnue_config();
+diff --git a/src/usi.rs b/src/usi.rs
+index 5cd6465..7083b26 100644
+--- a/src/usi.rs
++++ b/src/usi.rs
+@@ -70,6 +70,7 @@ impl UsiHandler {
+             "option name UseNNUE type check default true".to_string(),
+             "option name MoveOverhead type spin default 100 min 0 max 10000".to_string(),
+             format!("option name NNUEFile type string default {}", crate::DEFAULT_NNUE_FILE),
++            "option name KingDanger type spin default 0 min 0 max 1000".to_string(),
+             format!(
+                 "option name ParallelEnable type check default {}",
+                 if parallel_options.enable_parallel { "true" } else { "false" }

@@ -1,0 +1,115 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index 18f06c7..74438cb 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1039,6 +1039,13 @@ impl ShogiEngine {
+             }
+         }
+ 
++        let sfen_move_number =
++            sfen_str.split_whitespace().nth(3).and_then(|n| n.parse::<usize>().ok()).unwrap_or(1);
++        let moves_played = moves_start_index.map_or(0, |i| parts.len().saturating_sub(i));
++        crate::search::search_engine::set_game_ply(
++            sfen_move_number.saturating_sub(1) + moves_played,
++        );
++
+         if let Some(start_index) = moves_start_index {
+             for move_str in &parts[start_index..] {
+                 match Move::from_usi_string(move_str, self.current_player, &self.board) {
+diff --git a/src/search/search_engine.rs b/src/search/search_engine.rs
+index a7406bd..7bdc99c 100644
+--- a/src/search/search_engine.rs
++++ b/src/search/search_engine.rs
+@@ -39,7 +39,7 @@ use crate::types::transposition::TranspositionEntry;
+ use rayon::prelude::*;
+ use std::collections::HashMap;
+ use std::sync::{
+-    atomic::{AtomicBool, AtomicU64, Ordering},
++    atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
+     Arc, RwLock,
+ };
+ 
+@@ -633,6 +633,20 @@ pub(crate) fn search_toggles() -> SearchToggles {
+     *TOGGLES.get_or_init(SearchToggles::from_env)
+ }
+ 
++/// Plies played in the current game before the position being searched: the
++/// SFEN move number minus one, plus the moves after it in `position`. The move
++/// orderer picks its phase strategy from this. Process-wide, because an engine
++/// plays one game and every search thread needs it.
++static GAME_PLY: AtomicUsize = AtomicUsize::new(0);
++
++pub fn set_game_ply(ply: usize) {
++    GAME_PLY.store(ply, Ordering::Relaxed);
++}
++
++fn game_ply() -> usize {
++    GAME_PLY.load(Ordering::Relaxed)
++}
++
+ fn maybe_print_search_metrics(tag: &str) {
+     let silent_bench = std::env::var("SHOGI_SILENT_BENCH").is_ok();
+     let manual_print = std::env::var("SHOGI_PRINT_METRICS").is_ok();
+@@ -1676,23 +1690,19 @@ impl SearchEngine {
+         self.move_orderer.set_transposition_table(&self.transposition_table);
+     }
+ 
+-    /// Initialize advanced move ordering system
+-    fn initialize_advanced_move_orderer(
++    /// Set the move orderer's phase strategy for this search, from the game's
++    /// move number and the root position.
++    ///
++    /// This used to run at every node with the node count as the move number,
++    /// so after a search's 60th node every position was ordered as an endgame.
++    fn update_ordering_phase(
+         &mut self,
+         board: &BitboardBoard,
+         captured_pieces: &CapturedPieces,
+         player: Player,
+-        depth: u8,
+     ) {
+-        // Update game phase for position-specific strategies
+-        let move_count = self.search_statistics.get_nodes_searched() as usize; // Approximate move count
+-
+-        // `determine_game_phase` reads material and tactical complexity only when
+-        // `move_count` is in 20..=60; below that the phase is Opening and above
+-        // it Endgame. Since `move_count` is really the node count, that is only
+-        // the first 60 nodes of a search. Computing both at every node -- an
+-        // evaluation, plus a legal-move generation that replays every move to
+-        // count checks -- was ~9% of search time for values nothing read.
++        let move_count = game_ply();
++        // `determine_game_phase` reads these only for moves 20..=60.
+         let (material_balance, tactical_complexity) = if (20..=60).contains(&move_count) {
+             (
+                 self.evaluate_position(board, player, captured_pieces),
+@@ -1701,13 +1711,21 @@ impl SearchEngine {
+         } else {
+             (0, 0.0)
+         };
+-
+         self.advanced_move_orderer.update_game_phase(
+             move_count,
+             material_balance,
+             tactical_complexity,
+         );
++    }
+ 
++    /// Initialize advanced move ordering system
++    fn initialize_advanced_move_orderer(
++        &mut self,
++        board: &BitboardBoard,
++        captured_pieces: &CapturedPieces,
++        player: Player,
++        depth: u8,
++    ) {
+         // Integrate with transposition table (prefer shared TT when available)
+         let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
+         let tt_entry_opt = if let Some(ref shared_tt) = self.shared_transposition_table {
+@@ -5982,6 +6000,7 @@ impl SearchEngine {
+         }
+ 
+         self.search_statistics.reset_nodes();
++        self.update_ordering_phase(board, captured_pieces, player);
+         self.current_depth = depth;
+         let start_time = TimeSource::now();
+         let mut alpha = alpha;

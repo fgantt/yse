@@ -1,0 +1,118 @@
+diff --git a/src/moves.rs b/src/moves.rs
+index b57a8fe..86915a3 100644
+--- a/src/moves.rs
++++ b/src/moves.rs
+@@ -912,8 +912,8 @@ impl MoveGenerator {
+     ) -> Vec<Move> {
+         // The same three lists as `generate_legal_captures`, `generate_promotions`
+         // and `generate_checks`, in the same order -- the sort below breaks ties
+-        // by position and the dedup ignores the promotion flag, so the order
+-        // decides which duplicate survives. The piece moves are generated once
++        // by position, so the order decides which copy of a duplicate survives
++        // (they can differ in `gives_check`). The piece moves are generated once
+         // and shared; drops come after them and never promote.
+         let mut moves = Vec::with_capacity(32);
+         moves.extend(self.generate_legal_captures(board, player, captured_pieces));
+@@ -952,22 +952,39 @@ impl MoveGenerator {
+         }
+         *moves = new_moves;
+ 
+-        // Remove duplicates (moves with same from, to, and piece_type)
+-        let mut write_index = 0;
+-        for read_index in 1..moves.len() {
+-            if !self.moves_equal(&moves[write_index], &moves[read_index]) {
+-                write_index += 1;
+-                if write_index != read_index {
+-                    moves[write_index] = moves[read_index].clone();
+-                }
++        // Keep the first copy of each move in sorted order. Copies need not be
++        // adjacent: a capture that checks is listed as a capture and as a check,
++        // and the check sorts first with other moves in between. A promotion and
++        // its non-promoting twin are different moves, and both are kept -- except
++        // for a pawn, bishop or rook, which lose nothing by promoting.
++        let promotes = |m: &Move| {
++            m.is_promotion
++                && matches!(m.piece_type, PieceType::Pawn | PieceType::Bishop | PieceType::Rook)
++        };
++        let dominated: Vec<(Option<Position>, Position)> =
++            moves.iter().filter(|m| promotes(m)).map(|m| (m.from, m.to)).collect();
++        let mut kept: Vec<Move> = Vec::with_capacity(moves.len());
++        for m in moves.drain(..) {
++            if !m.is_promotion
++                && matches!(m.piece_type, PieceType::Pawn | PieceType::Bishop | PieceType::Rook)
++                && dominated.contains(&(m.from, m.to))
++            {
++                continue;
++            }
++            if !kept.iter().any(|k| self.moves_equal(k, &m)) {
++                kept.push(m);
+             }
+         }
+-        moves.truncate(write_index + 1);
++        *moves = kept;
+     }
+ 
+     /// Check if two moves are equal (for deduplication)
+     fn moves_equal(&self, a: &Move, b: &Move) -> bool {
+-        a.from == b.from && a.to == b.to && a.piece_type == b.piece_type && a.player == b.player
++        a.from == b.from
++            && a.to == b.to
++            && a.piece_type == b.piece_type
++            && a.player == b.player
++            && a.is_promotion == b.is_promotion
+     }
+ 
+     /// Generate quiescence moves with caching
+@@ -1356,6 +1373,52 @@ mod tests {
+         assert!(checks_seen > 1000 && positions > 1000, "{checks_seen} {positions}");
+     }
+ 
++    /// Quiescence lists hold each move once, keep both versions of a silver,
++    /// knight or lance promotion, and drop the non-promoting version of a
++    /// pawn, bishop or rook move when the promoting one is there.
++    #[test]
++    fn quiescence_dedup_respects_promotion() {
++        use rand::{seq::SliceRandom, SeedableRng};
++        let mg = MoveGenerator::new();
++        let mut rng = rand::rngs::StdRng::seed_from_u64(34);
++        let minor = |p: PieceType| matches!(p, PieceType::Silver | PieceType::Knight | PieceType::Lance);
++        let (mut minor_pairs, mut positions) = (0usize, 0usize);
++        for _ in 0..30 {
++            let mut board = BitboardBoard::new();
++            let mut captured = CapturedPieces::new();
++            let mut player = Player::Black;
++            for _ in 0..160 {
++                let got = mg.generate_quiescence_moves_bounded(&board, player, &captured, true);
++                let usi: Vec<String> = got.iter().map(Move::to_usi_string).collect();
++                let captures: Vec<String> = mg
++                    .generate_legal_captures(&board, player, &captured)
++                    .iter()
++                    .map(Move::to_usi_string)
++                    .collect();
++                for (i, u) in usi.iter().enumerate() {
++                    assert!(!usi[..i].contains(u), "{u} twice: {}", board.to_fen(player, &captured));
++                }
++                for m in got.iter().filter(|m| m.is_promotion && m.from.is_some()) {
++                    let plain = m.to_usi_string().trim_end_matches('+').to_string();
++                    // (Promotions come from the pseudo-legal list, so `m` itself
++                    // need not be legal; its twin is required only if it is.)
++                    if minor(m.piece_type) && captures.contains(&plain) {
++                        assert!(usi.contains(&plain), "{plain} lost: {}", board.to_fen(player, &captured));
++                        minor_pairs += 1;
++                    } else if !minor(m.piece_type) {
++                        assert!(!usi.contains(&plain), "{plain} kept: {}", board.to_fen(player, &captured));
++                    }
++                }
++                positions += 1;
++                let legal = mg.generate_legal_moves(&board, player, &captured);
++                let Some(m) = legal.choose(&mut rng) else { break };
++                board.make_move_with_hand(m, &mut captured);
++                player = player.opposite();
++            }
++        }
++        assert!(minor_pairs > 20 && positions > 1000, "{minor_pairs} {positions}");
++    }
++
+     /// `count_legal_captures_and_promotions` must equal the count it replaced:
+     /// captures plus promotions over `generate_legal_moves` with empty hands.
+     #[test]

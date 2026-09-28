@@ -10,9 +10,9 @@ head-to-head against `engines/usi-engine-stable`.
 
 > **READ THIS FIRST.**
 >
-> 1. **Nothing shipped.** Stable is the Session 30 engine (`98052b4`). Four candidates were
->    gated (five matches, 600 games); none beat it. Two more (king danger) were running at
->    write-up.
+> 1. **Nothing shipped.** Stable is the Session 30 engine (`98052b4`). Five candidates were
+>    gated (seven matches, 840 games); none beat it. Their patches are in
+>    `docs/nnue-phase2/patches/session31/`.
 > 2. **The four "left as found" bugs are real and fixing them does not help.** The game-phase
 >    quirk (two fixes), the quiescence dedup, and pseudo-legal quiescence moves: neutral, neutral,
 >    worse, and worse over 240 games (−42 ± 42). See *The gates*.
@@ -26,7 +26,8 @@ head-to-head against `engines/usi-engine-stable`.
 >    positions has a forced (all-checks) mate for the opponent. The worst errors have few
 >    attackers near our king, 4-5 defenders, and 1-4 enemy pieces in hand: slow drop attacks on a
 >    solid-looking castle. A squared attack-unit term removes the average bias without hurting
->    quiet positions, but does not track which positions are wrong (gates running at write-up).
+>    quiet positions, but does not track which positions are wrong, and does not win a gate
+>    (−8.7 ± 58.0 at scale 256, −43.7 ± 55.4 at 128).
 > 6. **The handicap ladder rung is two-piece odds** at 1 s/move: 66% (26-1-13). Four-piece
 >    (78%) and six-piece (79%, Session 30) are too easy to respond.
 
@@ -58,6 +59,8 @@ seed 3001 unless noted. Patches are in the session scratchpad; none is committed
 | qdedup: quiescence keeps promotion twins, drops dominated P/B/R non-promotions, no duplicates | 58-3-59, −2.9 ± 48.5 | neutral |
 | qlegal: quiescence promotions and checks filtered for legality | 50-1-69, −55.5 ± 60.2 | — |
 | qlegal, seed 3002 | 53-4-63, −29.0 ± 59.4 | rejected (240 games: −42 ± 42) |
+| king danger, scale 128 (see below) | 52-1-67, −43.7 ± 55.4 | rejected |
+| king danger, scale 256 | 58-1-61, −8.7 ± 58.0 | neutral |
 
 ### Game phase
 
@@ -154,9 +157,9 @@ correlated, so the paired SE `--compare` prints is optimistic. Triage only; gate
   pieces near our king, 3-5 defenders, and 1-4 enemy pieces in hand: drop attacks against a
   castle that looks solid, several quiet moves deep.
 
-### A king-danger term (gating at write-up)
+### A king-danger term (rejected)
 
-`src/evaluation/king_danger.rs` (uncommitted): attack units on a king = 2 per adjacent square
+`src/evaluation/king_danger.rs` (not committed; `patches/session31/king_danger.patch`): attack units on a king = 2 per adjacent square
 the enemy attacks + the enemy's hand (2 for G/S/R/B, 1 for N/L); the term is
 `scale * units^2 / 64` per king, added to the NNUE score; USI option `KingDanger`, default 0.
 At 0 the eval-gap output is identical to stable. Scale chosen on the six-piece game, checked on
@@ -171,9 +174,11 @@ the two eight-piece losses:
 | 512 | 0.187 (−0.066) | 0.244 (+0.139) | 0.016 |
 
 It removes bias and leaves quiet positions alone, but on the game it was fitted to, the error
-*rises* as the bias falls: it does not know which positions are dangerous. Gates at 128 and
-256 against stable were running at write-up: `matches/s31_kd128_h2h.log`,
-`matches/s31_kd256_h2h.log`.
+*rises* as the bias falls: it does not know which positions are dangerous. The gates agree:
+scale 128 is 52-1-67 (−43.7 ± 55.4), scale 256 is 58-1-61 (−8.7 ± 58.0)
+(`matches/s31_kd128_h2h.log`, `matches/s31_kd256_h2h.log`). A term that moves the average
+without tracking the positions is not an improvement, which is what the eval-gap split
+predicted.
 
 ## Method notes
 
@@ -187,19 +192,19 @@ It removes bias and leaves quiet positions alone, but on the game it was fitted 
 
 ## Left as found
 
-- The four gated fixes (patches: `phaseA.patch`, `qdedup.patch`, `qlegal.patch` in the session
-  scratchpad). qlegal is worth retrying after the evaluation changes.
+- The five gated candidates, as patches against `98052b4` in
+  `docs/nnue-phase2/patches/session31/` (phase B is `phase_a_game_ply.patch` with its
+  `update_ordering_phase` call removed). qlegal is worth retrying after the evaluation changes.
 - `determine_game_phase`'s node-count input and `record_timing` (no callers) are still there.
 - The engine prints `DEBUG: Bestmove recommendation …` on stderr on every move.
 
 ## Next
 
-1. The king-danger gates. If neither wins, the handcrafted route is probably done: the term's
-   shape cannot see which castles are in danger.
-2. Train for it instead. The network sees piece squares relative to its own king's bucket but
+1. Train for the blind spot; the handcrafted route did not work (a count of attacked squares
+   and hand pieces cannot see which castles are in danger). The network sees piece squares relative to its own king's bucket but
    hand pieces without the king; drop attacks need both. Candidates: king-conditioned hand
    features, or more positions like the close subset (the Session 30 handicap corpus was mostly
    won positions). Judge each network on `eval_gap.py`'s close subset first.
-3. More user games into `matches/user_games/` and a rebuild: 61 close positions from three games
+2. More user games into `matches/user_games/` and a rebuild: 61 close positions from three games
    is thin.
-4. Profile the shipped engine again (Session 30's item 3), on an idle machine.
+3. Profile the shipped engine again (Session 30's item 3), on an idle machine.
