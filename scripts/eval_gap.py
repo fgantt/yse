@@ -12,7 +12,7 @@ our engine's scores:
   pressure on a king = enemy pieces within two squares + enemy non-pawn
   pieces in hand;  low 0-1, mid 2-3, high >= 4.
 
-    python3 scripts/eval_gap.py ENGINE [--depth 1] [--jobs 4] [--csv out.csv]
+    python3 scripts/eval_gap.py ENGINE [--depth 1] [--jobs 4] [--csv out.csv] [--option NNUEFile=x.bin]
     python3 scripts/eval_gap.py --compare a.csv b.csv   # paired, per subset
 """
 import argparse, csv, json, math, os, subprocess, sys
@@ -34,7 +34,7 @@ def tier(k):
 
 
 def run_chunk(args):
-    engine, depth, rows = args
+    engine, depth, options, rows = args
     e = subprocess.Popen([engine], cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          stderr=subprocess.DEVNULL, text=True, bufsize=1)
     send = lambda s: (e.stdin.write(s + "\n"), e.stdin.flush())
@@ -51,6 +51,9 @@ def run_chunk(args):
 
     send("usi"); until("usiok")
     send("setoption name ParallelEnable value false")
+    for o in options:
+        name, value = o.split("=", 1)
+        send(f"setoption name {name} value {value}")
     send("isready"); until("readyok")
     res = []
     for r in rows:
@@ -92,6 +95,12 @@ def summarize(rows, label=""):
         line(f"our king pressure {t}", [r for r in rows if r["our_tier"] == t])
     for t in ["low", "mid", "high"]:
         line(f"their king pressure {t}", [r for r in rows if r["their_tier"] == t])
+    # The blind spot: close positions with our king under attack. In won positions
+    # both p are near 1, so pressure alone partly measures centipawn scale.
+    line("|yo|<1500, our mid+high", [r for r in rows if abs(int(r["yo"])) < 1500
+                                      and r["our_tier"] in ("mid", "high")])
+    line("|yo|<1500, our low", [r for r in rows if abs(int(r["yo"])) < 1500
+                                 and r["our_tier"] == "low"])
     print("  (dp = p(ours) - p(YaneuraOu); positive = we are more optimistic for Black)")
 
 
@@ -103,6 +112,8 @@ def compare(a_path, b_path):
                "contested |yo|<1500": [k for k in keys if abs(int(a[k]["yo"])) < 1500]}
     for t in ["mid", "high"]:
         subsets[f"our king pressure {t}"] = [k for k in keys if a[k]["our_tier"] == t]
+    subsets["|yo|<1500, our mid+high"] = [k for k in subsets["contested |yo|<1500"]
+                                          if a[k]["our_tier"] in ("mid", "high")]
     print(f"paired |dp| change, {b_path} minus {a_path} (negative = B closer to YaneuraOu)")
     for name, ks in subsets.items():
         d = [abs(p(int(b[k]["ours"])) - p(int(b[k]["yo"])))
@@ -121,6 +132,8 @@ def main():
     ap.add_argument("--depth", type=int, default=1)
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--csv")
+    ap.add_argument("--option", action="append", default=[],
+                    help="USI option NAME=VALUE, e.g. NNUEFile=weights/x.bin (repeatable)")
     ap.add_argument("--compare", nargs=2)
     a = ap.parse_args()
     if a.compare:
@@ -128,7 +141,7 @@ def main():
     if not a.engine:
         sys.exit("engine required")
     rows = [json.loads(l) for l in open(a.set)]
-    chunks = [(os.path.abspath(a.engine), a.depth, rows[i::a.jobs]) for i in range(a.jobs)]
+    chunks = [(os.path.abspath(a.engine), a.depth, a.option, rows[i::a.jobs]) for i in range(a.jobs)]
     with ProcessPoolExecutor(a.jobs) as ex:
         res = [r for part in ex.map(run_chunk, chunks) for r in part]
     res.sort(key=lambda r: (r["game"], r["ply"]))
@@ -136,7 +149,7 @@ def main():
         with open(a.csv, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(res[0].keys()))
             w.writeheader(); w.writerows(res)
-    summarize(res, f"{a.engine} depth {a.depth}, {len(res)} positions")
+    summarize(res, f"{a.engine} {' '.join(a.option)} depth {a.depth}, {len(res)} positions")
 
 
 if __name__ == "__main__":
