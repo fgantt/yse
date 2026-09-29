@@ -5,7 +5,8 @@ Usage (from the repo root):
 
 Positions: every 2011th corpus record (the `search_bench` stride), at most n;
 the d10 corpus yields 34. Default engine options, so parallel search, as shipped;
-byoyomi_ms defaults to 1000.
+byoyomi_ms defaults to 1000. USI options per engine: DEPTH_AB_OPTS_OLD / DEPTH_AB_OPTS_NEW,
+"Name=Value;Name=Value".
 """
 import subprocess, sys, json, statistics, time
 engines = {"old": sys.argv[1], "new": sys.argv[2]}
@@ -28,8 +29,14 @@ def until(p, tok):
         if not l: raise SystemExit("engine died")
         out.append(l.strip())
         if l.startswith(tok): return out
-for p in procs.values():
-    send(p, "usi"); until(p, "usiok"); send(p, "isready"); until(p, "readyok"); send(p, "usinewgame")
+import os
+for k, p in procs.items():
+    send(p, "usi"); until(p, "usiok")
+    # Optional USI options per engine: DEPTH_AB_OPTS_OLD / DEPTH_AB_OPTS_NEW = "Name=Value;Name=Value".
+    for kv in filter(None, os.environ.get(f"DEPTH_AB_OPTS_{k.upper()}", "").split(";")):
+        name, value = kv.split("=", 1)
+        send(p, f"setoption name {name} value {value}")
+    send(p, "isready"); until(p, "readyok"); send(p, "usinewgame")
 res = {k: [] for k in engines}
 for idx, sf in enumerate(sfens):
     for k, p in procs.items():
