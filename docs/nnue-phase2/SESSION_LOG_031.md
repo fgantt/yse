@@ -16,10 +16,14 @@ head-to-head against `engines/usi-engine-stable`.
 > 2. **The four "left as found" bugs are real and fixing them does not help.** The game-phase
 >    quirk (two fixes), the quiescence dedup, and pseudo-legal quiescence moves: neutral, neutral,
 >    worse, and worse over 240 games (−42 ± 42). See *The gates*.
-> 3. **Our evaluation is blind to attacks on its own king.** A user's six-piece loss turned on a
->    move the engine still chooses at 60 s / depth 8 (+294 cp; YaneuraOu −586). Across all six
->    user games, our win-probability error is ~9x larger when our king is under pressure, always
->    optimistic, and two more plies barely reduce it. This is the finding of the session.
+> 3. **Our engine is blind to attacks on its own king, and so is YaneuraOu's evaluation.** A
+>    user's six-piece loss turned on a move the engine still chooses at 60 s / depth 8 (+294 cp;
+>    YaneuraOu −586). Across the user games, our error is ~9x larger when our king is under
+>    pressure, always optimistic. **But YaneuraOu at depth 1 is exactly as optimistic on the
+>    same positions (+0.141 vs our +0.140); it takes it ~10 plies to see the danger.** The
+>    blind spot is search depth, not evaluation: Session 29's conclusion stands. An earlier
+>    version of this log said "depth 3 barely helps, so it is eval" -- depth 3 was far too
+>    shallow a test. See *It was depth after all*.
 > 4. **`scripts/eval_gap.py` measures it in 6 seconds** (`66f44dd`), from 830 positions of the
 >    user's games labelled by YaneuraOu. Use it before any evaluation change is gated.
 > 5. **It is not mate threats, and not attacked squares.** Only 1 of the 61 close, pressured
@@ -205,7 +209,59 @@ scale 128 is 52-1-67 (−43.7 ± 55.4), scale 256 is 58-1-61 (−8.7 ± 58.0)
 without tracking the positions is not an improvement, which is what the eval-gap split
 predicted.
 
+## Training for it, and why it failed
+
+The deployed network already has king-conditioned hand features: `KING_FEATURE_STRIDE`
+repeats the whole perspective space, hand features included, per own-king bucket. (CLAUDE.md's
+"hand features are not king-conditioned" predates the 9-bucket network.) Nor is the frozen
+material path the cause: in the close, pressured positions Black is +2,067 in material and
+the network already scores +820, taking back 60%. It takes back the same ~60% in won,
+quiet positions; YaneuraOu's deep search takes back 74% in the first and 49% in the second.
+
+The Session 30 handicap corpus holds 13,985 such positions (Black >= +1,000 material,
+YaneuraOu < +1,500) but they were <1% of the fine-tuning mix. Two fine-tunes, Session 30
+recipe (`weights/s31_kingattack/`, not in git):
+
+| network | close + pressure (75) | close, low tag (14) | low pressure (752) |
+|---|---|---|---|
+| stable | 0.201 (+0.140) | 0.355 | 0.021 |
+| S30 x1 | 0.199 (+0.100) | 0.344 | 0.024 |
+| x4 (hc corpus x4) | 0.209 (+0.073) | 0.339 | 0.028 |
+| bs20 (hc + those positions x20, 12%) | 0.229 (+0.036) | 0.326 | 0.030 |
+
+The same as the king-danger term: the bias falls, the per-position error rises, quiet
+positions get worse. Not gated.
+
+## It was depth after all
+
+YaneuraOu searching the eval-gap set's close positions at fixed depth, scored against its own
+3M-node labels:
+
+| searcher | close + pressure | close, low tag |
+|---|---|---|
+| ours, depth 1 | 0.201 (+0.140) | 0.355 (+0.355) |
+| YaneuraOu, depth 1 | 0.157 (+0.141) | 0.307 (+0.302) |
+| YaneuraOu, depth 3 | 0.137 (+0.123) | 0.284 |
+| YaneuraOu, depth 6 | 0.119 (+0.101) | 0.282 |
+| YaneuraOu, depth 10 | 0.057 (+0.038) | 0.183 |
+
+A far stronger network is exactly as optimistic at depth 1. The danger in these positions is
+found by search, around 10 plies, not seen by evaluation -- which is why a handcrafted term
+and two fine-tunes all moved the bias without tracking the positions. Part of it is selection:
+positions chosen for a *deep* score near zero are the ones where deep search disagrees with
+the material, which makes any shallow evaluator look optimistic. Both engines face that
+equally.
+
+**What the eval-gap set is good for, then:** comparing evaluations against each other at the
+same depth (ours is 0.201 against YaneuraOu's 0.157 at depth 1, a real but modest gap), and
+the low-pressure rows. The close subset is a *search-depth* benchmark: judge search changes
+by our error at a fixed time, not evaluation changes by our error at depth 1.
+
 ## Method notes
+
+- **Before blaming the evaluation, run the teacher at the same depth.** Four experiments this
+  session (a king-danger term, its gate, two fine-tunes) chased an "eval" gap that YaneuraOu's
+  own evaluation shares. The test took five minutes and should have come first.
 
 - **A 120-game gate resolves about ±60 Elo.** Small correctness fixes land inside it. When a
   result is borderline, a second match on fresh openings (different `--seed`) is cheaper than
@@ -225,8 +281,10 @@ predicted.
 
 ## Next
 
-1. Train for the blind spot; the handcrafted route did not work (a count of attacked squares
-   and hand pieces cannot see which castles are in danger). The network sees piece squares relative to its own king's bucket but
+1. Search depth, as Session 29 said. The attacks that lose the user's games surface at ~10
+   plies; we reach 4-5 at 1 s and 8 at 60 s. Profile the shipped engine (below) and look at
+   selectivity in positions where our king is under attack (checks, drops near the king).
+   Measure with `eval_gap.py`'s close subset at a fixed *time*, not a fixed depth. The network sees piece squares relative to its own king's bucket but
    hand pieces without the king; drop attacks need both. Candidates: king-conditioned hand
    features, or more positions like the close subset (the Session 30 handicap corpus was mostly
    won positions). Judge each network on `eval_gap.py`'s close subset first.
