@@ -47,6 +47,14 @@ pub struct MateSearch {
     path: Vec<u64>,
 }
 
+/// Line-extraction state: finished lengths, and the positions on the line
+/// being evaluated (the cycle guard).
+#[derive(Default)]
+struct Memo {
+    done: HashMap<(u64, bool), Option<u32>>,
+    on_line: Vec<(u64, bool)>,
+}
+
 struct Child {
     mv: Move,
     board: BitboardBoard,
@@ -91,7 +99,7 @@ impl MateSearch {
         if pn != 0 {
             return None;
         }
-        let mut memo = HashMap::new();
+        let mut memo = Memo::default();
         let mut line = Vec::new();
         self.extract(board, captured, attacker, true, &mut memo, &mut line, 0);
         if line.is_empty() {
@@ -248,44 +256,71 @@ impl MateSearch {
         side: Player,
         or_node: bool,
         hash: u64,
-        memo: &mut HashMap<(u64, bool), Option<u32>>,
+        memo: &mut Memo,
         depth: u32,
     ) -> Option<u32> {
-        if let Some(v) = memo.get(&(hash, or_node)) {
-            return *v;
+        self.mate_length_inner(board, captured, side, or_node, hash, memo, depth).0
+    }
+
+    /// [`Self::mate_length`], plus whether the answer met the cycle guard (a
+    /// position already on the current line). Such an answer holds only for
+    /// this line and is not memoised: it used to be, and a position first met
+    /// through a cycle stayed "no mate" everywhere else -- a checks-only mate in
+    /// 13 against Apery was proved by df-pn and then thrown away here.
+    #[allow(clippy::too_many_arguments)]
+    fn mate_length_inner(
+        &self,
+        board: &BitboardBoard,
+        captured: &CapturedPieces,
+        side: Player,
+        or_node: bool,
+        hash: u64,
+        memo: &mut Memo,
+        depth: u32,
+    ) -> (Option<u32>, bool) {
+        let key = (hash, or_node);
+        if let Some(v) = memo.done.get(&key) {
+            return (*v, false);
         }
-        if depth > 64 {
-            return None;
+        if memo.on_line.contains(&key) || depth > 64 {
+            return (None, true);
         }
         match self.tt.get(&hash) {
             Some(e) if e.pn == 0 => {}
-            Some(_) => return None,
+            Some(_) => return (None, false),
             // Not in the table: only a defender with no legal reply counts as
             // proved. A check that leaves no reply is scored mate when it is
             // generated (see `children`) and never expanded, so it is never
             // stored; anything else unstored is unproved.
             None => {
                 let mated = !or_node && self.children(board, captured, side, false).is_empty();
-                return if mated { Some(0) } else { None };
+                return (if mated { Some(0) } else { None }, false);
             }
         }
-        memo.insert((hash, or_node), None); // guards against cycles
+        memo.on_line.push(key);
         let children = self.children(board, captured, side, or_node);
+        let mut cyclic = false;
         let result = if children.is_empty() {
             if or_node { None } else { Some(0) }
         } else if or_node {
-            children
-                .iter()
-                .filter_map(|c| {
-                    self.mate_length(&c.board, &c.captured, side.opposite(), false, c.hash, memo, depth + 1)
-                })
-                .min()
-                .map(|l| l + 1)
+            let mut best: Option<u32> = None;
+            for c in &children {
+                let (l, cy) =
+                    self.mate_length_inner(&c.board, &c.captured, side.opposite(), false, c.hash, memo, depth + 1);
+                cyclic |= cy;
+                if let Some(l) = l {
+                    best = Some(best.map_or(l, |b| b.min(l)));
+                }
+            }
+            best.map(|l| l + 1)
         } else {
             let mut longest = 0u32;
             let mut all = true;
             for c in &children {
-                match self.mate_length(&c.board, &c.captured, side.opposite(), true, c.hash, memo, depth + 1) {
+                let (l, cy) =
+                    self.mate_length_inner(&c.board, &c.captured, side.opposite(), true, c.hash, memo, depth + 1);
+                cyclic |= cy;
+                match l {
                     Some(l) => longest = longest.max(l),
                     None => {
                         all = false;
@@ -295,8 +330,11 @@ impl MateSearch {
             }
             if all { Some(longest + 1) } else { None }
         };
-        memo.insert((hash, or_node), result);
-        result
+        memo.on_line.pop();
+        if !cyclic {
+            memo.done.insert(key, result);
+        }
+        (result, cyclic)
     }
 
     /// Append the mate line from this position to `line`.
@@ -307,7 +345,7 @@ impl MateSearch {
         captured: &CapturedPieces,
         side: Player,
         or_node: bool,
-        memo: &mut HashMap<(u64, bool), Option<u32>>,
+        memo: &mut Memo,
         line: &mut Vec<Move>,
         depth: u32,
     ) {
@@ -356,5 +394,19 @@ mod tests {
     #[test]
     fn no_mate_from_start() {
         assert!(solve("lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1", 20_000).is_none());
+    }
+
+    /// A checks-only mate in 13 from a game against Apery (move 43), where the
+    /// king runs between 7b, 8a and 7a. df-pn proved it, but the line
+    /// extraction memoised "no mate" for positions that met its cycle guard, and
+    /// `solve` returned None.
+    #[test]
+    fn cycle_guard_does_not_hide_mate() {
+        // The shortest mate is 13 plies; the proof tree's is 19 (the extracted
+        // line is the shortest the proof contains). What matters is that it is found.
+        let line = solve("l3g3l/rks6/b3+S2+Rp/1Np3p2/p2p5/1PPNP4/P1SPGP2P/2G6/LNK4NL b S6Pbg 85", 1_000_000)
+            .expect("mate");
+        assert_eq!(line.first().map(String::as_str), Some("8d7b+"), "{line:?}");
+        assert!(line.len() % 2 == 1 && line.len() <= 21, "{line:?}");
     }
 }
