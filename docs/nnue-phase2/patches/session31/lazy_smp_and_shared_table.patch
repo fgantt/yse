@@ -1,0 +1,1172 @@
+diff --git a/src/bin/search_bench.rs b/src/bin/search_bench.rs
+index 13e1e90..efac6f4 100644
+--- a/src/bin/search_bench.rs
++++ b/src/bin/search_bench.rs
+@@ -114,6 +114,7 @@ fn load_sfens(cli: &Cli) -> std::io::Result<Vec<String>> {
+ 
+ fn main() -> Result<(), Box<dyn std::error::Error>> {
+     let cli = Cli::parse();
++    shogi_engine::search::search_engine::enable_search_diagnostics();
+     let sfens = load_sfens(&cli)?;
+     eprintln!(
+         "search-bench: {} positions, depth {}, {}",
+diff --git a/src/bin/search_diag.rs b/src/bin/search_diag.rs
+index 31f8bc9..eaa49e7 100644
+--- a/src/bin/search_diag.rs
++++ b/src/bin/search_diag.rs
+@@ -72,6 +72,7 @@ fn reset() {
+ 
+ fn main() {
+     let cli = Cli::parse();
++    shogi_engine::search::search_engine::enable_search_diagnostics();
+     let positions: Vec<(String, String)> = if cli.sfen.is_empty() {
+         DEFAULT_SFENS.iter().map(|(n, s)| (n.to_string(), s.to_string())).collect()
+     } else {
+diff --git a/src/lib.rs b/src/lib.rs
+index 18f06c7..5b9dc26 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -76,6 +76,9 @@ struct CapturedPieceJson {
+     player: String,
+ }
+ 
++/// Most threads Lazy SMP uses, whatever `USI_Threads` says (see `search`).
++const LAZY_SMP_MAX_THREADS: usize = 8;
++
+ #[derive(Clone)]
+ pub struct ShogiEngine {
+     board: BitboardBoard,
+@@ -91,6 +94,9 @@ pub struct ShogiEngine {
+     depth: u8,
+     thread_count: usize,
+     parallel_options: ParallelOptions,
++    /// Lazy SMP helper threads and shared table, kept between moves (created on
++    /// the first search with `LazySMP` on).
++    lazy_smp: Option<Arc<search::lazy_smp::LazySmp>>,
+     pst_config: PieceSquareTableConfig,
+     /// USI `UseNNUE`.
+     use_nnue: bool,
+@@ -151,6 +157,7 @@ impl ShogiEngine {
+             depth: 0, // Default to 0 (unlimited/adaptive), like YaneuraOu
+             thread_count,
+             parallel_options: ParallelOptions::default(),
++            lazy_smp: None,
+             pst_config: PieceSquareTableConfig::default(),
+             use_nnue: true,
+             move_overhead_ms: 100,
+@@ -647,13 +654,31 @@ impl ShogiEngine {
+             "Creating searcher with depth: {} (requested: {}, 0 = unlimited), time_limit: {}ms",
+             actual_depth, depth, time_limit_ms
+         ));
+-        let parallel_config =
++        let mut parallel_config =
+             ParallelSearchConfig::from_parallel_options(&self.parallel_options, self.thread_count);
+         // A node-limited search runs on one thread: the limit counts this engine's
+         // nodes only, so parallel workers would run unbounded (with no time limit
+         // `go nodes N` never returned), and a node limit is meant to be a
+         // reproducible amount of work.
+         let threads = if node_limit.is_some() { 1 } else { self.thread_count };
++        // Lazy SMP replaces root splitting: no per-move thread pool, and a
++        // helper pool and table that persist between moves.
++        let lazy = if parallel_config.lazy_smp && parallel_config.enable_parallel && threads > 1 {
++            // More threads made Lazy SMP slower on this machine (time to depth 6
++            // over 8 positions: 4 threads 66-78 s, 8 threads 78 s, 12 threads
++            // 92 s, 16 threads 123-185 s, one thread 142 s): 16 searching
++            // threads spill onto the efficiency cores and overflow the shared
++            // caches. Cap it.
++            let helpers = threads.min(LAZY_SMP_MAX_THREADS) - 1;
++            if self.lazy_smp.as_ref().map_or(true, |l| l.helper_count() != helpers) {
++                self.lazy_smp =
++                    Some(Arc::new(search::lazy_smp::LazySmp::new(helpers, 4 * 1024 * 1024)));
++            }
++            parallel_config.enable_parallel = false;
++            self.lazy_smp.clone()
++        } else {
++            None
++        };
+         let mut searcher = search::search_engine::IterativeDeepening::new_with_threads(
+             actual_depth,
+             time_limit_ms,
+@@ -661,6 +686,9 @@ impl ShogiEngine {
+             threads,
+             parallel_config,
+         );
++        if let Some(lazy) = lazy {
++            searcher.set_lazy_smp(lazy);
++        }
+ 
+         crate::utils::telemetry::debug_log("Trying to get search engine lock");
+ 
+@@ -1543,6 +1571,16 @@ impl ShogiEngine {
+                         ));
+                     }
+                 }
++                "LazySMP" => {
++                    if let Ok(enabled) = parts[3].parse::<bool>() {
++                        self.parallel_options.lazy_smp = enabled;
++                        self.sync_parallel_options();
++                        output.push(format!(
++                            "info string {} Lazy SMP",
++                            if enabled { "Enabled" } else { "Disabled" }
++                        ));
++                    }
++                }
+                 "YBWCEnable" => {
+                     if let Ok(enabled) = parts[3].parse::<bool>() {
+                         self.parallel_options.ybwc_enabled = enabled;
+diff --git a/src/search/lazy_smp.rs b/src/search/lazy_smp.rs
+new file mode 100644
+index 0000000..a707f97
+--- /dev/null
++++ b/src/search/lazy_smp.rs
+@@ -0,0 +1,211 @@
++//! Lazy SMP: helper threads search the whole tree from the root alongside the
++//! main thread, sharing only the transposition table.
++//!
++//! The root-splitting parallel search searched the first root move alone and
++//! the others only after it, and only from depth 5; a profile of the shipped
++//! engine found its workers asleep 52-85% of the time. It also built a new
++//! thread pool and a new 4M-entry shared table for every move. Here the helper
++//! threads and the table live as long as the engine: each move, every helper
++//! runs its own iterative deepening on the root position until the main search
++//! ends. Only the main thread chooses the move; helpers contribute through the
++//! table, where their entries cut the main thread's search short.
++//!
++//! A `SearchEngine` cannot move between threads, so each helper builds its own
++//! search context inside its thread, once, and keeps it.
++
++use crate::bitboards::BitboardBoard;
++use crate::evaluation::nnue::NNUEEvaluator;
++use crate::search::parallel_search::ThreadLocalSearchContext;
++use crate::search::search_engine::{MAX_SCORE, MIN_SCORE};
++use crate::search::{ThreadSafeTranspositionTable, TranspositionConfig};
++use crate::types::board::CapturedPieces;
++use crate::types::core::{Move, Player};
++use std::sync::atomic::{AtomicBool, Ordering};
++use std::sync::{mpsc, Arc, Mutex};
++use std::thread;
++
++/// One move's work for a helper.
++struct Job {
++    board: BitboardBoard,
++    captured: CapturedPieces,
++    player: Player,
++    /// First depth; helpers alternate between 1 and 2 so they do not all walk
++    /// the same tree in step.
++    first_depth: u8,
++    /// A new network when the main engine's differs from the helper's.
++    nnue: Option<Option<NNUEEvaluator>>,
++    stop: Arc<AtomicBool>,
++    done: mpsc::Sender<()>,
++    best: Arc<Mutex<Option<Completed>>>,
++}
++
++/// A helper's deepest fully completed iteration: (depth, move, score).
++pub type Completed = (u8, Move, i32);
++
++struct Helper {
++    jobs: mpsc::Sender<Job>,
++    network: Option<Option<u64>>,
++}
++
++/// The helper threads and the shared transposition table.
++pub struct LazySmp {
++    table: Arc<ThreadSafeTranspositionTable>,
++    helpers: Mutex<Vec<Helper>>,
++}
++
++/// A running search's helpers. Dropping it stops them and waits until each
++/// has returned to idle, so no helper outlives the move it was searching.
++pub struct LazySearch {
++    stop: Arc<AtomicBool>,
++    done: mpsc::Receiver<()>,
++    running: usize,
++    best: Arc<Mutex<Option<Completed>>>,
++}
++
++impl LazySearch {
++    /// Stop the helpers, wait for them, and return the deepest iteration any
++    /// of them completed. As in Stockfish and YaneuraOu, the move comes from
++    /// the deepest completed search, not always the main thread's: helpers
++    /// started a ply deeper often finish an iteration the main thread does not.
++    pub fn finish(mut self) -> Option<Completed> {
++        self.stop_and_wait();
++        self.best.lock().ok().and_then(|b| b.clone())
++    }
++
++    fn stop_and_wait(&mut self) {
++        self.stop.store(true, Ordering::Relaxed);
++        for _ in 0..std::mem::take(&mut self.running) {
++            if self.done.recv().is_err() {
++                break;
++            }
++        }
++    }
++}
++
++impl Drop for LazySearch {
++    fn drop(&mut self) {
++        self.stop_and_wait();
++    }
++}
++
++impl LazySmp {
++    /// `helpers` threads (the main thread is extra) and a shared table of
++    /// `table_entries` entries.
++    pub fn new(helpers: usize, table_entries: usize) -> Self {
++        let mut config = TranspositionConfig::performance_optimized();
++        config.table_size = table_entries.next_power_of_two();
++        // With statistics on, every probe and store takes a table-wide mutex to
++        // bump a counter: all threads serialise on it. Nothing in the search
++        // reads the counters.
++        config.enable_statistics = false;
++        let mut table = ThreadSafeTranspositionTable::new(config);
++        table.set_lock_free(true);
++        let table = Arc::new(table);
++        let helpers = (0..helpers)
++            .filter_map(|i| {
++                let (tx, rx) = mpsc::channel::<Job>();
++                let table = table.clone();
++                thread::Builder::new()
++                    .name(format!("lazy-smp-{i}"))
++                    .stack_size(8 * 1024 * 1024)
++                    .spawn(move || helper_loop(&rx, &table))
++                    .ok()
++                    .map(|_| Helper { jobs: tx, network: None })
++            })
++            .collect();
++        Self { table, helpers: Mutex::new(helpers) }
++    }
++
++    pub fn helper_count(&self) -> usize {
++        self.helpers.lock().map_or(0, |h| h.len())
++    }
++
++    /// The shared table; the main search engine must store into and probe it.
++    pub fn table(&self) -> Arc<ThreadSafeTranspositionTable> {
++        self.table.clone()
++    }
++
++    /// Start every helper on this position. `network` is the main engine's
++    /// NNUE network id (`None` for classical evaluation); `copy_network`
++    /// supplies a copy for helpers that do not have it yet.
++    pub fn start(
++        &self,
++        board: &BitboardBoard,
++        captured: &CapturedPieces,
++        player: Player,
++        network: Option<u64>,
++        copy_network: impl Fn() -> Option<NNUEEvaluator>,
++    ) -> LazySearch {
++        let stop = Arc::new(AtomicBool::new(false));
++        let best = Arc::new(Mutex::new(None));
++        let (done_tx, done_rx) = mpsc::channel();
++        let mut running = 0;
++        // Diagnostic: the shared table without helpers.
++        let no_helpers = std::env::var_os("SHOGI_LAZY_NO_HELPERS").is_some();
++        if let (Ok(mut helpers), false) = (self.helpers.lock(), no_helpers) {
++            for (i, h) in helpers.iter_mut().enumerate() {
++                let nnue = (h.network != Some(network)).then(&copy_network);
++                let job = Job {
++                    board: board.clone(),
++                    captured: captured.clone(),
++                    player,
++                    first_depth: 1 + (i % 2) as u8,
++                    nnue,
++                    stop: stop.clone(),
++                    done: done_tx.clone(),
++                    best: best.clone(),
++                };
++                if h.jobs.send(job).is_ok() {
++                    h.network = Some(network);
++                    running += 1;
++                }
++            }
++        }
++        LazySearch { stop, done: done_rx, running, best }
++    }
++}
++
++fn helper_loop(jobs: &mpsc::Receiver<Job>, table: &Arc<ThreadSafeTranspositionTable>) {
++    let mut ctx: Option<ThreadLocalSearchContext> = None;
++    while let Ok(job) = jobs.recv() {
++        let c = ctx.get_or_insert_with(|| {
++            // Its own table is never used (probes and stores go to the shared
++            // one), so keep it minimal.
++            let mut c = ThreadLocalSearchContext::new(&job.board, &job.captured, job.player, None, 1);
++            c.search_engine_mut().set_lock_free_table(table.clone());
++            c
++        });
++        if let Some(nnue) = job.nnue {
++            c.search_engine_mut().get_evaluator_mut().install_nnue(nnue);
++        }
++        c.refresh_root_state(&job.board, &job.captured);
++        c.update_stop_flag(Some(job.stop.clone()));
++        let mut depth = job.first_depth;
++        while !job.stop.load(Ordering::Relaxed) && depth < 100 {
++            let engine = c.search_engine_mut();
++            engine.get_evaluator_mut().nnue_refresh(&job.board, job.player, &job.captured);
++            let mut board = job.board.clone();
++            let result = engine.search_at_depth(
++                &mut board,
++                &job.captured,
++                job.player,
++                depth,
++                u32::MAX / 2,
++                MIN_SCORE,
++                MAX_SCORE,
++            );
++            engine.flush_tt_buffer();
++            // Only an iteration that finished before the stop counts.
++            if let (Some((mv, score)), false) = (result, job.stop.load(Ordering::Relaxed)) {
++                if let Ok(mut best) = job.best.lock() {
++                    if best.as_ref().map_or(true, |b| depth > b.0) {
++                        *best = Some((depth, mv, score));
++                    }
++                }
++            }
++            depth += 1;
++        }
++        c.reset_to_root();
++        let _ = job.done.send(());
++    }
++}
+diff --git a/src/search/mod.rs b/src/search/mod.rs
+index 607a791..883e918 100644
+--- a/src/search/mod.rs
++++ b/src/search/mod.rs
+@@ -1,5 +1,6 @@
+ pub mod board_trait;
+ pub mod iterative_deepening;
++pub mod lazy_smp;
+ pub mod mate_search;
+ pub mod null_move;
+ pub mod parallel_search;
+diff --git a/src/search/parallel_search.rs b/src/search/parallel_search.rs
+index 88e2561..dfed0ef 100644
+--- a/src/search/parallel_search.rs
++++ b/src/search/parallel_search.rs
+@@ -388,6 +388,9 @@ pub struct ParallelSearchConfig {
+ 
+     /// Mode controlling work distribution metrics collection.
+     pub work_metrics_mode: WorkMetricsMode,
++
++    /// Lazy SMP instead of root splitting (see `search::lazy_smp`).
++    pub lazy_smp: bool,
+ }
+ 
+ impl Default for ParallelSearchConfig {
+@@ -406,6 +409,7 @@ impl Default for ParallelSearchConfig {
+             ybwc_mid_divisor: 4,
+             ybwc_deep_divisor: 2,
+             work_metrics_mode: WorkMetricsMode::Disabled,
++            lazy_smp: false,
+         }
+     }
+ }
+@@ -435,6 +439,7 @@ impl ParallelSearchConfig {
+             ybwc_mid_divisor: 4,
+             ybwc_deep_divisor: 2,
+             work_metrics_mode: WorkMetricsMode::Disabled,
++            lazy_smp: false,
+         }
+     }
+ 
+@@ -470,6 +475,7 @@ impl ParallelSearchConfig {
+         config.ybwc_deep_divisor = options.ybwc_deep_divisor.max(1);
+         config.work_metrics_mode =
+             if options.enable_metrics { WorkMetricsMode::Basic } else { WorkMetricsMode::Disabled };
++        config.lazy_smp = options.lazy_smp;
+         config
+     }
+ }
+diff --git a/src/search/search_engine.rs b/src/search/search_engine.rs
+index a7406bd..c89a4c3 100644
+--- a/src/search/search_engine.rs
++++ b/src/search/search_engine.rs
+@@ -373,6 +373,9 @@ pub struct SearchEngine {
+     transposition_table: crate::search::ThreadSafeTranspositionTable,
+     /// Optional shared transposition table for parallel search contexts
+     shared_transposition_table: Option<Arc<RwLock<crate::search::ThreadSafeTranspositionTable>>>,
++    /// Lazy SMP's shared table: lock-free, so no `RwLock` (whose read count is
++    /// itself a cache line every thread would fight over). Takes precedence.
++    lock_free_tt: Option<Arc<crate::search::ThreadSafeTranspositionTable>>,
+     hash_calculator: crate::search::ShogiHashHandler,
+     move_orderer: crate::search::TranspositionMoveOrderer,
+     advanced_move_orderer: MoveOrdering,
+@@ -509,6 +512,22 @@ pub static TT_TRY_WRITE_SUCCESSES: AtomicU64 = AtomicU64::new(0);
+ pub static TT_TRY_WRITE_FAILS: AtomicU64 = AtomicU64::new(0);
+ /// Diagnostic tree-shape counters, indexed by remaining depth (capped at 15):
+ /// nodes entering the move loop, moves searched there, and beta cutoffs.
++/// Whether the `DIAG_*` counters are collected. They are shared by every
++/// search thread and were incremented at every node; with 16 threads the cache
++/// lines bounced between CPU clusters on each increment and more threads made
++/// the search slower. Only `search_bench` and `search_diag` read them, and
++/// they switch collection on with [`enable_search_diagnostics`].
++static DIAG_ENABLED: AtomicBool = AtomicBool::new(false);
++
++pub fn enable_search_diagnostics() {
++    DIAG_ENABLED.store(true, Ordering::Relaxed);
++}
++
++#[inline(always)]
++fn diag() -> bool {
++    DIAG_ENABLED.load(Ordering::Relaxed)
++}
++
+ pub static DIAG_NODES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+ pub static DIAG_MOVES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+ pub static DIAG_CUTS: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+@@ -611,6 +630,8 @@ pub(crate) struct SearchToggles {
+     /// Disable SEE handling of quiet moves (pruning and ordering of moves that
+     /// hang the moved piece).
+     pub no_see_quiet: bool,
++    /// Store straight into the shared table instead of buffering (experiment).
++    pub tt_write_through: bool,
+ }
+ 
+ impl SearchToggles {
+@@ -624,6 +645,7 @@ impl SearchToggles {
+             no_pruning: on("SHOGI_NO_PRUNING"),
+             no_check_ext: on("SHOGI_NO_CHECKEXT"),
+             no_see_quiet: on("SHOGI_NO_SEE_QUIET"),
++            tt_write_through: on("SHOGI_TT_WRITE_THROUGH"),
+         }
+     }
+ }
+@@ -1455,6 +1477,26 @@ impl SearchEngine {
+         }
+     }
+ 
++    /// Probe the table this engine stores into: the shared table when one is
++    /// set (parallel workers), else its own.
++    ///
++    /// Stores go to the shared table whenever one is set, but every probe used
++    /// to read the engine's own table -- which, for a worker, never received an
++    /// entry. Parallel workers searched with no transposition-table cutoffs at
++    /// all; only the move orderer looked at the shared table.
++    #[inline]
++    fn tt_probe(&self, hash: u64, depth: u8) -> Option<TranspositionEntry> {
++        if let Some(ref tt) = self.lock_free_tt {
++            return tt.probe(hash, depth);
++        }
++        if let Some(ref shared_tt) = self.shared_transposition_table {
++            if let Ok(tt) = shared_tt.try_read() {
++                return tt.probe_with_prefetch(hash, depth, None);
++            }
++        }
++        self.transposition_table.probe_with_prefetch(hash, depth, None)
++    }
++
+     #[inline]
+     fn maybe_buffer_tt_store(
+         &mut self,
+@@ -1469,7 +1511,7 @@ impl SearchEngine {
+             // This is an auxiliary search entry (NMP, IID, etc.)
+             // Check if there's an existing entry that should be preserved
+             if let Some(existing) =
+-                self.transposition_table.probe_with_prefetch(entry.hash_key, 0, None)
++                self.tt_probe(entry.hash_key, 0)
+             {
+                 // Only prevent overwrite if existing entry is from MainSearch AND deeper
+                 if existing.source == crate::types::EntrySource::MainSearch
+@@ -1491,7 +1533,7 @@ impl SearchEngine {
+         } else {
+             // MainSearch entry - track if it's preserving a main entry
+             if let Some(existing) =
+-                self.transposition_table.probe_with_prefetch(entry.hash_key, 0, None)
++                self.tt_probe(entry.hash_key, 0)
+             {
+                 if existing.source == crate::types::EntrySource::MainSearch {
+                     self.core_search_metrics.tt_main_entries_preserved += 1;
+@@ -1526,10 +1568,14 @@ impl SearchEngine {
+         let tt_store_start =
+             if self.auto_profiling_enabled { Some(std::time::Instant::now()) } else { None };
+ 
+-        if self.shared_transposition_table.is_some() {
++        if let Some(ref tt) = self.lock_free_tt {
++            tt.store(entry);
++        } else if self.shared_transposition_table.is_some() {
+             self.shared_tt_store_attempts += 1;
+             self.tt_write_buffer.push(entry);
+-            if self.tt_write_buffer.len() >= self.tt_write_buffer_capacity {
++            if self.tt_write_buffer.len() >= self.tt_write_buffer_capacity
++                || search_toggles().tt_write_through
++            {
+                 self.flush_tt_buffer();
+             }
+         } else {
+@@ -1565,6 +1611,7 @@ impl SearchEngine {
+             tablebase: MicroTablebase::new(),
+             transposition_table: crate::search::ThreadSafeTranspositionTable::new(config),
+             shared_transposition_table: None,
++            lock_free_tt: None,
+             hash_calculator: crate::search::ShogiHashHandler::new(1000),
+             move_orderer: crate::search::TranspositionMoveOrderer::new(),
+             advanced_move_orderer: MoveOrdering::new(),
+@@ -1710,7 +1757,9 @@ impl SearchEngine {
+ 
+         // Integrate with transposition table (prefer shared TT when available)
+         let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
+-        let tt_entry_opt = if let Some(ref shared_tt) = self.shared_transposition_table {
++        let tt_entry_opt = if self.lock_free_tt.is_some() {
++            self.tt_probe(position_hash, depth)
++        } else if let Some(ref shared_tt) = self.shared_transposition_table {
+             self.shared_tt_probe_attempts += 1;
+             TT_TRY_READS.fetch_add(1, Ordering::Relaxed);
+             if let Ok(guard) = shared_tt.try_read() {
+@@ -1722,10 +1771,10 @@ impl SearchEngine {
+                 r
+             } else {
+                 TT_TRY_READ_FAILS.fetch_add(1, Ordering::Relaxed);
+-                self.transposition_table.probe_with_prefetch(position_hash, depth, None)
++                self.tt_probe(position_hash, depth)
+             }
+         } else {
+-            self.transposition_table.probe_with_prefetch(position_hash, depth, None)
++            self.tt_probe(position_hash, depth)
+         };
+         if let Some(tt_entry) = tt_entry_opt {
+             let _ = self.advanced_move_orderer.integrate_with_transposition_table(
+@@ -1757,6 +1806,11 @@ impl SearchEngine {
+ 
+     /// Set a shared transposition table for reporting and ordering in parallel
+     /// contexts.
++    /// Search through Lazy SMP's lock-free shared table (see `search::lazy_smp`).
++    pub fn set_lock_free_table(&mut self, table: Arc<crate::search::ThreadSafeTranspositionTable>) {
++        self.lock_free_tt = Some(table);
++    }
++
+     pub fn set_shared_transposition_table(
+         &mut self,
+         shared: Arc<RwLock<crate::search::ThreadSafeTranspositionTable>>,
+@@ -2027,13 +2081,13 @@ impl SearchEngine {
+ 
+         // Probe transposition table for best move
+         if let Some(entry) =
+-            self.transposition_table.probe_with_prefetch(position_hash, depth, None)
++            self.tt_probe(position_hash, depth)
+         {
+             entry.best_move.clone()
+         } else {
+             // Try with maximum depth if not found at current depth
+             if let Some(entry) =
+-                self.transposition_table.probe_with_prefetch(position_hash, 255, None)
++                self.tt_probe(position_hash, 255)
+             {
+                 entry.best_move.clone()
+             } else {
+@@ -2067,6 +2121,7 @@ impl SearchEngine {
+             tablebase: MicroTablebase::new(),
+             transposition_table: crate::search::ThreadSafeTranspositionTable::new(tt_config),
+             shared_transposition_table: None,
++            lock_free_tt: None,
+             hash_calculator: crate::search::ShogiHashHandler::new(1000),
+             move_orderer: crate::search::TranspositionMoveOrderer::new(),
+             advanced_move_orderer: MoveOrdering::new(),
+@@ -2585,7 +2640,7 @@ impl SearchEngine {
+                 let position_hash =
+                     self.hash_calculator.get_position_hash(board, current_player, captured);
+                 if let Some(tt_entry) =
+-                    self.transposition_table.probe_with_prefetch(position_hash, 0, None)
++                    self.tt_probe(position_hash, 0)
+                 {
+                     // Task 9.6: Check if TT entry depth is sufficient and age is acceptable
+                     let tt_depth_ok = tt_entry.depth >= self.iid_config.tt_move_min_depth_for_skip;
+@@ -2615,7 +2670,7 @@ impl SearchEngine {
+                     let position_hash =
+                         self.hash_calculator.get_position_hash(board, current_player, captured);
+                     if let Some(entry) =
+-                        self.transposition_table.probe_with_prefetch(position_hash, 0, None)
++                        self.tt_probe(position_hash, 0)
+                     {
+                         trace_log!(
+                             "IID_TT_MOVE",
+@@ -3111,7 +3166,7 @@ impl SearchEngine {
+         // The TT might have a better move if the position was searched before
+         let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
+         let mut best_move_from_tt: Option<Move> = None;
+-        if let Some(entry) = self.transposition_table.probe_with_prefetch(position_hash, 255, None)
++        if let Some(entry) = self.tt_probe(position_hash, 255)
+         {
+             if let Some(ref tt_move) = entry.best_move {
+                 // Task 2.8: Verify IID move is in legal moves list before using
+@@ -3163,7 +3218,7 @@ impl SearchEngine {
+         captured_pieces: &CapturedPieces,
+     ) -> Option<Move> {
+         let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
+-        if let Some(entry) = self.transposition_table.probe_with_prefetch(position_hash, 255, None)
++        if let Some(entry) = self.tt_probe(position_hash, 255)
+         {
+             entry.best_move.clone()
+         } else {
+@@ -6604,7 +6659,7 @@ impl SearchEngine {
+         let tt_entry = if search_toggles().no_tt {
+             None
+         } else {
+-            self.transposition_table.probe_with_prefetch(position_hash, depth, None)
++            self.tt_probe(position_hash, depth)
+         };
+ 
+         // Record TT probe profiling (Task 3.0)
+@@ -6913,10 +6968,7 @@ impl SearchEngine {
+ 
+         // === INTERNAL ITERATIVE DEEPENING (IID) ===
+         let mut iid_move = None;
+-        let tt_move = self
+-            .transposition_table
+-            .probe(position_hash, 255)
+-            .and_then(|entry| entry.best_move.clone());
++        let tt_move = self.tt_probe(position_hash, 255).and_then(|entry| entry.best_move.clone());
+ 
+         // Task 7.0.2.6, 7.0.2.9: Skip IID at Medium/High time pressure, allow at
+         // Low/None
+@@ -7114,8 +7166,10 @@ impl SearchEngine {
+         // Position hash already added to hash_history above - no FEN string needed
+ 
+         let mut move_index = 0;
+-        DIAG_NODES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
+-        DIAG_INTERIOR_NODES.fetch_add(1, Ordering::Relaxed);
++        if diag() {
++            DIAG_NODES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
++            DIAG_INTERIOR_NODES.fetch_add(1, Ordering::Relaxed);
++        }
+         // Per-node facts the move loop's pruning and reduction decisions need.
+         // They were recomputed for every move (a full evaluation and a material
+         // count each time, twice per move counting the LMR path), which made
+@@ -7298,7 +7352,9 @@ impl SearchEngine {
+             // Task 2.6: Pass current move as opponent_last_move to recursive call
+             // Task 7.0.1: Pass IID move for explicit exemption from LMR
+             // Task 7.0.3.4: Pass entry source for TT priority management
+-            DIAG_MOVES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
++            if diag() {
++                DIAG_MOVES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
++            }
+             // Children may return early without popping their own entry; restore
+             // the path to this node's length after each one.
+             let path_len = hash_history.len();
+@@ -7423,11 +7479,13 @@ impl SearchEngine {
+                     // Track beta cutoff (Task 5.7)
+                     self.core_search_metrics.total_cutoffs += 1;
+                     self.core_search_metrics.beta_cutoffs += 1;
+-                    DIAG_CUTS[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
+-                    // `move_index` is incremented before the move is searched,
+-                    // so it is 1-based here; the buckets are 0-based.
+-                    DIAG_CUT_INDEX[cut_index_bucket(move_index.saturating_sub(1))]
+-                        .fetch_add(1, Ordering::Relaxed);
++                    if diag() {
++                        DIAG_CUTS[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
++                        // `move_index` is incremented before the move is searched,
++                        // so it is 1-based here; the buckets are 0-based.
++                        DIAG_CUT_INDEX[cut_index_bucket(move_index.saturating_sub(1))]
++                            .fetch_add(1, Ordering::Relaxed);
++                    }
+ 
+                     // Feed the cutoff to the orderer that actually orders moves. Its
+                     // killer and history tables were never updated by the search
+@@ -7765,7 +7823,9 @@ impl SearchEngine {
+ 
+         // Update statistics
+         self.quiescence_stats.nodes_searched += 1;
+-        DIAG_QUIESCENCE_NODES.fetch_add(1, Ordering::Relaxed);
++        if diag() {
++            DIAG_QUIESCENCE_NODES.fetch_add(1, Ordering::Relaxed);
++        }
+         // Update seldepth (selective depth) - quiescence extends beyond normal depth
+         // When we enter quiescence, depth is 0, so we've reached current_depth plies
+         // Quiescence can extend deeper: current_depth + (max_quiescence_depth - depth)
+@@ -9024,6 +9084,9 @@ impl SearchEngine {
+         player: Player,
+         _depth: u8,
+     ) -> Vec<Move> {
++        if let Some(ref tt) = self.lock_free_tt {
++            return self.pv_from_table(tt, board, captured_pieces, player);
++        }
+         let mut pv = Vec::new();
+         let mut current_board = board.clone();
+         let mut current_captured = captured_pieces.clone();
+@@ -9070,6 +9133,54 @@ impl SearchEngine {
+     }
+ 
+     /// Public wrapper to fetch principal variation for reporting.
++    /// Follow best moves through `tt` from this position (at most 64 plies).
++    fn pv_from_table(
++        &self,
++        tt: &crate::search::ThreadSafeTranspositionTable,
++        board: &BitboardBoard,
++        captured_pieces: &CapturedPieces,
++        player: Player,
++    ) -> Vec<Move> {
++        let mut pv = Vec::new();
++        let mut current_board = board.clone();
++        let mut current_captured = captured_pieces.clone();
++        let mut current_player = player;
++        let mut next_hash: Option<u64> = None;
++        // Try to build PV as long as we have entries with best_move
++        // Cap at 64 moves to avoid extremely long PVs
++        let max_pv_length = 64;
++        for _ in 0..max_pv_length {
++            let position_hash = self.hash_calculator.get_position_hash(
++                &current_board,
++                current_player,
++                &current_captured,
++            );
++            if let Some(entry) = tt.probe_with_prefetch(position_hash, 0, next_hash) {
++                let _ = next_hash.take();
++                if let Some(move_) = &entry.best_move {
++                    pv.push(move_.clone());
++                    if let Some(captured) = current_board.make_move(move_) {
++                        current_captured.add_piece(captured.piece_type, current_player);
++                    }
++                    current_player = current_player.opposite();
++                    let future_hash = self.hash_calculator.get_position_hash(
++                        &current_board,
++                        current_player,
++                        &current_captured,
++                    );
++                    next_hash = Some(future_hash);
++                } else {
++                    // No best_move in this entry - stop building PV here
++                    break;
++                }
++            } else {
++                // No entry in TT for this position - stop building PV here
++                break;
++            }
++        }
++        pv
++    }
++
+     pub fn get_pv_for_reporting(
+         &self,
+         board: &BitboardBoard,
+@@ -9077,49 +9188,15 @@ impl SearchEngine {
+         player: Player,
+         depth: u8,
+     ) -> Vec<Move> {
++        if let Some(ref tt) = self.lock_free_tt {
++            return self.pv_from_table(tt, board, captured_pieces, player);
++        }
+         // Prefer building PV from shared TT when available for cross-thread consistency
+         if let Some(ref shared_tt) = self.shared_transposition_table {
+             TT_TRY_READS.fetch_add(1, Ordering::Relaxed);
+             if let Ok(tt) = shared_tt.try_read() {
+                 TT_TRY_READ_SUCCESSES.fetch_add(1, Ordering::Relaxed);
+-                let mut pv = Vec::new();
+-                let mut current_board = board.clone();
+-                let mut current_captured = captured_pieces.clone();
+-                let mut current_player = player;
+-                let mut next_hash: Option<u64> = None;
+-                // Try to build PV as long as we have entries with best_move
+-                // Cap at 64 moves to avoid extremely long PVs
+-                let max_pv_length = 64;
+-                for _ in 0..max_pv_length {
+-                    let position_hash = self.hash_calculator.get_position_hash(
+-                        &current_board,
+-                        current_player,
+-                        &current_captured,
+-                    );
+-                    if let Some(entry) = tt.probe_with_prefetch(position_hash, 0, next_hash) {
+-                        let _ = next_hash.take();
+-                        if let Some(move_) = &entry.best_move {
+-                            pv.push(move_.clone());
+-                            if let Some(captured) = current_board.make_move(move_) {
+-                                current_captured.add_piece(captured.piece_type, current_player);
+-                            }
+-                            current_player = current_player.opposite();
+-                            let future_hash = self.hash_calculator.get_position_hash(
+-                                &current_board,
+-                                current_player,
+-                                &current_captured,
+-                            );
+-                            next_hash = Some(future_hash);
+-                        } else {
+-                            // No best_move in this entry - stop building PV here
+-                            break;
+-                        }
+-                    } else {
+-                        // No entry in TT for this position - stop building PV here
+-                        break;
+-                    }
+-                }
+-                return pv;
++                return self.pv_from_table(&tt, board, captured_pieces, player);
+             }
+         }
+         if self.shared_transposition_table.is_some() {
+@@ -12143,7 +12220,9 @@ impl SearchEngine {
+                     entry_source,
+                 )
+             } else {
+-                DIAG_PVS_SCOUTS.fetch_add(1, Ordering::Relaxed);
++                if diag() {
++                    DIAG_PVS_SCOUTS.fetch_add(1, Ordering::Relaxed);
++                }
+                 let scout = -self.negamax_with_context(
+                     board,
+                     captured_pieces,
+@@ -12165,7 +12244,9 @@ impl SearchEngine {
+                 // this move may be the new principal variation, and its real value
+                 // has to be established with the full window.
+                 if scout > alpha && scout < beta {
+-                    DIAG_PVS_RESEARCHES.fetch_add(1, Ordering::Relaxed);
++                    if diag() {
++                        DIAG_PVS_RESEARCHES.fetch_add(1, Ordering::Relaxed);
++                    }
+                     // The scout's children may have returned early without popping
+                     // their own entry, as the caller's own truncate acknowledges.
+                     hash_history.truncate(path_len);
+@@ -14966,6 +15047,8 @@ pub struct IterativeDeepening {
+     /// Optional parallel search engine for root move search
+     parallel_engine: Option<ParallelSearchEngine>,
+     parallel_min_depth: u8,
++    /// Lazy SMP helpers (see `search::lazy_smp`); replaces root splitting.
++    lazy_smp: Option<Arc<crate::search::lazy_smp::LazySmp>>,
+ }
+ impl IterativeDeepening {
+     pub fn new(max_depth: u8, time_limit_ms: u32, stop_flag: Option<Arc<AtomicBool>>) -> Self {
+@@ -14976,9 +15059,15 @@ impl IterativeDeepening {
+             thread_count: 1,
+             parallel_engine: None,
+             parallel_min_depth: 0,
++            lazy_smp: None,
+         }
+     }
+ 
++    /// Search with Lazy SMP helpers.
++    pub fn set_lazy_smp(&mut self, lazy: Arc<crate::search::lazy_smp::LazySmp>) {
++        self.lazy_smp = Some(lazy);
++    }
++
+     pub fn new_with_threads(
+         max_depth: u8,
+         time_limit_ms: u32,
+@@ -15022,6 +15111,7 @@ impl IterativeDeepening {
+             thread_count: threads,
+             parallel_engine,
+             parallel_min_depth,
++            lazy_smp: None,
+         }
+     }
+ 
+@@ -15225,6 +15315,19 @@ impl IterativeDeepening {
+         // defines as time since the search began.
+         let search_start_instant = std::time::Instant::now();
+ 
++        // Lazy SMP: helper threads search the whole tree alongside this one,
++        // through the shared table, until `lazy_helpers` is dropped at the end
++        // of this function (see `search::lazy_smp`).
++        // Depth of the main thread's last fully completed iteration.
++        let mut main_completed_depth: u8 = 0;
++        let lazy_helpers = self.lazy_smp.as_ref().map(|lazy| {
++            search_engine.set_lock_free_table(lazy.table());
++            let evaluator = search_engine.get_evaluator();
++            lazy.start(board, captured_pieces, player, evaluator.nnue_network_id(), || {
++                evaluator.nnue_worker_copy()
++            })
++        });
++
+         for depth in 1..=effective_max_depth {
+             // Reset global node counter for this depth and start periodic reporter
+             GLOBAL_NODES_SEARCHED.store(0, Ordering::Relaxed);
+@@ -15727,7 +15830,10 @@ impl IterativeDeepening {
+                     }
+                 }
+ 
+-                let parallel_result = if self.thread_count > 1 && depth >= self.parallel_min_depth {
++                let parallel_result = if self.thread_count > 1
++                    && depth >= self.parallel_min_depth
++                    && lazy_helpers.is_none()
++                {
+                     if let Some(ref parallel_engine) = self.parallel_engine {
+                         parallel_engine.set_nnue_template(search_engine.get_evaluator());
+                         // The parallel root searches the first move alone to set a
+@@ -15913,6 +16019,7 @@ impl IterativeDeepening {
+                     let move_clone = move_.clone(); // Clone before moving
+                     best_move = Some(move_clone.clone());
+                     best_score = score;
++                    main_completed_depth = depth;
+                     previous_scores.push(score);
+ 
+                     // Update shared state for periodic info messages
+@@ -16186,6 +16293,27 @@ impl IterativeDeepening {
+             }
+         }
+ 
++        // Lazy SMP: stop the helpers and take a deeper completed iteration than
++        // the main thread's, if one of them finished it.
++        if let Some(helpers) = lazy_helpers {
++            if let Some((depth, mv, score)) = helpers.finish() {
++                if depth > main_completed_depth {
++                    if std::env::var("SHOGI_SILENT_BENCH").is_err() {
++                        println!(
++                            "info depth {} multipv 1 score {} time {} pv {}",
++                            depth,
++                            usi_score_field(score),
++                            search_start_instant.elapsed().as_millis(),
++                            mv.to_usi_string()
++                        );
++                        let _ = std::io::Write::flush(&mut std::io::stdout());
++                    }
++                    best_move = Some(mv);
++                    best_score = score;
++                }
++            }
++        }
++
+         crate::debug_utils::end_timing("iterative_deepening_total", "ITERATIVE_DEEPENING");
+ 
+         // Task 1.0: Calculate and store total search time for IID overhead calculation
+diff --git a/src/search/statistics.rs b/src/search/statistics.rs
+index 2372e55..8a943e9 100644
+--- a/src/search/statistics.rs
++++ b/src/search/statistics.rs
+@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
+ 
+ /// Global aggregate of nodes searched across all threads for live reporting.
+ pub static GLOBAL_NODES_SEARCHED: AtomicU64 = AtomicU64::new(0);
++/// Nodes each thread counts locally before adding to the global counters.
++const GLOBAL_NODE_BATCH: u64 = 256;
+ 
+ /// Nodes searched since the start of the *whole* search, across every
+ /// iterative-deepening iteration.
+@@ -116,6 +118,8 @@ pub fn print_and_reset_search_metrics(tag: &str) {
+ pub struct SearchStatistics {
+     /// Total nodes searched in current search
+     nodes_searched: u64,
++    /// Nodes not yet added to the global counters (see `increment_nodes`).
++    pending_global_nodes: u64,
+     /// Core search metrics (TT hits, cutoffs, etc.)
+     core_metrics: CoreSearchMetrics,
+     /// Initiative/attack debt metrics (Task 3.4)
+@@ -141,17 +145,27 @@ impl SearchStatistics {
+     pub fn new() -> Self {
+         Self {
+             nodes_searched: 0,
++            pending_global_nodes: 0,
+             core_metrics: CoreSearchMetrics::default(),
+             initiative_metrics: InitiativeMetrics::default(),
+         }
+     }
+ 
+     /// Increment nodes searched counter
++    ///
++    /// The global counters (for `info nodes`/`nps`) are shared by every search
++    /// thread; adding to them at every node made each thread's increments bounce
++    /// a cache line between CPU clusters, and with 16 threads a parallel search
++    /// ran slower than one thread. They are now added to in batches.
+     pub fn increment_nodes(&mut self) {
+         self.nodes_searched += 1;
+         self.core_metrics.total_nodes += 1;
+-        GLOBAL_NODES_SEARCHED.fetch_add(1, Ordering::Relaxed);
+-        GLOBAL_SEARCH_NODES.fetch_add(1, Ordering::Relaxed);
++        self.pending_global_nodes += 1;
++        if self.pending_global_nodes >= GLOBAL_NODE_BATCH {
++            GLOBAL_NODES_SEARCHED.fetch_add(self.pending_global_nodes, Ordering::Relaxed);
++            GLOBAL_SEARCH_NODES.fetch_add(self.pending_global_nodes, Ordering::Relaxed);
++            self.pending_global_nodes = 0;
++        }
+     }
+ 
+     /// Update selective depth (maximum depth reached)
+diff --git a/src/search/thread_safe_table.rs b/src/search/thread_safe_table.rs
+index cc13d67..1e4feb9 100644
+--- a/src/search/thread_safe_table.rs
++++ b/src/search/thread_safe_table.rs
+@@ -352,6 +352,9 @@ pub struct ThreadSafeTranspositionTable {
+     prefetch_enabled: bool,
+     /// Whether statistics tracking is enabled for this table
+     statistics_enabled: bool,
++    /// Lock-free mode for tables shared by many searching threads (Lazy SMP):
++    /// see [`Self::set_lock_free`].
++    lock_free: bool,
+     /// Cache manager for statistics and age management
+     cache_manager: Arc<Mutex<CacheManager>>,
+     /// Replacement policy handler
+@@ -416,6 +419,7 @@ impl ThreadSafeTranspositionTable {
+             #[cfg(feature = "tt-prefetch")]
+             prefetch_enabled,
+             statistics_enabled,
++            lock_free: false,
+             cache_manager: Arc::new(Mutex::new(CacheManager::new(config.clone()))),
+             replacement_handler: Arc::new(Mutex::new(ReplacementPolicyHandler::new(
+                 config.clone(),
+@@ -445,6 +449,9 @@ impl ThreadSafeTranspositionTable {
+     /// synchronization overhead in single-threaded environments.
+     #[inline(always)]
+     pub fn probe(&self, hash: u64, depth: u8) -> Option<TranspositionEntry> {
++        if self.lock_free {
++            return self.probe_lock_free(hash, depth);
++        }
+         let index = self.get_index(hash);
+         let entry = &self.entries[index];
+ 
+@@ -520,6 +527,10 @@ impl ThreadSafeTranspositionTable {
+     /// synchronization based on the thread mode.
+     #[inline(always)]
+     pub fn store(&self, entry: TranspositionEntry) {
++        if self.lock_free {
++            self.store_lock_free(&entry);
++            return;
++        }
+         let hash = entry.hash_key;
+         let index = self.get_index(hash);
+         let is_multi_threaded = self.thread_mode.is_multi_threaded();
+@@ -595,6 +606,67 @@ impl ThreadSafeTranspositionTable {
+         }
+     }
+ 
++    /// Lock-free mode, for a table many threads search through at once.
++    ///
++    /// The locked path takes a per-bucket write lock and two table-wide mutexes
++    /// (age stamp, replacement policy) on every replacing store; with 16 Lazy
++    /// SMP threads, adding threads made the search shallower. Here a slot is
++    /// written without locks and its key is stored XORed with its data word, so
++    /// a reader that meets a half-written slot sees a key mismatch -- a miss --
++    /// instead of another position's data. Replacement is depth-preferred for
++    /// the same position (a shallower result by 3 plies or more is dropped)
++    /// and always-replace for a different one.
++    ///
++    /// Set before the table is shared; slots written in the other mode are not
++    /// readable in this one.
++    pub fn set_lock_free(&mut self, on: bool) {
++        self.lock_free = on;
++    }
++
++    #[inline(always)]
++    fn probe_lock_free(&self, hash: u64, depth: u8) -> Option<TranspositionEntry> {
++        let slot = &self.entries[self.get_index(hash)];
++        let packed = slot.packed_data.unpack(Ordering::Acquire);
++        if packed == 0 || slot.hash_key.load(Ordering::Acquire) ^ packed != hash {
++            return None;
++        }
++        let data = AtomicPackedEntry { data: AtomicU64::new(packed) };
++        if data.depth() < depth {
++            return None;
++        }
++        Some(TranspositionEntry {
++            score: data.score(),
++            depth: data.depth(),
++            flag: data.flag(),
++            best_move: data.best_move(),
++            hash_key: hash,
++            age: slot.age.load(Ordering::Relaxed),
++            source: EntrySource::from_discriminant(slot.source.load(Ordering::Relaxed)),
++        })
++    }
++
++    #[inline(always)]
++    fn store_lock_free(&self, entry: &TranspositionEntry) {
++        let slot = &self.entries[self.get_index(entry.hash_key)];
++        let old = slot.packed_data.unpack(Ordering::Relaxed);
++        if old != 0 && slot.hash_key.load(Ordering::Relaxed) ^ old == entry.hash_key {
++            let old_depth = AtomicPackedEntry { data: AtomicU64::new(old) }.depth();
++            if (entry.depth as u32) + 3 <= old_depth as u32 {
++                return;
++            }
++        }
++        let packed = AtomicPackedEntry::pack(
++            entry.score,
++            entry.depth,
++            entry.flag,
++            entry.best_move.clone(),
++        );
++        slot.packed_data.store_raw(packed, Ordering::Release);
++        slot.hash_key.store(entry.hash_key ^ packed, Ordering::Release);
++        slot.age.store(entry.age, Ordering::Relaxed);
++        slot.source.store(entry.source.to_discriminant(), Ordering::Relaxed);
++    }
++
+     /// Store with full synchronization (multi-threaded mode)
+     ///
+     /// Uses bucketed locks for better parallel write performance.
+@@ -667,7 +739,7 @@ impl ThreadSafeTranspositionTable {
+     where
+         I: IntoIterator<Item = TranspositionEntry>,
+     {
+-        if !self.thread_mode.is_multi_threaded() {
++        if !self.thread_mode.is_multi_threaded() || self.lock_free {
+             for entry in entries.into_iter() {
+                 self.store(entry);
+             }
+@@ -1525,4 +1597,42 @@ mod tests {
+         assert_eq!(retrieved.score, entry.score);
+         assert_eq!(retrieved.depth, entry.depth);
+     }
++
++    #[test]
++    fn lock_free_mode_round_trip_and_replacement() {
++        let mut table = ThreadSafeTranspositionTable::new(create_test_config());
++        table.set_lock_free(true);
++        let hash = 0x1234_5678_9ABC_DEF0u64;
++
++        table.store(create_test_entry(120, 6, TranspositionFlag::Exact, 0, hash));
++        let e = table.probe(hash, 6).expect("stored entry");
++        assert_eq!((e.score, e.depth), (120, 6));
++        assert!(table.probe(hash, 7).is_none(), "depth filter as in the locked mode");
++
++        // Same position: a result 3 plies shallower is dropped, 2 plies is kept.
++        table.store(create_test_entry(-50, 3, TranspositionFlag::LowerBound, 0, hash));
++        assert_eq!(table.probe(hash, 0).unwrap().score, 120);
++        table.store(create_test_entry(-60, 4, TranspositionFlag::LowerBound, 0, hash));
++        assert_eq!(table.probe(hash, 0).unwrap().score, -60);
++
++        // Another position in the same slot replaces it; the old one is gone.
++        let other = hash ^ (1u64 << 60);
++        table.store(create_test_entry(7, 1, TranspositionFlag::UpperBound, 0, other));
++        assert_eq!(table.probe(other, 0).unwrap().score, 7);
++        assert!(table.probe(hash, 0).is_none());
++    }
++
++    #[test]
++    fn lock_free_mode_rejects_a_torn_slot() {
++        let mut table = ThreadSafeTranspositionTable::new(create_test_config());
++        table.set_lock_free(true);
++        let hash = 0x0F0F_0F0F_1234_5678u64;
++        table.store(create_test_entry(300, 5, TranspositionFlag::Exact, 0, hash));
++        // A writer that has replaced the data word but not yet the key: the
++        // key no longer matches, so a reader sees a miss, not wrong data.
++        let slot = &table.entries[table.get_index(hash)];
++        let other = AtomicPackedEntry::pack(-999, 9, TranspositionFlag::Exact, None);
++        slot.packed_data.store_raw(other, Ordering::Release);
++        assert!(table.probe(hash, 0).is_none());
++    }
+ }
+diff --git a/src/types/all.rs b/src/types/all.rs
+index ad1e37b..25c2556 100644
+--- a/src/types/all.rs
++++ b/src/types/all.rs
+@@ -6094,6 +6094,10 @@ pub struct ParallelOptions {
+     pub ybwc_deep_divisor: usize,
+     /// Enable contention-free work metrics collection.
+     pub enable_metrics: bool,
++    /// Lazy SMP: helper threads search the whole tree from the root, sharing
++    /// only the transposition table, instead of splitting the root moves.
++    #[serde(default)]
++    pub lazy_smp: bool,
+ }
+ 
+ impl Default for ParallelOptions {
+@@ -6110,6 +6114,7 @@ impl Default for ParallelOptions {
+             ybwc_mid_divisor: 4,
+             ybwc_deep_divisor: 2,
+             enable_metrics: false,
++            lazy_smp: false,
+         }
+     }
+ }
+diff --git a/src/usi.rs b/src/usi.rs
+index 5cd6465..4d4660b 100644
+--- a/src/usi.rs
++++ b/src/usi.rs
+@@ -89,6 +89,10 @@ impl UsiHandler {
+                 "option name ParallelMetrics type check default {}",
+                 if parallel_options.enable_metrics { "true" } else { "false" }
+             ),
++            format!(
++                "option name LazySMP type check default {}",
++                if parallel_options.lazy_smp { "true" } else { "false" }
++            ),
+             format!(
+                 "option name YBWCEnable type check default {}",
+                 if parallel_options.ybwc_enabled { "true" } else { "false" }

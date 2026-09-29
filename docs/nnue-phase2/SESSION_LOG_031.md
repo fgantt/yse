@@ -257,7 +257,73 @@ same depth (ours is 0.201 against YaneuraOu's 0.157 at depth 1, a real but modes
 the low-pressure rows. The close subset is a *search-depth* benchmark: judge search changes
 by our error at a fixed time, not evaluation changes by our error at depth 1.
 
+## Part 3: the profile, a mate the engine threw away, and Lazy SMP
+
+### Profile of the shipped engine
+
+`sample` on `usi-stable` (default parallel search) for 20 s on two positions from the user's
+games: of 20 rayon workers, each was **asleep 52-85% of the time**. The root split searches the
+first root move alone with the full window and splits the rest only after it, and only from
+depth 5. In a position with full hands, SEE's `sliding_attackers` (Session 30's hanging-drop
+test) was 41% of busy samples.
+
+`YBWCEnable=true` (off by default) reached +0.21 ply at 1 s and lost its gate, 42-3-75
+(−98.1 ± 59.0); its longest think was 1,606 ms against a 1,000 ms byoyomi.
+
+### A checks-only mate the solver proved and then discarded (`00c03d5`)
+
+In a user's win against Apery 2.1.0 (`matches/user_games/2026-09-28_even_vs_apery_win.txt`),
+YaneuraOu finds a mate in 13 at move 43 in which every one of our moves checks; the engine
+played 6f7d and mated at 51. df-pn *proved* the mate -- the root check 5c6c and every reply were
+stored with pn = 0 -- but `mate_length`'s cycle guard memoised "no mate" for each position it
+evaluated while a repetition was on the line, and `solve` returned no line. A first guess (the
+graph-history interaction in df-pn itself) was implemented, did not fix the test, and was
+reverted; the numbers in the table located the real fault. Now: mate 19 in 30 ms there, the same
+62/73 on Session 30's mate positions, the same 83/936 on the user-game positions (rare). Gate:
+61-0-59, +5.8 ± 66.6. **Committed to the branch, not installed**: it ships with the next change
+that wins a gate.
+
+### Three defects in the parallel search's transposition table
+
+- **Workers searched without one.** When a shared table is set, stores go to it, but negamax
+  probed the engine's own table -- which, for a worker, never received an entry. Only the move
+  orderer read the shared table. (Fixing it alone: +0.06 ply at 1 s; with write-through,
+  +0.09.)
+- **Statistics serialise every access.** `performance_optimized()` enables statistics, and
+  each probe and store then takes a table-wide mutex to bump a counter; replacing stores take
+  two more (age stamp, replacement policy). Nothing in the search reads the counters.
+- **Every node bumped shared atomics** (`GLOBAL_NODES_SEARCHED`, `GLOBAL_SEARCH_NODES`, the
+  `DIAG_*` counters), whose cache lines bounce between CPU clusters.
+
+Also: every `go` builds a new `ParallelSearchEngine` -- a new 20-thread pool and a new
+4M-entry (~160 MB) shared table.
+
+### Lazy SMP (rejected)
+
+Persistent helper threads and table, the deepest completed iteration wins, a lock-free table
+(key XOR data, depth-preferred for the same position), statistics off, node counters batched,
+diagnostics counters gated. Patch: `patches/session31/lazy_smp_and_shared_table.patch`.
+
+Time to depth 6, 8 positions: one thread 142 s; Lazy SMP 4 threads 66-78 s, 8 threads 78 s,
+12 threads 92 s, 16 threads 123-185 s (so it was capped at 8). Depth at matched time was
+0.10-0.15 ply below the shipped root split. **Gate: 35-0-85, −154.1 ± 73.0.** Diagnostics, 60
+games at 1 s, same binary both sides: table only (no helpers) vs one thread −35 ± 98; full Lazy
+SMP vs one thread +35 ± 85. So Lazy SMP as built plays about like one thread, and the shipped
+root split is far stronger than both -- by something depth at matched time does not show.
+
+### The engine persists `USI_Threads` for every launch
+
+`setoption USI_Threads` writes `~/Library/Application Support/shogi-vibe/engine_prefs.json`,
+read at startup by every engine process, the user's GUI engine included; parallel search is
+enabled at startup only if the saved count is > 1, and a later `setoption USI_Threads 4` does
+not re-enable it. A thread-count sweep left it at 4 (restored to 16) and silently made several
+measurements single-threaded. Tools must set `SHOGI_PREFS_DIR`.
+
 ## Method notes
+
+- **Depth at matched time did not predict strength for parallel search.** Lazy SMP was 0.10-0.15
+  ply behind and lost 154 Elo. Gate parallel-search changes on matches, not depth.
+- **Isolate engine preferences** (`SHOGI_PREFS_DIR`) in every tool that sets options.
 
 - **Before blaming the evaluation, run the teacher at the same depth.** Four experiments this
   session (a king-danger term, its gate, two fine-tunes) chased an "eval" gap that YaneuraOu's
@@ -281,13 +347,13 @@ by our error at a fixed time, not evaluation changes by our error at depth 1.
 
 ## Next
 
-1. Search depth, as Session 29 said. The attacks that lose the user's games surface at ~10
-   plies; we reach 4-5 at 1 s and 8 at 60 s. Profile the shipped engine (below) and look at
-   selectivity in positions where our king is under attack (checks, drops near the king).
-   Measure with `eval_gap.py`'s close subset at a fixed *time*, not a fixed depth. The network sees piece squares relative to its own king's bucket but
+1. The root split's table defects, one gate each, on top of `00c03d5`: workers probing the
+   shared table, statistics off, batched node counters, one pool and table per engine rather
+   than per move. Then the idle workers.
+2. Why the root split beats one thread by so much more than its depth gain -- the answer
+   decides what parallel search should look like.
+3. Search depth in king-attack positions (the close subset of `eval_gap.py`, at fixed time). The network sees piece squares relative to its own king's bucket but
    hand pieces without the king; drop attacks need both. Candidates: king-conditioned hand
    features, or more positions like the close subset (the Session 30 handicap corpus was mostly
    won positions). Judge each network on `eval_gap.py`'s close subset first.
-2. More user games into `matches/user_games/` and a rebuild: 61 close positions from three games
-   is thin.
-3. Profile the shipped engine again (Session 30's item 3), on an idle machine.
+4. More user games into `matches/user_games/` and a rebuild of the eval-gap set.
