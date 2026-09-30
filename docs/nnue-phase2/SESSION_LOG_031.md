@@ -311,6 +311,21 @@ games at 1 s, same binary both sides: table only (no helpers) vs one thread −3
 SMP vs one thread +35 ± 85. So Lazy SMP as built plays about like one thread, and the shipped
 root split is far stronger than both -- by something depth at matched time does not show.
 
+### The root split's table defects, gated one at a time (none ships)
+
+Each on top of `00c03d5` (the mate fix), 120 games at 1 s against stable; patches in
+`patches/session31/`:
+
+| candidate | result |
+|---|---|
+| C1: workers probe the shared table they store into | 55-0-65, −29.0 ± 52.7 |
+| C2: table statistics off, node counters batched, `DIAG_*` gated | 56-0-64, −23.2 ± 58.9 |
+| C3: one parallel engine (pool and table) per engine, not per move | 59-2-59, +0.0 ± 57.2 |
+
+All three fix real defects and none is measurable at 1 s/move; C1 and C2 ran at the same time.
+The parallel search's weaknesses found this session are not what limits its strength at this
+time control -- consistent with Lazy SMP matching its depth and losing anyway.
+
 ### The engine persists `USI_Threads` for every launch
 
 `setoption USI_Threads` writes `~/Library/Application Support/shogi-vibe/engine_prefs.json`,
@@ -347,11 +362,10 @@ measurements single-threaded. Tools must set `SHOGI_PREFS_DIR`.
 
 ## Next
 
-1. The root split's table defects, one gate each, on top of `00c03d5`: workers probing the
-   shared table, statistics off, batched node counters, one pool and table per engine rather
-   than per move. Then the idle workers.
-2. Why the root split beats one thread by so much more than its depth gain -- the answer
+1. Why the root split beats one thread by so much more than its depth gain -- the answer
    decides what parallel search should look like.
+2. C1+C2+C3 together at a longer time control (5-10 s/move, the user's), where a persistent
+   table and contention should matter more than at 1 s.
 3. Search depth in king-attack positions (the close subset of `eval_gap.py`, at fixed time). The network sees piece squares relative to its own king's bucket but
    hand pieces without the king; drop attacks need both. Candidates: king-conditioned hand
    features, or more positions like the close subset (the Session 30 handicap corpus was mostly

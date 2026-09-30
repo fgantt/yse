@@ -1,0 +1,111 @@
+diff --git a/src/lib.rs b/src/lib.rs
+index 18f06c7..714b618 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -91,6 +91,9 @@ pub struct ShogiEngine {
+     depth: u8,
+     thread_count: usize,
+     parallel_options: ParallelOptions,
++    /// The parallel search engine (thread pool and shared table) and the
++    /// configuration it was built with, kept between moves.
++    parallel_engine: Option<(ParallelSearchConfig, Arc<search::ParallelSearchEngine>)>,
+     pst_config: PieceSquareTableConfig,
+     /// USI `UseNNUE`.
+     use_nnue: bool,
+@@ -151,6 +154,7 @@ impl ShogiEngine {
+             depth: 0, // Default to 0 (unlimited/adaptive), like YaneuraOu
+             thread_count,
+             parallel_options: ParallelOptions::default(),
++            parallel_engine: None,
+             pst_config: PieceSquareTableConfig::default(),
+             use_nnue: true,
+             move_overhead_ms: 100,
+@@ -654,13 +658,38 @@ impl ShogiEngine {
+         // `go nodes N` never returned), and a node limit is meant to be a
+         // reproducible amount of work.
+         let threads = if node_limit.is_some() { 1 } else { self.thread_count };
++        // Keep the parallel engine between moves. Building one per `go` created
++        // a 20-thread pool and a 4M-entry shared table (~160 MB, zeroed) for every
++        // move, and threw the table away after it.
++        let parallel_config =
++            ParallelSearchConfig { num_threads: threads.clamp(1, 32), ..parallel_config };
++        let persistent = if threads > 1 && parallel_config.enable_parallel {
++            if self.parallel_engine.as_ref().map_or(true, |(c, _)| *c != parallel_config) {
++                self.parallel_engine = search::ParallelSearchEngine::new_with_stop_flag(
++                    parallel_config.clone(),
++                    stop_flag.clone(),
++                )
++                .ok()
++                .map(|e| (parallel_config.clone(), Arc::new(e)));
++            }
++            self.parallel_engine.as_ref().map(|(_, e)| e.clone())
++        } else {
++            None
++        };
++        let min_depth_parallel = parallel_config.min_depth_parallel;
+         let mut searcher = search::search_engine::IterativeDeepening::new_with_threads(
+             actual_depth,
+             time_limit_ms,
+             stop_flag,
+             threads,
+-            parallel_config,
++            ParallelSearchConfig {
++                enable_parallel: persistent.is_none() && parallel_config.enable_parallel,
++                ..parallel_config
++            },
+         );
++        if let Some(engine) = persistent {
++            searcher.set_parallel_engine(engine, min_depth_parallel);
++        }
+ 
+         crate::utils::telemetry::debug_log("Trying to get search engine lock");
+ 
+diff --git a/src/search/parallel_search.rs b/src/search/parallel_search.rs
+index 88e2561..2b823ca 100644
+--- a/src/search/parallel_search.rs
++++ b/src/search/parallel_search.rs
+@@ -351,7 +351,7 @@ impl Default for WorkDistributionStats {
+ }
+ 
+ /// Configuration for parallel search engine.
+-#[derive(Clone, Debug)]
++#[derive(Clone, Debug, PartialEq)]
+ pub struct ParallelSearchConfig {
+     /// Number of threads to use for parallel search (1-32).
+     pub num_threads: usize,
+diff --git a/src/search/search_engine.rs b/src/search/search_engine.rs
+index a7406bd..e0bfc65 100644
+--- a/src/search/search_engine.rs
++++ b/src/search/search_engine.rs
+@@ -14964,7 +14964,7 @@ pub struct IterativeDeepening {
+     /// Number of threads to use for parallel root search (1 = single-threaded)
+     thread_count: usize,
+     /// Optional parallel search engine for root move search
+-    parallel_engine: Option<ParallelSearchEngine>,
++    parallel_engine: Option<Arc<ParallelSearchEngine>>,
+     parallel_min_depth: u8,
+ }
+ impl IterativeDeepening {
+@@ -15008,7 +15008,7 @@ impl IterativeDeepening {
+                 parallel_config.clone(),
+                 stop_flag.clone(),
+             ) {
+-                Ok(engine) => Some(engine),
++                Ok(engine) => Some(Arc::new(engine)),
+                 Err(_e) => None, // Fallback to single-threaded if thread pool creation fails
+             }
+         } else {
+@@ -15025,6 +15025,13 @@ impl IterativeDeepening {
+         }
+     }
+ 
++    /// Use an existing parallel engine (thread pool and shared table) instead
++    /// of building one; see `ShogiEngine::get_best_move_with_limits`.
++    pub fn set_parallel_engine(&mut self, engine: Arc<ParallelSearchEngine>, min_depth: u8) {
++        self.parallel_engine = Some(engine);
++        self.parallel_min_depth = min_depth;
++    }
++
+     pub fn search(
+         &mut self,
+         search_engine: &mut SearchEngine,

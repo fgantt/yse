@@ -1,0 +1,223 @@
+diff --git a/src/bin/search_bench.rs b/src/bin/search_bench.rs
+index 13e1e90..efac6f4 100644
+--- a/src/bin/search_bench.rs
++++ b/src/bin/search_bench.rs
+@@ -114,6 +114,7 @@ fn load_sfens(cli: &Cli) -> std::io::Result<Vec<String>> {
+ 
+ fn main() -> Result<(), Box<dyn std::error::Error>> {
+     let cli = Cli::parse();
++    shogi_engine::search::search_engine::enable_search_diagnostics();
+     let sfens = load_sfens(&cli)?;
+     eprintln!(
+         "search-bench: {} positions, depth {}, {}",
+diff --git a/src/bin/search_diag.rs b/src/bin/search_diag.rs
+index 31f8bc9..eaa49e7 100644
+--- a/src/bin/search_diag.rs
++++ b/src/bin/search_diag.rs
+@@ -72,6 +72,7 @@ fn reset() {
+ 
+ fn main() {
+     let cli = Cli::parse();
++    shogi_engine::search::search_engine::enable_search_diagnostics();
+     let positions: Vec<(String, String)> = if cli.sfen.is_empty() {
+         DEFAULT_SFENS.iter().map(|(n, s)| (n.to_string(), s.to_string())).collect()
+     } else {
+diff --git a/src/search/parallel_search.rs b/src/search/parallel_search.rs
+index 88e2561..b220051 100644
+--- a/src/search/parallel_search.rs
++++ b/src/search/parallel_search.rs
+@@ -862,7 +862,9 @@ impl ParallelSearchEngine {
+         // For now, we'll create a placeholder transposition table.
+         // This will be replaced with the actual shared TT from SearchEngine in later
+         // checkpoints.
+-        let tt_config = crate::search::TranspositionConfig::performance_optimized();
++        let mut tt_config = crate::search::TranspositionConfig::performance_optimized();
++        // Statistics make every probe and store take a table-wide mutex.
++        tt_config.enable_statistics = false;
+         let transposition_table =
+             Arc::new(RwLock::new(ThreadSafeTranspositionTable::new(tt_config)));
+ 
+@@ -947,7 +949,9 @@ impl ParallelSearchEngine {
+             .build()
+             .map_err(|e| format!("Failed to create thread pool: {}", e))?;
+ 
+-        let tt_config = crate::search::TranspositionConfig::performance_optimized();
++        let mut tt_config = crate::search::TranspositionConfig::performance_optimized();
++        // Statistics make every probe and store take a table-wide mutex.
++        tt_config.enable_statistics = false;
+         let transposition_table =
+             Arc::new(RwLock::new(ThreadSafeTranspositionTable::new(tt_config)));
+ 
+diff --git a/src/search/search_engine.rs b/src/search/search_engine.rs
+index a7406bd..59347e8 100644
+--- a/src/search/search_engine.rs
++++ b/src/search/search_engine.rs
+@@ -509,6 +509,21 @@ pub static TT_TRY_WRITE_SUCCESSES: AtomicU64 = AtomicU64::new(0);
+ pub static TT_TRY_WRITE_FAILS: AtomicU64 = AtomicU64::new(0);
+ /// Diagnostic tree-shape counters, indexed by remaining depth (capped at 15):
+ /// nodes entering the move loop, moves searched there, and beta cutoffs.
++/// Whether the `DIAG_*` counters are collected. They are shared by every
++/// search thread and were incremented at every node, bouncing their cache
++/// lines between CPU clusters. Only `search_bench` and `search_diag` read
++/// them, and they switch collection on with [`enable_search_diagnostics`].
++static DIAG_ENABLED: AtomicBool = AtomicBool::new(false);
++
++pub fn enable_search_diagnostics() {
++    DIAG_ENABLED.store(true, Ordering::Relaxed);
++}
++
++#[inline(always)]
++fn diag() -> bool {
++    DIAG_ENABLED.load(Ordering::Relaxed)
++}
++
+ pub static DIAG_NODES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+ pub static DIAG_MOVES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+ pub static DIAG_CUTS: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+@@ -1554,6 +1569,9 @@ impl SearchEngine {
+         let config = crate::search::TranspositionConfig::performance_optimized();
+         let config = crate::search::TranspositionConfig {
+             table_size: hash_size_mb * 1024 * 1024 / 100, // Approximate entries
++            // Statistics make every probe and store take a table-wide mutex to
++            // bump a counter; nothing in the search reads them.
++            enable_statistics: false,
+             ..config
+         };
+         const BYTES_PER_ENTRY: usize = 100; // Approximate size of a TT entry
+@@ -2056,6 +2074,9 @@ impl SearchEngine {
+         let tt_config = crate::search::TranspositionConfig::performance_optimized();
+         let tt_config = crate::search::TranspositionConfig {
+             table_size: config.tt_size_mb * 1024 * 1024 / BYTES_PER_ENTRY,
++            // Statistics make every probe and store take a table-wide mutex to
++            // bump a counter; nothing in the search reads them.
++            enable_statistics: false,
+             ..tt_config
+         };
+         let quiescence_capacity = config.quiescence.tt_size_mb * 1024 * 1024 / BYTES_PER_ENTRY;
+@@ -7114,8 +7135,10 @@ impl SearchEngine {
+         // Position hash already added to hash_history above - no FEN string needed
+ 
+         let mut move_index = 0;
+-        DIAG_NODES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
+-        DIAG_INTERIOR_NODES.fetch_add(1, Ordering::Relaxed);
++        if diag() {
++            DIAG_NODES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
++            DIAG_INTERIOR_NODES.fetch_add(1, Ordering::Relaxed);
++        }
+         // Per-node facts the move loop's pruning and reduction decisions need.
+         // They were recomputed for every move (a full evaluation and a material
+         // count each time, twice per move counting the LMR path), which made
+@@ -7298,7 +7321,9 @@ impl SearchEngine {
+             // Task 2.6: Pass current move as opponent_last_move to recursive call
+             // Task 7.0.1: Pass IID move for explicit exemption from LMR
+             // Task 7.0.3.4: Pass entry source for TT priority management
+-            DIAG_MOVES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
++            if diag() {
++                DIAG_MOVES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
++            }
+             // Children may return early without popping their own entry; restore
+             // the path to this node's length after each one.
+             let path_len = hash_history.len();
+@@ -7423,11 +7448,13 @@ impl SearchEngine {
+                     // Track beta cutoff (Task 5.7)
+                     self.core_search_metrics.total_cutoffs += 1;
+                     self.core_search_metrics.beta_cutoffs += 1;
+-                    DIAG_CUTS[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
+-                    // `move_index` is incremented before the move is searched,
+-                    // so it is 1-based here; the buckets are 0-based.
+-                    DIAG_CUT_INDEX[cut_index_bucket(move_index.saturating_sub(1))]
+-                        .fetch_add(1, Ordering::Relaxed);
++                    if diag() {
++                        DIAG_CUTS[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
++                        // `move_index` is incremented before the move is searched,
++                        // so it is 1-based here; the buckets are 0-based.
++                        DIAG_CUT_INDEX[cut_index_bucket(move_index.saturating_sub(1))]
++                            .fetch_add(1, Ordering::Relaxed);
++                    }
+ 
+                     // Feed the cutoff to the orderer that actually orders moves. Its
+                     // killer and history tables were never updated by the search
+@@ -7765,7 +7792,9 @@ impl SearchEngine {
+ 
+         // Update statistics
+         self.quiescence_stats.nodes_searched += 1;
+-        DIAG_QUIESCENCE_NODES.fetch_add(1, Ordering::Relaxed);
++        if diag() {
++            DIAG_QUIESCENCE_NODES.fetch_add(1, Ordering::Relaxed);
++        }
+         // Update seldepth (selective depth) - quiescence extends beyond normal depth
+         // When we enter quiescence, depth is 0, so we've reached current_depth plies
+         // Quiescence can extend deeper: current_depth + (max_quiescence_depth - depth)
+@@ -12143,7 +12172,9 @@ impl SearchEngine {
+                     entry_source,
+                 )
+             } else {
+-                DIAG_PVS_SCOUTS.fetch_add(1, Ordering::Relaxed);
++                if diag() {
++                    DIAG_PVS_SCOUTS.fetch_add(1, Ordering::Relaxed);
++                }
+                 let scout = -self.negamax_with_context(
+                     board,
+                     captured_pieces,
+@@ -12165,7 +12196,9 @@ impl SearchEngine {
+                 // this move may be the new principal variation, and its real value
+                 // has to be established with the full window.
+                 if scout > alpha && scout < beta {
+-                    DIAG_PVS_RESEARCHES.fetch_add(1, Ordering::Relaxed);
++                    if diag() {
++                        DIAG_PVS_RESEARCHES.fetch_add(1, Ordering::Relaxed);
++                    }
+                     // The scout's children may have returned early without popping
+                     // their own entry, as the caller's own truncate acknowledges.
+                     hash_history.truncate(path_len);
+diff --git a/src/search/statistics.rs b/src/search/statistics.rs
+index 2372e55..baaaddf 100644
+--- a/src/search/statistics.rs
++++ b/src/search/statistics.rs
+@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
+ 
+ /// Global aggregate of nodes searched across all threads for live reporting.
+ pub static GLOBAL_NODES_SEARCHED: AtomicU64 = AtomicU64::new(0);
++/// Nodes each thread counts locally before adding to the global counters.
++const GLOBAL_NODE_BATCH: u64 = 256;
+ 
+ /// Nodes searched since the start of the *whole* search, across every
+ /// iterative-deepening iteration.
+@@ -116,6 +118,8 @@ pub fn print_and_reset_search_metrics(tag: &str) {
+ pub struct SearchStatistics {
+     /// Total nodes searched in current search
+     nodes_searched: u64,
++    /// Nodes not yet added to the global counters (see `increment_nodes`).
++    pending_global_nodes: u64,
+     /// Core search metrics (TT hits, cutoffs, etc.)
+     core_metrics: CoreSearchMetrics,
+     /// Initiative/attack debt metrics (Task 3.4)
+@@ -141,17 +145,26 @@ impl SearchStatistics {
+     pub fn new() -> Self {
+         Self {
+             nodes_searched: 0,
++            pending_global_nodes: 0,
+             core_metrics: CoreSearchMetrics::default(),
+             initiative_metrics: InitiativeMetrics::default(),
+         }
+     }
+ 
+     /// Increment nodes searched counter
++    ///
++    /// The global counters (for `info nodes`/`nps`) are shared by every search
++    /// thread; adding to them at every node bounced their cache line between
++    /// CPU clusters. They are now added to in batches.
+     pub fn increment_nodes(&mut self) {
+         self.nodes_searched += 1;
+         self.core_metrics.total_nodes += 1;
+-        GLOBAL_NODES_SEARCHED.fetch_add(1, Ordering::Relaxed);
+-        GLOBAL_SEARCH_NODES.fetch_add(1, Ordering::Relaxed);
++        self.pending_global_nodes += 1;
++        if self.pending_global_nodes >= GLOBAL_NODE_BATCH {
++            GLOBAL_NODES_SEARCHED.fetch_add(self.pending_global_nodes, Ordering::Relaxed);
++            GLOBAL_SEARCH_NODES.fetch_add(self.pending_global_nodes, Ordering::Relaxed);
++            self.pending_global_nodes = 0;
++        }
+     }
+ 
+     /// Update selective depth (maximum depth reached)

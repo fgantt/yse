@@ -1,0 +1,132 @@
+diff --git a/src/search/search_engine.rs b/src/search/search_engine.rs
+index a7406bd..fcd7909 100644
+--- a/src/search/search_engine.rs
++++ b/src/search/search_engine.rs
+@@ -1455,6 +1455,23 @@ impl SearchEngine {
+         }
+     }
+ 
++    /// Probe the table this engine stores into: the shared table when one is
++    /// set (parallel workers), else its own.
++    ///
++    /// Stores go to the shared table whenever one is set, but every probe used
++    /// to read the engine's own table -- which, for a worker, never received an
++    /// entry. Parallel workers searched with no transposition-table cutoffs at
++    /// all; only the move orderer looked at the shared table.
++    #[inline]
++    fn tt_probe(&self, hash: u64, depth: u8) -> Option<TranspositionEntry> {
++        if let Some(ref shared_tt) = self.shared_transposition_table {
++            if let Ok(tt) = shared_tt.try_read() {
++                return tt.probe_with_prefetch(hash, depth, None);
++            }
++        }
++        self.transposition_table.probe_with_prefetch(hash, depth, None)
++    }
++
+     #[inline]
+     fn maybe_buffer_tt_store(
+         &mut self,
+@@ -1469,7 +1486,7 @@ impl SearchEngine {
+             // This is an auxiliary search entry (NMP, IID, etc.)
+             // Check if there's an existing entry that should be preserved
+             if let Some(existing) =
+-                self.transposition_table.probe_with_prefetch(entry.hash_key, 0, None)
++                self.tt_probe(entry.hash_key, 0)
+             {
+                 // Only prevent overwrite if existing entry is from MainSearch AND deeper
+                 if existing.source == crate::types::EntrySource::MainSearch
+@@ -1491,7 +1508,7 @@ impl SearchEngine {
+         } else {
+             // MainSearch entry - track if it's preserving a main entry
+             if let Some(existing) =
+-                self.transposition_table.probe_with_prefetch(entry.hash_key, 0, None)
++                self.tt_probe(entry.hash_key, 0)
+             {
+                 if existing.source == crate::types::EntrySource::MainSearch {
+                     self.core_search_metrics.tt_main_entries_preserved += 1;
+@@ -1722,10 +1739,10 @@ impl SearchEngine {
+                 r
+             } else {
+                 TT_TRY_READ_FAILS.fetch_add(1, Ordering::Relaxed);
+-                self.transposition_table.probe_with_prefetch(position_hash, depth, None)
++                self.tt_probe(position_hash, depth)
+             }
+         } else {
+-            self.transposition_table.probe_with_prefetch(position_hash, depth, None)
++            self.tt_probe(position_hash, depth)
+         };
+         if let Some(tt_entry) = tt_entry_opt {
+             let _ = self.advanced_move_orderer.integrate_with_transposition_table(
+@@ -2027,13 +2044,13 @@ impl SearchEngine {
+ 
+         // Probe transposition table for best move
+         if let Some(entry) =
+-            self.transposition_table.probe_with_prefetch(position_hash, depth, None)
++            self.tt_probe(position_hash, depth)
+         {
+             entry.best_move.clone()
+         } else {
+             // Try with maximum depth if not found at current depth
+             if let Some(entry) =
+-                self.transposition_table.probe_with_prefetch(position_hash, 255, None)
++                self.tt_probe(position_hash, 255)
+             {
+                 entry.best_move.clone()
+             } else {
+@@ -2585,7 +2602,7 @@ impl SearchEngine {
+                 let position_hash =
+                     self.hash_calculator.get_position_hash(board, current_player, captured);
+                 if let Some(tt_entry) =
+-                    self.transposition_table.probe_with_prefetch(position_hash, 0, None)
++                    self.tt_probe(position_hash, 0)
+                 {
+                     // Task 9.6: Check if TT entry depth is sufficient and age is acceptable
+                     let tt_depth_ok = tt_entry.depth >= self.iid_config.tt_move_min_depth_for_skip;
+@@ -2615,7 +2632,7 @@ impl SearchEngine {
+                     let position_hash =
+                         self.hash_calculator.get_position_hash(board, current_player, captured);
+                     if let Some(entry) =
+-                        self.transposition_table.probe_with_prefetch(position_hash, 0, None)
++                        self.tt_probe(position_hash, 0)
+                     {
+                         trace_log!(
+                             "IID_TT_MOVE",
+@@ -3111,7 +3128,7 @@ impl SearchEngine {
+         // The TT might have a better move if the position was searched before
+         let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
+         let mut best_move_from_tt: Option<Move> = None;
+-        if let Some(entry) = self.transposition_table.probe_with_prefetch(position_hash, 255, None)
++        if let Some(entry) = self.tt_probe(position_hash, 255)
+         {
+             if let Some(ref tt_move) = entry.best_move {
+                 // Task 2.8: Verify IID move is in legal moves list before using
+@@ -3163,7 +3180,7 @@ impl SearchEngine {
+         captured_pieces: &CapturedPieces,
+     ) -> Option<Move> {
+         let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
+-        if let Some(entry) = self.transposition_table.probe_with_prefetch(position_hash, 255, None)
++        if let Some(entry) = self.tt_probe(position_hash, 255)
+         {
+             entry.best_move.clone()
+         } else {
+@@ -6604,7 +6621,7 @@ impl SearchEngine {
+         let tt_entry = if search_toggles().no_tt {
+             None
+         } else {
+-            self.transposition_table.probe_with_prefetch(position_hash, depth, None)
++            self.tt_probe(position_hash, depth)
+         };
+ 
+         // Record TT probe profiling (Task 3.0)
+@@ -6913,10 +6930,7 @@ impl SearchEngine {
+ 
+         // === INTERNAL ITERATIVE DEEPENING (IID) ===
+         let mut iid_move = None;
+-        let tt_move = self
+-            .transposition_table
+-            .probe(position_hash, 255)
+-            .and_then(|entry| entry.best_move.clone());
++        let tt_move = self.tt_probe(position_hash, 255).and_then(|entry| entry.best_move.clone());
+ 
+         // Task 7.0.2.6, 7.0.2.9: Skip IID at Medium/High time pressure, allow at
+         // Low/None
