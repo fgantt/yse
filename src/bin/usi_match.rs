@@ -13,6 +13,10 @@
 //! * Four-fold repetition is a draw (perpetual-check losses are not modelled),
 //!   as is reaching `--max-moves`.
 //! * Reports each engine's longest think time, so a clock overrun is visible.
+//! * `--sprt-elo0/--sprt-elo1`: a sequential test (pentanomial GSPRT, the
+//!   OpenBench/Fishtest normal approximation over opening pairs) that stops as
+//!   soon as the result is decided; `--games` is then the cap. H0: A is
+//!   `elo0` stronger than B; H1: `elo1`. Accepting H1 is a pass.
 
 use clap::Parser;
 use rand::rngs::StdRng;
@@ -72,6 +76,19 @@ struct Cli {
     start_sfen: Option<String>,
     #[arg(long, default_value = "usi_match.csv")]
     output: PathBuf,
+    /// SPRT null hypothesis, logistic Elo of A over B (e.g. 0). Set both
+    /// bounds to stop the match as soon as the test decides.
+    #[arg(long, allow_hyphen_values = true, requires = "sprt_elo1")]
+    sprt_elo0: Option<f64>,
+    /// SPRT alternative hypothesis, logistic Elo (e.g. 40).
+    #[arg(long, allow_hyphen_values = true, requires = "sprt_elo0")]
+    sprt_elo1: Option<f64>,
+    /// SPRT false-positive rate (passing a change that is no better than elo0).
+    #[arg(long, default_value_t = 0.05)]
+    sprt_alpha: f64,
+    /// SPRT false-negative rate (failing a change that is worth elo1).
+    #[arg(long, default_value_t = 0.05)]
+    sprt_beta: f64,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -201,6 +218,30 @@ fn random_opening(rng: &mut StdRng, plies: u32, start_sfen: Option<&str>) -> Vec
     out
 }
 
+/// Expected score of a side `elo` stronger.
+fn expected_score(elo: f64) -> f64 {
+    1.0 / (1.0 + 10f64.powf(-elo / 400.0))
+}
+
+/// Log-likelihood ratio of H1 (`elo1`) against H0 (`elo0`) from the per-pair
+/// scores (0, 1/4, 1/2, 3/4, 1), by the normal approximation to the
+/// pentanomial GSPRT: `n (s1 - s0) (2 mean - s0 - s1) / (2 var)`. Pairs, not
+/// games, are the independent unit -- the two games of an opening share it.
+fn sprt_llr(pair_scores: &[f64], elo0: f64, elo1: f64) -> f64 {
+    let n = pair_scores.len() as f64;
+    if n < 2.0 {
+        return 0.0;
+    }
+    let mean = pair_scores.iter().sum::<f64>() / n;
+    let var = pair_scores.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / n;
+    // Too few pairs to estimate a spread (all the same result): wait.
+    if var < 1e-9 {
+        return 0.0;
+    }
+    let (s0, s1) = (expected_score(elo0), expected_score(elo1));
+    n * (s1 - s0) * (2.0 * mean - s0 - s1) / (2.0 * var)
+}
+
 fn elo(score: f64) -> f64 {
     let s = score.clamp(1e-6, 1.0 - 1e-6);
     -400.0 * (1.0 / s - 1.0).log10()
@@ -229,6 +270,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let pairs = (cli.games + 1) / 2;
     let (mut w, mut d, mut l) = (0u32, 0u32, 0u32);
     let mut pair_points: Vec<f64> = Vec::new();
+    let sprt = cli.sprt_elo0.zip(cli.sprt_elo1);
+    // Wald's bounds on the log-likelihood ratio.
+    let lower = (cli.sprt_beta / (1.0 - cli.sprt_alpha)).ln();
+    let upper = ((1.0 - cli.sprt_beta) / cli.sprt_alpha).ln();
+    if let Some((e0, e1)) = sprt {
+        println!(
+            "SPRT: H0 elo {e0:+} vs H1 elo {e1:+}, alpha {} beta {}, LLR bounds [{lower:.2}, {upper:.2}], at most {} games",
+            cli.sprt_alpha,
+            cli.sprt_beta,
+            pairs * 2
+        );
+    }
+    let mut verdict = None;
     for p in 0..pairs {
         let opening = random_opening(&mut rng, cli.random_plies, cli.start_sfen.as_deref());
         let mut pts = 0.0;
@@ -271,6 +325,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             );
         }
         pair_points.push(pts);
+        if let Some((e0, e1)) = sprt {
+            let scores: Vec<f64> = pair_points.iter().map(|x| x / 2.0).collect();
+            let llr = sprt_llr(&scores, e0, e1);
+            println!("SPRT: LLR {llr:+.2} [{lower:.2}, {upper:.2}] after {} pairs", pair_points.len());
+            if llr >= upper {
+                verdict = Some("PASS (H1 accepted)");
+                break;
+            }
+            if llr <= lower {
+                verdict = Some("FAIL (H0 accepted)");
+                break;
+            }
+        }
     }
     let n = pair_points.len() as f64;
     let scores: Vec<f64> = pair_points.iter().map(|p| p / 2.0).collect();
@@ -286,6 +353,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         pair_points.len()
     );
     println!("  Longest think: A {} ms, B {} ms", a.max_think_ms, b.max_think_ms);
+    if let Some((e0, e1)) = sprt {
+        let scores: Vec<f64> = pair_points.iter().map(|x| x / 2.0).collect();
+        println!(
+            "  SPRT [{e0:+}, {e1:+}]: {} (LLR {:+.2})",
+            verdict.unwrap_or("INCONCLUSIVE (game cap reached)"),
+            sprt_llr(&scores, e0, e1)
+        );
+    }
     let _ = a.engine.quit();
     let _ = b.engine.quit();
     Ok(())

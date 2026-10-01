@@ -149,6 +149,15 @@ Two coexisting evaluation strategies, selected/blended via `PositionEvaluator`:
   ladder against YaneuraOu at 50 nodes (~50%, the only opponent setting whose result responds to our
   changes); 1 s/move head-to-head over 120 games. **`elo-tester` at fixed depth 2 can invert the
   sign** and must never be a ship gate.
+- **Ship gate: SPRT against `engines/usi-engine-stable`**, not a fixed game count. A 120-game match
+  resolves only ±60 Elo, so nearly everything read "neutral". Run
+  `usi_match --engine-a NEW --engine-b STABLE --byoyomi 1000 --games 600 --sprt-elo0 0 --sprt-elo1 40`
+  (private copies of both binaries; stops on PASS/FAIL, `--games` is the cap). Bounds [0, +40]:
+  a neutral change passes ~6% of the time in a median ~314 games, a +60 change passes in ~176,
+  a −40 change fails in ~122. `scripts/sprt.py check <csv>` tests any match CSV (or several
+  pooled); `scripts/sprt.py plan elo0 elo1` simulates the cost of other bounds. Changes that leave
+  the single-threaded `search_bench --fingerprint` byte-identical cannot lose strength: stack them
+  and gate the stack.
 
 ### Other subsystems
 
