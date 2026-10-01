@@ -323,6 +323,8 @@ Each on top of `00c03d5` (the mate fix), 120 games at 1 s against stable; patche
 | C3: one parallel engine (pool and table) per engine, not per move | 59-2-59, +0.0 ± 57.2 |
 
 All three fix real defects and none is measurable at 1 s/move; C1 and C2 ran at the same time.
+Combined (C1+C2+C3, with the mate fix) at **5 s/move**, 120 games: **53-0-67, −40.7 ± 55.1**
+(`matches/s31_c123_5s_h2h.log`). Not a win at the longer time control either.
 The parallel search's weaknesses found this session are not what limits its strength at this
 time control -- consistent with Lazy SMP matching its depth and losing anyway.
 
@@ -364,8 +366,7 @@ measurements single-threaded. Tools must set `SHOGI_PREFS_DIR`.
 
 1. Why the root split beats one thread by so much more than its depth gain -- the answer
    decides what parallel search should look like.
-2. C1+C2+C3 together at a longer time control (5-10 s/move, the user's), where a persistent
-   table and contention should matter more than at 1 s.
+2. (Done: C1+C2+C3 at 5 s/move lost, −40.7 ± 55.1.)
 3. Search depth in king-attack positions (the close subset of `eval_gap.py`, at fixed time). The network sees piece squares relative to its own king's bucket but
    hand pieces without the king; drop attacks need both. Candidates: king-conditioned hand
    features, or more positions like the close subset (the Session 30 handicap corpus was mostly
