@@ -88,8 +88,11 @@ All vs the Session 30 stable (`98052b4`), 1 s/move, `--random-plies 8`:
 
 No illegal moves, crashes or overruns in either match (`matches/s32_pvsplit2_*`).
 
-Running at the end of the session: 3 plies against the new stable, SPRT [0, 40], seed 3003
-(`matches/s32_pvsplit3_sprt.*`).
+**3 plies, rejected.** Against the new (2-ply) stable, SPRT [0, 40], seed 3003: 47-0-71 over
+118 games, −71.7 ± 71.5, LLR −3.10: FAIL (`matches/s32_pvsplit3_sprt.*`). Longest think 891 ms,
+so not a clock problem. It reached depth 6 faster (221 s vs 248 s) and plays worse: a split node
+searches every move at full depth without LMR, and a third ply adds many such nodes for little
+extra parallelism. Time to depth is not the measure of a split; games are.
 
 ## SPRT
 
@@ -119,9 +122,8 @@ was a missed win.
 
 ## Next
 
-1. The 3-ply SPRT (running). If it passes, make it the default.
-2. More of the idle threads: split the first move's subtree further than the PV (YBWC at
-   non-PV nodes, or splitting re-searches). Profile per thread after each step.
-3. Single-thread speed: the NNUE forward pass is the largest busy item.
-4. Session 31's C1-C3 table fixes and qlegal, re-gated by SPRT: with the threads actually
+1. More of the idle threads, without giving up LMR: split at non-PV nodes too (YBWC), keeping
+   reductions at split nodes; profile per thread after each step. 3 plies of PV split failed.
+2. Single-thread speed: the NNUE forward pass is the largest busy item.
+3. Session 31's C1-C3 table fixes and qlegal, re-gated by SPRT: with the threads actually
    working, a shared table that workers can read may now matter.
