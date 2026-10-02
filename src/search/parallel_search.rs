@@ -690,6 +690,325 @@ impl ThreadContextHolder {
     }
 }
 
+/// How many plies of the principal variation the root split descends
+/// (`SHOGI_PV_SPLIT_PLIES`; 1 is the root alone). Default 2: against the root
+/// alone, 129-2-89 over 220 games at 1 s/move, +63.9 +/- 47.9, SPRT [0, 40]
+/// passed (Session 32).
+fn pv_split_plies() -> u8 {
+    static PLIES: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *PLIES.get_or_init(|| {
+        env::var("SHOGI_PV_SPLIT_PLIES")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(2)
+            .max(1)
+    })
+}
+
+/// A node is split only when the subtrees under it have at least this much
+/// depth left; below that a split costs more than it saves.
+const PV_SPLIT_MIN_CHILD_DEPTH: u8 = 3;
+
+/// One iteration's split search: the state the root and every split node
+/// below it share.
+struct SplitSearch<'a> {
+    engine: &'a ParallelSearchEngine,
+    stop: Arc<AtomicBool>,
+    shared_tt: Arc<RwLock<ThreadSafeTranspositionTable>>,
+    generation: u64,
+    time_limit_ms: u32,
+    hash_size_mb: usize,
+    /// Worker contexts not in use. Pooled rather than thread-local: a thread
+    /// waiting on a nested split steals other tasks, which need their own.
+    holders: Mutex<Vec<PooledHolder>>,
+    split_plies: u8,
+}
+
+/// A worker context in the pool, boxed so it never moves: the move orderer
+/// keeps a raw pointer to its own engine's table, which is also the only
+/// reason the context is not `Send`.
+struct PooledHolder(Box<ThreadContextHolder>);
+
+// SAFETY: the context owns everything the raw pointer reaches (boxed, so the
+// pointer stays valid wherever the box goes), and the pool hands each context
+// to one thread at a time.
+unsafe impl Send for PooledHolder {}
+
+impl SplitSearch<'_> {
+    fn take_holder(
+        &self,
+        board: &BitboardBoard,
+        captured: &CapturedPieces,
+        player: Player,
+    ) -> Box<ThreadContextHolder> {
+        let pooled = self.holders.lock().ok().and_then(|mut h| h.pop()).map(|p| p.0);
+        let mut holder = pooled.unwrap_or_else(|| {
+            Box::new(ThreadContextHolder::new(
+                board,
+                captured,
+                player,
+                Some(self.stop.clone()),
+                self.hash_size_mb,
+            ))
+        });
+        if holder.generation != self.generation {
+            holder.context.update_stop_flag(Some(self.stop.clone()));
+            holder
+                .context
+                .search_engine_mut()
+                .set_shared_transposition_table(self.shared_tt.clone());
+            self.engine.configure_worker_engine(holder.context.search_engine_mut());
+            holder.generation = self.generation;
+        }
+        holder
+    }
+
+    fn put_holder(&self, holder: Box<ThreadContextHolder>) {
+        if let Ok(mut h) = self.holders.lock() {
+            h.push(PooledHolder(holder));
+        }
+    }
+
+    /// Search `mv` from the node (`board`, `player` to move, `depth` left at
+    /// the node) with the node-relative window (a, b). Returns the node-relative
+    /// score and PV, or `None` when stopped before a score.
+    #[allow(clippy::too_many_arguments)]
+    fn search_move(
+        &self,
+        board: &BitboardBoard,
+        captured: &CapturedPieces,
+        player: Player,
+        mv: &Move,
+        depth: u8,
+        a: i32,
+        b: i32,
+        ply: u8,
+    ) -> Option<(i32, String)> {
+        let child_depth = depth.saturating_sub(1);
+        if ply + 1 < self.split_plies && child_depth >= PV_SPLIT_MIN_CHILD_DEPTH {
+            if let Some(r) = self.split_child(board, captured, player, mv, child_depth, a, b, ply) {
+                return r;
+            }
+        }
+        let mut holder = self.take_holder(board, captured, player);
+        holder.context.refresh_root_state(board, captured);
+        let result = holder
+            .context
+            .search_root_child(mv, player, child_depth, self.time_limit_ms, -b, -a)
+            .map(|score_child| {
+                let seldepth =
+                    crate::search::search_engine::GLOBAL_SELDEPTH.load(Ordering::Relaxed) as u8;
+                let pv_depth = if seldepth > 0 { seldepth } else { 64 };
+                let pv_moves = holder.context.flush_and_get_pv(player.opposite(), pv_depth);
+                let mut pv_string = mv.to_usi_string();
+                for child in pv_moves.iter() {
+                    pv_string.push(' ');
+                    pv_string.push_str(&child.to_usi_string());
+                }
+                (-score_child, pv_string)
+            });
+        holder.context.reset_to_root();
+        self.put_holder(holder);
+        result
+    }
+
+    /// Search `mv` by splitting the child position itself. `None` when the
+    /// child is not worth splitting (in check, or no legal moves: the serial
+    /// search handles those); otherwise the node-relative result.
+    #[allow(clippy::too_many_arguments, clippy::option_option)]
+    fn split_child(
+        &self,
+        board: &BitboardBoard,
+        captured: &CapturedPieces,
+        player: Player,
+        mv: &Move,
+        child_depth: u8,
+        a: i32,
+        b: i32,
+        ply: u8,
+    ) -> Option<Option<(i32, String)>> {
+        use crate::search::search_engine::MATE_THRESHOLD;
+        let mut child_board = board.clone();
+        let mut child_captured = captured.clone();
+        if let Some(taken) = child_board.make_move(mv) {
+            child_captured.add_piece(taken.piece_type, player);
+        } else if mv.from.is_none() {
+            child_captured.remove_piece(mv.piece_type, player);
+        }
+        let opponent = player.opposite();
+        if child_board.is_king_in_check(opponent, &child_captured) {
+            return None; // check extensions live in the serial search
+        }
+        let mut holder = self.take_holder(&child_board, &child_captured, opponent);
+        let legal = holder.context.move_generator.generate_legal_moves(
+            &child_board,
+            opponent,
+            &child_captured,
+        );
+        if legal.is_empty() {
+            self.put_holder(holder);
+            return None;
+        }
+        let mut ordered = holder.context.search_engine_mut().order_moves_for_negamax(
+            &legal,
+            &child_board,
+            &child_captured,
+            opponent,
+            child_depth,
+            -b,
+            -a,
+            None,
+            None,
+        );
+        self.put_holder(holder);
+        // The previous iteration's best move here first, as at the root.
+        let hash = crate::search::shogi_hash::ShogiHashHandler::new_default().get_position_hash(
+            &child_board,
+            opponent,
+            &child_captured,
+        );
+        let tt_move = self
+            .shared_tt
+            .read()
+            .ok()
+            .and_then(|tt| tt.probe(hash, 0))
+            .and_then(|e| e.best_move);
+        if let Some(prev) = tt_move {
+            if let Some(i) = ordered.iter().position(|m| {
+                m.from == prev.from
+                    && m.to == prev.to
+                    && m.piece_type == prev.piece_type
+                    && m.is_promotion == prev.is_promotion
+            }) {
+                let m = ordered.remove(i);
+                ordered.insert(0, m);
+            }
+        }
+        let result = self
+            .split(
+                &child_board,
+                &child_captured,
+                opponent,
+                &ordered,
+                child_depth,
+                -b,
+                -a,
+                ply + 1,
+                None,
+            )
+            .map(|(_, v, pv)| {
+                // One ply further from the root than the child's own scores.
+                let v = if v <= -MATE_THRESHOLD {
+                    v + 1
+                } else if v >= MATE_THRESHOLD {
+                    v - 1
+                } else {
+                    v
+                };
+                (-v, format!("{} {}", mv.to_usi_string(), pv))
+            });
+        Some(result)
+    }
+
+    /// Search the node's `moves` (best guess first) with the window
+    /// (alpha, beta): the first alone, the rest as parallel zero-window scouts
+    /// against the best score so far, re-searched when they beat it. Returns
+    /// the best move, its node-relative score and PV.
+    #[allow(clippy::too_many_arguments)]
+    fn split(
+        &self,
+        board: &BitboardBoard,
+        captured: &CapturedPieces,
+        player: Player,
+        moves: &[Move],
+        depth: u8,
+        alpha: i32,
+        beta: i32,
+        ply: u8,
+        report: Option<&(dyn Fn(&Move, i32, &str) + Sync)>,
+    ) -> Option<(Move, i32, String)> {
+        let (first, rest) = moves.split_first()?;
+        let best: Mutex<Option<(Move, i32, String)>> = Mutex::new(None);
+        let offer = |mv: &Move, score: i32, pv: String| {
+            if let Some(r) = report {
+                r(mv, score, &pv);
+            }
+            if let Ok(mut g) = best.lock() {
+                if g.as_ref().map_or(true, |(_, s, _)| score > *s) {
+                    *g = Some((mv.clone(), score, pv));
+                }
+            }
+        };
+        let best_alpha = std::sync::atomic::AtomicI32::new(alpha);
+        match self.search_move(board, captured, player, first, depth, alpha, beta, ply) {
+            Some((score, pv)) => {
+                best_alpha.fetch_max(score, Ordering::Relaxed);
+                offer(first, score, pv);
+                if score >= beta {
+                    return best.into_inner().ok().flatten(); // fail high
+                }
+            }
+            None => {
+                if let Some(r) = report {
+                    r(first, i32::MIN / 2, &first.to_usi_string());
+                }
+                if ply > 0 {
+                    return None; // stopped: this node has no result
+                }
+            }
+        }
+
+        let threads = self.engine.config.num_threads;
+        rest.par_iter()
+            .with_min_len((rest.len() / (threads * 2).max(1)).max(1))
+            .for_each(|mv| {
+                if self.stop.load(Ordering::Relaxed) {
+                    return;
+                }
+                if ply == 0
+                    && env::var("SHOGI_FORCE_WORKER_PANIC").ok().as_deref() == Some("1")
+                    && std::ptr::eq(mv, &rest[0])
+                {
+                    panic!("Forced worker panic for testing");
+                }
+                let a = best_alpha.load(Ordering::Relaxed);
+                if a >= beta {
+                    return; // another move already failed high
+                }
+                // Scouts are never split: a zero-window search mostly fails low fast.
+                let mut result = self.search_move(
+                    board,
+                    captured,
+                    player,
+                    mv,
+                    depth,
+                    a,
+                    a.saturating_add(1),
+                    self.split_plies,
+                );
+                if let Some((score, _)) = result {
+                    if score > a && score < beta && !self.stop.load(Ordering::Relaxed) {
+                        result = self
+                            .search_move(board, captured, player, mv, depth, a, beta, ply)
+                            .or(result);
+                    }
+                }
+                match result {
+                    Some((score, pv)) => {
+                        best_alpha.fetch_max(score, Ordering::Relaxed);
+                        offer(mv, score, pv);
+                    }
+                    None => {
+                        if let Some(r) = report {
+                            r(mv, i32::MIN / 2, &mv.to_usi_string());
+                        }
+                    }
+                }
+            });
+        best.into_inner().ok().flatten()
+    }
+}
+
 /// Result of waiting for the oldest brother to complete.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WaitOutcome {
@@ -1158,45 +1477,6 @@ impl ParallelSearchEngine {
             }
         });
 
-        let shared_tt = self.transposition_table.clone();
-        let generation_id = NEXT_CONTEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
-
-        // Search one root move on a worker's context with the root-relative
-        // window (a, b). Returns the root-relative score and PV, or `None` when
-        // the search produced no score (stopped before it started).
-        let search_one = |holder: &mut ThreadContextHolder, mv: &Move, a: i32, b: i32| {
-            holder.context.update_stop_flag(Some(search_stop.clone()));
-            if holder.generation != generation_id {
-                holder.context.refresh_root_state(board, captured_pieces);
-                holder
-                    .context
-                    .search_engine_mut()
-                    .set_shared_transposition_table(shared_tt.clone());
-                self.configure_worker_engine(holder.context.search_engine_mut());
-                holder.generation = generation_id;
-            } else {
-                holder.context.reset_to_root();
-            }
-            let search_depth = if depth > 0 { depth - 1 } else { 0 };
-            let result = holder
-                .context
-                .search_root_child(mv, player, search_depth, time_limit_ms, -b, -a)
-                .map(|score_child| {
-                    let seldepth =
-                        crate::search::search_engine::GLOBAL_SELDEPTH.load(Ordering::Relaxed) as u8;
-                    let pv_depth = if seldepth > 0 { seldepth } else { 64 };
-                    let pv_moves = holder.context.flush_and_get_pv(player.opposite(), pv_depth);
-                    let mut pv_string = mv.to_usi_string();
-                    for child in pv_moves.iter() {
-                        pv_string.push(' ');
-                        pv_string.push_str(&child.to_usi_string());
-                    }
-                    (-score_child, pv_string)
-                });
-            holder.context.reset_to_root();
-            result
-        };
-
         // Principal variation splitting ("young brothers wait"). The root moves
         // used to be searched all at once, each with the full window and no
         // knowledge of the others' scores, in move-generator order -- so no root
@@ -1209,77 +1489,39 @@ impl ParallelSearchEngine {
         // score found so far, and re-searched with a full window only when they
         // beat it. A scout that fails low reports a bound no better than a score
         // already sent, so it can never be chosen.
-        let best_alpha = std::sync::atomic::AtomicI32::new(alpha);
+        //
+        // The first move's subtree is split the same way, down the principal
+        // variation (`pv_split_plies`): searched alone, one thread did most of
+        // the work -- busy 86% of a 15 s profile, the other 15 at 2-8% -- while
+        // the rest, their scouts done, waited.
+        let split = SplitSearch {
+            engine: self,
+            stop: search_stop.clone(),
+            shared_tt: self.transposition_table.clone(),
+            generation: NEXT_CONTEXT_GENERATION.fetch_add(1, Ordering::Relaxed),
+            time_limit_ms,
+            hash_size_mb,
+            holders: Mutex::new(Vec::new()),
+            split_plies: pv_split_plies(),
+        };
+        let report = |mv: &Move, score: i32, pv: &str| {
+            let _ = tx.send((mv.clone(), score, pv.to_string()));
+        };
         self.thread_pool.install(|| {
-            let (first, rest) = match moves.split_first() {
-                Some(x) => x,
-                None => return,
-            };
             if search_stop.load(Ordering::Relaxed) {
                 return; // stopped before the search began: no result
             }
-            let mut first_holder = ThreadContextHolder::new(
+            split.split(
                 board,
                 captured_pieces,
                 player,
-                Some(search_stop.clone()),
-                hash_size_mb,
+                moves,
+                depth,
+                alpha,
+                beta,
+                0,
+                Some(&report),
             );
-            match search_one(&mut first_holder, first, alpha, beta) {
-                Some((score, pv)) => {
-                    best_alpha.fetch_max(score, Ordering::Relaxed);
-                    let _ = tx.send((first.clone(), score, pv));
-                    if score >= beta {
-                        return; // fail high: the caller widens the window
-                    }
-                }
-                None => {
-                    let _ = tx.send((first.clone(), i32::MIN / 2, first.to_usi_string()));
-                }
-            }
-
-            rest.par_iter()
-                .with_min_len((rest.len() / (self.config.num_threads * 2).max(1)).max(1))
-                .for_each_init(
-                    || {
-                        ThreadContextHolder::new(
-                            board,
-                            captured_pieces,
-                            player,
-                            Some(search_stop.clone()),
-                            hash_size_mb,
-                        )
-                    },
-                    |holder, mv| {
-                        if search_stop.load(Ordering::Relaxed) {
-                            return;
-                        }
-                        if env::var("SHOGI_FORCE_WORKER_PANIC").ok().as_deref() == Some("1")
-                            && std::ptr::eq(mv, &rest[0])
-                        {
-                            panic!("Forced worker panic for testing");
-                        }
-                        let a = best_alpha.load(Ordering::Relaxed);
-                        if a >= beta {
-                            return; // another move already failed high
-                        }
-                        let mut result = search_one(holder, mv, a, a.saturating_add(1));
-                        if let Some((score, _)) = result {
-                            if score > a && score < beta && !search_stop.load(Ordering::Relaxed) {
-                                result = search_one(holder, mv, a, beta).or(result);
-                            }
-                        }
-                        match result {
-                            Some((score, pv)) => {
-                                best_alpha.fetch_max(score, Ordering::Relaxed);
-                                let _ = tx.send((mv.clone(), score, pv));
-                            }
-                            None => {
-                                let _ = tx.send((mv.clone(), i32::MIN / 2, mv.to_usi_string()));
-                            }
-                        }
-                    },
-                );
         });
         // Close the channel to signal the consumer that no more results are coming
         drop(tx);

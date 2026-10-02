@@ -175,7 +175,7 @@ fn sliding_attackers(
     to: Position,
     occupied: crate::types::Bitboard,
 ) -> Vec<(Position, Piece)> {
-    let Some(magic) = board.get_magic_table() else {
+    let Some(magic) = board.magic_table_ref() else {
         return Vec::new(); // No table: callers fall back to the static list.
     };
     let to_idx = to.to_index();

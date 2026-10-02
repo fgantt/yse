@@ -237,6 +237,15 @@ fn get_shared_magic_table() -> Option<Arc<MagicTable>> {
     load_shared_magic_table().clone()
 }
 
+/// A sliding-move generator over the shared table, built once.
+///
+/// Move generation built one per call from a cloned `Arc` -- a refcount
+/// round-trip on a cache line shared by every search thread, at every node.
+pub fn shared_sliding_generator() -> Option<&'static sliding_moves::SlidingMoveGenerator> {
+    static GENERATOR: OnceLock<Option<sliding_moves::SlidingMoveGenerator>> = OnceLock::new();
+    GENERATOR.get_or_init(|| get_shared_magic_table().map(sliding_moves::SlidingMoveGenerator::new)).as_ref()
+}
+
 /// Borrow the shared table without touching the Arc's refcount.
 ///
 /// `get_attack_pattern` runs on every sliding piece of every node, so an atomic
@@ -1472,6 +1481,26 @@ impl BitboardBoard {
     /// Check if magic bitboards are enabled
     pub fn has_magic_support(&self) -> bool {
         self.magic_table.is_some()
+    }
+
+    /// Borrow this board's magic table, else the shared precomputed one,
+    /// without touching an `Arc` refcount.
+    ///
+    /// [`get_magic_table`](Self::get_magic_table) clones the `Arc`: an atomic
+    /// increment and decrement on one cache line that every search thread
+    /// shares. SEE calls it several times per move ordered.
+    #[inline]
+    pub fn magic_table_ref(&self) -> Option<&MagicTable> {
+        match self.magic_table {
+            Some(ref t) => Some(&**t),
+            None => shared_magic_table_ref(),
+        }
+    }
+
+    /// This board's own magic table, if one was installed; `None` means it
+    /// uses the shared one ([`shared_sliding_generator`]).
+    pub fn own_magic_table(&self) -> Option<Arc<MagicTable>> {
+        self.magic_table.clone()
     }
 
     /// Get magic table reference

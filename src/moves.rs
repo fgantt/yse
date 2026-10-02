@@ -473,12 +473,18 @@ impl MoveGenerator {
             // SIMD is enabled
             if !sliding_pieces.is_empty() && self.simd_config.enable_simd_move_generation {
                 // Try to get magic table from board
-                let magic_table = board.get_magic_table();
+                let own_generator;
+                let sliding_generator = match board.own_magic_table() {
+                    Some(table) => {
+                        own_generator = SlidingMoveGenerator::new(table);
+                        Some(&own_generator)
+                    }
+                    None => crate::bitboards::shared_sliding_generator(),
+                };
 
-                if let Some(magic_table) = magic_table {
+                if let Some(sliding_generator) = sliding_generator {
                     // Record SIMD move generation call
                     crate::utils::telemetry::SIMD_TELEMETRY.record_simd_move_gen();
-                    let sliding_generator = SlidingMoveGenerator::new(magic_table);
                     sliding_generator.generate_sliding_moves_batch_vectorized_into(
                         board,
                         &sliding_pieces,
