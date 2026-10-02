@@ -94,6 +94,38 @@ so not a clock problem. It reached depth 6 faster (221 s vs 248 s) and plays wor
 searches every move at full depth without LMR, and a third ply adds many such nodes for little
 extra parallelism. Time to depth is not the measure of a split; games are.
 
+## A third six-piece loss (the PV-split stable)
+
+`matches/user_games/2026-10-02_6mai_loss74.txt`: the user, with the newly installed stable, lost
+to YaneuraOu at six-piece odds in 74 moves. YaneuraOu reviewing each of our moves at 3M nodes,
+the three large ones re-checked at 30M (scores ours, capped at ±3000):
+
+| move | played | YaneuraOu before → after (30M) | loss | YaneuraOu | ours at 10 s now |
+|---|---|---|---|---|---|
+| 1-46 | | +3000 throughout | | | |
+| 47-51 | 1e1d, 1d1c+, 1c1d, 7g8e, 8g8f | +3000 → +2131 (3M) | ~870 | | |
+| 55 | 6f8h | +2200 → +1654 | 546 | S\*7d | 6f8h, depth 6, +1193 |
+| 56 | 5i5h (rook takes the dropped pawn) | +1515 → +863 | 652 | 5i7i | 5i5h, depth 7, +838 |
+| **59** | **7h6h** | **+676 → −930** | **1,606** | 3f4g (+842) | 5h5f (+511), depth 6, +554 |
+
+Then −250 to −350 a move to mate (`...S*5e`, mate in 1 on the board).
+
+- **Moves 39, 40, 46 are judge artifacts.** At 3M and 30M nodes YaneuraOu reads −3000 after
+  them, and +3000 a move later; from the bare SFEN (no move history) all three are +3000. Our
+  pawns kept being dropped on 5d/5e and taken, so the same board recurred with White's hand
+  larger: YaneuraOu's superior-repetition rule, not the position. The shuffle cost two pawns net
+  (our hand 2P → 0, White's 2p → 4p) while still winning.
+- **The decisive sequence is the drop attack on our rook and king, 55-59** -- the Session 31
+  blind spot again: `...P*5h`, `5i5h`, `...S*6i` and the rook is lost for a silver at 59.
+  At 10 s the engine still plays 55 and 56 (depth 6-7). At 59 it now prefers 5h5f, which
+  YaneuraOu rates +511 against 7h6h's −624: the game move was partly the luck of a
+  nondeterministic parallel search.
+- **An outside, engine-less reading of the game** (the user shared one) placed the damage in the
+  opening, at 50 (`7g8e`, "loses a knight") and at 66 (the bishop for a silver). YaneuraOu
+  disagrees on all three: +3000 to move 46, `7g8e` was its own choice (−28), and by 66 the game
+  was already −3000. Its recommendation -- drop threats against our major pieces and king --
+  matches the data.
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
