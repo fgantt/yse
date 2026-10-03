@@ -509,6 +509,21 @@ pub static TT_TRY_WRITE_SUCCESSES: AtomicU64 = AtomicU64::new(0);
 pub static TT_TRY_WRITE_FAILS: AtomicU64 = AtomicU64::new(0);
 /// Diagnostic tree-shape counters, indexed by remaining depth (capped at 15):
 /// nodes entering the move loop, moves searched there, and beta cutoffs.
+/// Whether the `DIAG_*` counters are collected. They are shared by every
+/// search thread and were incremented at every node, bouncing their cache
+/// lines between CPU clusters. Only `search_bench` and `search_diag` read
+/// them, and they switch collection on with [`enable_search_diagnostics`].
+static DIAG_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn enable_search_diagnostics() {
+    DIAG_ENABLED.store(true, Ordering::Relaxed);
+}
+
+#[inline(always)]
+fn diag() -> bool {
+    DIAG_ENABLED.load(Ordering::Relaxed)
+}
+
 pub static DIAG_NODES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
 pub static DIAG_MOVES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
 pub static DIAG_CUTS: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
@@ -1571,6 +1586,9 @@ impl SearchEngine {
         let config = crate::search::TranspositionConfig::performance_optimized();
         let config = crate::search::TranspositionConfig {
             table_size: hash_size_mb * 1024 * 1024 / 100, // Approximate entries
+            // Statistics make every probe and store take a table-wide mutex to
+            // bump a counter; nothing in the search reads them.
+            enable_statistics: false,
             ..config
         };
         const BYTES_PER_ENTRY: usize = 100; // Approximate size of a TT entry
@@ -2073,6 +2091,9 @@ impl SearchEngine {
         let tt_config = crate::search::TranspositionConfig::performance_optimized();
         let tt_config = crate::search::TranspositionConfig {
             table_size: config.tt_size_mb * 1024 * 1024 / BYTES_PER_ENTRY,
+            // Statistics make every probe and store take a table-wide mutex to
+            // bump a counter; nothing in the search reads them.
+            enable_statistics: false,
             ..tt_config
         };
         let quiescence_capacity = config.quiescence.tt_size_mb * 1024 * 1024 / BYTES_PER_ENTRY;
@@ -7128,8 +7149,10 @@ impl SearchEngine {
         // Position hash already added to hash_history above - no FEN string needed
 
         let mut move_index = 0;
-        DIAG_NODES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
-        DIAG_INTERIOR_NODES.fetch_add(1, Ordering::Relaxed);
+        if diag() {
+            DIAG_NODES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
+            DIAG_INTERIOR_NODES.fetch_add(1, Ordering::Relaxed);
+        }
         // Per-node facts the move loop's pruning and reduction decisions need.
         // They were recomputed for every move (a full evaluation and a material
         // count each time, twice per move counting the LMR path), which made
@@ -7312,7 +7335,9 @@ impl SearchEngine {
             // Task 2.6: Pass current move as opponent_last_move to recursive call
             // Task 7.0.1: Pass IID move for explicit exemption from LMR
             // Task 7.0.3.4: Pass entry source for TT priority management
-            DIAG_MOVES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
+            if diag() {
+                DIAG_MOVES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
+            }
             // Children may return early without popping their own entry; restore
             // the path to this node's length after each one.
             let path_len = hash_history.len();
@@ -7437,11 +7462,13 @@ impl SearchEngine {
                     // Track beta cutoff (Task 5.7)
                     self.core_search_metrics.total_cutoffs += 1;
                     self.core_search_metrics.beta_cutoffs += 1;
-                    DIAG_CUTS[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
-                    // `move_index` is incremented before the move is searched,
-                    // so it is 1-based here; the buckets are 0-based.
-                    DIAG_CUT_INDEX[cut_index_bucket(move_index.saturating_sub(1))]
-                        .fetch_add(1, Ordering::Relaxed);
+                    if diag() {
+                        DIAG_CUTS[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
+                        // `move_index` is incremented before the move is searched,
+                        // so it is 1-based here; the buckets are 0-based.
+                        DIAG_CUT_INDEX[cut_index_bucket(move_index.saturating_sub(1))]
+                            .fetch_add(1, Ordering::Relaxed);
+                    }
 
                     // Feed the cutoff to the orderer that actually orders moves. Its
                     // killer and history tables were never updated by the search
@@ -7779,7 +7806,9 @@ impl SearchEngine {
 
         // Update statistics
         self.quiescence_stats.nodes_searched += 1;
-        DIAG_QUIESCENCE_NODES.fetch_add(1, Ordering::Relaxed);
+        if diag() {
+            DIAG_QUIESCENCE_NODES.fetch_add(1, Ordering::Relaxed);
+        }
         // Update seldepth (selective depth) - quiescence extends beyond normal depth
         // When we enter quiescence, depth is 0, so we've reached current_depth plies
         // Quiescence can extend deeper: current_depth + (max_quiescence_depth - depth)
@@ -12157,7 +12186,9 @@ impl SearchEngine {
                     entry_source,
                 )
             } else {
-                DIAG_PVS_SCOUTS.fetch_add(1, Ordering::Relaxed);
+                if diag() {
+                    DIAG_PVS_SCOUTS.fetch_add(1, Ordering::Relaxed);
+                }
                 let scout = -self.negamax_with_context(
                     board,
                     captured_pieces,
@@ -12179,7 +12210,9 @@ impl SearchEngine {
                 // this move may be the new principal variation, and its real value
                 // has to be established with the full window.
                 if scout > alpha && scout < beta {
-                    DIAG_PVS_RESEARCHES.fetch_add(1, Ordering::Relaxed);
+                    if diag() {
+                        DIAG_PVS_RESEARCHES.fetch_add(1, Ordering::Relaxed);
+                    }
                     // The scout's children may have returned early without popping
                     // their own entry, as the caller's own truncate acknowledges.
                     hash_history.truncate(path_len);

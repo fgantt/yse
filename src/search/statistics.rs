@@ -9,6 +9,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Global aggregate of nodes searched across all threads for live reporting.
 pub static GLOBAL_NODES_SEARCHED: AtomicU64 = AtomicU64::new(0);
+/// Nodes each thread counts locally before adding to the global counters.
+const GLOBAL_NODE_BATCH: u64 = 256;
 
 /// Nodes searched since the start of the *whole* search, across every
 /// iterative-deepening iteration.
@@ -116,6 +118,8 @@ pub fn print_and_reset_search_metrics(tag: &str) {
 pub struct SearchStatistics {
     /// Total nodes searched in current search
     nodes_searched: u64,
+    /// Nodes not yet added to the global counters (see `increment_nodes`).
+    pending_global_nodes: u64,
     /// Core search metrics (TT hits, cutoffs, etc.)
     core_metrics: CoreSearchMetrics,
     /// Initiative/attack debt metrics (Task 3.4)
@@ -141,17 +145,26 @@ impl SearchStatistics {
     pub fn new() -> Self {
         Self {
             nodes_searched: 0,
+            pending_global_nodes: 0,
             core_metrics: CoreSearchMetrics::default(),
             initiative_metrics: InitiativeMetrics::default(),
         }
     }
 
     /// Increment nodes searched counter
+    ///
+    /// The global counters (for `info nodes`/`nps`) are shared by every search
+    /// thread; adding to them at every node bounced their cache line between
+    /// CPU clusters. They are now added to in batches.
     pub fn increment_nodes(&mut self) {
         self.nodes_searched += 1;
         self.core_metrics.total_nodes += 1;
-        GLOBAL_NODES_SEARCHED.fetch_add(1, Ordering::Relaxed);
-        GLOBAL_SEARCH_NODES.fetch_add(1, Ordering::Relaxed);
+        self.pending_global_nodes += 1;
+        if self.pending_global_nodes >= GLOBAL_NODE_BATCH {
+            GLOBAL_NODES_SEARCHED.fetch_add(self.pending_global_nodes, Ordering::Relaxed);
+            GLOBAL_SEARCH_NODES.fetch_add(self.pending_global_nodes, Ordering::Relaxed);
+            self.pending_global_nodes = 0;
+        }
     }
 
     /// Update selective depth (maximum depth reached)

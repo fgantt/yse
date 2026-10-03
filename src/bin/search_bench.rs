@@ -114,6 +114,7 @@ fn load_sfens(cli: &Cli) -> std::io::Result<Vec<String>> {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
+    shogi_engine::search::search_engine::enable_search_diagnostics();
     let sfens = load_sfens(&cli)?;
     eprintln!(
         "search-bench: {} positions, depth {}, {}",

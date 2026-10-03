@@ -1181,7 +1181,9 @@ impl ParallelSearchEngine {
         // For now, we'll create a placeholder transposition table.
         // This will be replaced with the actual shared TT from SearchEngine in later
         // checkpoints.
-        let tt_config = crate::search::TranspositionConfig::performance_optimized();
+        let mut tt_config = crate::search::TranspositionConfig::performance_optimized();
+        // Statistics make every probe and store take a table-wide mutex.
+        tt_config.enable_statistics = false;
         let transposition_table =
             Arc::new(RwLock::new(ThreadSafeTranspositionTable::new(tt_config)));
 
@@ -1266,7 +1268,9 @@ impl ParallelSearchEngine {
             .build()
             .map_err(|e| format!("Failed to create thread pool: {}", e))?;
 
-        let tt_config = crate::search::TranspositionConfig::performance_optimized();
+        let mut tt_config = crate::search::TranspositionConfig::performance_optimized();
+        // Statistics make every probe and store take a table-wide mutex.
+        tt_config.enable_statistics = false;
         let transposition_table =
             Arc::new(RwLock::new(ThreadSafeTranspositionTable::new(tt_config)));
 

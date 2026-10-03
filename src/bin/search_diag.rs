@@ -72,6 +72,7 @@ fn reset() {
 
 fn main() {
     let cli = Cli::parse();
+    shogi_engine::search::search_engine::enable_search_diagnostics();
     let positions: Vec<(String, String)> = if cli.sfen.is_empty() {
         DEFAULT_SFENS.iter().map(|(n, s)| (n.to_string(), s.to_string())).collect()
     } else {
