@@ -142,6 +142,28 @@ now 2-ply + C1; `-stable-prev` is 2-ply without it.
 **Lesson for the bounds:** a true effect between elo0 and elo1 makes the SPRT slow by design.
 For correctness fixes, a non-regression test (e.g. [−20, +10]) is the right question.
 
+## A fourth six-piece loss (2-ply + C1 stable)
+
+`matches/user_games/2026-10-03_6mai_loss58.txt`, lost in 58. YaneuraOu: +3000 through move 29,
+then (30M nodes, ours; "ours at 10 s" is the installed stable re-searching the position):
+
+| move | played | YaneuraOu before → after | loss | YaneuraOu | ours at 10 s |
+|---|---|---|---|---|---|
+| 31 | 9d9c+ | +3000 → +2383 | 617 | 3g2e | 9d9c+, d7, +1483 |
+| 33 | 7g7f | +2367 → +1995 | 372 | 3g2e | 7g7f, d7, +1421 |
+| 35 | 8h7g | +1804 → +983 | 821 | P\*8e | 3d3c+, d7, +980 |
+| 36 | 3d3c | +867 → +350 | 517 | P\*8e | 3d3c, d7, +1108 |
+| 37 | P\*3d | +208 → −244 | 452 | 3g2e | 3g2e, d7, +699 |
+
+Moves 39-40 read −3000 at 3M: the repetition artifact again (pawns re-dropped on 3f/3e); from
+the bare SFEN, −563 and −841.
+
+The same shape as the last three losses. White pushes and drops pawns down the 8-file at our
+king (`8e8f`, `P*8f`, `P*8g`, `7e7f`); YaneuraOu blocks with `P*8e` or regroups (`3g2e`); we
+keep attacking (`9d9c+`, `3d3c`) and score +1,000 to +1,500 where YaneuraOu's deep search
+sees +350 to +2,400 falling. Five moves of ~500 each, not one blunder. Depth 7 at 10 s does
+not see it; Session 31 measured the danger in such positions at ~10 plies.
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
