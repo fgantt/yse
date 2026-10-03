@@ -126,6 +126,22 @@ Then −250 to −350 a move to mate (`...S*5e`, mate in 1 on the board).
   was already −3000. Its recommendation -- drop threats against our major pieces and king --
   matches the data.
 
+## C1, re-gated: shipped as a correctness fix
+
+Session 31's C1 (`213d58d`): with a shared table set, negamax stored into it but probed the
+engine's own table, which for a worker never received an entry -- workers searched without
+transposition-table cutoffs. Neutral in Session 31 (−29.0 ± 52.7), when one thread did the work.
+On top of the PV split, against the 2-ply stable, SPRT [0, 40], seed 3004:
+**318-7-275 over 600 games, +24.9 ± 28.6, LLR +0.95: inconclusive at the cap**
+(`matches/s32_c1_sprt.*`). Ahead at 122 games (59%, LLR +1.58), then drifting to the middle.
+
+Shipped by the user's decision as a correctness fix on non-regression evidence (P(worse) ≈ 4%),
+not as an SPRT pass -- the one exception to the gate so far. `engines/usi-engine-stable` is
+now 2-ply + C1; `-stable-prev` is 2-ply without it.
+
+**Lesson for the bounds:** a true effect between elo0 and elo1 makes the SPRT slow by design.
+For correctness fixes, a non-regression test (e.g. [−20, +10]) is the right question.
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
@@ -157,5 +173,4 @@ was a missed win.
 1. More of the idle threads, without giving up LMR: split at non-PV nodes too (YBWC), keeping
    reductions at split nodes; profile per thread after each step. 3 plies of PV split failed.
 2. Single-thread speed: the NNUE forward pass is the largest busy item.
-3. Session 31's C1-C3 table fixes and qlegal, re-gated by SPRT: with the threads actually
-   working, a shared table that workers can read may now matter.
+3. Session 31's C2, C3 and qlegal, re-gated by SPRT (C1 shipped, above).
