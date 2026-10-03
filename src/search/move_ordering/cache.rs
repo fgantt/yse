@@ -4,7 +4,7 @@
 //! management methods for the move ordering system.
 
 use crate::types::core::Move;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 /// Cache eviction policy for move ordering cache
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -87,12 +87,17 @@ pub struct MoveOrderingCacheManager {
     cache: HashMap<(u64, u8), MoveOrderingCacheEntry>,
     /// LRU access counter (incremented on each cache access for LRU tracking)
     lru_access_counter: u64,
+    /// Every entry's `last_access`, ordered: the LRU victim is the first.
+    /// Stamps are unique (the counter advances on every access), so this
+    /// picks exactly the entry a scan for the minimum would -- the scan it
+    /// replaces walked all 10,000 entries on every insert into a full cache.
+    lru_index: BTreeMap<u64, (u64, u8)>,
 }
 
 impl MoveOrderingCacheManager {
     /// Create a new cache manager
     pub fn new() -> Self {
-        Self { cache: HashMap::new(), lru_access_counter: 0 }
+        Self { cache: HashMap::new(), lru_access_counter: 0, lru_index: BTreeMap::new() }
     }
 
     /// Get a cached entry for a key
@@ -102,7 +107,9 @@ impl MoveOrderingCacheManager {
     pub fn get_mut(&mut self, key: &(u64, u8)) -> Option<&mut MoveOrderingCacheEntry> {
         if let Some(entry) = self.cache.get_mut(key) {
             self.lru_access_counter += 1;
+            self.lru_index.remove(&entry.last_access);
             entry.last_access = self.lru_access_counter;
+            self.lru_index.insert(entry.last_access, *key);
             entry.access_count += 1;
             Some(entry)
         } else {
@@ -129,19 +136,29 @@ impl MoveOrderingCacheManager {
 
         // If cache has room, just insert
         if self.cache.len() < max_size {
-            self.cache.insert(key, entry);
+            self.insert_indexed(key, entry);
             return None;
         }
 
         // Cache is full - evict an entry
         let evicted_key = self.evict_entry(eviction_policy, hybrid_lru_weight);
         if let Some(evicted) = evicted_key {
-            self.cache.remove(&evicted);
+            if let Some(old) = self.cache.remove(&evicted) {
+                self.lru_index.remove(&old.last_access);
+            }
         }
 
         // Insert new entry
-        self.cache.insert(key, entry);
+        self.insert_indexed(key, entry);
         evicted_key
+    }
+
+    /// Insert or overwrite `key`, keeping the LRU index in step.
+    fn insert_indexed(&mut self, key: (u64, u8), entry: MoveOrderingCacheEntry) {
+        self.lru_index.insert(entry.last_access, key);
+        if let Some(old) = self.cache.insert(key, entry) {
+            self.lru_index.remove(&old.last_access);
+        }
     }
 
     /// Evict an entry from the cache based on the eviction policy
@@ -163,16 +180,7 @@ impl MoveOrderingCacheManager {
             }
             CacheEvictionPolicy::LRU => {
                 // LRU: Remove least recently used entry (lowest last_access)
-                let mut lru_key = None;
-                let mut lru_access = u64::MAX;
-
-                for (key, entry) in &self.cache {
-                    if entry.last_access < lru_access {
-                        lru_access = entry.last_access;
-                        lru_key = Some(*key);
-                    }
-                }
-                lru_key
+                self.lru_index.first_key_value().map(|(_, key)| *key)
             }
             CacheEvictionPolicy::DepthPreferred => {
                 // Depth-preferred: Remove entry with lowest depth
@@ -239,6 +247,7 @@ impl MoveOrderingCacheManager {
     /// Clear the cache
     pub fn clear(&mut self) {
         self.cache.clear();
+        self.lru_index.clear();
         self.lru_access_counter = 0;
     }
 
