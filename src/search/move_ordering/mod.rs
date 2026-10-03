@@ -6980,7 +6980,16 @@ impl MoveOrdering {
         board: &crate::bitboards::BitboardBoard,
     ) -> Option<i32> {
         use crate::types::core::{PieceType, Position};
-        
+
+        // `make_move` returns the captured piece, so the check below returns
+        // `None` for every non-capture -- and captures are scored before this
+        // is reached. The bonus has never applied to a quiet move. Bail out
+        // before the board clone it used to pay for that (13% of the parallel
+        // search's busy time); making the bonus work is a separate, gated change.
+        if !move_.is_capture {
+            return None;
+        }
+
         // Make move on temp board to check resulting position
         let mut temp_board = board.clone();
         if temp_board.make_move(move_).is_none() {
