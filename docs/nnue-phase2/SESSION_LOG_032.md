@@ -164,6 +164,30 @@ keep attacking (`9d9c+`, `3d3c`) and score +1,000 to +1,500 where YaneuraOu's de
 sees +350 to +2,400 falling. Five moves of ~500 each, not one blunder. Depth 7 at 10 s does
 not see it; Session 31 measured the danger in such positions at ~10 plies.
 
+## The overhead the split multiplied (shipped, +36.7 ± 29.3)
+
+With 16 threads working, a per-thread profile showed busy threads doing ~2.6x less per sample
+than the single busy thread had. Three fixes, each leaving the single-threaded `search_bench`
+fingerprint byte-identical (30 positions, depth 5):
+
+| commit | what | profile position, parallel |
+|---|---|---|
+| `cde6b55` | C2: table statistics off (with C1 every worker probe hit a table-wide stats mutex: `increment_misses` 7,489 of ~8,250 mutex-wait samples), node counters batched, `DIAG_*` gated | 153k → 242k nps, busy 30-37% → 59-80% |
+| `c0e7bd7` | ordering cache LRU eviction by an ordered index instead of a 10,000-entry scan per insert | single-threaded 43.6k → 50.0k nps |
+| `5834da2` | `score_flank_security_move` cloned the board for every quiet move and always returned `None` (`make_move` returns the captured piece) -- 13% of busy time; now returns before the clone | 228k → 367k nps |
+
+Found by marking ordering helpers `#[inline(never)]` in a throwaway build: the cost was inlined
+into `order_moves_with_all_heuristics` and invisible by name. **The flank bonus has never
+applied to any move**; making it work changes the search and is a separate, gated change.
+
+At 1 s/move the gain is smaller than on one deep position: over 34 positions, median nodes
++22%, mean depth 4.74 → 4.88 (6 deeper, 27 same, 1 shallower) -- short searches spend more of
+their time outside the nodes.
+
+**Gate:** against the 2-ply + C1 stable, SPRT [0, 40], seed 3005: **321-19-258 over 598 games,
++36.7 ± 29.3, LLR +3.07: PASS** (`matches/s32_overhead_sprt.*`). Installed;
+`-stable-prev` is now 2-ply + C1.
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
@@ -194,5 +218,6 @@ was a missed win.
 
 1. More of the idle threads, without giving up LMR: split at non-PV nodes too (YBWC), keeping
    reductions at split nodes; profile per thread after each step. 3 plies of PV split failed.
-2. Single-thread speed: the NNUE forward pass is the largest busy item.
+2. Per-move setup cost (short searches gain less than deep ones from per-node speed), then the
+   NNUE forward pass, now the largest busy item (~15%).
 3. Session 31's C2, C3 and qlegal, re-gated by SPRT (C1 shipped, above).
