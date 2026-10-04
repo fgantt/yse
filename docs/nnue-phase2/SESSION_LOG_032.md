@@ -206,6 +206,25 @@ costs ~3-4x the last, and the unfinished one is discarded. Session 29 found that
 into it made things worse -- in the single-threaded engine; the root split now searches the
 previous best move first, so a partial iteration's result may be usable where it was not.
 
+## A fifth six-piece loss (overhead-stack stable)
+
+`matches/user_games/2026-10-04_6mai_loss71.txt`, lost in 71 (the user: "we lasted a bit
+longer"). YaneuraOu: +3000 through move 42 (+2,923 at 40), then (30M nodes):
+
+| move | played | YaneuraOu before → after | loss | YaneuraOu | ours at 10 s |
+|---|---|---|---|---|---|
+| **43** | **2f4f** | **+3000 → +721** | **2,279** | 2f2g | 2f4f, d6, +1629 |
+| 46 | 7b6b | +524 → −110 | 634 | 6f7f | 7b6b, d8, +835 |
+| 53 | 4g3h | −670 → −1254 | 584 | P\*7f | 4g3h, d5, +603 |
+
+YaneuraOu's refutation of 43 is `...4d4e`, the pawn kicking the rook and starting on our silver
+on 4g and the king beside it; after `2f2g` it rates the position +3,057. Move 55 (`7f7e`, −3000
+at 3M) is the repetition artifact again: from the bare SFEN, about −1,400 before and after.
+
+**One blunder this time, not a slow bleed** -- but the same optimism: at 10 s the engine plays
+all three again and scores them +600 to +1,600 where YaneuraOu sees +721 to −1,254. At move 53
+we think we are winning by 600 in a position YaneuraOu has lost by 1,250.
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
