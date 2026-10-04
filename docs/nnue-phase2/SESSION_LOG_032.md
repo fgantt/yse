@@ -188,6 +188,24 @@ their time outside the nodes.
 +36.7 ± 29.3, LLR +3.07: PASS** (`matches/s32_overhead_sprt.*`). Installed;
 `-stable-prev` is now 2-ply + C1.
 
+## Short searches: not setup cost
+
+`sample` over 26 consecutive `go byoyomi 1000` searches (corpus positions, the stable above):
+
+- **Per-move setup is ~4% of busy time** (`clone_for_worker` 1.8%, table construction 1.0%,
+  `SearchEngine::new` 0.8%), though each `go` still builds ~18 threads and a new shared table.
+- **About 1.8 cores busy on average**, against 10+ in a long search. Iterations finish at e.g.
+  d3 @ 54 ms, d4 @ 179 ms, and the engine then stops rather than start an iteration it predicts
+  will not finish: mean time used 0.62-0.70 s of 1 s. Depths 1-3 are single-threaded
+  (`ParallelMinDepth` 4).
+- **`ParallelMinDepth` 3 or 2 changes nothing** at 1 s/move: mean depth 4.91 → 4.88 for both
+  (34 positions, same binary).
+
+So at the match time control the engine's time is set by iteration granularity: each iteration
+costs ~3-4x the last, and the unfinished one is discarded. Session 29 found that playing on
+into it made things worse -- in the single-threaded engine; the root split now searches the
+previous best move first, so a partial iteration's result may be usable where it was not.
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
