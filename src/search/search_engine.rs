@@ -412,6 +412,9 @@ pub struct SearchEngine {
     /// is measured against this, not against zero — otherwise a mate in 3 in a
     /// 50-move game was reported as a mate in 54.
     root_path_len: usize,
+    /// Whether the last `search_at_depth` was cut off by the clock or a stop:
+    /// its result then covers only the moves that finished.
+    last_search_interrupted: bool,
     /// Search statistics module (Task 1.8)
     search_statistics: SearchStatistics,
     /// Core search metrics for performance tracking
@@ -626,6 +629,17 @@ pub(crate) struct SearchToggles {
     /// Disable SEE handling of quiet moves (pruning and ordering of moves that
     /// hang the moved piece).
     pub no_see_quiet: bool,
+    /// When the clock stops an iteration of the parallel root search after its
+    /// first move (the previous best) finished, play the best of the moves that
+    /// finished instead of discarding the iteration. On by default
+    /// (`SHOGI_NO_PARTIAL_ITER` turns it off). With `iter_start_frac` 0.7:
+    /// 180-6-140 over 326 games at 1 s/move, +42.8 +/- 35.0, SPRT [0, 40] pass
+    /// (Session 32).
+    pub partial_iter: bool,
+    /// Start another iteration only while less than this fraction of the
+    /// move's time has gone: 0.7 by default, `SHOGI_ITER_START_FRAC` to override;
+    /// `None` is the old rule, 0.5.
+    pub iter_start_frac: Option<f32>,
 }
 
 impl SearchToggles {
@@ -639,6 +653,14 @@ impl SearchToggles {
             no_pruning: on("SHOGI_NO_PRUNING"),
             no_check_ext: on("SHOGI_NO_CHECKEXT"),
             no_see_quiet: on("SHOGI_NO_SEE_QUIET"),
+            partial_iter: !on("SHOGI_NO_PARTIAL_ITER"),
+            iter_start_frac: Some(
+                std::env::var("SHOGI_ITER_START_FRAC")
+                    .ok()
+                    .and_then(|v| v.parse::<f32>().ok())
+                    .filter(|f| *f > 0.0 && *f <= 1.0)
+                    .unwrap_or(0.7),
+            ),
         }
     }
 }
@@ -1624,6 +1646,7 @@ impl SearchEngine {
             check_extensions_on_path: 0,
             node_ply: 0,
             root_path_len: 0,
+            last_search_interrupted: false,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
             quiescence_config,
@@ -1783,6 +1806,11 @@ impl SearchEngine {
         captured_pieces: &CapturedPieces,
     ) -> bool {
         self.move_generator.generate_legal_moves(board, player, captured_pieces).is_empty()
+    }
+
+    /// Whether the last `search_at_depth` was cut short (see the field).
+    pub fn last_search_interrupted(&self) -> bool {
+        self.last_search_interrupted
     }
 
     /// Expose nodes searched for external aggregators/monitors.
@@ -2130,6 +2158,7 @@ impl SearchEngine {
             check_extensions_on_path: 0,
             node_ply: 0,
             root_path_len: 0,
+            last_search_interrupted: false,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
             // Convert from all:: types to types::search:: types
@@ -6023,6 +6052,7 @@ impl SearchEngine {
         self.current_depth = depth;
         let start_time = TimeSource::now();
         let mut alpha = alpha;
+        self.last_search_interrupted = false;
 
         let mut best_move: Option<Move> = None;
         // Initialize best_score to alpha (Task 5.12)
@@ -6114,6 +6144,7 @@ impl SearchEngine {
         for (move_index, move_) in sorted_moves.iter().enumerate() {
             if self.should_stop(&start_time, time_limit_ms) {
                 trace_log!("SEARCH_AT_DEPTH", "Time limit reached, stopping move evaluation",);
+                self.last_search_interrupted = true;
                 break;
             }
 
@@ -6183,6 +6214,14 @@ impl SearchEngine {
             // Restore board state by unmaking the move
             self.nnue_unmake_move();
             board.unmake_move(&move_info);
+
+            // A subtree the clock cut short returns whatever it had, not a
+            // search result. Leave it out, and say so: the parallel root split
+            // used to take such scores at face value.
+            if self.should_stop_force(&start_time, time_limit_ms) {
+                self.last_search_interrupted = true;
+                break;
+            }
 
             // Enhanced move evaluation logging
             log_move_eval!(
@@ -6381,7 +6420,8 @@ impl SearchEngine {
         self.validate_move_tracking(&best_move, best_score, sorted_moves.len());
 
         // Store the root position in the transposition table so get_pv can extract it
-        if let Some(ref best_move_ref) = best_move {
+        // (not from an interrupted search: its best covers only some moves)
+        if let Some(best_move_ref) = best_move.as_ref().filter(|_| !self.last_search_interrupted) {
             let position_hash =
                 self.hash_calculator.get_position_hash(board, player, captured_pieces);
             let flag = if best_score <= alpha {
@@ -15310,7 +15350,12 @@ impl IterativeDeepening {
             // started after half the budget has gone would almost never finish,
             // and its time would be wasted (the result of an unfinished iteration
             // is discarded below).
-            let past_half = self.max_depth >= 100 && depth > 1 && elapsed_ms * 2 > search_time_limit;
+            let past_half = self.max_depth >= 100
+                && depth > 1
+                && match search_toggles().iter_start_frac {
+                    None => elapsed_ms * 2 > search_time_limit,
+                    Some(f) => elapsed_ms as f32 > f * search_time_limit as f32,
+                };
             if remaining_ms <= time_buffer_ms || past_half {
                 trace_log!(
                     "ITERATIVE_DEEPENING",
@@ -15819,6 +15864,13 @@ impl IterativeDeepening {
                     None
                 };
 
+                // A cut-short parallel iteration is usable when its first root move
+                // (the previous best) finished: see `partial_iter`.
+                let partial_usable = parallel_result.is_some()
+                    && self
+                        .parallel_engine
+                        .as_ref()
+                        .is_some_and(|e| e.last_root_first_done());
                 let mut test_board = board.clone();
                 let search_start_time = std::time::Instant::now();
                 if let Some((move_, score)) = parallel_result.or_else(|| {
@@ -15861,7 +15913,14 @@ impl IterativeDeepening {
                         // if no iteration has completed is a partial result better
                         // than nothing.
                         timed_out = true;
-                        if best_move.is_none() {
+                        // With `partial_iter`, the best of the root moves that
+                        // finished stands if the previous best was among them and
+                        // the score is inside the window (a bound is not a result).
+                        let partial = search_toggles().partial_iter
+                            && partial_usable
+                            && score > current_alpha
+                            && score < current_beta;
+                        if best_move.is_none() || partial {
                             best_move = Some(move_.clone());
                             best_score = score;
                         }

@@ -722,6 +722,10 @@ struct SplitSearch<'a> {
     /// waiting on a nested split steals other tasks, which need their own.
     holders: Mutex<Vec<PooledHolder>>,
     split_plies: u8,
+    /// Whether the root's first move -- the previous iteration's best --
+    /// finished with a score. Only then is a cut-short iteration's best move
+    /// (the best of the moves that finished) a result at this depth.
+    root_first_done: AtomicBool,
 }
 
 /// A worker context in the pool, boxed so it never moves: the move orderer
@@ -795,6 +799,9 @@ impl SplitSearch<'_> {
         let result = holder
             .context
             .search_root_child(mv, player, child_depth, self.time_limit_ms, -b, -a)
+            // A search the clock cut short has no score: its best covers only
+            // the moves that finished.
+            .filter(|_| !holder.context.search_engine_mut().last_search_interrupted())
             .map(|score_child| {
                 let seldepth =
                     crate::search::search_engine::GLOBAL_SELDEPTH.load(Ordering::Relaxed) as u8;
@@ -942,6 +949,9 @@ impl SplitSearch<'_> {
         let best_alpha = std::sync::atomic::AtomicI32::new(alpha);
         match self.search_move(board, captured, player, first, depth, alpha, beta, ply) {
             Some((score, pv)) => {
+                if ply == 0 {
+                    self.root_first_done.store(true, Ordering::Relaxed);
+                }
                 best_alpha.fetch_max(score, Ordering::Relaxed);
                 offer(first, score, pv);
                 if score >= beta {
@@ -1140,6 +1150,9 @@ pub struct ParallelSearchEngine {
     /// are built with a fresh `PositionEvaluator`; without this they searched with
     /// classical evaluation while the main thread used NNUE.
     nnue_template: std::sync::RwLock<Option<crate::evaluation::nnue::NNUEEvaluator>>,
+    /// Whether the last `search_root_moves` finished its first root move (see
+    /// [`ParallelSearchEngine::last_root_first_done`]).
+    last_root_first_done: AtomicBool,
 }
 
 impl ParallelSearchEngine {
@@ -1200,6 +1213,7 @@ impl ParallelSearchEngine {
             work_queues,
             work_stats: Arc::new(WorkDistributionRecorder::new(num_threads, metrics_mode)),
             nnue_template: std::sync::RwLock::new(None),
+            last_root_first_done: AtomicBool::new(false),
         })
     }
 
@@ -1287,10 +1301,19 @@ impl ParallelSearchEngine {
             work_queues,
             work_stats: Arc::new(WorkDistributionRecorder::new(num_threads, metrics_mode)),
             nnue_template: std::sync::RwLock::new(None),
+            last_root_first_done: AtomicBool::new(false),
         })
     }
 
     /// Get the number of threads configured for this engine.
+    /// Whether the last root search finished its first move -- the previous
+    /// iteration's best, searched first. If so, its result (the best of the
+    /// moves that finished, each with a real score) stands even when the clock
+    /// stopped the iteration before the other moves were done.
+    pub fn last_root_first_done(&self) -> bool {
+        self.last_root_first_done.load(Ordering::Relaxed)
+    }
+
     pub fn num_threads(&self) -> usize {
         self.config.num_threads
     }
@@ -1381,6 +1404,7 @@ impl ParallelSearchEngine {
             work_queues,
             work_stats: Arc::new(WorkDistributionRecorder::new(num_threads, metrics_mode)),
             nnue_template: std::sync::RwLock::new(None),
+            last_root_first_done: AtomicBool::new(false),
         })
     }
 
@@ -1507,6 +1531,7 @@ impl ParallelSearchEngine {
             hash_size_mb,
             holders: Mutex::new(Vec::new()),
             split_plies: pv_split_plies(),
+            root_first_done: AtomicBool::new(false),
         };
         let report = |mv: &Move, score: i32, pv: &str| {
             let _ = tx.send((mv.clone(), score, pv.to_string()));
@@ -1527,6 +1552,9 @@ impl ParallelSearchEngine {
                 Some(&report),
             );
         });
+        self.last_root_first_done
+            .store(split.root_first_done.load(Ordering::Relaxed), Ordering::Relaxed);
+        let interrupted = search_stop.load(Ordering::Relaxed);
         // Close the channel to signal the consumer that no more results are coming
         drop(tx);
         // All senders dropped; wait for consumer to finish
@@ -1542,7 +1570,8 @@ impl ParallelSearchEngine {
 
         // Store root position in shared TT so PV can be built from root
         // This ensures the PV chain is complete when building from the root position
-        if let Some((ref best_move, ref best_score)) = result {
+        // (only for a finished iteration: a cut-short one's score is not this depth's)
+        if let Some((ref best_move, ref best_score)) = result.as_ref().filter(|_| !interrupted) {
             use crate::search::shogi_hash::ShogiHashHandler;
             use crate::{TranspositionEntry, TranspositionFlag};
 
