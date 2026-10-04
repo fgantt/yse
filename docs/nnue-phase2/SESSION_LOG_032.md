@@ -225,6 +225,23 @@ at 3M) is the repetition artifact again: from the bare SFEN, about −1,400 befo
 all three again and scores them +600 to +1,600 where YaneuraOu sees +721 to −1,254. At move 53
 we think we are winning by 600 in a position YaneuraOu has lost by 1,250.
 
+## Using the cut-short iteration (shipped, +42.8 ± 35.0)
+
+`2713558`. Why Session 29's attempt failed: a `search_at_depth` the clock stopped returned the
+interrupted subtree's score as real (and the first move when none had finished), and the
+parallel root took those scores at face value. Now an interrupted move is dropped and the search
+is marked interrupted; the root split treats it as no result and records whether its first move
+(the previous best) finished. When it did, and the score is inside the window, iterative
+deepening plays the best of the finished moves. Iterations now start until 0.7 of the time has
+gone (was 0.5). Switches: `SHOGI_NO_PARTIAL_ITER`, `SHOGI_ITER_START_FRAC`.
+
+Fixed-depth fingerprint byte-identical. At 1 s/move, 34 positions: time used 0.67 → 0.76 s,
+4-5 moves from the cut-short iteration (0.85 used 0.78 s for nothing more).
+
+**Gate:** partial + 0.7 against the overhead-stack stable, SPRT [0, 40], seed 3006:
+**180-6-140 over 326 games, +42.8 ± 35.0, LLR +2.97: PASS** (`matches/s32_partial07_sprt.*`).
+Longest think 1,007 ms against stable's 1,003. Installed; `-stable-prev` is the overhead stack.
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
@@ -255,6 +272,8 @@ was a missed win.
 
 1. More of the idle threads, without giving up LMR: split at non-PV nodes too (YBWC), keeping
    reductions at split nodes; profile per thread after each step. 3 plies of PV split failed.
-2. Per-move setup cost (short searches gain less than deep ones from per-node speed), then the
-   NNUE forward pass, now the largest busy item (~15%).
+2. Search depth in king-attack positions: every user loss this session is our king attacked
+   by pawns and drops, seen ~3 plies too late, with our score +600 to +1,600 above YaneuraOu's.
+   Extensions on our king under attack, judged on the eval-gap close subset at fixed time.
+   Then the NNUE forward pass (~15% of busy time).
 3. Session 31's C2, C3 and qlegal, re-gated by SPRT (C1 shipped, above).
