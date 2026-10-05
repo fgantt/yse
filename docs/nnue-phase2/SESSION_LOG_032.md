@@ -242,6 +242,41 @@ Fixed-depth fingerprint byte-identical. At 1 s/move, 34 positions: time used 0.6
 **180-6-140 over 326 games, +42.8 ± 35.0, LLR +2.97: PASS** (`matches/s32_partial07_sprt.*`).
 Longest think 1,007 ms against stable's 1,003. Installed; `-stable-prev` is the overhead stack.
 
+## King-attack work: four search bugs (shipped, +137 ± 88)
+
+The plan was search depth in king-attack positions. Measured first, on the eval-gap close subset
+(|YaneuraOu| < 1500, our king under mid/high pressure), node-limited and single-threaded
+(`eval_gap.py --go "nodes N" --close-only`):
+
+- **The pruning switches change nothing** at 200k nodes: baseline, `SHOGI_NO_NULLMOVE`,
+  `SHOGI_NO_LMR`, `SHOGI_NO_PRUNING` all 0.185-0.188 mean |dp|.
+- **64x the nodes barely helps**: 0.187 (50k) → 0.181 (3.2M, median depth 7). The bias falls
+  (+0.133 → +0.066); the per-position error does not. YaneuraOu's falls 0.157 → 0.119 from
+  depth 1 to 6 on the Session 31 set.
+
+Walking YaneuraOu's line through the worst position (2026-09-28 game 2, ply 93: YaneuraOu −933,
+ours +557) showed our score at exactly 0 on several White-to-move plies. Tracing that 0 found:
+
+1. **LMR re-searches scored a 0 draw.** The reduced search leaves the child's entry on the path
+   and the full-depth re-search found its own position there as a repetition. The null-move
+   verification (always 0) and mate-threat searches reused the null search's path the same way;
+   the IID helpers kept siblings on theirs.
+2. **Zobrist keys had no owner.** A Black and a White piece on one square hashed alike; both
+   hands shared keys, so equal holdings cancelled (one pawn each = none); hand counts were capped
+   at 7. Positions differing in ownership shared table entries and read as repetitions.
+3. **Perpetual check scored as a draw.** In shogi the checking side loses; a side under attack
+   could "escape" by checking forever (~460 perpetual cycles in one 800k-node search).
+4. **Aborted searches stored placeholder scores** in the table as full-depth results.
+
+`a98b1b2`. Depth-5 `search_bench`: 8.59M → 12.38M nodes -- the fake draws had been pruning.
+The close subset is unchanged at 800k nodes (0.236 → 0.240, +0.004 ± 0.006 paired; best move
+agrees 15 → 20 of 52): **these bugs are not the king-attack optimism.**
+
+**Gate:** against the partial-iteration stable, SPRT [0, 40]: 14-0-2, stopped after 8 pairs --
+too early to trust; `usi_match --sprt-min-pairs` (default 20) added. On fresh openings (seed
+3008): **37-3-16, +137.0 ± 88.2, LLR +3.24: PASS**; pooled 72 games 51-3-18, LLR +5.32
+(`matches/s32_searchfix_sprt*.{csv,log}`). Installed; `-stable-prev` is partial iterations.
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
@@ -272,8 +307,8 @@ was a missed win.
 
 1. More of the idle threads, without giving up LMR: split at non-PV nodes too (YBWC), keeping
    reductions at split nodes; profile per thread after each step. 3 plies of PV split failed.
-2. Search depth in king-attack positions: every user loss this session is our king attacked
-   by pawns and drops, seen ~3 plies too late, with our score +600 to +1,600 above YaneuraOu's.
-   Extensions on our king under attack, judged on the eval-gap close subset at fixed time.
+2. The king-attack optimism is still unexplained: not pruning, not node count, not the four
+   search bugs. Next: re-walk the worst close positions with the fixed engine; compare our
+   quiescence and evaluation along YaneuraOu's lines to find where the danger first shows.
    Then the NNUE forward pass (~15% of busy time).
 3. Session 31's C2, C3 and qlegal, re-gated by SPRT (C1 shipped, above).
