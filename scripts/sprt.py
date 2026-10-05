@@ -13,6 +13,7 @@ import csv, math, random, sys
 
 ALPHA = BETA = 0.05
 LOWER, UPPER = math.log(BETA / (1 - ALPHA)), math.log((1 - BETA) / ALPHA)
+MIN_PAIRS = 20  # as usi_match --sprt-min-pairs: a few pairs can stop the test on luck
 
 
 def expected(elo):
@@ -41,7 +42,7 @@ def pair_scores_from_csv(path):
 def check(paths, elo0, elo1):
     scores = [x for p in paths for x in pair_scores_from_csv(p)]
     # Replay pair by pair: where would a live SPRT have stopped?
-    for k in range(2, len(scores) + 1):
+    for k in range(MIN_PAIRS, len(scores) + 1):
         v = llr(scores[:k], elo0, elo1)
         if v >= UPPER or v <= LOWER:
             print(f"live SPRT would have stopped after {2 * k} games: "
@@ -70,7 +71,7 @@ def plan(elo0, elo1, draw_rate=0.02, max_games=1000, runs=2000):
                     pair += 1.0 if r < pw else 0.5 if r < pw + draw_rate else 0.0
                 scores.append(pair / 2)
                 v = llr(scores, elo0, elo1)
-                if v >= UPPER or v <= LOWER or 2 * len(scores) >= max_games:
+                if (len(scores) >= MIN_PAIRS and (v >= UPPER or v <= LOWER)) or 2 * len(scores) >= max_games:
                     break
             passes += v >= UPPER
             lens.append(2 * len(scores))

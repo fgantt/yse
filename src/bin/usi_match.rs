@@ -89,6 +89,11 @@ struct Cli {
     /// SPRT false-negative rate (failing a change that is worth elo1).
     #[arg(long, default_value_t = 0.05)]
     sprt_beta: f64,
+    /// Opening pairs before the SPRT may stop. The test estimates the variance
+    /// from the pairs so far, and a handful of them can stop it on luck: 14-2
+    /// after 8 pairs once read as a pass.
+    #[arg(long, default_value_t = 20)]
+    sprt_min_pairs: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -329,6 +334,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let scores: Vec<f64> = pair_points.iter().map(|x| x / 2.0).collect();
             let llr = sprt_llr(&scores, e0, e1);
             println!("SPRT: LLR {llr:+.2} [{lower:.2}, {upper:.2}] after {} pairs", pair_points.len());
+            if pair_points.len() < cli.sprt_min_pairs {
+                continue;
+            }
             if llr >= upper {
                 verdict = Some("PASS (H1 accepted)");
                 break;

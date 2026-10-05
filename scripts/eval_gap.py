@@ -13,6 +13,11 @@ our engine's scores:
   pieces in hand;  low 0-1, mid 2-3, high >= 4.
 
     python3 scripts/eval_gap.py ENGINE [--depth 1] [--jobs 4] [--csv out.csv] [--option NNUEFile=x.bin]
+    python3 scripts/eval_gap.py ENGINE --go "nodes 200000" --close-only [--env SHOGI_NO_LMR=1]
+
+`--go` replaces `depth N` (a node limit is single-threaded and reproducible, and charges a
+search change for the nodes it spends); `--close-only` keeps the search-depth benchmark,
+|YaneuraOu| < 1500 with our king under mid or high pressure; `--env` sets engine environment.
     python3 scripts/eval_gap.py --compare a.csv b.csv   # paired, per subset
 """
 import argparse, csv, json, math, os, subprocess, sys
@@ -34,9 +39,10 @@ def tier(k):
 
 
 def run_chunk(args):
-    engine, depth, options, rows = args
+    engine, go, options, env, rows = args
     e = subprocess.Popen([engine], cwd=ROOT, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                         stderr=subprocess.DEVNULL, text=True, bufsize=1)
+                         stderr=subprocess.DEVNULL, text=True, bufsize=1,
+                         env=dict(os.environ, **env))
     send = lambda s: (e.stdin.write(s + "\n"), e.stdin.flush())
 
     def until(tok):
@@ -57,7 +63,7 @@ def run_chunk(args):
     send("isready"); until("readyok")
     res = []
     for r in rows:
-        send("usinewgame"); send(f"position sfen {r['sfen']}"); send(f"go depth {depth}")
+        send("usinewgame"); send(f"position sfen {r['sfen']}"); send(f"go {go}")
         out = until("bestmove")
         cp = None
         for l in out:
@@ -135,13 +141,22 @@ def main():
     ap.add_argument("--option", action="append", default=[],
                     help="USI option NAME=VALUE, e.g. NNUEFile=weights/x.bin (repeatable)")
     ap.add_argument("--compare", nargs=2)
+    ap.add_argument("--go", help='search limit instead of "depth N", e.g. "nodes 200000"')
+    ap.add_argument("--close-only", action="store_true",
+                    help="only |YaneuraOu| < 1500 with our king under mid/high pressure")
+    ap.add_argument("--env", action="append", default=[], help="engine env NAME=VALUE")
     a = ap.parse_args()
     if a.compare:
         return compare(*a.compare)
     if not a.engine:
         sys.exit("engine required")
-    rows = [json.loads(l) for l in open(a.set)]
-    chunks = [(os.path.abspath(a.engine), a.depth, a.option, rows[i::a.jobs]) for i in range(a.jobs)]
+    rows = [json.loads(l) for path in a.set.split(",") for l in open(path)]
+    if a.close_only:
+        rows = [r for r in rows if abs(int(r["yo_cp"])) < 1500
+                and tier(r["our_king"]) in ("mid", "high")]
+    go = a.go or f"depth {a.depth}"
+    env = dict(kv.split("=", 1) for kv in a.env)
+    chunks = [(os.path.abspath(a.engine), go, a.option, env, rows[i::a.jobs]) for i in range(a.jobs)]
     with ProcessPoolExecutor(a.jobs) as ex:
         res = [r for part in ex.map(run_chunk, chunks) for r in part]
     res.sort(key=lambda r: (r["game"], r["ply"]))
@@ -149,7 +164,7 @@ def main():
         with open(a.csv, "w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=list(res[0].keys()))
             w.writeheader(); w.writerows(res)
-    summarize(res, f"{a.engine} {' '.join(a.option)} depth {a.depth}, {len(res)} positions")
+    summarize(res, f"{a.engine} {' '.join(a.option + a.env)} go {go}, {len(res)} positions")
 
 
 if __name__ == "__main__":
