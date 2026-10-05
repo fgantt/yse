@@ -277,6 +277,33 @@ too early to trust; `usi_match --sprt-min-pairs` (default 20) added. On fresh op
 3008): **37-3-16, +137.0 ± 88.2, LLR +3.24: PASS**; pooled 72 games 51-3-18, LLR +5.32
 (`matches/s32_searchfix_sprt*.{csv,log}`). Installed; `-stable-prev` is partial iterations.
 
+## The king-attack optimism is evaluation, not horizon
+
+With the fixed engine the close subset is unchanged (0.240 at 800k nodes). Walking YaneuraOu's
+best line (5M nodes per ply) for 20 plies from four of the worst close positions, ours at 800k
+nodes per ply, with the board's material balance (`scratchpad linewalk.py`):
+
+| start | YaneuraOu over 20 plies | ours | material (Black) |
+|---|---|---|---|
+| 2026-09-28 game 2, ply 91 | −820 to −1,180 | +880 to −50 | +1,440 to +3,015, mostly +1,890 |
+| loss71, ply 105 | −1,000 to −1,610 | +570 to −640 | +495 to −720 |
+| loss74, ply 121 | −1,160 to −3,630 | +605 to −1,010 | +180 to +2,745 |
+| loss71, ply 103 | −445 to −1,075 | +706 to −455 | +1,530 to +675 |
+
+- **Not a horizon effect.** In the first line our score never reaches YaneuraOu's in 20 plies
+  of its own best play, the material hardly moves, and YaneuraOu shows no mate: the danger is
+  positional and it scores it from the start.
+- **Our score follows material.** Loss74: ours falls when material falls (+180 at ply 8) and
+  rises to +605 when it comes back, while YaneuraOu reads −3,500 with Black 2,500 up.
+- **Large side-to-move swing.** Ours is +600 to +900 with Black to move and ~0 to +300 with White
+  to move along the same line (YaneuraOu: ~±100). Each side's attack registers only on its own
+  move -- an evaluation that does not score threats, worst in mutual-attack races.
+
+So the lever is the evaluation of king danger in races, which two Session 31 fine-tunes and a
+handcrafted term did not move (bias fell, per-position error rose). Candidates: a threat-aware
+input (attacks on the squares around each king, by side to move), training on positions from
+these races with deep labels, or a mate-threat search in the opponent's favour at shallow nodes.
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
