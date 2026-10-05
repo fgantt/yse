@@ -415,6 +415,12 @@ pub struct SearchEngine {
     /// Whether the last `search_at_depth` was cut off by the clock or a stop:
     /// its result then covers only the moves that finished.
     last_search_interrupted: bool,
+    /// Latched by `should_stop`: the search in progress has been told to stop,
+    /// so the scores now coming back up the tree are placeholders (a partial
+    /// best, a static eval). Nothing may be stored from them: the table used
+    /// to keep them as full-depth results, and later searches -- the next
+    /// iteration, the next move -- read them back as real.
+    search_aborted: bool,
     /// Search statistics module (Task 1.8)
     search_statistics: SearchStatistics,
     /// Core search metrics for performance tracking
@@ -663,6 +669,19 @@ impl SearchToggles {
             ),
         }
     }
+}
+
+/// A search-path entry: the position hash with its low bit replaced by
+/// whether the side to move is in check there (for the perpetual-check rule).
+#[inline]
+fn path_entry(hash: u64, in_check: bool) -> u64 {
+    (hash & !1) | u64::from(in_check)
+}
+
+/// Whether a path entry is the position `hash` (the check bit ignored).
+#[inline]
+fn same_position(entry: u64, hash: u64) -> bool {
+    (entry | 1) == (hash | 1)
 }
 
 pub(crate) fn search_toggles() -> SearchToggles {
@@ -1516,6 +1535,9 @@ impl SearchEngine {
         depth: u8,
         flag: TranspositionFlag,
     ) {
+        if self.search_aborted {
+            return; // a stopped search's scores are not results (see the field)
+        }
         // Task 7.0.3.8-3.9: TT Entry Priority - Prevent auxiliary entries from
         // overwriting deeper main entries Check if we should skip storing this
         // entry to preserve higher-quality entries
@@ -1647,6 +1669,7 @@ impl SearchEngine {
             node_ply: 0,
             root_path_len: 0,
             last_search_interrupted: false,
+            search_aborted: false,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
             quiescence_config,
@@ -1806,6 +1829,28 @@ impl SearchEngine {
         captured_pieces: &CapturedPieces,
     ) -> bool {
         self.move_generator.generate_legal_moves(board, player, captured_pieces).is_empty()
+    }
+
+    /// Score of a node that repeats the path entry at `j`, from the side to
+    /// move's view. In shogi a repetition is a draw unless one side gave check
+    /// on every move of the cycle; that side loses (perpetual check). Scored
+    /// like a mate at this ply, so the search prefers the shortest such win.
+    fn repetition_score(&self, path: &[u64], j: usize, in_check_here: bool) -> i32 {
+        let n = path.len(); // this node's index on the path
+        let ply = (n + 1).saturating_sub(self.root_path_len.max(1)) as i32;
+        let checked = |i: usize| path[i] & 1 == 1;
+        // Positions in the cycle with this side to move: j, j+2, ..., and here.
+        let we_were_checked = in_check_here && (j..n).filter(|i| (n - i) % 2 == 0).all(checked);
+        // Positions with the opponent to move: j+1, j+3, ...
+        let mut theirs = (j..n).filter(|i| (n - i) % 2 == 1).peekable();
+        let they_were_checked = theirs.peek().is_some() && theirs.all(checked);
+        if we_were_checked {
+            -(MATED_SCORE + ply) // the opponent checked perpetually: we win
+        } else if they_were_checked {
+            MATED_SCORE + ply // we checked perpetually: we lose
+        } else {
+            0
+        }
     }
 
     /// Whether the last `search_at_depth` was cut short (see the field).
@@ -2159,6 +2204,7 @@ impl SearchEngine {
             node_ply: 0,
             root_path_len: 0,
             last_search_interrupted: false,
+            search_aborted: false,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
             // Convert from all:: types to types::search:: types
@@ -3138,6 +3184,9 @@ impl SearchEngine {
             // Shallow search for this move with null window for efficiency
             // Task 2.6: Pass None for opponent_last_move in IID search (not applicable)
             // Task 7.0.3.6: Tag as IID entry
+            // The path holds only this search's root: a previous call's child stays on it
+            // (callers pop), and a position left there reads as a repetition -- a 0 draw.
+            local_hash_history.truncate(1);
             let score = -self.negamax_with_context(
                 board,
                 &new_captured,
@@ -4024,6 +4073,9 @@ impl SearchEngine {
 
             // Recursive search with reduced depth
             // Task 7.0.3.6: Tag as IID entry
+            // The path holds only this search's root: a previous call's child stays on it
+            // (callers pop), and a position left there reads as a repetition -- a 0 draw.
+            local_hash_history.truncate(1);
             let score = -self.negamax_with_context(
                 board,
                 &new_captured,
@@ -4595,6 +4647,9 @@ impl SearchEngine {
 
                 // Recursive search
                 // Task 7.0.3.6: Tag as IID entry
+                // The path holds only this search's root: a previous call's child stays on it
+                // (callers pop), and a position left there reads as a repetition -- a 0 draw.
+                local_hash_history.truncate(1);
                 let score = -self.negamax_with_context(
                     board,
                     &new_captured,
@@ -5063,6 +5118,9 @@ impl SearchEngine {
 
             // Shallow search to evaluate move potential
             // Task 7.0.3.6: Tag as IID entry
+            // The path holds only this search's root: a previous call's child stays on it
+            // (callers pop), and a position left there reads as a repetition -- a 0 draw.
+            local_hash_history.truncate(1);
             let score = -self.negamax_with_context(
                 board,
                 &new_captured,
@@ -5176,6 +5234,9 @@ impl SearchEngine {
 
             // Deeper search for verification
             // Task 7.0.3.6: Tag as IID entry
+            // The path holds only this search's root: a previous call's child stays on it
+            // (callers pop), and a position left there reads as a repetition -- a 0 draw.
+            local_hash_history.truncate(1);
             let deep_score = -self.negamax_with_context(
                 board,
                 &new_captured,
@@ -6053,6 +6114,7 @@ impl SearchEngine {
         let start_time = TimeSource::now();
         let mut alpha = alpha;
         self.last_search_interrupted = false;
+        self.search_aborted = false;
 
         let mut best_move: Option<Move> = None;
         // Initialize best_score to alpha (Task 5.12)
@@ -6136,8 +6198,10 @@ impl SearchEngine {
         );
 
         // Use hash-based history instead of FEN strings (Task 5.1-5.2)
-        let mut hash_history: Vec<u64> =
-            vec![self.hash_calculator.get_position_hash(board, player, captured_pieces)];
+        let mut hash_history: Vec<u64> = vec![path_entry(
+            self.hash_calculator.get_position_hash(board, player, captured_pieces),
+            board.is_king_in_check(player, captured_pieces),
+        )];
         // Anchor the ply count for mate scores at this search's root.
         self.root_path_len = hash_history.len();
 
@@ -6658,14 +6722,23 @@ impl SearchEngine {
         // position visited 4 times anywhere in the recent search, which iterative
         // deepening and transpositions guarantee near the root, scored as a
         // four-fold-repetition draw. It also cost a Vec::remove(0) per node.
-        if !is_root && hash_history.contains(&position_hash) {
-            return 0;
+        //
+        // Except a cycle made of continuous checks: in shogi the side giving
+        // perpetual check loses (it is not a draw). Scoring it 0 let a side
+        // under attack "escape" by checking forever -- the engine's optimism in
+        // the user's six-piece losses. Each path entry carries the side to
+        // move's in-check flag in its low bit (see `path_entry`).
+        let in_check_here = board.is_king_in_check(player, captured_pieces);
+        if !is_root {
+            if let Some(j) = hash_history.iter().rposition(|h| same_position(*h, position_hash)) {
+                return self.repetition_score(hash_history, j, in_check_here);
+            }
         }
 
         // Add current position hash to search history (Task 5.2)
         // Also add to hash_calculator's global history for game-wide repetition
         // tracking
-        hash_history.push(position_hash);
+        hash_history.push(path_entry(position_hash, in_check_here));
         // The path holds the root plus every node down to this one, so its
         // length after the push is this node's distance from the root. Mate
         // scores are rebased with it when they cross the transposition table.
@@ -6839,6 +6912,9 @@ impl SearchEngine {
                 crate::debug_utils::start_timing("mate_threat_verification");
 
                 // Use same hash history for mate threat verification
+                // The path holds only this search's root: a previous call's child stays on it
+                // (callers pop), and a position left there reads as a repetition -- a 0 draw.
+                local_null_hash_history.truncate(1);
                 let mate_threat_score = self.perform_mate_threat_verification(
                     board,
                     captured_pieces,
@@ -6895,6 +6971,9 @@ impl SearchEngine {
                 crate::debug_utils::start_timing("verification_search");
 
                 // Use same hash history for verification search
+                // The path holds only this search's root: a previous call's child stays on it
+                // (callers pop), and a position left there reads as a repetition -- a 0 draw.
+                local_null_hash_history.truncate(1);
                 let verification_score = self.perform_verification_search(
                     board,
                     captured_pieces,
@@ -8059,7 +8138,7 @@ impl SearchEngine {
                     }
                 } else {
                     let position_hash = fen_key;
-                    self.quiescence_tt.insert(
+                    if !self.search_aborted { self.quiescence_tt.insert(
                         fen_key,
                         QuiescenceEntry {
                             score: stand_pat,
@@ -8071,7 +8150,7 @@ impl SearchEngine {
                             last_access_age: self.quiescence_tt_age,
                             stand_pat_score: Some(stand_pat),
                         },
-                    );
+                    ); }
                     self.quiescence_tt_age = self.quiescence_tt_age.wrapping_add(1);
                 }
             }
@@ -8322,7 +8401,7 @@ impl SearchEngine {
                     let stand_pat_for_beta = None; // Don't cache stand-pat at beta cutoff (position not fully evaluated)
 
                     let position_hash = fen_key;
-                    self.quiescence_tt.insert(
+                    if !self.search_aborted { self.quiescence_tt.insert(
                         fen_key,
                         QuiescenceEntry {
                             score: beta,
@@ -8336,7 +8415,7 @@ impl SearchEngine {
                                                                   * evaluation (None at beta
                                                                   * cutoff) */
                         },
-                    );
+                    ); }
                     self.quiescence_tt_age = self.quiescence_tt_age.wrapping_add(1);
                 }
                 return beta;
@@ -8394,7 +8473,7 @@ impl SearchEngine {
             } else {
                 // Create new entry with stand-pat cached
                 let position_hash = fen_key;
-                self.quiescence_tt.insert(
+                if !self.search_aborted { self.quiescence_tt.insert(
                     fen_key,
                     QuiescenceEntry {
                         score: alpha,
@@ -8406,7 +8485,7 @@ impl SearchEngine {
                         last_access_age: self.quiescence_tt_age,
                         stand_pat_score: Some(stand_pat), // Task 6.0: Cache stand-pat evaluation
                     },
-                );
+                ); }
                 self.quiescence_tt_age = self.quiescence_tt_age.wrapping_add(1);
             }
         }
@@ -8430,11 +8509,13 @@ impl SearchEngine {
     /// Check if search should stop due to time limit or stop flag
     /// Delegates to TimeManager (Task 1.8)
     fn should_stop(&mut self, start_time: &TimeSource, time_limit_ms: u32) -> bool {
-        self.time_manager.should_stop(
+        let stop = self.time_manager.should_stop(
             start_time,
             time_limit_ms,
             self.stop_flag.as_ref().map(|f| f.as_ref()),
-        )
+        );
+        self.search_aborted |= stop;
+        stop
     }
 
     /// Force time check (bypasses frequency optimization) (Task 8.4)
@@ -12028,6 +12109,7 @@ impl SearchEngine {
 
             // Perform reduced-depth search with null window
             let reduced_depth = depth - 1 - reduction;
+            let path_len = hash_history.len();
             // Task 2.6: Pass current move as opponent_last_move to recursive call
             // Task 7.0.3.7: Main search path uses MainSearch entry source
             let score = -self.negamax_with_context(
@@ -12107,7 +12189,12 @@ impl SearchEngine {
                     ),
                 );
 
-                // Re-search at full depth
+                // Re-search at full depth. The reduced search left the child's
+                // entry on the path (children never pop their own), so the
+                // re-search found its own position there as a repetition and
+                // scored every LMR re-search a 0 draw. Pop it first, as the PVS
+                // re-search below does.
+                hash_history.truncate(path_len);
                 // Task 2.6: Pass current move as opponent_last_move to recursive call
                 // Task 7.0.3.7: Main search path uses MainSearch entry source
                 let full_score = -self.negamax_with_context(

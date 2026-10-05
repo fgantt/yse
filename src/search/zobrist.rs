@@ -10,18 +10,27 @@ use rand::{Rng, SeedableRng};
 /// This struct contains all the random keys needed to generate unique hash
 /// values for Shogi positions. It includes keys for piece positions, hand
 /// pieces, side to move, and repetition states.
+/// Hand counts with their own key: 0..=18 (all eighteen pawns).
+const HAND_COUNTS: usize = 19;
+
 #[derive(Debug, Clone)]
 pub struct ZobristTable {
-    /// Hash keys for piece positions [piece_type][position]
-    /// 14 piece types × 81 positions = 1134 keys
-    pub piece_keys: [[u64; 81]; 14],
+    /// Hash keys for piece positions [player][piece_type][position].
+    ///
+    /// The owner is part of the key. It was not: a Black and a White silver on
+    /// the same square hashed alike, so positions that differ only in who owns
+    /// a piece shared transposition-table entries and read as repetitions.
+    pub piece_keys: [[[u64; 81]; 14]; 2],
 
     /// Hash key for side to move (Black vs White)
     pub side_to_move_key: u64,
 
-    /// Hash keys for pieces in hand [piece_type][count]
-    /// 14 piece types × 8 counts = 112 keys (max 8 of any piece type in hand)
-    pub hand_keys: [[u64; 8]; 14],
+    /// Hash keys for pieces in hand [player][piece_type][count], counts 0..=18.
+    ///
+    /// Per player: with one shared set, equal holdings cancelled (one pawn
+    /// each hashed like no pawns), and either side holding a piece hashed
+    /// alike. Counts were capped at 7, so 7 and 9 pawns in hand were one key.
+    pub hand_keys: [[[u64; HAND_COUNTS]; 14]; 2],
 
     /// Hash keys for repetition tracking [state]
     /// 4 states: no repetition, 2-fold, 3-fold, 4-fold
@@ -36,22 +45,26 @@ impl ZobristTable {
     pub fn new(seed: u64) -> Self {
         let mut rng = StdRng::seed_from_u64(seed);
 
-        // Initialize piece position keys (14 piece types × 81 positions)
-        let mut piece_keys = [[0u64; 81]; 14];
-        for piece_type in 0..14 {
-            for position in 0..81 {
-                piece_keys[piece_type][position] = rng.gen::<u64>();
+        // Initialize piece position keys (2 players × 14 piece types × 81 positions)
+        let mut piece_keys = [[[0u64; 81]; 14]; 2];
+        for player_keys in &mut piece_keys {
+            for type_keys in player_keys.iter_mut() {
+                for key in type_keys.iter_mut() {
+                    *key = rng.gen::<u64>();
+                }
             }
         }
 
         // Initialize side to move key
         let side_to_move_key = rng.gen::<u64>();
 
-        // Initialize hand piece keys (14 piece types × 8 counts)
-        let mut hand_keys = [[0u64; 8]; 14];
-        for piece_type in 0..14 {
-            for count in 0..8 {
-                hand_keys[piece_type][count] = rng.gen::<u64>();
+        // Initialize hand piece keys (2 players × 14 piece types × counts)
+        let mut hand_keys = [[[0u64; HAND_COUNTS]; 14]; 2];
+        for player_keys in &mut hand_keys {
+            for type_keys in player_keys.iter_mut() {
+                for key in type_keys.iter_mut() {
+                    *key = rng.gen::<u64>();
+                }
             }
         }
 
@@ -70,10 +83,10 @@ impl ZobristTable {
     }
 
     /// Get the hash key for a piece at a specific position
-    pub fn get_piece_key(&self, piece_type: PieceType, position: Position) -> u64 {
+    pub fn get_piece_key(&self, piece_type: PieceType, player: Player, position: Position) -> u64 {
         let piece_index = piece_type.to_u8() as usize;
         let pos_index = position.to_index() as usize;
-        self.piece_keys[piece_index][pos_index]
+        self.piece_keys[player as usize][piece_index][pos_index]
     }
 
     /// Get the hash key for side to move
@@ -82,10 +95,10 @@ impl ZobristTable {
     }
 
     /// Get the hash key for a specific count of a piece type in hand
-    pub fn get_hand_key(&self, piece_type: PieceType, count: u8) -> u64 {
+    pub fn get_hand_key(&self, piece_type: PieceType, player: Player, count: u8) -> u64 {
         let piece_index = piece_type.to_u8() as usize;
-        let count_index = count.min(7) as usize; // Cap at 7 since array is 0-7
-        self.hand_keys[piece_index][count_index]
+        let count_index = (count as usize).min(HAND_COUNTS - 1);
+        self.hand_keys[player as usize][piece_index][count_index]
     }
 
     /// Get the hash key for a repetition state
@@ -160,7 +173,7 @@ impl ZobristHasher {
             for col in 0..9 {
                 let pos = Position::new(row, col);
                 if let Some(piece) = board.get_piece(pos) {
-                    hash ^= self.table.get_piece_key(piece.piece_type, pos);
+                    hash ^= self.table.get_piece_key(piece.piece_type, piece.player, pos);
                 }
             }
         }
@@ -182,7 +195,7 @@ impl ZobristHasher {
         ] {
             let count = captured_pieces.count(piece_type, Player::Black);
             if count > 0 {
-                hash ^= self.table.get_hand_key(piece_type, count as u8);
+                hash ^= self.table.get_hand_key(piece_type, Player::Black, count as u8);
             }
         }
 
@@ -198,7 +211,7 @@ impl ZobristHasher {
         ] {
             let count = captured_pieces.count(piece_type, Player::White);
             if count > 0 {
-                hash ^= self.table.get_hand_key(piece_type, count as u8);
+                hash ^= self.table.get_hand_key(piece_type, Player::White, count as u8);
             }
         }
 
@@ -224,12 +237,12 @@ impl ZobristHasher {
         // Check if this is a drop move (no from position)
         if move_.from.is_none() {
             // Drop move: Add dropped piece to board
-            hash ^= self.table.get_piece_key(move_.piece_type, move_.to);
+            hash ^= self.table.get_piece_key(move_.piece_type, move_.player, move_.to);
         } else {
             // Normal move: Remove piece from source square
             if let Some(from) = move_.from {
                 if let Some(piece) = board_before.get_piece(from) {
-                    hash ^= self.table.get_piece_key(piece.piece_type, from);
+                    hash ^= self.table.get_piece_key(piece.piece_type, piece.player, from);
                 }
             }
 
@@ -239,12 +252,12 @@ impl ZobristHasher {
             } else {
                 move_.piece_type
             };
-            hash ^= self.table.get_piece_key(piece_type, move_.to);
+            hash ^= self.table.get_piece_key(piece_type, move_.player, move_.to);
 
             // Handle capture
             if move_.is_capture {
                 if let Some(captured) = &move_.captured_piece {
-                    hash ^= self.table.get_piece_key(captured.piece_type, move_.to);
+                    hash ^= self.table.get_piece_key(captured.piece_type, captured.player, move_.to);
                 }
             }
         }
@@ -267,10 +280,10 @@ impl ZobristHasher {
 
             if count_before != count_after {
                 if count_before > 0 {
-                    hash ^= self.table.get_hand_key(piece_type, count_before as u8);
+                    hash ^= self.table.get_hand_key(piece_type, Player::Black, count_before as u8);
                 }
                 if count_after > 0 {
-                    hash ^= self.table.get_hand_key(piece_type, count_after as u8);
+                    hash ^= self.table.get_hand_key(piece_type, Player::Black, count_after as u8);
                 }
             }
 
@@ -279,10 +292,10 @@ impl ZobristHasher {
 
             if count_before_white != count_after_white {
                 if count_before_white > 0 {
-                    hash ^= self.table.get_hand_key(piece_type, count_before_white as u8);
+                    hash ^= self.table.get_hand_key(piece_type, Player::White, count_before_white as u8);
                 }
                 if count_after_white > 0 {
-                    hash ^= self.table.get_hand_key(piece_type, count_after_white as u8);
+                    hash ^= self.table.get_hand_key(piece_type, Player::White, count_after_white as u8);
                 }
             }
         }
@@ -313,8 +326,8 @@ impl ZobristHasher {
     }
 
     /// Get a piece key for a specific piece type and position
-    pub fn get_piece_key(&self, piece_type: PieceType, position: Position) -> u64 {
-        self.table.get_piece_key(piece_type, position)
+    pub fn get_piece_key(&self, piece_type: PieceType, player: Player, position: Position) -> u64 {
+        self.table.get_piece_key(piece_type, player, position)
     }
 
     /// Get the side to move key
@@ -323,8 +336,8 @@ impl ZobristHasher {
     }
 
     /// Get a hand key for a specific piece type and count
-    pub fn get_hand_key(&self, piece_type: PieceType, count: u8) -> u64 {
-        self.table.get_hand_key(piece_type, count)
+    pub fn get_hand_key(&self, piece_type: PieceType, player: Player, count: u8) -> u64 {
+        self.table.get_hand_key(piece_type, player, count)
     }
 
     /// Get a repetition key for a specific state
@@ -362,17 +375,21 @@ mod tests {
         assert_eq!(table.get_seed(), 42);
 
         // Test that all keys are non-zero (very high probability)
-        for piece_type in 0..14 {
-            for position in 0..81 {
-                assert_ne!(table.piece_keys[piece_type][position], 0);
+        for player_keys in &table.piece_keys {
+            for type_keys in player_keys {
+                for key in type_keys {
+                    assert_ne!(*key, 0);
+                }
             }
         }
 
         assert_ne!(table.side_to_move_key, 0);
 
-        for piece_type in 0..14 {
-            for count in 0..8 {
-                assert_ne!(table.hand_keys[piece_type][count], 0);
+        for player_keys in &table.hand_keys {
+            for type_keys in player_keys {
+                for key in type_keys {
+                    assert_ne!(*key, 0);
+                }
             }
         }
 

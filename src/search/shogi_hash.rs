@@ -68,7 +68,7 @@ impl ShogiHashHandler {
         debug_assert!(drop_move.from.is_none(), "Drop move should not have a from position");
 
         // Add the dropped piece to the board
-        hash ^= self.zobrist_hasher.get_piece_key(drop_move.piece_type, drop_move.to);
+        hash ^= self.zobrist_hasher.get_piece_key(drop_move.piece_type, drop_move.player, drop_move.to);
 
         // Update hand piece counts
         hash = self.update_hand_piece_hash(
@@ -106,7 +106,7 @@ impl ShogiHashHandler {
         if let Some(from) = capture_move.from {
             // Remove piece from source square
             if let Some(piece) = board_before.get_piece(from) {
-                hash ^= self.zobrist_hasher.get_piece_key(piece.piece_type, from);
+                hash ^= self.zobrist_hasher.get_piece_key(piece.piece_type, piece.player, from);
             }
         }
 
@@ -116,12 +116,12 @@ impl ShogiHashHandler {
         } else {
             capture_move.piece_type
         };
-        hash ^= self.zobrist_hasher.get_piece_key(piece_type, capture_move.to);
+        hash ^= self.zobrist_hasher.get_piece_key(piece_type, capture_move.player, capture_move.to);
 
         // Handle captured piece
         if let Some(captured) = &capture_move.captured_piece {
             // Remove captured piece from destination square
-            hash ^= self.zobrist_hasher.get_piece_key(captured.piece_type, capture_move.to);
+            hash ^= self.zobrist_hasher.get_piece_key(captured.piece_type, captured.player, capture_move.to);
 
             // Add captured piece to hand (unpromoted)
             let unpromoted_captured = captured.unpromoted();
@@ -180,12 +180,12 @@ impl ShogiHashHandler {
         // Remove piece from source square
         if let Some(from) = move_.from {
             if let Some(piece) = board_before.get_piece(from) {
-                hash ^= self.zobrist_hasher.get_piece_key(piece.piece_type, from);
+                hash ^= self.zobrist_hasher.get_piece_key(piece.piece_type, piece.player, from);
             }
         }
 
         // Add piece to destination square
-        hash ^= self.zobrist_hasher.get_piece_key(move_.piece_type, move_.to);
+        hash ^= self.zobrist_hasher.get_piece_key(move_.piece_type, move_.player, move_.to);
 
         // Update side to move
         hash ^= self.zobrist_hasher.get_side_to_move_key();
@@ -208,12 +208,12 @@ impl ShogiHashHandler {
         if count_before != count_after {
             // Remove old hand count
             if count_before > 0 {
-                hash ^= self.zobrist_hasher.get_hand_key(piece_type, count_before as u8);
+                hash ^= self.zobrist_hasher.get_hand_key(piece_type, player, count_before as u8);
             }
 
             // Add new hand count
             if count_after > 0 {
-                hash ^= self.zobrist_hasher.get_hand_key(piece_type, count_after as u8);
+                hash ^= self.zobrist_hasher.get_hand_key(piece_type, player, count_after as u8);
             }
         }
 
