@@ -367,6 +367,10 @@ engines run at the same time, `matches/ladder_s32/`):
 | rung | Session 30 stable | Session 32 stable |
 |---|---|---|
 | two-piece, YaneuraOu 50 nodes | 30-1-9, 76% | **34-1-5, 86%** |
+| six-piece, YaneuraOu 2,000 nodes | 22-5-13, 61% | **29-4-7, 78%** |
+
+Losses as the side holding the odds fall from 13 to 7 at six-piece odds (difference ~1.7 SE at
+40 games each). No illegal moves or crashes; longest think 1,052 / 991 ms.
 
 ## SPRT
 
