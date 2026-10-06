@@ -352,6 +352,22 @@ YaneuraOu's judgement of king danger, it stops pressing the advantage it should 
 error is a diagnostic, not a target. Whatever replaces this has to be judged by games from the
 start, and the handicap SPRT above is the right gate for anything aimed at the user's games.
 
+## First win against six-piece YaneuraOu, and the ladder
+
+**`matches/user_games/2026-10-06_6mai_win55.txt`: the user's first recorded win against
+YaneuraOu at six-piece odds**, with the stable as of `a98b1b2` (all of this session's shipped
+changes), in 55 moves. YaneuraOu reviewing each of our moves at 3M nodes: +3000 (its cap)
+after every one, no move costing 200 or more. The previous five six-piece games in this session's
+records were lost from +3000.
+
+Handicap ladder, Session 31 setup (YaneuraOu fixed nodes, one thread, no book; ours 1 s/move;
+`--random-plies 2`, seed 2910; only our games as Black, holding the odds, counted; both
+engines run at the same time, `matches/ladder_s32/`):
+
+| rung | Session 30 stable | Session 32 stable |
+|---|---|---|
+| two-piece, YaneuraOu 50 nodes | 30-1-9, 76% | **34-1-5, 86%** |
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
