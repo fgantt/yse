@@ -62,3 +62,15 @@ for name, cols in models.items():
         names = ["intercept", "stm"] + [f"-B.{n}" for n in NAMES] + [f"W.{n}" for n in NAMES] + [f"-B.{n}*stm" for n in NAMES] + [f"W.{n}*stm" for n in NAMES]
         top = sorted(zip(names, w), key=lambda t: -abs(t[1]))[:12]
         print("  largest weights:", ", ".join(f"{n} {v:+.3f}" for n, v in top))
+
+# Raw coefficients for the engine: pred = sum(a[j] * x[j]) with x from features(), x[0] = 1.
+if len(sys.argv) > 2:
+    cols = list(range(d))
+    w = fit(cols, lam=50.0)
+    a = [w[j] / sd[j] for j in range(1, d)]
+    a0 = w[0] - sum(w[j] * mu[j] / sd[j] for j in range(1, d))
+    json.dump({"coef": [a0] + a, "names": ["intercept", "stm"] + [f"-B.{n}" for n in NAMES] + [f"W.{n}" for n in NAMES] + [f"-B.{n}*stm" for n in NAMES] + [f"W.{n}*stm" for n in NAMES]}, open(sys.argv[2], "w"), indent=0)
+    # Check: raw prediction equals the standardised one on a few rows.
+    for r in train[:3]:
+        zz = z(r["x"]); p1 = sum(w[i] * zz[i] for i in cols); p2 = sum(c * v for c, v in zip([a0] + a, r["x"]))
+        print(f"check {p1:+.6f} {p2:+.6f}")

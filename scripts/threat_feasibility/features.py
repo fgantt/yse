@@ -130,3 +130,20 @@ def features(sfen):
     x += [-v for v in fb] + [v for v in fw]
     x += [-v * stm for v in fb] + [v * stm for v in fw]
     return x
+
+
+def features_stm(sfen):
+    """Colour-symmetric features from the side to move's view: [1] + danger to
+    the mover's king + danger to the opponent's king. The same position with
+    colours swapped gives the same vector. (`features` above weights Black's and
+    White's kings separately; fitted on handicap games, where Black is always
+    the stronger side, it learned to favour Black -- +110-180 cp at the start
+    position -- and lost 110 Elo in even games.)"""
+    board, black_to_move, hands = parse(sfen)
+    ab, aw = attacks(board, True), attacks(board, False)
+    fb = king_features(board, hands, True, aw, ab)
+    fw = king_features(board, hands, False, ab, aw)
+    if fb is None or fw is None:
+        return None
+    us, them = (fb, fw) if black_to_move else (fw, fb)
+    return [1.0] + list(us) + list(them)

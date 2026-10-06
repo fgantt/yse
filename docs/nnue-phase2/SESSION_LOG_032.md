@@ -326,6 +326,32 @@ quiet positions included, on games the model never saw. The hardest subset gains
 can do. Largest weights: enemy attack pairs on each king zone, enemy gold/silver and major
 pieces in hand, attacked zone squares, escape squares, attacks × side to move.
 
+## The threat correction in the engine: accurate, and weaker (rejected)
+
+`patches/session32/threat_correction_symmetric.patch` (reverted): `BitboardBoard::attacker_count`,
+`evaluation::threat_correction` (the fitted linear model applied in win-probability space at
+every leaf, through one `eval_leaf` helper -- a first build corrected negamax's static eval but
+not quiescence's stand-pat, mixing corrected and uncorrected scores and making things worse).
+Rust features match the Python ones exactly on 500 positions.
+
+**First fit (separate Black/White weights), even-game SPRT: 17-2-33, −110.5 ± 91.3, FAIL**
+(`matches/s32_threat_sprt.*`). Fitted on handicap games only, where Black is always the
+stronger side, it gave Black +110 to +180 cp at the start position.
+
+**Colour-symmetric refit** (`fit_sym.py`: features from the side to move's view, handicap +
+even-game positions; start position −0.004 in p, a tempo term). Held-out error: handicap
+0.175 → 0.156, even games 0.122 → 0.121, user games 0.093 → 0.079, our king high pressure
+0.294 → 0.240. In the engine, at every leaf: 55.8k → 41.5k nps single-threaded.
+
+**Six-piece handicap SPRT (both versions from the user's start, colours swapped): 9-3-28,
+−179.5 ± 96.9, FAIL** (`matches/s32_threat2_6mai_sprt.*`). As Black (the side with the extra
+pieces, the user's games) the correction won 9 of 20; stable won 18 of 20. Closer to
+YaneuraOu's judgement of king danger, it stops pressing the advantage it should convert.
+
+**Session 31 again: an evaluation closer to YaneuraOu's numbers can play worse.** The eval-gap
+error is a diagnostic, not a target. Whatever replaces this has to be judged by games from the
+start, and the handicap SPRT above is the right gate for anything aimed at the user's games.
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
@@ -356,8 +382,7 @@ was a missed win.
 
 1. More of the idle threads, without giving up LMR: split at non-PV nodes too (YBWC), keeping
    reductions at split nodes; profile per thread after each step. 3 plies of PV split failed.
-2. The king-attack optimism is still unexplained: not pruning, not node count, not the four
-   search bugs. Next: re-walk the worst close positions with the fixed engine; compare our
-   quiescence and evaluation along YaneuraOu's lines to find where the danger first shows.
-   Then the NNUE forward pass (~15% of busy time).
+2. The king-attack "optimism" is evaluation (material-led, side-to-move swing), but correcting
+   it toward YaneuraOu's numbers lost 110-180 Elo. Gate anything here with the six-piece
+   handicap SPRT. Otherwise: the NNUE forward pass (~15% of busy time).
 3. Session 31's C2, C3 and qlegal, re-gated by SPRT (C1 shipped, above).

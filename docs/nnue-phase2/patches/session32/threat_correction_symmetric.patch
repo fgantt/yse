@@ -1,0 +1,371 @@
+diff --git a/src/bitboards.rs b/src/bitboards.rs
+index d7953c9..466e34d 100644
+--- a/src/bitboards.rs
++++ b/src/bitboards.rs
+@@ -795,6 +795,58 @@ impl BitboardBoard {
+         false
+     }
+ 
++    /// How many of `attacking_player`'s pieces attack `target_pos` (the count
++    /// version of [`Self::is_square_attacked_by`]). Each piece counts once: a
++    /// dragon is counted by its rook rays orthogonally and its step diagonally,
++    /// a horse the other way round.
++    pub fn attacker_count(&self, target_pos: Position, attacking_player: Player) -> u32 {
++        let a = if attacking_player == Player::Black { 0 } else { 1 };
++        let defender = attacking_player.opposite();
++        let t = target_pos.to_index() as u8;
++        let pcs = |pt: PieceType| self.pieces[a][pt.to_u8() as usize];
++        let ones = |bb: Bitboard| bb.to_u128().count_ones();
++        let mut n = 0;
++        for pt in [
++            PieceType::Pawn,
++            PieceType::Knight,
++            PieceType::Silver,
++            PieceType::Gold,
++            PieceType::PromotedPawn,
++            PieceType::PromotedLance,
++            PieceType::PromotedKnight,
++            PieceType::PromotedSilver,
++        ] {
++            let p = pcs(pt);
++            if !p.is_empty() {
++                n += ones(self.attack_tables.get_attack_pattern(t, pt, defender) & p);
++            }
++        }
++        let adjacent = self.attack_tables.get_attack_pattern(t, PieceType::King, defender);
++        let rook_rays = self.get_attack_pattern(target_pos, PieceType::Rook);
++        let bishop_rays = self.get_attack_pattern(target_pos, PieceType::Bishop);
++        n += ones(adjacent & pcs(PieceType::King));
++        n += ones(adjacent & bishop_rays & pcs(PieceType::PromotedRook));
++        n += ones(adjacent & rook_rays & pcs(PieceType::PromotedBishop));
++        n += ones(rook_rays & (pcs(PieceType::Rook) | pcs(PieceType::PromotedRook)));
++        n += ones(bishop_rays & (pcs(PieceType::Bishop) | pcs(PieceType::PromotedBishop)));
++        let lances = pcs(PieceType::Lance);
++        if !lances.is_empty() {
++            let dir: i8 = if attacking_player == Player::Black { 1 } else { -1 };
++            let mut row = target_pos.row as i8 + dir;
++            while (0..9).contains(&row) {
++                let sq = Position::new(row as u8, target_pos.col);
++                if let Some(p) = self.get_piece(sq) {
++                    if p.player == attacking_player && p.piece_type == PieceType::Lance {
++                        n += 1;
++                    }
++                    break;
++                }
++                row += dir;
++            }
++        }
++        n
++    }
++
+     /// The previous per-attacker implementation of [`Self::is_square_attacked_by`],
+     /// kept as a test reference.
+     pub fn is_square_attacked_by_reference(&self, target_pos: Position, attacking_player: Player) -> bool {
+diff --git a/src/evaluation.rs b/src/evaluation.rs
+index c2e2628..d616b17 100644
+--- a/src/evaluation.rs
++++ b/src/evaluation.rs
+@@ -72,6 +72,7 @@ pub mod telemetry;
+ pub mod weight_tuning;
+ pub mod nnue;
+ pub mod nnue_training;
++pub mod threat_correction;
+ 
+ /// Feature extraction namespace (re-exports for stable API)
+ pub mod extractors;
+diff --git a/src/evaluation/threat_correction.rs b/src/evaluation/threat_correction.rs
+new file mode 100644
+index 0000000..f5087c2
+--- /dev/null
++++ b/src/evaluation/threat_correction.rs
+@@ -0,0 +1,210 @@
++//! Linear king-threat correction to the evaluation (Session 32 prototype).
++//!
++//! The network sees where pieces stand, not what they attack, and was measured
++//! to miss king danger: our score follows material, swings 500-800 cp with the
++//! side to move in mutual attacks, and stays optimistic where YaneuraOu reads
++//! a lost race. A ridge regression of p(YaneuraOu) - p(ours) on per-king threat
++//! features (`scripts/threat_feasibility/`) cut held-out error 0.175 -> 0.137 on
++//! handicap games and 0.093 -> 0.074 on the user's games. This applies it.
++//!
++//! Features mirror `scripts/threat_feasibility/features.py` exactly; the
++//! coefficients are `fit_sym.py`'s raw (unstandardised) export. Off unless
++//! `SHOGI_THREAT_EVAL` is set (its value scales the correction; 1 = as fitted).
++
++use crate::bitboards::BitboardBoard;
++use crate::types::board::CapturedPieces;
++use crate::types::core::{PieceType, Player, Position};
++
++/// p-space scale of the network's centipawns (the trainer's sigmoid scale).
++const SCALE: f64 = 410.0;
++const N_KING: usize = 19;
++pub const N_FEATURES: usize = 1 + 2 * N_KING;
++
++#[rustfmt::skip]
++const COEF: [f64; N_FEATURES] = [
++    -3.677695852e-03,
++    -3.529806216e-02,
++    1.507440615e-02,
++    5.716177586e-03,
++    -2.863142316e-02,
++    3.511466621e-02,
++    -3.735900273e-02,
++    1.831074632e-02,
++    -9.340024036e-03,
++    -8.281505439e-03,
++    2.248178699e-02,
++    -5.349126645e-02,
++    -3.112829431e-02,
++    -2.942720786e-02,
++    -2.876410152e-03,
++    4.053390992e-02,
++    -4.318887223e-03,
++    -1.306150806e-03,
++    1.521006504e-02,
++    -7.215843362e-03,
++    3.574255063e-02,
++    -2.088079234e-02,
++    -8.708508863e-03,
++    -2.348980217e-02,
++    -8.314140973e-03,
++    1.943421345e-02,
++    -1.077665914e-02,
++    2.288041856e-02,
++    1.584832741e-02,
++    0.000000000e+00,
++    4.774209088e-02,
++    3.753841796e-02,
++    2.589229876e-02,
++    4.047117389e-03,
++    -5.708043785e-03,
++    -3.404630926e-04,
++    -1.520144659e-03,
++    1.606435137e-03,
++    5.687906904e-03,
++];
++
++/// The correction's scale, from `SHOGI_THREAT_EVAL` (0 = off).
++pub fn scale() -> f64 {
++    static S: std::sync::OnceLock<f64> = std::sync::OnceLock::new();
++    *S.get_or_init(|| {
++        std::env::var("SHOGI_THREAT_EVAL").ok().and_then(|v| v.parse().ok()).unwrap_or(0.0)
++    })
++}
++
++fn is_strong(pt: PieceType) -> bool {
++    matches!(
++        pt,
++        PieceType::Rook
++            | PieceType::Bishop
++            | PieceType::PromotedRook
++            | PieceType::PromotedBishop
++            | PieceType::PromotedPawn
++            | PieceType::PromotedLance
++            | PieceType::PromotedKnight
++            | PieceType::PromotedSilver
++    )
++}
++
++/// Threat features on `owner`'s king, in `features.py` order.
++fn king_features(
++    board: &BitboardBoard,
++    captured: &CapturedPieces,
++    owner: Player,
++) -> Option<[f64; N_KING]> {
++    let king = board.find_king_position(owner)?;
++    let enemy = owner.opposite();
++    let (kr, kc) = (king.row as i8, king.col as i8);
++    let mut att_pairs = 0u32;
++    let mut att_squares = 0u32;
++    let mut def_pairs = 0u32;
++    let mut undefended_att = 0u32;
++    let mut escapes = 0u32;
++    let mut empty_neigh = 0u32;
++    let mut defenders = 0u32;
++    let mut supported_drop_sq = 0u32;
++    let mut in_check = 0u32;
++    for dr in -1i8..=1 {
++        for dc in -1i8..=1 {
++            let (r, c) = (kr + dr, kc + dc);
++            if !(0..9).contains(&r) || !(0..9).contains(&c) {
++                continue;
++            }
++            let sq = Position::new(r as u8, c as u8);
++            let e = board.attacker_count(sq, enemy);
++            att_pairs += e;
++            att_squares += u32::from(e > 0);
++            if dr == 0 && dc == 0 {
++                in_check = u32::from(e > 0);
++                continue;
++            }
++            let o = board.attacker_count(sq, owner);
++            def_pairs += o;
++            undefended_att += u32::from(e > o);
++            let piece = board.get_piece(sq);
++            let own_piece = piece.is_some_and(|p| p.player == owner);
++            escapes += u32::from(e == 0 && !own_piece);
++            empty_neigh += u32::from(piece.is_none());
++            defenders += u32::from(own_piece);
++            supported_drop_sq += u32::from(piece.is_none() && e > 0);
++        }
++    }
++    let mut near2 = 0u32;
++    let mut strong_near2 = 0u32;
++    for r in (kr - 2).max(0)..=(kr + 2).min(8) {
++        for c in (kc - 2).max(0)..=(kc + 2).min(8) {
++            if let Some(p) = board.get_piece(Position::new(r as u8, c as u8)) {
++                if p.player == enemy {
++                    near2 += 1;
++                    strong_near2 += u32::from(is_strong(p.piece_type));
++                }
++            }
++        }
++    }
++    let hand = |pt: PieceType| captured.count(pt, enemy) as u32;
++    let hand_major = hand(PieceType::Rook) + hand(PieceType::Bishop);
++    let hand_gs = hand(PieceType::Gold) + hand(PieceType::Silver);
++    let hand_minor = hand(PieceType::Knight) + hand(PieceType::Lance);
++    let hand_total_np = hand_major + hand_gs + hand_minor;
++    let king_rank = if owner == Player::Black { 8 - king.row } else { king.row } as u32;
++    let f = [
++        att_pairs,
++        att_squares,
++        def_pairs,
++        undefended_att,
++        escapes,
++        empty_neigh,
++        near2,
++        strong_near2,
++        defenders,
++        in_check,
++        hand_major,
++        hand_gs,
++        hand_minor,
++        hand(PieceType::Pawn),
++        supported_drop_sq,
++        supported_drop_sq * hand_gs,
++        att_pairs * hand_total_np,
++        undefended_att * (1 + hand_total_np),
++        king_rank,
++    ];
++    Some(f.map(f64::from))
++}
++
++/// The feature vector of `features.py`'s `features_stm` (`None` without both
++/// kings): from the side to move's view, so the same position with colours
++/// swapped gives the same vector. A first fit weighted Black's and White's kings
++/// separately; trained on handicap games, where Black is always the stronger
++/// side, it gave Black +110-180 cp at the start position and lost 110 Elo in
++/// even games.
++pub fn features(
++    board: &BitboardBoard,
++    captured: &CapturedPieces,
++    side_to_move: Player,
++) -> Option<[f64; N_FEATURES]> {
++    let us = king_features(board, captured, side_to_move)?;
++    let them = king_features(board, captured, side_to_move.opposite())?;
++    let mut x = [0.0; N_FEATURES];
++    x[0] = 1.0;
++    x[1..=N_KING].copy_from_slice(&us);
++    x[N_KING + 1..].copy_from_slice(&them);
++    Some(x)
++}
++
++/// `score` (centipawns, `player`'s view) with the threat correction applied in
++/// win-probability space, at the given scale.
++pub fn apply(
++    score: i32,
++    board: &BitboardBoard,
++    captured: &CapturedPieces,
++    player: Player,
++    scale: f64,
++) -> i32 {
++    let Some(x) = features(board, captured, player) else {
++        return score;
++    };
++    let pred: f64 = COEF.iter().zip(x.iter()).map(|(c, v)| c * v).sum::<f64>() * scale;
++    // Fitted in the side to move's win probability, which `score` already is.
++    let p = (1.0 / (1.0 + (-(score as f64) / SCALE).exp()) + pred).clamp(0.001, 0.999);
++    let out = SCALE * (p / (1.0 - p)).ln();
++    out.round() as i32
++}
+diff --git a/src/search/search_engine.rs b/src/search/search_engine.rs
+index 1215d41..8302676 100644
+--- a/src/search/search_engine.rs
++++ b/src/search/search_engine.rs
+@@ -6145,7 +6145,7 @@ impl SearchEngine {
+         // If depth is 0, return static evaluation with a fallback legal move to avoid
+         // underflow
+         if depth == 0 {
+-            let eval_score = self.evaluator.evaluate(board, player, captured_pieces);
++            let eval_score = self.eval_leaf(board, player, captured_pieces);
+             // Choose the first legal move as a placeholder; callers at depth 0 should not
+             // rely on the move
+             let placeholder_move = legal_moves[0].clone();
+@@ -7885,7 +7885,7 @@ impl SearchEngine {
+ 
+         // If recursion is too deep, return static evaluation immediately
+         if recursion_depth.1 {
+-            let static_eval = self.evaluator.evaluate(board, player, captured_pieces);
++            let static_eval = self.eval_leaf(board, player, captured_pieces);
+             return static_eval;
+         }
+ 
+@@ -7914,7 +7914,7 @@ impl SearchEngine {
+                 return best_score;
+             }
+             // Fallback to static evaluation if no best score tracked
+-            let static_eval = self.evaluator.evaluate(board, player, captured_pieces);
++            let static_eval = self.eval_leaf(board, player, captured_pieces);
+             // crate::trace_log_fast!("QUIESCENCE", &format!("Time limit reached,
+             // returning static evaluation: {}", static_eval));
+             return static_eval;
+@@ -7955,7 +7955,7 @@ impl SearchEngine {
+         if depth == 0 || depth > self.quiescence_config.max_depth {
+             // crate::trace_log_fast!("QUIESCENCE", &format!("Depth limit reached
+             // (depth={}), evaluating position", depth));
+-            let score = self.evaluator.evaluate(board, player, captured_pieces);
++            let score = self.eval_leaf(board, player, captured_pieces);
+             // crate::trace_log_fast!("QUIESCENCE", &format!("Position evaluation:
+             // {}", score));
+             return score;
+@@ -8053,7 +8053,7 @@ impl SearchEngine {
+             cached
+         } else {
+             // Evaluate stand-pat (will be cached later in TT entry)
+-            self.evaluator.evaluate(board, player, captured_pieces)
++            self.eval_leaf(board, player, captured_pieces)
+         };
+         // crate::trace_log_fast!("QUIESCENCE", &format!("Stand-pat evaluation:
+         // {} (cached: {})", stand_pat, cached_stand_pat.is_some()));
+@@ -14798,6 +14798,21 @@ impl SearchEngine {
+     /// Evaluate the current position statically
+     /// Automatically uses cache if enabled in evaluator (Task 3.2.2)
+     /// Task 3.0: Integrated automatic profiling
++    /// The evaluator's score plus the king-threat correction (Session 32
++    /// prototype; off unless `SHOGI_THREAT_EVAL`). Every leaf -- negamax static
++    /// eval, quiescence stand-pat -- must come through here, or the search mixes
++    /// corrected and uncorrected scores for the same positions.
++    #[inline]
++    fn eval_leaf(&mut self, board: &BitboardBoard, player: Player, captured_pieces: &CapturedPieces) -> i32 {
++        let score = self.evaluator.evaluate(board, player, captured_pieces);
++        let scale = crate::evaluation::threat_correction::scale();
++        if scale != 0.0 {
++            crate::evaluation::threat_correction::apply(score, board, captured_pieces, player, scale)
++        } else {
++            score
++        }
++    }
++
+     pub fn evaluate_position(
+         &mut self,
+         board: &BitboardBoard,
+@@ -14813,7 +14828,7 @@ impl SearchEngine {
+         let start_time =
+             if self.auto_profiling_enabled { Some(std::time::Instant::now()) } else { None };
+ 
+-        let score = self.evaluator.evaluate(board, player, captured_pieces);
++        let score = self.eval_leaf(board, player, captured_pieces);
+ 
+         // Record profiling data if enabled
+         if let Some(start) = start_time {
