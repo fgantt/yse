@@ -304,6 +304,28 @@ handcrafted term did not move (bias fell, per-position error rose). Candidates: 
 input (attacks on the squares around each king, by side to move), training on positions from
 these races with deep labels, or a mate-threat search in the opponent's favour at shallow nodes.
 
+## Threat inputs: the feasibility test passes
+
+`scripts/threat_feasibility/`. 20,000 handicap-corpus positions (YaneuraOu depth-8 labels,
+split by game, 16,124 train after parsing) and the 1,074 non-mate eval-gap positions; our score
+at depth 1; per-king threat features from the board (enemy attacks on the king zone, defenders,
+escape squares, enemy hand by piece class, nearby enemy pieces, each also times side to move);
+ridge regression of p(YaneuraOu) − p(ours):
+
+| set | n | ours | + threat correction | + bias-only correction |
+|---|---|---|---|---|
+| held-out handicap games | 3,876 | 0.175 | **0.137** | 0.171 |
+| held-out, \|yo\| < 1500 | 1,428 | 0.227 | 0.216 | 0.224 |
+| user games, all | 1,074 | 0.093 | **0.074** | 0.094 |
+| user games, our king low pressure | 848 | 0.043 | **0.036** | 0.043 |
+| user games, close + our king pressured | 98 | 0.264 | 0.245 (bias +0.23 → +0.11) | 0.273 |
+
+Unlike Session 31's king-danger term and fine-tunes, per-position error falls everywhere,
+quiet positions included, on games the model never saw. The hardest subset gains least
+(−7%): a linear model of hand-made features is a floor for what threat inputs to the network
+can do. Largest weights: enemy attack pairs on each king zone, enemy gold/silver and major
+pieces in hand, attacked zone squares, escape squares, attacks × side to move.
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
