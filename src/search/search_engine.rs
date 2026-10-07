@@ -415,6 +415,8 @@ pub struct SearchEngine {
     /// Whether the last `search_at_depth` was cut off by the clock or a stop:
     /// its result then covers only the moves that finished.
     last_search_interrupted: bool,
+    /// Last board's `count_tactical_threats` (see there).
+    tactical_threats_memo: std::cell::RefCell<Option<([[crate::types::Bitboard; 14]; 2], usize)>>,
     /// Latched by `should_stop`: the search in progress has been told to stop,
     /// so the scores now coming back up the tree are placeholders (a partial
     /// best, a static eval). Nothing may be stored from them: the table used
@@ -1669,6 +1671,7 @@ impl SearchEngine {
             node_ply: 0,
             root_path_len: 0,
             last_search_interrupted: false,
+            tactical_threats_memo: std::cell::RefCell::new(None),
             search_aborted: false,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
@@ -2204,6 +2207,7 @@ impl SearchEngine {
             node_ply: 0,
             root_path_len: 0,
             last_search_interrupted: false,
+            tactical_threats_memo: std::cell::RefCell::new(None),
             search_aborted: false,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
@@ -3825,10 +3829,22 @@ impl SearchEngine {
     /// This used to generate every legal move for both sides and count, which
     /// made it ~30% of search time; the count is the same without the quiet
     /// moves. See [`MoveGenerator::count_legal_captures_and_promotions`].
+    ///
+    /// Memoised on the board (an exact copy of its piece bitboards, not a
+    /// hash): LMR's escape-move test asks this two or three times per move for
+    /// the same pre-move board, and it depends on nothing else.
     fn count_tactical_threats(&self, board: &BitboardBoard) -> usize {
+        let key = *board.get_pieces();
+        if let Some((k, n)) = *self.tactical_threats_memo.borrow() {
+            if k == key {
+                return n;
+            }
+        }
         let generator = MoveGenerator::new();
-        generator.count_legal_captures_and_promotions(board, Player::Black)
-            + generator.count_legal_captures_and_promotions(board, Player::White)
+        let n = generator.count_legal_captures_and_promotions(board, Player::Black)
+            + generator.count_legal_captures_and_promotions(board, Player::White);
+        *self.tactical_threats_memo.borrow_mut() = Some((key, n));
+        n
     }
     /// Calculate dynamic IID depth based on position complexity
     /// Task 4.0: Enhanced to work independently for Dynamic strategy and use
