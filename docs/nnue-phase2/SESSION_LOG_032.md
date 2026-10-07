@@ -391,6 +391,50 @@ YaneuraOu sees +200: our drops against White's king while White's pawns and piec
 ours (7f7g+, P\*7g, B\*2h). The same blind spot. Labelled into `eval_gap/positions_s32.jsonl`
 (`eval_gap_build.py` now knows the four-piece start).
 
+## The seven six-piece ladder losses, and the hand-repetition rule (neutral)
+
+Reviewing the stable's 7 losses as Black in the six-piece/2,000-node rung (YaneuraOu 1M nodes per
+move, bare-SFEN rechecks):
+
+- **Pawn feeding (game 57).** `P*4d`, `4d4c+`, silver takes; `P*4d`, `4d4c+`, silver takes
+  (plies 49-59), then the same on the 2-file. A pawn per cycle, each position still +3000 -- the
+  pattern of the first user loss (moves 37-46).
+- **Game 39, ply 105, `6b5b`** (+2,425 → −2,592 on the bare board): reproduced at 1 s and 10 s
+  (+837 to +1,063); the king takes the piece and White's counterattack follows. The blind spot.
+- **Game 31, ply 107, `G*6c`** (+1,488 → −2,578): not reproduced -- the stable now plays
+  YaneuraOu's `6h5g`. Parallel nondeterminism.
+- The rest: slow slides, as in the user's games.
+
+**Superior/inferior repetition** (YaneuraOu's 優等/劣等局面; `patches/session32/hand_repetition.patch`,
+not shipped): a wrapper around negamax keeps (board-only hash, hands, side to move) per path
+entry; the same board with the same side to move and strictly fewer pieces in our hand scores
+−30,000 (more: +30,000). Parallel workers search from below the real root, so the root split
+now passes the ancestors down (`set_hand_path_prefix`); without that the rule never fired in
+the shipped engine. ~1% nps. Off (`SHOGI_NO_HAND_REPETITION`): byte-identical to stable. On
+game 57 it stops completing the cycle at plies 53 and 57 (`1d1c+` -- YaneuraOu's move -- or
+`P*2d` instead of `4d4c+`), not at 63/67.
+
+**Six-piece handicap SPRT: 91 pairs, −9.5 ± 39.4, LLR −2.96: FAIL** (neutral; as Black 32-3-6
+against stable's 32-3-5 in the mirrored games). It fixes the cycle and does not move results.
+
+## A second four-piece loss
+
+`matches/user_games/2026-10-06_4mai_loss64.txt`, lost in 64 from about +2,800. 30M nodes; ours =
+the stable at 10 s (now depth 8-9 on these positions):
+
+| move | played | YaneuraOu before → after | loss | YaneuraOu | ours at 10 s |
+|---|---|---|---|---|---|
+| 32 | 5g5f | +2,662 → +2,464 | 198 | 6h6g | 5g5f, d8, +1,444 |
+| 33 | 5f5e | +2,396 → +2,192 | 204 | 6h6g | 5f5e, d9, +1,684 |
+| **35** | **1i1d** | **+2,196 → +1,686** | **510** | 4f4e | 1i1d, d8, +1,501 |
+| **38** | **2a3a** | **+1,510 → +843** | **667** | 2i1g | 1d1c, d9, +1,275 |
+| **39** | **4h5g** | **+825 → +121** | **704** | 3a4a | 1d1c, d8, +1,062 |
+
+A slow slide again (+2,662 at 32 to +94 at 41): the engine pushes its own attack (central pawns,
+an edge lance, the tokin) while White's drops gather on the 1- and 2-files and behind our camp
+(`P*1g`, `1g1h+`, `1h2i`). At 10 s the stable avoids 38 and 39 but still plays 32-35, scoring
++1,450 to +1,700. Labelled into `eval_gap/positions_s32.jsonl` (128 positions; set now 638).
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
