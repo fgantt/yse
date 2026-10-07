@@ -33,8 +33,8 @@ search speed in general -- the constraint since Session 29.
 >    (even) and 180 Elo (six-piece; won 9/20 as Black against stable's 18/20). Eval-gap error is
 >    a diagnostic, not a target. Candidate next step: threat inputs in the network, judged only
 >    by handicap games.
-> 5. **No absolute Elo yet.** Proposed: even games against YaneuraOu at 1/10/100/1,000/10,000
->    nodes to find "ours ≈ YaneuraOu at N nodes".
+> 5. **No absolute Elo yet, and the user is not asking for one** (2026-10-07: "just curious").
+>    If ever wanted: even games against YaneuraOu at 1/10/100/1,000/10,000 nodes. Not a priority.
 
 ---
 
