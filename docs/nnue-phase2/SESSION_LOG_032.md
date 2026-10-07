@@ -435,6 +435,23 @@ an edge lance, the tokin) while White's drops gather on the 1- and 2-files and b
 (`P*1g`, `1g1h+`, `1h2i`). At 10 s the stable avoids 38 and 39 but still plays 32-35, scoring
 +1,450 to +1,700. Labelled into `eval_gap/positions_s32.jsonl` (128 positions; set now 638).
 
+## Shipped: hand repetition (on the user's decision), and two exact speed-ups
+
+- **Superior/inferior repetition** (`11220d2`, see above): even-game non-regression SPRT
+  [−20, +10]: **58-2-26, +135.8 ± 86.8, PASS** (`matches/s32_handrep_even_nonreg.*`) -- far
+  better than neutral, unlike the six-piece result (−9.5 ± 39.4). Untested guess: in even
+  self-play both sides fall into material-losing cycles and the rule exploits the old engine's.
+- **NNUE layer 2 in 32-bit** (`3183362`): activations measured ≤ 1,008 over 10.8M evaluations,
+  |w| ≤ 155, column sums ≤ 13,679; 16-bit multiplies into 32-bit sums when provably exact.
+- **`count_tactical_threats` memoised per board** (`1134098`): LMR's escape-move test asked it
+  2-3 times per move for the same board.
+
+Both speed-ups leave the fixed-depth fingerprint byte-identical. Depth-5 `search_bench`, idle
+machine: old stable 54.3k nps, new 60.4k (+11%); 6% more nodes from the repetition rule.
+Installed as `engines/usi-engine-stable`; `-stable-prev` is the search-fix build (`a98b1b2`).
+`search::cache_management::tests::test_performance_monitoring` failed once and passed 3/3 on
+rerun: a sleep-based timing test, unrelated.
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair
