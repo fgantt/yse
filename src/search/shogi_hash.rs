@@ -52,6 +52,11 @@ impl ShogiHashHandler {
             .hash_position(board, player, captured_pieces, repetition_state)
     }
 
+    /// The pieces-in-hand part of the position hash (see `ZobristHasher::hand_hash`).
+    pub fn hand_hash(&self, captured_pieces: &CapturedPieces) -> u64 {
+        self.zobrist_hasher.hand_hash(captured_pieces)
+    }
+
     /// Update hash for a drop move
     ///
     /// Drop moves are unique to Shogi and require special handling:

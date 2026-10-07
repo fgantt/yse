@@ -23,6 +23,7 @@ use crate::bitboards::BitboardBoard;
 use crate::evaluation::PositionEvaluator;
 use crate::moves::MoveGenerator;
 use crate::search::search_engine::SearchEngine;
+use crate::search::search_engine::{hand_path_entry_for, HandPathEntry};
 use crate::search::search_engine::GLOBAL_NODES_SEARCHED;
 use crate::search::ThreadSafeTranspositionTable;
 use crate::types::board::CapturedPieces;
@@ -726,6 +727,8 @@ struct SplitSearch<'a> {
     /// finished with a score. Only then is a cut-short iteration's best move
     /// (the best of the moves that finished) a result at this depth.
     root_first_done: AtomicBool,
+    /// For the superior/inferior repetition path passed to workers.
+    hasher: crate::search::shogi_hash::ShogiHashHandler,
 }
 
 /// A worker context in the pool, boxed so it never moves: the move orderer
@@ -787,15 +790,22 @@ impl SplitSearch<'_> {
         a: i32,
         b: i32,
         ply: u8,
+        ancestors: &[HandPathEntry],
     ) -> Option<(i32, String)> {
         let child_depth = depth.saturating_sub(1);
         if ply + 1 < self.split_plies && child_depth >= PV_SPLIT_MIN_CHILD_DEPTH {
-            if let Some(r) = self.split_child(board, captured, player, mv, child_depth, a, b, ply) {
+            if let Some(r) =
+                self.split_child(board, captured, player, mv, child_depth, a, b, ply, ancestors)
+            {
                 return r;
             }
         }
         let mut holder = self.take_holder(board, captured, player);
         holder.context.refresh_root_state(board, captured);
+        // The worker's search starts below the real root; without the positions
+        // above it, a cycle back to them (a repetition, or the superior/inferior
+        // rule) was invisible to every worker.
+        holder.context.search_engine_mut().set_hand_path_prefix(ancestors);
         let result = holder
             .context
             .search_root_child(mv, player, child_depth, self.time_limit_ms, -b, -a)
@@ -833,6 +843,7 @@ impl SplitSearch<'_> {
         a: i32,
         b: i32,
         ply: u8,
+        ancestors: &[HandPathEntry],
     ) -> Option<Option<(i32, String)>> {
         use crate::search::search_engine::MATE_THRESHOLD;
         let mut child_board = board.clone();
@@ -891,6 +902,8 @@ impl SplitSearch<'_> {
                 ordered.insert(0, m);
             }
         }
+        let mut child_ancestors = ancestors.to_vec();
+        child_ancestors.push(hand_path_entry_for(&self.hasher, &child_board, opponent, &child_captured));
         let result = self
             .split(
                 &child_board,
@@ -902,6 +915,7 @@ impl SplitSearch<'_> {
                 -a,
                 ply + 1,
                 None,
+                &child_ancestors,
             )
             .map(|(_, v, pv)| {
                 // One ply further from the root than the child's own scores.
@@ -933,6 +947,7 @@ impl SplitSearch<'_> {
         beta: i32,
         ply: u8,
         report: Option<&(dyn Fn(&Move, i32, &str) + Sync)>,
+        ancestors: &[HandPathEntry],
     ) -> Option<(Move, i32, String)> {
         let (first, rest) = moves.split_first()?;
         let best: Mutex<Option<(Move, i32, String)>> = Mutex::new(None);
@@ -947,7 +962,7 @@ impl SplitSearch<'_> {
             }
         };
         let best_alpha = std::sync::atomic::AtomicI32::new(alpha);
-        match self.search_move(board, captured, player, first, depth, alpha, beta, ply) {
+        match self.search_move(board, captured, player, first, depth, alpha, beta, ply, ancestors) {
             Some((score, pv)) => {
                 if ply == 0 {
                     self.root_first_done.store(true, Ordering::Relaxed);
@@ -995,11 +1010,12 @@ impl SplitSearch<'_> {
                     a,
                     a.saturating_add(1),
                     self.split_plies,
+                    ancestors,
                 );
                 if let Some((score, _)) = result {
                     if score > a && score < beta && !self.stop.load(Ordering::Relaxed) {
                         result = self
-                            .search_move(board, captured, player, mv, depth, a, beta, ply)
+                            .search_move(board, captured, player, mv, depth, a, beta, ply, ancestors)
                             .or(result);
                     }
                 }
@@ -1532,6 +1548,7 @@ impl ParallelSearchEngine {
             holders: Mutex::new(Vec::new()),
             split_plies: pv_split_plies(),
             root_first_done: AtomicBool::new(false),
+            hasher: crate::search::shogi_hash::ShogiHashHandler::new_default(),
         };
         let report = |mv: &Move, score: i32, pv: &str| {
             let _ = tx.send((mv.clone(), score, pv.to_string()));
@@ -1550,6 +1567,7 @@ impl ParallelSearchEngine {
                 beta,
                 0,
                 Some(&report),
+                &[hand_path_entry_for(&split.hasher, board, player, captured_pieces)],
             );
         });
         self.last_root_first_done

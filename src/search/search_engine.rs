@@ -417,6 +417,11 @@ pub struct SearchEngine {
     last_search_interrupted: bool,
     /// Last board's `count_tactical_threats` (see there).
     tactical_threats_memo: std::cell::RefCell<Option<([[crate::types::Bitboard; 14]; 2], usize)>>,
+    /// Board-only hashes and hands along the current search path, for the
+    /// superior/inferior repetition rule (`negamax_with_context`).
+    hand_path: Vec<HandPathEntry>,
+    /// Positions above the root, set by the parallel root split for workers.
+    hand_path_prefix: Vec<HandPathEntry>,
     /// Latched by `should_stop`: the search in progress has been told to stop,
     /// so the scores now coming back up the tree are placeholders (a partial
     /// best, a static eval). Nothing may be stored from them: the table used
@@ -644,6 +649,8 @@ pub(crate) struct SearchToggles {
     /// 180-6-140 over 326 games at 1 s/move, +42.8 +/- 35.0, SPRT [0, 40] pass
     /// (Session 32).
     pub partial_iter: bool,
+    /// `SHOGI_NO_HAND_REPETITION`: disable the superior/inferior repetition rule.
+    pub no_hand_repetition: bool,
     /// Start another iteration only while less than this fraction of the
     /// move's time has gone: 0.7 by default, `SHOGI_ITER_START_FRAC` to override;
     /// `None` is the old rule, 0.5.
@@ -662,6 +669,7 @@ impl SearchToggles {
             no_check_ext: on("SHOGI_NO_CHECKEXT"),
             no_see_quiet: on("SHOGI_NO_SEE_QUIET"),
             partial_iter: !on("SHOGI_NO_PARTIAL_ITER"),
+            no_hand_repetition: on("SHOGI_NO_HAND_REPETITION"),
             iter_start_frac: Some(
                 std::env::var("SHOGI_ITER_START_FRAC")
                     .ok()
@@ -672,6 +680,45 @@ impl SearchToggles {
         }
     }
 }
+
+/// One position on the search path for the superior/inferior repetition rule.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct HandPathEntry {
+    /// Position hash without the pieces in hand.
+    board_hash: u64,
+    player: Player,
+    /// Pieces in hand, Black's 7 types then White's.
+    hands: [u8; 14],
+}
+
+/// The superior/inferior repetition entry for a position.
+pub(crate) fn hand_path_entry_for(
+    hasher: &crate::search::shogi_hash::ShogiHashHandler,
+    board: &BitboardBoard,
+    player: Player,
+    captured_pieces: &CapturedPieces,
+) -> HandPathEntry {
+    let full = hasher.get_position_hash(board, player, captured_pieces);
+    let mut hands = [0u8; 14];
+    for (i, pt) in HAND_PIECE_TYPES.iter().enumerate() {
+        hands[i] = captured_pieces.count(*pt, Player::Black) as u8;
+        hands[7 + i] = captured_pieces.count(*pt, Player::White) as u8;
+    }
+    HandPathEntry { board_hash: full ^ hasher.hand_hash(captured_pieces), player, hands }
+}
+
+const HAND_PIECE_TYPES: [PieceType; 7] = [
+    PieceType::Pawn,
+    PieceType::Lance,
+    PieceType::Knight,
+    PieceType::Silver,
+    PieceType::Gold,
+    PieceType::Bishop,
+    PieceType::Rook,
+];
+
+/// Score of a superior/inferior repetition: decisive, but below mate scores.
+const HAND_REPETITION_SCORE: i32 = 30_000;
 
 /// A search-path entry: the position hash with its low bit replaced by
 /// whether the side to move is in check there (for the perpetual-check rule).
@@ -1672,6 +1719,8 @@ impl SearchEngine {
             root_path_len: 0,
             last_search_interrupted: false,
             tactical_threats_memo: std::cell::RefCell::new(None),
+            hand_path: Vec::new(),
+            hand_path_prefix: Vec::new(),
             search_aborted: false,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
@@ -2208,6 +2257,8 @@ impl SearchEngine {
             root_path_len: 0,
             last_search_interrupted: false,
             tactical_threats_memo: std::cell::RefCell::new(None),
+            hand_path: Vec::new(),
+            hand_path_prefix: Vec::new(),
             search_aborted: false,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
@@ -6131,6 +6182,10 @@ impl SearchEngine {
         let mut alpha = alpha;
         self.last_search_interrupted = false;
         self.search_aborted = false;
+        self.hand_path.clear();
+        self.hand_path.extend_from_slice(&self.hand_path_prefix);
+        let root_entry = self.hand_path_entry(board, player, captured_pieces);
+        self.hand_path.push(root_entry);
 
         let mut best_move: Option<Move> = None;
         // Initialize best_score to alpha (Task 5.12)
@@ -6655,7 +6710,100 @@ impl SearchEngine {
         )
     }
 
+    /// Negamax with the "superior/inferior repetition" rule (YaneuraOu's 優等/劣等
+    /// 局面): the same board with the same side to move as earlier on the path,
+    /// but with one side holding strictly fewer pieces in hand, is a loss for
+    /// that side -- it has been giving material away in a cycle. Without it the
+    /// engine fed pawns into the same square again and again (drop, promote,
+    /// captured, repeat): the hands differ, so it was never a repetition, and
+    /// each cycle looked like a free promotion. Exact repetitions are left to
+    /// the rule inside.
+    #[allow(clippy::too_many_arguments)]
     fn negamax_with_context(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        depth: u8,
+        alpha: i32,
+        beta: i32,
+        start_time: &TimeSource,
+        time_limit_ms: u32,
+        hash_history: &mut Vec<u64>,
+        can_null_move: bool,
+        is_root: bool,
+        has_capture: bool,
+        has_check: bool,
+        opponent_last_move: Option<Move>,
+        entry_source: crate::types::EntrySource,
+    ) -> i32 {
+        let entry = self.hand_path_entry(board, player, captured_pieces);
+        if !is_root && !search_toggles().no_hand_repetition {
+            if let Some(score) = self.hand_repetition_score(&entry) {
+                return score;
+            }
+        }
+        self.hand_path.push(entry);
+        let score = self.negamax_with_context_inner(
+            board,
+            captured_pieces,
+            player,
+            depth,
+            alpha,
+            beta,
+            start_time,
+            time_limit_ms,
+            hash_history,
+            can_null_move,
+            is_root,
+            has_capture,
+            has_check,
+            opponent_last_move,
+            entry_source,
+        );
+        self.hand_path.pop();
+        score
+    }
+
+    fn hand_path_entry(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+    ) -> HandPathEntry {
+        hand_path_entry_for(&self.hash_calculator, board, player, captured_pieces)
+    }
+
+    /// Positions above this engine's root (parallel workers search from below
+    /// the real root): `search_at_depth` starts its path with them.
+    pub(crate) fn set_hand_path_prefix(&mut self, prefix: &[HandPathEntry]) {
+        self.hand_path_prefix.clear();
+        self.hand_path_prefix.extend_from_slice(prefix);
+    }
+
+    /// Superior/inferior repetition against the path (see `negamax_with_context`).
+    fn hand_repetition_score(&self, now: &HandPathEntry) -> Option<i32> {
+        let ours = if now.player == Player::Black { 0 } else { 7 };
+        for then in self.hand_path.iter().rev() {
+            if then.player != now.player || then.board_hash != now.board_hash {
+                continue;
+            }
+            let (mut less, mut more) = (false, false);
+            for i in 0..7 {
+                let (a, b) = (now.hands[ours + i], then.hands[ours + i]);
+                less |= a < b;
+                more |= a > b;
+            }
+            return match (less, more) {
+                (true, false) => Some(-HAND_REPETITION_SCORE), // we gave material away
+                (false, true) => Some(HAND_REPETITION_SCORE),  // they did
+                _ => None, // equal hands: an ordinary repetition, handled inside
+            };
+        }
+        None
+    }
+
+    fn negamax_with_context_inner(
         &mut self,
         board: &mut BitboardBoard,
         captured_pieces: &CapturedPieces,

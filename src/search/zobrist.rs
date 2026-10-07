@@ -303,6 +303,29 @@ impl ZobristHasher {
         hash
     }
 
+    /// The pieces-in-hand part of [`Self::hash_position`]: XOR it out of a full
+    /// hash to get the board alone (same board, different hands).
+    pub fn hand_hash(&self, captured_pieces: &CapturedPieces) -> u64 {
+        let mut hash = 0u64;
+        for player in [Player::Black, Player::White] {
+            for piece_type in [
+                PieceType::Pawn,
+                PieceType::Lance,
+                PieceType::Knight,
+                PieceType::Silver,
+                PieceType::Gold,
+                PieceType::Bishop,
+                PieceType::Rook,
+            ] {
+                let count = captured_pieces.count(piece_type, player);
+                if count > 0 {
+                    hash ^= self.table.get_hand_key(piece_type, player, count as u8);
+                }
+            }
+        }
+        hash
+    }
+
     /// Update hash for side to move change only
     pub fn update_hash_for_side_to_move(&self, hash: u64) -> u64 {
         hash ^ self.table.get_side_to_move_key()
