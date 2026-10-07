@@ -296,6 +296,10 @@ pub struct NNUEWeights {
     /// alignment of each row or whether it aliases the accumulator. This is the
     /// same 16_384 multiply-accumulates laid out contiguously.
     pub flat_weights_2: Vec<i16>,
+    /// The largest column sum of |layer-2 weight| (set with `flat_weights_2`;
+    /// 0 = unknown). With it the forward pass proves, per evaluation, that a
+    /// 32-bit accumulation cannot overflow and so equals the 64-bit one.
+    pub l2_colsum_max: i64,
     /// Hidden-2-to-output weights: [hidden_size_2] or [hidden_size_1] if no layer 2
     pub output_weights: Vec<i16>,
     /// Output bias
@@ -507,6 +511,7 @@ impl NNUEWeights {
             input_weights_2,
             hidden_biases_2,
             flat_weights_2: Vec::new(),
+            l2_colsum_max: 0,
             output_weights,
             output_bias,
             psqt: Vec::new(),
@@ -591,6 +596,7 @@ impl NNUEWeights {
             input_weights_2: file_data.input_weights_2,
             hidden_biases_2: file_data.hidden_biases_2,
             flat_weights_2: Vec::new(),
+            l2_colsum_max: 0,
             output_weights: file_data.output_weights,
             output_bias: file_data.output_bias,
             psqt: Vec::new(),
@@ -605,6 +611,7 @@ impl NNUEWeights {
     /// missing rebuild costs speed and never correctness.
     pub fn rebuild_flat_weights_2(&mut self) {
         self.flat_weights_2.clear();
+        self.l2_colsum_max = 0;
         let Some(rows) = self.input_weights_2.as_ref() else { return };
         let Some(cols) = rows.first().map(|r| r.len()) else { return };
         if rows.iter().any(|r| r.len() != cols) {
@@ -614,6 +621,10 @@ impl NNUEWeights {
         for row in rows {
             self.flat_weights_2.extend_from_slice(row);
         }
+        self.l2_colsum_max = (0..cols)
+            .map(|j| rows.iter().map(|r| i64::from(r[j]).abs()).sum::<i64>())
+            .max()
+            .unwrap_or(0);
     }
 
     /// Save weights to file. Dispatches by extension: `.bin` → bincode,
@@ -1379,7 +1390,24 @@ fn forward_from_activations(activated_1: &[i32], weights: &NNUEWeights) -> i32 {
         let flat = &weights.flat_weights_2;
         if hidden_size_2 == DEFAULT_HIDDEN_SIZE_2 && flat.len() == weights_2.len() * hidden_size_2
         {
-            layer_2_fixed(activated_1, flat, &mut h2_values);
+            // 16-bit multiplies into 32-bit sums when that is provably exact:
+            // every activation fits i16 and the largest possible column sum,
+            // max activation x max column sum of |w|, fits i32. With the trained
+            // network activations stay under ~1,000 and the column sums under
+            // ~14,000, so this is the path every evaluation takes.
+            let max_act = activated_1.iter().copied().max().unwrap_or(0);
+            if weights.l2_colsum_max > 0
+                && max_act <= i32::from(i16::MAX)
+                && i64::from(max_act) * weights.l2_colsum_max < i64::from(i32::MAX)
+            {
+                let mut h2_32 = [0i32; DEFAULT_HIDDEN_SIZE_2];
+                layer_2_fixed_i32(activated_1, flat, &mut h2_32);
+                for (d, s) in h2_values.iter_mut().zip(h2_32) {
+                    *d = i64::from(s);
+                }
+            } else {
+                layer_2_fixed(activated_1, flat, &mut h2_values);
+            }
         } else if flat.len() == weights_2.len() * hidden_size_2 && hidden_size_2 > 0 {
             for (i, &act_1) in activated_1.iter().enumerate() {
                 if act_1 == 0 {
@@ -1420,6 +1448,58 @@ fn forward_from_activations(activated_1: &[i32], weights: &NNUEWeights) -> i32 {
         }
         let output = weights.output_bias + (dot >> 6) as i32;
         (output * SCALE_FACTOR) / OUTPUT_DIVISOR
+    }
+}
+
+/// Layer 2 for the default width in 32-bit sums; the caller has proved they
+/// cannot overflow (see `forward_from_activations`), so the result equals
+/// [`layer_2_fixed`]'s. On aarch64, `smlal` on 16-bit lanes: four products
+/// per instruction into 32-bit accumulators, against two into 64-bit.
+#[inline]
+fn layer_2_fixed_i32(activated_1: &[i32], flat: &[i16], h2: &mut [i32; DEFAULT_HIDDEN_SIZE_2]) {
+    #[cfg(target_arch = "aarch64")]
+    {
+        layer_2_neon_i32(activated_1, flat, h2);
+    }
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        for (&act_1, row) in activated_1.iter().zip(flat.chunks_exact(DEFAULT_HIDDEN_SIZE_2)) {
+            if act_1 == 0 {
+                continue;
+            }
+            for (h, &w) in h2.iter_mut().zip(row) {
+                *h += act_1 * i32::from(w);
+            }
+        }
+    }
+}
+
+#[cfg(target_arch = "aarch64")]
+#[inline]
+fn layer_2_neon_i32(activated_1: &[i32], flat: &[i16], h2: &mut [i32; DEFAULT_HIDDEN_SIZE_2]) {
+    use std::arch::aarch64::*;
+    const _: () = assert!(DEFAULT_HIDDEN_SIZE_2 == 32);
+    // SAFETY: NEON is mandatory on aarch64. Each row is 32 i16 (chunks_exact),
+    // read as four 8-lane loads; the 32 i32 sums are 8 four-lane registers,
+    // loaded from and stored to the 32-element array. `act_1` fits i16 (the
+    // caller checks every activation against i16::MAX).
+    unsafe {
+        let mut acc: [int32x4_t; 8] = std::array::from_fn(|k| vld1q_s32(h2.as_ptr().add(4 * k)));
+        for (&act_1, row) in activated_1.iter().zip(flat.chunks_exact(DEFAULT_HIDDEN_SIZE_2)) {
+            if act_1 == 0 {
+                continue; // Skip zero activations (ReLU killed)
+            }
+            let a = act_1 as i16;
+            let p = row.as_ptr();
+            for k in 0..4 {
+                let w = vld1q_s16(p.add(8 * k));
+                acc[2 * k] = vmlal_n_s16(acc[2 * k], vget_low_s16(w), a);
+                acc[2 * k + 1] = vmlal_high_n_s16(acc[2 * k + 1], w, a);
+            }
+        }
+        for (k, a) in acc.iter().enumerate() {
+            vst1q_s32(h2.as_mut_ptr().add(4 * k), *a);
+        }
     }
 }
 

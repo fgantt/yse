@@ -237,6 +237,7 @@ fn write_random_pov_weights() -> std::path::PathBuf {
         output_weights: (0..h2).map(|_| next(-64, 64) as i16).collect(),
         output_bias: 0,
         flat_weights_2: Vec::new(),
+        l2_colsum_max: 0,
         psqt: Vec::new(),
     };
     // A PSQT path too (material plus noise), so every test below also covers its

@@ -66,6 +66,7 @@ fn det_weights(num_features: usize, h1: usize, h2: usize) -> NNUEWeights {
         output_weights,
         output_bias: 0,
         flat_weights_2: Vec::new(),
+        l2_colsum_max: 0,
         psqt: Vec::new(),
     };
     w.rebuild_flat_weights_2();
@@ -467,6 +468,7 @@ fn material_only_weights() -> NNUEWeights {
         output_weights: vec![0; h2],
         output_bias: 0,
         flat_weights_2: Vec::new(),
+        l2_colsum_max: 0,
         psqt: NNUEWeights::material_psqt(NUM_NNUE_FEATURES_WITH_HAND_TOTAL),
     };
     w.rebuild_flat_weights_2();
