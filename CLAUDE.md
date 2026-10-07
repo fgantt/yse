@@ -125,29 +125,28 @@ Two coexisting evaluation strategies, selected/blended via `PositionEvaluator`:
 - Strength measurement tool: `elo-tester` (`src/bin/elo_tester.rs`) plays head-to-head bake-offs
   between two configs (e.g. NNUE vs PST, or two NNUE variants via `--nnue-weights`/
   `--nnue-weights-b`) and reports win/draw/loss + ELO with a 95% CI.
-- **Read `docs/nnue-phase2/SESSION_LOG_029.md` (or the latest `SESSION_LOG_*.md`) before starting new
-  work** — headline results, open issues, and the next step. Its four postscripts matter more than
-  the body. Standing findings as of Session 29:
-  - **Evaluation is probably not the binding constraint.** Sessions 28 and 29 spent two full
-    sessions on it for no measurable strength gain. Move-ranking training (the Session 28 "untested
-    lever") improves what it optimises by ~7 SE and does not reach play.
-  - **Search depth is.** At 1 s/move we reach depth 4-5 against YaneuraOu's 15-16. Every search
-    component has now been instrumented and cleared — move ordering (81-99% first-move cutoffs),
-    LMR (97.8% of eligible moves), null move (works since PVS), branching factor (~√b, textbook).
-    What is left is nodes per second, and the NNUE forward pass is 31% of the profile.
-  - **Measure before believing, and check the denominator.** Several confident diagnoses this
-    session were wrong in sign or magnitude: PVS looked like a 21% regression at depth 4 and is a
-    14% win at depth 6; "LMR fires on 1 move in 800" counted leaf-adjacent nodes where LMR is
-    deliberately off; "we waste half the clock" was the correct consequence of discarding unfinished
-    iterations, and "fixing" it made play worse.
-  - **Benchmark the engine you ship.** Measurements taken with `ParallelEnable value false` show
-    ~40-59k nps; the default parallel search gives ~164k and one more ply. Several claims in the
-    Session 29 log describe the single-threaded configuration.
+- **Read `docs/nnue-phase2/SESSION_LOG_032.md` (or the latest `SESSION_LOG_*.md`) before starting new
+  work** -- its READ THIS FIRST block is the current state. Standing findings as of Session 32:
+  - **Search had real bugs; check correctness before tuning.** Session 32 found the parallel
+    search running on one thread, LMR and null-move verification re-searches scoring fake 0
+    draws, colour-blind Zobrist keys, and perpetual check scored as a draw -- together several
+    hundred Elo of self-play. Trace any exact 0 or other suspicious score to its source.
+  - **The remaining weakness is evaluation of king danger**, not search depth: our score follows
+    material and swings 500-800 cp with the side to move in mutual attacks. But two attempts to
+    move the evaluation toward YaneuraOu's numbers lost 110-180 Elo. Eval-gap error is a
+    diagnostic, not a target; judge evaluation changes only by games.
+  - **Measure before believing, and check the denominator.** Several confident diagnoses were
+    wrong in sign or magnitude (Sessions 29 and 32). An SPRT stopped on 14-2 after 8 pairs; the
+    minimum-pairs rule exists because of it.
+  - **Benchmark the engine you ship.** `ParallelEnable value false` measurements describe a
+    different engine; profile per thread, not only per function.
+  - **Self-play Elo overstates real gains.** Track the YaneuraOu six-piece / 2,000-node ladder rung
+    (Session 32: 78%) for progress that transfers.
 - **Trustworthy measurements**, in order of cost: `search-diag` (tree shape, cutoff index,
   LMR rejection reasons, per-ply node ratio); neutral-set move loss at fixed depth or a time control
   (150 held-out teacher positions, ±30 cp on the mean, medians stabler); the six-piece handicap
-  ladder against YaneuraOu at 50 nodes (~50%, the only opponent setting whose result responds to our
-  changes); 1 s/move head-to-head over 120 games. **`elo-tester` at fixed depth 2 can invert the
+  ladder against YaneuraOu at 2,000 nodes (Session 32 stable 78%; the 50-node rungs are now too easy
+  to separate engines; only our games as Black, holding the odds, count); 1 s/move head-to-head over 120 games. **`elo-tester` at fixed depth 2 can invert the
   sign** and must never be a ship gate.
 - **Ship gate: SPRT against `engines/usi-engine-stable`**, not a fixed game count. A 120-game match
   resolves only ±60 Elo, so nearly everything read "neutral". Run

@@ -1,29 +1,40 @@
 # NNUE Implementation Session Log
 
-## Session 32: Fifteen Idle Threads, and a Gate That Can Decide
+## Session 32: Idle Threads, Fake Draws, and a Gate That Can Decide
 
-**Date**: 2026-09-30 to 2026-10-01
+**Date**: 2026-09-30 to 2026-10-07
 **Phase**: Phase 2w
 **Objective**: Session 31's *Next* list, starting with why the root split beats one thread, and
 search speed in general -- the constraint since Session 29.
 
-> **READ THIS FIRST.**
+> **READ THIS FIRST** (final state; the sections below are in the order the work happened).
 >
-> 1. **Shipped: PV splitting, +63.9 ± 47.9 Elo** (`f86379b`). Against the Session 30 stable at
->    1 s/move: 129-2-89 over 220 games, SPRT [0, 40] passed. The first change to beat stable since
->    Session 30. Installed as `engines/usi-engine-stable` and `target/release/usi-engine`; the
->    Session 30 engine is now `engines/usi-engine-stable-prev`.
-> 2. **The shipped "parallel" search ran on one thread.** A 15 s profile: of 16 pool threads, one
->    busy 86% of the time, the others 2-8%. The root split searched the first root move alone, and
->    that subtree is most of the work; the other root moves' zero-window scouts fail low fast and
->    their threads wait. Session 31's "workers asleep 52-85%" was the same thing seen from the
->    other side.
-> 3. **The ship gate is now an SPRT** (`a69300b`, CLAUDE.md). A 120-game match resolves ±60 Elo,
->    which is why Session 31's candidates all read "neutral". `usi_match --sprt-elo0 0
->    --sprt-elo1 40` stops when the test decides; `scripts/sprt.py` checks any match CSV.
-> 4. **Not measurable, committed anyway:** SEE and slider move generation cloned the shared magic
->    table's `Arc` on every call. Borrowing it leaves the single-threaded search byte-identical
->    (8,593,711 nodes, 30 positions, depth 5) at the same 44.4k nps.
+> 1. **Stable is `11220d2`** (`engines/usi-engine-stable`, = `target/release/usi-engine`;
+>    `-stable-prev` = `a98b1b2`). Shipped this session, each against the stable before it:
+>    2-ply PV split +63.9 ± 47.9; C1 (workers probe the shared table) +24.9 ± 28.6;
+>    overhead stack (C2, LRU index, flank clone) +36.7 ± 29.3; partial iterations
+>    +42.8 ± 35.0; **four search-correctness bugs +137.0 ± 88.2** (LMR/verification re-searches
+>    scored as 0 draws, colour-blind Zobrist keys, perpetual check scored as a draw, aborted
+>    searches stored); superior/inferior repetition +135.8 ± 86.8 (even; neutral at six-piece);
+>    NNUE layer 2 in i32 and a memo, +11% nps, tree-identical. Self-play gains overstate gains
+>    against other engines.
+> 2. **Against YaneuraOu (ladder, our games as Black holding the odds):** two-piece vs 50 nodes
+>    76% → 86%; **six-piece vs 2,000 nodes 61% → 78%** -- use this rung as the yardstick. The
+>    user won their first recorded six-piece game (`matches/user_games/2026-10-06_6mai_win55.txt`).
+> 3. **Gates:** SPRT via `usi_match --sprt-elo0 0 --sprt-elo1 40` (`--sprt-min-pairs`, default
+>    20: 8 pairs once stopped a test on 14-2). For anything aimed at the user's games, gate from
+>    the six-piece start (`--start-sfen`, colours swapped). Non-regression: [−20, +10] with a
+>    game cap and a decision rule fixed in advance (a neutral change needs ~800 games otherwise).
+> 4. **The open problem is evaluation, not search:** every user loss (5 six-piece, 2 four-piece)
+>    is our king attacked by pawns and drops while our score stays +600 to +1,600 above
+>    YaneuraOu's. Not pruning, not node count (64x nodes barely moves it), not a horizon effect
+>    (20-ply line-walks: material constant, YaneuraOu negative throughout). **But moving the
+>    evaluation toward YaneuraOu's numbers plays worse:** a fitted threat correction lost 110
+>    (even) and 180 Elo (six-piece; won 9/20 as Black against stable's 18/20). Eval-gap error is
+>    a diagnostic, not a target. Candidate next step: threat inputs in the network, judged only
+>    by handicap games.
+> 5. **No absolute Elo yet.** Proposed: even games against YaneuraOu at 1/10/100/1,000/10,000
+>    nodes to find "ours ≈ YaneuraOu at N nodes".
 
 ---
 
