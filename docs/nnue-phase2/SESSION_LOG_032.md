@@ -372,6 +372,25 @@ engines run at the same time, `matches/ladder_s32/`):
 Losses as the side holding the odds fall from 13 to 7 at six-piece odds (difference ~1.7 SE at
 40 games each). No illegal moves or crashes; longest think 1,052 / 991 ms.
 
+## A four-piece loss (stable as of `a98b1b2`)
+
+`matches/user_games/2026-10-06_4mai_loss52.txt`, lost in 52 at four-piece odds (YaneuraOu starts
+the game at about +2,800). 30M nodes; ours = the stable re-searching at 10 s:
+
+| move | played | YaneuraOu before → after | loss | YaneuraOu | ours at 10 s |
+|---|---|---|---|---|---|
+| 24 | 6h7h | +2,497 → +2,254 | 243 | 4i3h | 6g6f, d7, +1,532 |
+| 25 | 3g3f | +2,590 → +2,356 | 234 | 8h5e | 8h5e, d7, +1,525 |
+| **26** | **7d7c+** | **+2,347 → +1,738** | **609** | 6g7f | 7d7c+, d7, +1,379 |
+| **31** | **N\*6f** | **+1,134 → +192** | **942** | 7h7f | N\*6f, d7, +1,212 |
+| 32 | G\*7d | +63 → −137 | 200 | 6i6h | G\*7d, d7, +1,009 |
+
+Moves 27 and 39 read −3000 at 3M: artifacts (bare SFEN: 27 costs nothing, 39 about 400). The
+current engine avoids 24 and 25 but still plays the two costliest, scoring +1,200 where
+YaneuraOu sees +200: our drops against White's king while White's pawns and pieces gather at
+ours (7f7g+, P\*7g, B\*2h). The same blind spot. Labelled into `eval_gap/positions_s32.jsonl`
+(`eval_gap_build.py` now knows the four-piece start).
+
 ## SPRT
 
 Pentanomial GSPRT, the OpenBench / Fishtest normal approximation: each colour-swapped opening pair

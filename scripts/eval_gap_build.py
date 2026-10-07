@@ -7,7 +7,7 @@ depend on what our engine thinks.
 
 Game files: one line per move pair, `N <black move> <white move>`; in a
 handicap game White moves first, so line 1 holds only White's move. The start
-position comes from the file name: `6mai` or `8mai`.
+position comes from the file name: `4mai`, `6mai` or `8mai`.
 
 Output: JSONL, one position per line, scores from Black's (our) point of view.
 
@@ -18,6 +18,7 @@ import argparse, glob, json, os, subprocess
 YANE = ("/Users/fgantt/projects/vibe/shogi-game/yaneuraou-V900-git-mac-all/"
         "NNUE_halfkpvm_256x2_32_32/YaneuraOu_NNUE_halfkpvm_256x2_32_32-V900Git_APPLEM1")
 STARTS = {
+    "4mai": "1nsgkgsn1/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1",
     "6mai": "2sgkgs2/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1",
     "8mai": "3gkg3/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1",
 }
