@@ -416,7 +416,10 @@ pub struct SearchEngine {
     /// its result then covers only the moves that finished.
     last_search_interrupted: bool,
     /// Last board's `count_tactical_threats` (see there).
-    tactical_threats_memo: std::cell::RefCell<Option<([[crate::types::Bitboard; 14]; 2], usize)>>,
+    /// (board, count, exact): `count` is exact, or a lower bound that reached
+    /// the cap it was computed with when `exact` is false.
+    tactical_threats_memo:
+        std::cell::RefCell<Option<([[crate::types::Bitboard; 14]; 2], usize, bool)>>,
     /// Board-only hashes and hands along the current search path, for the
     /// superior/inferior repetition rule (`negamax_with_context`).
     hand_path: Vec<HandPathEntry>,
@@ -3885,17 +3888,27 @@ impl SearchEngine {
     /// hash): LMR's escape-move test asks this two or three times per move for
     /// the same pre-move board, and it depends on nothing else.
     fn count_tactical_threats(&self, board: &BitboardBoard) -> usize {
+        self.count_tactical_threats_capped(board, usize::MAX)
+    }
+
+    /// `min(count_tactical_threats(board), cap)`, counting no further than
+    /// `cap`: most callers only compare the count with a small threshold.
+    fn count_tactical_threats_capped(&self, board: &BitboardBoard, cap: usize) -> usize {
         let key = *board.get_pieces();
-        if let Some((k, n)) = *self.tactical_threats_memo.borrow() {
-            if k == key {
-                return n;
+        if let Some((k, n, exact)) = *self.tactical_threats_memo.borrow() {
+            if k == key && (exact || n >= cap) {
+                return n.min(cap);
             }
         }
         let generator = MoveGenerator::new();
-        let n = generator.count_legal_captures_and_promotions(board, Player::Black)
-            + generator.count_legal_captures_and_promotions(board, Player::White);
-        *self.tactical_threats_memo.borrow_mut() = Some((key, n));
-        n
+        let black = generator.count_legal_captures_and_promotions_capped(board, Player::Black, cap);
+        let n = if black >= cap {
+            black
+        } else {
+            black + generator.count_legal_captures_and_promotions_capped(board, Player::White, cap - black)
+        };
+        *self.tactical_threats_memo.borrow_mut() = Some((key, n, n < cap));
+        n.min(cap)
     }
     /// Calculate dynamic IID depth based on position complexity
     /// Task 4.0: Enhanced to work independently for Dynamic strategy and use
@@ -12652,7 +12665,7 @@ impl SearchEngine {
         // In a full implementation, we would generate all opponent moves and check if
         // they attack this square For now, we use a simplified heuristic based
         // on piece proximity and tactical threats
-        let tactical_threats = self.count_tactical_threats(board);
+        let tactical_threats = self.count_tactical_threats_capped(board, 1);
 
         // If there are tactical threats, the piece might be under attack
         // This is a simplified check - a full implementation would check actual attack
@@ -12671,12 +12684,10 @@ impl SearchEngine {
         // Check if the destination square is under attack
         // This is a simplified check - in a full implementation, we would make the move
         // and check
-        let tactical_threats = self.count_tactical_threats(board);
-
         // If there are tactical threats, the destination might be under attack
         // This is a simplified check - a full implementation would check actual attack
         // patterns
-        tactical_threats > 0 && self.is_center_move(move_)
+        self.is_center_move(move_) && self.count_tactical_threats_capped(board, 1) > 0
     }
 
     /// Check if position is tactical
@@ -12734,8 +12745,8 @@ impl SearchEngine {
             0.0
         };
 
-        // Count tactical threats (Task 5.5)
-        let tactical_threats = self.count_tactical_threats(board);
+        // Count tactical threats (Task 5.5); only compared with 3 below.
+        let tactical_threats = self.count_tactical_threats_capped(board, 4);
 
         // Calculate piece activity (Task 5.3) - approximate from piece count and
         // position

@@ -23,58 +23,7 @@ pub type SEEResult<T> = Result<T, String>;
 /// loops Task 3.0.3.4: Uses iter_pieces for efficient iteration over board
 /// pieces
 pub fn find_attackers_defenders(square: Position, board: &BitboardBoard) -> Vec<(Position, Piece)> {
-    // Built on the board's own attack tables -- the ones `is_square_attacked_by`
-    // uses and the board oracle tests cover. The hand-written version this
-    // replaces had pawns, lances and knights moving the wrong way for both
-    // colours and gave golds, silvers and promoted minors a king's eight
-    // squares, so SEE saw attackers that were not there and missed ones that
-    // were.
-    use crate::bitboards::integration::GlobalOptimizer;
-    let pieces = board.get_pieces();
-    let mut found: Vec<(Position, Piece)> = Vec::new();
-    let push_all = |mut bb: crate::types::Bitboard, player: Player, pt: PieceType, found: &mut Vec<(Position, Piece)>| {
-        while let Some(sq) = GlobalOptimizer::bit_scan_forward(bb) {
-            bb &= crate::types::Bitboard::from_u128(bb.to_u128() - 1);
-            let pos = Position::from_index(sq);
-            if pos != square && !found.iter().any(|(p, _)| *p == pos) {
-                found.push((pos, Piece::new(pt, player)));
-            }
-        }
-    };
-    for player in [Player::Black, Player::White] {
-        let own = &pieces[player as usize];
-        // Step attacks, looked up from the target: pieces are point-symmetric
-        // between the colours, so `player`'s pieces that attack `square` sit on
-        // the squares a same-type piece of the other colour attacks from it.
-        for pt in [
-            PieceType::Pawn,
-            PieceType::Knight,
-            PieceType::Silver,
-            PieceType::Gold,
-            PieceType::PromotedPawn,
-            PieceType::PromotedLance,
-            PieceType::PromotedKnight,
-            PieceType::PromotedSilver,
-        ] {
-            let bb = board.get_attack_pattern_precomputed(square, pt, player.opposite()) & own[pt.as_index()];
-            push_all(bb, player, pt, &mut found);
-        }
-        // The king, and the one-step moves of dragon and horse.
-        let adjacent = board.get_attack_pattern_precomputed(square, PieceType::King, player);
-        for pt in [PieceType::King, PieceType::PromotedRook, PieceType::PromotedBishop] {
-            push_all(adjacent & own[pt.as_index()], player, pt, &mut found);
-        }
-    }
-    // Sliders (rook, bishop, dragon, horse rays, lance) under the current occupancy.
-    for (pos, piece) in sliding_attackers(board, square, board.get_occupied_bitboard()) {
-        if pos != square && !found.iter().any(|(p, _)| *p == pos) {
-            found.push((pos, piece));
-        }
-    }
-
-    // Sort by piece value (ascending) - least valuable first for SEE
-    found.sort_by_key(|(_, p)| p.piece_type.base_value());
-    found
+    AttackList::attackers_of(square, board).as_slice().to_vec()
 }
 
 /// Whether `piece` standing on `from_pos` attacks `target_pos`, from the
@@ -170,6 +119,7 @@ fn check_ray_attack(
 /// makes those x-ray attackers visible. Without it an exchange defended "twice"
 /// through a single file looks defended once, and SEE calls a losing capture
 /// winning.
+#[cfg(test)]
 fn sliding_attackers(
     board: &BitboardBoard,
     to: Position,
@@ -237,9 +187,269 @@ pub fn see_quiet(move_: &Move, board: &BitboardBoard) -> i32 {
     swap_value(move_, board, 0)
 }
 
+/// Attackers of a square in SEE order, on the stack. Mirrors the `Vec` the
+/// exchange used to build -- same order, same deduplication, same removal by
+/// shifting -- so the exchange picks exactly the same pieces.
+struct AttackList {
+    items: [(Position, Piece); 48],
+    len: usize,
+}
+
+impl AttackList {
+    fn new() -> Self {
+        Self { items: [(Position::new(0, 0), Piece::new(PieceType::Pawn, Player::Black)); 48], len: 0 }
+    }
+
+    #[inline]
+    fn as_slice(&self) -> &[(Position, Piece)] {
+        &self.items[..self.len]
+    }
+
+    #[inline]
+    fn contains(&self, pos: Position) -> bool {
+        self.as_slice().iter().any(|(p, _)| *p == pos)
+    }
+
+    #[inline]
+    fn push(&mut self, item: (Position, Piece)) {
+        // At most 40 pieces exist; the bound is never reached.
+        if self.len < self.items.len() {
+            self.items[self.len] = item;
+            self.len += 1;
+        }
+    }
+
+    fn remove(&mut self, idx: usize) -> (Position, Piece) {
+        let item = self.items[idx];
+        self.items.copy_within(idx + 1..self.len, idx);
+        self.len -= 1;
+        item
+    }
+
+    /// Every piece of either colour attacking `square`, least valuable first
+    /// (a stable sort, so equal values keep discovery order).
+    fn attackers_of(square: Position, board: &BitboardBoard) -> Self {
+        // Built on the board's own attack tables -- the ones `is_square_attacked_by`
+        // uses and the board oracle tests cover. The hand-written version this
+        // replaces had pawns, lances and knights moving the wrong way for both
+        // colours and gave golds, silvers and promoted minors a king's eight
+        // squares, so SEE saw attackers that were not there and missed ones that
+        // were.
+        use crate::bitboards::integration::GlobalOptimizer;
+        let pieces = board.get_pieces();
+        let mut found = Self::new();
+        let push_all = |mut bb: crate::types::Bitboard, player: Player, pt: PieceType, found: &mut Self| {
+            while let Some(sq) = GlobalOptimizer::bit_scan_forward(bb) {
+                bb &= crate::types::Bitboard::from_u128(bb.to_u128() - 1);
+                let pos = Position::from_index(sq);
+                if pos != square && !found.contains(pos) {
+                    found.push((pos, Piece::new(pt, player)));
+                }
+            }
+        };
+        for player in [Player::Black, Player::White] {
+            let own = &pieces[player as usize];
+            // Step attacks, looked up from the target: pieces are point-symmetric
+            // between the colours, so `player`'s pieces that attack `square` sit on
+            // the squares a same-type piece of the other colour attacks from it.
+            for pt in [
+                PieceType::Pawn,
+                PieceType::Knight,
+                PieceType::Silver,
+                PieceType::Gold,
+                PieceType::PromotedPawn,
+                PieceType::PromotedLance,
+                PieceType::PromotedKnight,
+                PieceType::PromotedSilver,
+            ] {
+                let bb = board.get_attack_pattern_precomputed(square, pt, player.opposite())
+                    & own[pt.as_index()];
+                push_all(bb, player, pt, &mut found);
+            }
+            // The king, and the one-step moves of dragon and horse.
+            let adjacent = board.get_attack_pattern_precomputed(square, PieceType::King, player);
+            for pt in [PieceType::King, PieceType::PromotedRook, PieceType::PromotedBishop] {
+                push_all(adjacent & own[pt.as_index()], player, pt, &mut found);
+            }
+        }
+        // Sliders (rook, bishop, dragon, horse rays, lance) under the current occupancy.
+        found.add_sliders(board, square, board.get_occupied_bitboard());
+        // Least valuable first for SEE.
+        found.items[..found.len].sort_by_key(|(_, p)| p.piece_type.base_value());
+        found
+    }
+
+    /// [`sliding_attackers`] under `occupied`, appending those not yet listed,
+    /// in its order.
+    fn add_sliders(&mut self, board: &BitboardBoard, to: Position, occupied: crate::types::Bitboard) {
+        let Some(magic) = board.magic_table_ref() else {
+            return;
+        };
+        let to_idx = to.to_index();
+        let rook_rays = magic.get_attacks(to_idx, PieceType::Rook, occupied);
+        let bishop_rays = magic.get_attacks(to_idx, PieceType::Bishop, occupied);
+        let pieces = board.get_pieces();
+        for player in [Player::Black, Player::White] {
+            for pt in [
+                PieceType::Rook,
+                PieceType::PromotedRook,
+                PieceType::Bishop,
+                PieceType::PromotedBishop,
+                PieceType::Lance,
+            ] {
+                let rays = match pt {
+                    PieceType::Bishop | PieceType::PromotedBishop => bishop_rays,
+                    _ => rook_rays,
+                };
+                let mut bb = pieces[player as usize][pt.as_index()] & rays & occupied;
+                while let Some(sq) =
+                    crate::bitboards::integration::GlobalOptimizer::bit_scan_forward(bb)
+                {
+                    bb &= crate::types::Bitboard::from_u128(bb.to_u128() - 1);
+                    let pos = Position::from_index(sq);
+                    if pt == PieceType::Lance {
+                        if pos.col != to.col {
+                            continue;
+                        }
+                        let forward =
+                            if player == Player::Black { pos.row > to.row } else { pos.row < to.row };
+                        if !forward {
+                            continue;
+                        }
+                    }
+                    if pos != to && !self.contains(pos) {
+                        self.push((pos, Piece::new(pt, player)));
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// The swap-list exchange on `move_.to`, starting from `first_gain` -- the
 /// value of what the move itself captures, 0 for a quiet move.
+///
+/// The same computation as before (`swap_value_reference` in the tests),
+/// without heap allocation: SEE runs for every attacked quiet move in move
+/// ordering.
 fn swap_value(move_: &Move, board: &BitboardBoard, first_gain: i32) -> i32 {
+    let to = move_.to;
+    let mover = move_.player;
+
+    let mut on_square = match move_.from.and_then(|f| board.get_piece(f)) {
+        Some(p) => p.piece_type.base_value(),
+        None => move_.piece_type.base_value(), // drop
+    };
+
+    let mut occupied = board.get_occupied_bitboard();
+    if let Some(from) = move_.from {
+        occupied &= !crate::types::Bitboard::from_u128(1u128 << from.to_index());
+    }
+    let mut pieces = AttackList::attackers_of(to, board);
+    if let Some(from) = move_.from {
+        if let Some(i) = pieces.as_slice().iter().position(|(p, _)| *p == from) {
+            pieces.remove(i);
+        }
+    }
+    pieces.add_sliders(board, to, occupied);
+
+    let mut gain = [0i32; 40];
+    gain[0] = first_gain;
+    let mut d = 0usize;
+    let mut side = mover.opposite();
+
+    while d + 1 < gain.len() {
+        d += 1;
+        gain[d] = on_square - gain[d - 1];
+        if (-gain[d - 1]).max(gain[d]) < 0 {
+            break;
+        }
+        let Some(idx) = pieces
+            .as_slice()
+            .iter()
+            .enumerate()
+            .filter(|(_, (_, p))| p.player == side)
+            .min_by_key(|(_, (_, p))| p.piece_type.base_value())
+            .map(|(i, _)| i)
+        else {
+            break;
+        };
+        let (used_pos, used_piece) = pieces.remove(idx);
+        on_square = used_piece.piece_type.base_value();
+        occupied &= !crate::types::Bitboard::from_u128(1u128 << used_pos.to_index());
+        pieces.add_sliders(board, to, occupied);
+        side = side.opposite();
+    }
+
+    while d > 1 {
+        d -= 1;
+        gain[d - 1] = -((-gain[d - 1]).max(gain[d]));
+    }
+    gain[0]
+}
+
+#[cfg(test)]
+fn find_attackers_defenders_reference(square: Position, board: &BitboardBoard) -> Vec<(Position, Piece)> {
+    // Built on the board's own attack tables -- the ones `is_square_attacked_by`
+    // uses and the board oracle tests cover. The hand-written version this
+    // replaces had pawns, lances and knights moving the wrong way for both
+    // colours and gave golds, silvers and promoted minors a king's eight
+    // squares, so SEE saw attackers that were not there and missed ones that
+    // were.
+    use crate::bitboards::integration::GlobalOptimizer;
+    let pieces = board.get_pieces();
+    let mut found: Vec<(Position, Piece)> = Vec::new();
+    let push_all = |mut bb: crate::types::Bitboard, player: Player, pt: PieceType, found: &mut Vec<(Position, Piece)>| {
+        while let Some(sq) = GlobalOptimizer::bit_scan_forward(bb) {
+            bb &= crate::types::Bitboard::from_u128(bb.to_u128() - 1);
+            let pos = Position::from_index(sq);
+            if pos != square && !found.iter().any(|(p, _)| *p == pos) {
+                found.push((pos, Piece::new(pt, player)));
+            }
+        }
+    };
+    for player in [Player::Black, Player::White] {
+        let own = &pieces[player as usize];
+        // Step attacks, looked up from the target: pieces are point-symmetric
+        // between the colours, so `player`'s pieces that attack `square` sit on
+        // the squares a same-type piece of the other colour attacks from it.
+        for pt in [
+            PieceType::Pawn,
+            PieceType::Knight,
+            PieceType::Silver,
+            PieceType::Gold,
+            PieceType::PromotedPawn,
+            PieceType::PromotedLance,
+            PieceType::PromotedKnight,
+            PieceType::PromotedSilver,
+        ] {
+            let bb = board.get_attack_pattern_precomputed(square, pt, player.opposite()) & own[pt.as_index()];
+            push_all(bb, player, pt, &mut found);
+        }
+        // The king, and the one-step moves of dragon and horse.
+        let adjacent = board.get_attack_pattern_precomputed(square, PieceType::King, player);
+        for pt in [PieceType::King, PieceType::PromotedRook, PieceType::PromotedBishop] {
+            push_all(adjacent & own[pt.as_index()], player, pt, &mut found);
+        }
+    }
+    // Sliders (rook, bishop, dragon, horse rays, lance) under the current occupancy.
+    for (pos, piece) in sliding_attackers(board, square, board.get_occupied_bitboard()) {
+        if pos != square && !found.iter().any(|(p, _)| *p == pos) {
+            found.push((pos, piece));
+        }
+    }
+
+    // Sort by piece value (ascending) - least valuable first for SEE
+    found.sort_by_key(|(_, p)| p.piece_type.base_value());
+    found
+}
+
+#[cfg(test)]
+/// The allocating original of [`swap_value`], kept as its test reference.
+///
+/// The swap-list exchange on `move_.to`, starting from `first_gain` -- the
+/// value of what the move itself captures, 0 for a quiet move.
+fn swap_value_reference(move_: &Move, board: &BitboardBoard, first_gain: i32) -> i32 {
     let to = move_.to;
     let mover = move_.player;
 
@@ -257,7 +467,7 @@ fn swap_value(move_: &Move, board: &BitboardBoard, first_gain: i32) -> i32 {
     if let Some(from) = move_.from {
         occupied &= !crate::types::Bitboard::from_u128(1u128 << from.to_index());
     }
-    let mut pieces: Vec<(Position, Piece)> = find_attackers_defenders(to, board)
+    let mut pieces: Vec<(Position, Piece)> = find_attackers_defenders_reference(to, board)
         .into_iter()
         .filter(|(pos, _)| Some(*pos) != move_.from)
         .collect();
@@ -588,5 +798,48 @@ pub struct SEECacheStats {
 impl Default for SEECache {
     fn default() -> Self {
         Self::new(5000) // Default max size (increased from 1000)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::moves::MoveGenerator;
+    use crate::types::board::CapturedPieces;
+    use rand::{seq::SliceRandom, SeedableRng};
+
+    /// The stack-based exchange must give exactly the allocating original's
+    /// values, and the attacker lists must match entry for entry, along random
+    /// games (captures, drops, promotions, x-rays).
+    #[test]
+    fn swap_value_matches_reference() {
+        let mg = MoveGenerator::new();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(51);
+        let (mut compared, mut nonzero) = (0u64, 0u64);
+        for _ in 0..40 {
+            let mut board = BitboardBoard::new();
+            let mut captured = CapturedPieces::new();
+            let mut player = Player::Black;
+            for _ in 0..160 {
+                for idx in 0..81u8 {
+                    let sq = Position::from_index(idx);
+                    assert_eq!(find_attackers_defenders(sq, &board), find_attackers_defenders_reference(sq, &board));
+                }
+                for m in mg.generate_legal_moves(&board, player, &captured) {
+                    let first = m.captured_piece.map_or(0, |p| p.piece_type.base_value());
+                    for g in [0, first] {
+                        let got = swap_value(&m, &board, g);
+                        assert_eq!(got, swap_value_reference(&m, &board, g), "{}", m.to_usi_string());
+                        compared += 1;
+                        nonzero += (got != g) as u64;
+                    }
+                }
+                let legal = mg.generate_legal_moves(&board, player, &captured);
+                let Some(m) = legal.choose(&mut rng) else { break };
+                board.make_move_with_hand(m, &mut captured);
+                player = player.opposite();
+            }
+        }
+        assert!(nonzero > 1000, "{compared} {nonzero}");
     }
 }

@@ -178,18 +178,34 @@ impl MoveGenerator {
     /// which contribute nothing: the search asks this for both sides at most
     /// nodes, and the full generation was ~30% of search time.
     pub fn count_legal_captures_and_promotions(&self, board: &BitboardBoard, player: Player) -> usize {
+        self.count_legal_captures_and_promotions_capped(board, player, usize::MAX)
+    }
+
+    /// [`Self::count_legal_captures_and_promotions`], but stops once the count
+    /// reaches `cap`: the result is exact when below `cap`, and at least `cap`
+    /// otherwise.
+    pub fn count_legal_captures_and_promotions_capped(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        cap: usize,
+    ) -> usize {
         let no_hands = CapturedPieces::new();
         let mut moves = Vec::with_capacity(160);
         self.generate_all_piece_moves_into(board, player, &mut moves);
         let in_check = board.is_king_in_check(player, &no_hands);
         let filter = MoveTestFilter::new(board, player, in_check, &no_hands);
         let mut scratch = board.clone();
-        moves
-            .iter()
-            .filter(|m| m.is_capture || m.is_promotion)
-            .filter(|m| filter.is_safe(&mut scratch, m, player, &no_hands))
-            .map(|m| m.is_capture as usize + m.is_promotion as usize)
-            .sum()
+        let mut n = 0;
+        for m in moves.iter().filter(|m| m.is_capture || m.is_promotion) {
+            if filter.is_safe(&mut scratch, m, player, &no_hands) {
+                n += m.is_capture as usize + m.is_promotion as usize;
+                if n >= cap {
+                    break;
+                }
+            }
+        }
+        n
     }
 
     pub fn generate_legal_captures(
@@ -1435,6 +1451,13 @@ mod tests {
                         .sum();
                     let got = mg.count_legal_captures_and_promotions(&board, side);
                     assert_eq!(got, expected, "{:?} in {}", side, board.to_fen(player, &captured));
+                    for cap in 1..6 {
+                        let capped = mg.count_legal_captures_and_promotions_capped(&board, side, cap);
+                        assert_eq!(capped.min(cap), expected.min(cap));
+                        if expected < cap {
+                            assert_eq!(capped, expected);
+                        }
+                    }
                     nonzero += (expected > 0) as usize;
                 }
                 let legal = mg.generate_legal_moves(&board, player, &captured);

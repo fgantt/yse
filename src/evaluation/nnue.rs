@@ -3323,6 +3323,33 @@ mod tests {
         }
     }
 
+    /// The 32-bit layer-2 kernel must match plain i64 arithmetic exactly on
+    /// inputs within its preconditions (activations fit i16, sums fit i32),
+    /// for any pattern of zero activations, including all and none.
+    #[test]
+    fn test_layer_2_fixed_i32_matches_scalar() {
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(30);
+        let n = 2 * DEFAULT_HIDDEN_SIZE_1;
+        for t in 0..60 {
+            let p_zero = [0.0, 1.0, 0.5, 0.9, 0.1][t % 5];
+            let act: Vec<i32> = (0..n)
+                .map(|_| if rng.gen_bool(p_zero) { 0 } else { rng.gen_range(1..1_000) })
+                .collect();
+            let flat: Vec<i16> =
+                (0..n * DEFAULT_HIDDEN_SIZE_2).map(|_| rng.gen_range(-150..=150)).collect();
+            let mut expected = [0i64; DEFAULT_HIDDEN_SIZE_2];
+            for (i, &a) in act.iter().enumerate() {
+                for (j, e) in expected.iter_mut().enumerate() {
+                    *e += a as i64 * flat[i * DEFAULT_HIDDEN_SIZE_2 + j] as i64;
+                }
+            }
+            let mut got = [0i32; DEFAULT_HIDDEN_SIZE_2];
+            layer_2_fixed_i32(&act, &flat, &mut got);
+            assert_eq!(got.map(i64::from), expected);
+        }
+    }
+
     /// Session 19: hand-feature index sanity. Verifies layout and that the
     /// flat and HalfKP base offsets do not overlap with their respective
     /// piece-square + stm regions.
