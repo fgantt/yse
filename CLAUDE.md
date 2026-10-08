@@ -125,7 +125,7 @@ Two coexisting evaluation strategies, selected/blended via `PositionEvaluator`:
 - Strength measurement tool: `elo-tester` (`src/bin/elo_tester.rs`) plays head-to-head bake-offs
   between two configs (e.g. NNUE vs PST, or two NNUE variants via `--nnue-weights`/
   `--nnue-weights-b`) and reports win/draw/loss + ELO with a 95% CI.
-- **Read `docs/nnue-phase2/SESSION_LOG_032.md` (or the latest `SESSION_LOG_*.md`) before starting new
+- **Read `docs/nnue-phase2/SESSION_LOG_033.md` (or the latest `SESSION_LOG_*.md`) before starting new
   work** -- its READ THIS FIRST block is the current state. Standing findings as of Session 32:
   - **Search had real bugs; check correctness before tuning.** Session 32 found the parallel
     search running on one thread, LMR and null-move verification re-searches scoring fake 0
