@@ -1298,6 +1298,57 @@ mod tests {
         assert!(checks > 100 && unsafe_moves > 100, "{compared} {checks} {unsafe_moves}");
     }
 
+    /// The in-check shortcut (non-king moves must capture or block the checker)
+    /// must agree with the full test. Games here prefer checking moves, so
+    /// they reach many in-check positions, double checks among them.
+    #[test]
+    fn evasion_filter_matches_full_test() {
+        use rand::{seq::SliceRandom, Rng, SeedableRng};
+        let mg = MoveGenerator::new();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(41);
+        let (mut in_check_positions, mut double_checks, mut compared) = (0u64, 0u64, 0u64);
+        for _ in 0..200 {
+            let mut board = BitboardBoard::new();
+            let mut captured = CapturedPieces::new();
+            let mut player = Player::Black;
+            for _ in 0..200 {
+                let in_check = board.is_king_in_check(player, &captured);
+                // `attackers_of` agrees with `is_square_attacked_by` on every square.
+                for idx in 0..81u8 {
+                    let sq = Position::from_index(idx);
+                    for side in [Player::Black, Player::White] {
+                        assert_eq!(board.attackers_of(sq, side) != 0, board.is_square_attacked_by(sq, side));
+                    }
+                }
+                if in_check {
+                    in_check_positions += 1;
+                    let k = board.find_king_position(player).unwrap();
+                    double_checks += (board.attackers_of(k, player.opposite()).count_ones() > 1) as u64;
+                    let filter = MoveTestFilter::new(&board, player, in_check, &captured);
+                    let mut scratch = board.clone();
+                    for m in mg.generate_pseudo_legal_moves(&board, player, &captured) {
+                        let full = test_after(&mut scratch, &m, player, &captured);
+                        let fen = board.to_fen(player, &captured);
+                        assert_eq!(filter.test(&mut scratch, &m, player, &captured), full, "{} in {fen}", m.to_usi_string());
+                        assert_eq!(filter.is_safe(&mut scratch, &m, player, &captured), full.0, "{} in {fen}", m.to_usi_string());
+                        compared += 1;
+                    }
+                }
+                let legal = mg.generate_legal_moves(&board, player, &captured);
+                let checking: Vec<&Move> = legal.iter().filter(|m| m.gives_check).collect();
+                let m = if !checking.is_empty() && rng.gen_bool(0.6) {
+                    (*checking.choose(&mut rng).unwrap()).clone()
+                } else {
+                    let Some(m) = legal.choose(&mut rng) else { break };
+                    m.clone()
+                };
+                board.make_move_with_hand(&m, &mut captured);
+                player = player.opposite();
+            }
+        }
+        assert!(in_check_positions > 1000 && double_checks > 10, "{in_check_positions} {double_checks} {compared}");
+    }
+
     /// The quiescence generators must return exactly what the old code did:
     /// captures filtered with the full `test_after`, promotions from the full
     /// pseudo-legal list, and checks found by playing each move on a clone.
@@ -1556,12 +1607,20 @@ static REACH: ([u128; 81], [u128; 81]) = reach_masks();
 ///   landing where some piece could attack its king (`REACH`), or by vacating a
 ///   square on a line through it.
 ///
+/// * If the mover is in check, a non-king move that neither captures the
+///   (single) checker nor lands between it and the king leaves the check in
+///   place, and in double check every non-king move does: illegal.
+///
 /// Anything else -- either side already in check, a missing king -- takes the
 /// full test, so the answers are exactly those of [`test_after`].
 struct MoveTestFilter {
     /// Own king square, when not in check (otherwise every move is tested).
     own_king: Option<usize>,
     own_in_check: bool,
+    /// In check: the squares a non-king move must land on to have any chance of
+    /// being legal -- the checker and the squares between it and the king (none
+    /// in double check). A non-king move elsewhere leaves the check in place.
+    evasion_targets: u128,
     /// Opponent king square, when it is not in check.
     opp_king: Option<usize>,
     opp_in_check: bool,
@@ -1575,9 +1634,23 @@ impl MoveTestFilter {
         captured_pieces: &CapturedPieces,
     ) -> Self {
         let opp_in_check = board.is_king_in_check(player.opposite(), captured_pieces);
+        let own_king_pos = board.find_king_position(player);
+        let evasion_targets = match own_king_pos {
+            Some(k) if own_in_check => {
+                let checkers = board.attackers_of(k, player.opposite());
+                if checkers.count_ones() == 1 {
+                    let c = checkers.trailing_zeros() as usize;
+                    checkers | squares_between(k.to_index() as usize, c)
+                } else {
+                    0
+                }
+            }
+            _ => u128::MAX,
+        };
         Self {
-            own_king: board.find_king_position(player).map(|p| p.to_index() as usize),
+            own_king: own_king_pos.map(|p| p.to_index() as usize),
             own_in_check,
+            evasion_targets,
             opp_king: board.find_king_position(player.opposite()).map(|p| p.to_index() as usize),
             opp_in_check,
         }
@@ -1607,6 +1680,9 @@ impl MoveTestFilter {
         };
         if safety_known && check_known {
             return (true, false);
+        }
+        if self.cannot_evade(m, to_bit) {
+            return (false, false);
         }
         let info = scratch.make_move_with_info(m);
         let safe = safety_known || !scratch.is_king_in_check(player, captured_pieces);
@@ -1660,11 +1736,40 @@ impl MoveTestFilter {
         if known {
             return true;
         }
+        if self.cannot_evade(m, 1u128 << m.to.to_index()) {
+            return false;
+        }
         let info = scratch.make_move_with_info(m);
         let safe = !scratch.is_king_in_check(player, captured_pieces);
         scratch.unmake_move(&info);
         safe
     }
+
+    /// In check, a non-king move that neither captures the checker nor blocks
+    /// it is illegal (and so, as far as `test` reports, gives no check).
+    #[inline]
+    fn cannot_evade(&self, m: &Move, to_bit: u128) -> bool {
+        self.own_in_check && m.piece_type != PieceType::King && self.evasion_targets & to_bit == 0
+    }
+}
+
+/// The squares strictly between `a` and `b` (indices `row * 9 + col`) when they
+/// share a rank, file or diagonal; empty otherwise.
+fn squares_between(a: usize, b: usize) -> u128 {
+    let (ar, ac, br, bc) = ((a / 9) as i32, (a % 9) as i32, (b / 9) as i32, (b % 9) as i32);
+    let (dr, dc) = (br - ar, bc - ac);
+    if !(dr == 0 || dc == 0 || dr.abs() == dc.abs()) {
+        return 0;
+    }
+    let (sr, sc) = (dr.signum(), dc.signum());
+    let (mut r, mut c) = (ar + sr, ac + sc);
+    let mut out = 0u128;
+    while (r, c) != (br, bc) {
+        out |= 1u128 << (r * 9 + c);
+        r += sr;
+        c += sc;
+    }
+    out
 }
 
 /// The moves of `moves` that leave the opponent in check, in order, with

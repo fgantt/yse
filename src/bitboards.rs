@@ -334,6 +334,9 @@ pub struct BitboardBoard {
     sliding_generator: Option<sliding_moves::SlidingMoveGenerator>,
     side_to_move: Player,
     repetition_state: RepetitionState,
+    /// XOR of the Zobrist piece keys of every piece on the board, kept in step
+    /// with `squares` so the position hash need not rescan the board.
+    board_key: u64,
 }
 
 impl BitboardBoard {
@@ -346,8 +349,27 @@ impl BitboardBoard {
     fn set_square(&mut self, position: Position, piece: Option<Piece>) {
         if position.is_valid() {
             let idx = Self::square_index(position);
+            if let Some(old) = self.squares[idx] {
+                self.board_key ^= Self::piece_key(old, idx);
+            }
+            if let Some(new) = piece {
+                self.board_key ^= Self::piece_key(new, idx);
+            }
             self.squares[idx] = piece;
         }
+    }
+
+    #[inline]
+    fn piece_key(piece: Piece, idx: usize) -> u64 {
+        crate::search::zobrist::ZOBRIST_TABLE.piece_keys[piece.player as usize]
+            [piece.piece_type.to_u8() as usize][idx]
+    }
+
+    /// XOR of the Zobrist piece keys of every piece on the board (no side to
+    /// move, hands or repetition state).
+    #[inline]
+    pub fn board_key(&self) -> u64 {
+        self.board_key
     }
 
     /// Task 3.0.3.4: Iterator over all pieces on the board
@@ -402,6 +424,7 @@ impl BitboardBoard {
             sliding_generator: None,
             side_to_move: Player::Black,
             repetition_state: RepetitionState::None,
+            board_key: 0,
         }
     }
 
@@ -413,6 +436,7 @@ impl BitboardBoard {
             self.black_occupied = board.black_occupied;
             self.white_occupied = board.white_occupied;
             self.squares = board.squares;
+            self.board_key = board.board_key;
             self.side_to_move = player;
             self.repetition_state = RepetitionState::None;
         }
@@ -494,7 +518,7 @@ impl BitboardBoard {
                 Player::White => clear_bit(&mut self.white_occupied, position),
             }
             clear_bit(&mut self.occupied, position);
-            self.squares[idx] = None;
+            self.set_square(position, None);
             Some(piece)
         } else {
             None
@@ -793,6 +817,61 @@ impl BitboardBoard {
             }
         }
         false
+    }
+
+    /// The squares of `attacking_player`'s pieces that attack `target_pos`, as a
+    /// bit set (bit = `Position::to_index`). The same tests as
+    /// [`Self::is_square_attacked_by`], collecting every attacker.
+    pub fn attackers_of(&self, target_pos: Position, attacking_player: Player) -> u128 {
+        let a = if attacking_player == Player::Black { 0 } else { 1 };
+        let defender = attacking_player.opposite();
+        let t = target_pos.to_index() as u8;
+        let pcs = |pt: PieceType| self.pieces[a][pt.to_u8() as usize];
+        let mut out = Bitboard::default();
+        for pt in [
+            PieceType::Pawn,
+            PieceType::Knight,
+            PieceType::Silver,
+            PieceType::Gold,
+            PieceType::PromotedPawn,
+            PieceType::PromotedLance,
+            PieceType::PromotedKnight,
+            PieceType::PromotedSilver,
+        ] {
+            let p = pcs(pt);
+            if !p.is_empty() {
+                out = out | (self.attack_tables.get_attack_pattern(t, pt, defender) & p);
+            }
+        }
+        let adjacent = pcs(PieceType::King) | pcs(PieceType::PromotedRook) | pcs(PieceType::PromotedBishop);
+        if !adjacent.is_empty() {
+            out = out | (self.attack_tables.get_attack_pattern(t, PieceType::King, defender) & adjacent);
+        }
+        let rooks = pcs(PieceType::Rook) | pcs(PieceType::PromotedRook);
+        if !rooks.is_empty() {
+            out = out | (self.get_attack_pattern(target_pos, PieceType::Rook) & rooks);
+        }
+        let bishops = pcs(PieceType::Bishop) | pcs(PieceType::PromotedBishop);
+        if !bishops.is_empty() {
+            out = out | (self.get_attack_pattern(target_pos, PieceType::Bishop) & bishops);
+        }
+        let mut bits = out.to_u128();
+        let lances = pcs(PieceType::Lance);
+        if !lances.is_empty() {
+            let dir: i8 = if attacking_player == Player::Black { 1 } else { -1 };
+            let mut row = target_pos.row as i8 + dir;
+            while (0..9).contains(&row) {
+                let sq = Position::new(row as u8, target_pos.col);
+                if let Some(p) = self.get_piece(sq) {
+                    if p.player == attacking_player && p.piece_type == PieceType::Lance {
+                        bits |= 1u128 << sq.to_index();
+                    }
+                    break;
+                }
+                row += dir;
+            }
+        }
+        bits
     }
 
     /// The previous per-attacker implementation of [`Self::is_square_attacked_by`],
@@ -1378,6 +1457,7 @@ impl BitboardBoard {
             sliding_generator: None,
             side_to_move: Player::Black,
             repetition_state: RepetitionState::None,
+            board_key: 0,
         })
     }
 
@@ -1837,6 +1917,7 @@ impl Clone for BitboardBoard {
             sliding_generator: self.sliding_generator.clone(),
             side_to_move: self.side_to_move,
             repetition_state: self.repetition_state,
+            board_key: self.board_key,
         }
     }
 }

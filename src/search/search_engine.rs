@@ -6294,7 +6294,9 @@ impl SearchEngine {
                     best_move.as_ref().map(|m| m.to_usi_string()).unwrap_or("None".to_string())
                 ),
             );
-            crate::debug_utils::start_timing(&format!("move_eval_{}", move_index));
+            if crate::debug_utils::is_debug_enabled() {
+                crate::debug_utils::start_timing(&format!("move_eval_{}", move_index));
+            }
 
             // Use move unmaking instead of board cloning
             let move_info = board.make_move_with_info(&move_);
@@ -6344,7 +6346,9 @@ impl SearchEngine {
             // board. Session 25 fixed exactly this inside negamax; the root was
             // missed.
             hash_history.truncate(self.root_path_len);
-            crate::debug_utils::end_timing(&format!("move_eval_{}", move_index), "SEARCH_AT_DEPTH");
+            if crate::debug_utils::is_debug_enabled() {
+                crate::debug_utils::end_timing(&format!("move_eval_{}", move_index), "SEARCH_AT_DEPTH");
+            }
 
             // Restore board state by unmaking the move
             self.nnue_unmake_move();
@@ -7614,7 +7618,9 @@ impl SearchEngine {
                 }
             }
 
-            crate::debug_utils::start_timing(&format!("move_search_{}", move_index));
+            if crate::debug_utils::is_debug_enabled() {
+                crate::debug_utils::start_timing(&format!("move_search_{}", move_index));
+            }
             // Task 2.6: Pass current move as opponent_last_move to recursive call
             // Task 7.0.1: Pass IID move for explicit exemption from LMR
             // Task 7.0.3.4: Pass entry source for TT priority management
@@ -7663,7 +7669,9 @@ impl SearchEngine {
             );
             self.check_extensions_on_path -= ext as u32;
             hash_history.truncate(path_len);
-            crate::debug_utils::end_timing(&format!("move_search_{}", move_index), "NEGAMAX");
+            if crate::debug_utils::is_debug_enabled() {
+                crate::debug_utils::end_timing(&format!("move_search_{}", move_index), "NEGAMAX");
+            }
 
             // Restore board state by unmaking the move
             self.nnue_unmake_move();
@@ -8504,7 +8512,9 @@ impl SearchEngine {
                 + (self.quiescence_config.max_depth as i32 - depth as i32);
             self.search_statistics.update_seldepth(quiescence_depth_from_root as u8);
 
-            crate::debug_utils::start_timing(&format!("quiescence_move_{}", move_index));
+            if crate::debug_utils::is_debug_enabled() {
+                crate::debug_utils::start_timing(&format!("quiescence_move_{}", move_index));
+            }
             let score = -self.quiescence_search(
                 board,
                 &new_captured,
@@ -8515,10 +8525,12 @@ impl SearchEngine {
                 time_limit_ms,
                 search_depth,
             );
-            crate::debug_utils::end_timing(
-                &format!("quiescence_move_{}", move_index),
-                "QUIESCENCE",
-            );
+            if crate::debug_utils::is_debug_enabled() {
+                crate::debug_utils::end_timing(
+                    &format!("quiescence_move_{}", move_index),
+                    "QUIESCENCE",
+                );
+            }
 
             // Restore board state by unmaking the move
             self.nnue_unmake_move();

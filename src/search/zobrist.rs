@@ -166,17 +166,8 @@ impl ZobristHasher {
         captured_pieces: &CapturedPieces,
         repetition_state: RepetitionState,
     ) -> u64 {
-        let mut hash = 0u64;
-
-        // Hash all pieces on the board
-        for row in 0..9 {
-            for col in 0..9 {
-                let pos = Position::new(row, col);
-                if let Some(piece) = board.get_piece(pos) {
-                    hash ^= self.table.get_piece_key(piece.piece_type, piece.player, pos);
-                }
-            }
-        }
+        // The board keeps the XOR of its pieces' keys up to date.
+        let mut hash = board.board_key();
 
         // Hash side to move
         if player == Player::Black {
@@ -391,6 +382,49 @@ pub fn create_hasher() -> ZobristHasher {
 mod tests {
     use super::*;
     use crate::bitboards::BitboardBoard;
+
+    fn board_key_from_scratch(board: &BitboardBoard) -> u64 {
+        board.iter_pieces().fold(0, |h, (pos, piece)| {
+            h ^ ZOBRIST_TABLE.get_piece_key(piece.piece_type, piece.player, pos)
+        })
+    }
+
+    /// The incremental board key matches a full rescan through make/unmake,
+    /// captures, drops and promotions, and after clone and FEN parsing.
+    #[test]
+    fn test_incremental_board_key_matches_rescan() {
+        use crate::moves::MoveGenerator;
+        let mg = MoveGenerator::new();
+        let mut rng = StdRng::seed_from_u64(7);
+        for game in 0..20 {
+            let mut board = BitboardBoard::new();
+            let mut captured = CapturedPieces::new();
+            let mut player = Player::Black;
+            assert_eq!(board.board_key(), board_key_from_scratch(&board));
+            for _ in 0..120 {
+                let moves = mg.generate_legal_moves(&board, player, &captured);
+                if moves.is_empty() {
+                    break;
+                }
+                // Try every move with make/unmake, then play a random one.
+                for m in &moves {
+                    let before = board.board_key();
+                    let info = board.make_move_with_info(m);
+                    assert_eq!(board.board_key(), board_key_from_scratch(&board), "game {game}");
+                    board.unmake_move(&info);
+                    assert_eq!(board.board_key(), before);
+                }
+                let m = &moves[rng.gen_range(0..moves.len())];
+                board.make_move_with_hand(m, &mut captured);
+                player = player.opposite();
+                assert_eq!(board.board_key(), board_key_from_scratch(&board));
+                assert_eq!(board.clone().board_key(), board.board_key());
+                let (parsed, _, _) =
+                    BitboardBoard::from_fen(&board.to_fen(player, &captured)).unwrap();
+                assert_eq!(parsed.board_key(), board.board_key());
+            }
+        }
+    }
 
     #[test]
     fn test_zobrist_table_creation() {
