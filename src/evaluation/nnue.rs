@@ -868,6 +868,57 @@ struct NNUEWeightFile {
     output_bias: i32,
 }
 
+/// The make/unmake stack of accumulator snapshots. Slots above `len` keep
+/// their buffers, so a push copies into an existing allocation and a pop swaps
+/// buffers with the accumulator: no allocation per move (two 1 KB vectors per
+/// make and two frees per unmake, before).
+#[derive(Debug, Clone, Default)]
+struct SnapshotStack {
+    slots: Vec<AccSnapshot>,
+    len: usize,
+}
+
+impl SnapshotStack {
+    fn with_capacity(n: usize) -> Self {
+        Self { slots: Vec::with_capacity(n), len: 0 }
+    }
+
+    /// Push `acc`'s [`NNUEAccumulator::snapshot`].
+    #[inline]
+    fn push(&mut self, acc: &NNUEAccumulator) {
+        if let Some(slot) = self.slots.get_mut(self.len) {
+            slot.hidden_1.clear();
+            slot.hidden_1.extend_from_slice(&acc.hidden_1);
+            slot.psqt = acc.psqt;
+            slot.king_offset = acc.king_offset;
+            slot.dirty = acc.dirty;
+        } else {
+            self.slots.push(acc.snapshot());
+        }
+        self.len += 1;
+    }
+
+    /// Pop the top snapshot into `acc` ([`NNUEAccumulator::restore`]); false
+    /// when empty.
+    #[inline]
+    fn pop_into(&mut self, acc: &mut NNUEAccumulator) -> bool {
+        if self.len == 0 {
+            return false;
+        }
+        self.len -= 1;
+        let slot = &mut self.slots[self.len];
+        std::mem::swap(&mut acc.hidden_1, &mut slot.hidden_1);
+        acc.psqt = slot.psqt;
+        acc.king_offset = slot.king_offset;
+        acc.dirty = slot.dirty;
+        true
+    }
+
+    fn clear(&mut self) {
+        self.len = 0;
+    }
+}
+
 /// Saved accumulator state for make/unmake: see [`NNUEAccumulator::snapshot`].
 #[derive(Debug, Clone)]
 pub struct AccSnapshot {
@@ -1615,7 +1666,7 @@ pub struct NNUEEvaluator {
     accumulator: NNUEAccumulator,
     /// Stack of accumulator hidden_1 states for make/unmake during search.
     /// Each entry is a snapshot of hidden_1 before a make_move.
-    accumulator_stack: Vec<AccSnapshot>,
+    accumulator_stack: SnapshotStack,
     /// Session 19: parallel stack of `hand_counts` snapshots, pushed alongside
     /// `accumulator_stack` so `nnue_unmake_move` can restore the pre-move
     /// counts without recomputing them from the move info (which the unmake
@@ -1671,7 +1722,7 @@ pub struct NNUEEvaluator {
     accumulator_white: NNUEAccumulator,
     /// Snapshot stack for `accumulator_white`, pushed and popped in lockstep with
     /// `accumulator_stack` so unmake stays O(1).
-    accumulator_stack_white: Vec<AccSnapshot>,
+    accumulator_stack_white: SnapshotStack,
     /// Verification mode: on every `evaluate_for`, also evaluate the position
     /// from scratch and compare. Catches a desynchronised accumulator — a board
     /// change that bypassed the make/unmake hooks — which otherwise silently
@@ -1714,7 +1765,7 @@ impl NNUEEvaluator {
         Self {
             weights,
             accumulator,
-            accumulator_stack: Vec::with_capacity(128), // Typical max search depth
+            accumulator_stack: SnapshotStack::with_capacity(128), // Typical max search depth
             hand_counts_stack: Vec::with_capacity(128),
             enabled: true,
             needs_refresh: true,
@@ -1725,7 +1776,7 @@ impl NNUEEvaluator {
             hand_counts: [[0; NUM_HAND_PIECE_TYPES]; 2],
             use_pov: false,
             accumulator_white: NNUEAccumulator::new(hidden_size_1, hidden_size_2),
-            accumulator_stack_white: Vec::with_capacity(128),
+            accumulator_stack_white: SnapshotStack::with_capacity(128),
             verify: false,
             verify_checks: 0,
             verify_mismatches: 0,
@@ -1746,7 +1797,7 @@ impl NNUEEvaluator {
         Self {
             weights,
             accumulator,
-            accumulator_stack: Vec::with_capacity(128),
+            accumulator_stack: SnapshotStack::with_capacity(128),
             hand_counts_stack: Vec::with_capacity(128),
             enabled: true,
             needs_refresh: true,
@@ -1757,7 +1808,7 @@ impl NNUEEvaluator {
             hand_counts: [[0; NUM_HAND_PIECE_TYPES]; 2],
             use_pov: false,
             accumulator_white: NNUEAccumulator::new(size_1, size_2),
-            accumulator_stack_white: Vec::with_capacity(128),
+            accumulator_stack_white: SnapshotStack::with_capacity(128),
             verify: false,
             verify_checks: 0,
             verify_mismatches: 0,
@@ -2368,9 +2419,9 @@ impl NNUEEvaluator {
             // always pops, and skipping the push here used to make it pop the
             // snapshot belonging to an *earlier* move. Recording the occupancy as
             // unknown makes the next `evaluate_for` rebuild.
-            self.accumulator_stack.push(self.accumulator.snapshot());
+            self.accumulator_stack.push(&self.accumulator);
             if self.use_pov {
-                self.accumulator_stack_white.push(self.accumulator_white.snapshot());
+                self.accumulator_stack_white.push(&self.accumulator_white);
             }
             self.hand_counts_stack.push(self.hand_counts);
             self.synced_occ_stack.push(None);
@@ -2380,9 +2431,9 @@ impl NNUEEvaluator {
         }
 
         // Save current hidden_1 state to stack
-        self.accumulator_stack.push(self.accumulator.snapshot());
+        self.accumulator_stack.push(&self.accumulator);
         if self.use_pov {
-            self.accumulator_stack_white.push(self.accumulator_white.snapshot());
+            self.accumulator_stack_white.push(&self.accumulator_white);
         }
         // Session 19: also save the pre-move hand_counts so unmake can restore
         // them. Pushed unconditionally to keep the stack length aligned with
@@ -2562,19 +2613,12 @@ impl NNUEEvaluator {
             return;
         }
 
-        if let Some(prev) = self.accumulator_stack.pop() {
-            self.accumulator.restore(prev);
+        if self.accumulator_stack.pop_into(&mut self.accumulator) {
             // The two stacks are pushed together, so a missing White snapshot is
             // unreachable unless POV was toggled mid-search. Rebuild in that case
             // rather than evaluating a stale White frame.
             let white_restored = if self.use_pov {
-                match self.accumulator_stack_white.pop() {
-                    Some(prev_white) => {
-                        self.accumulator_white.restore(prev_white);
-                        true
-                    }
-                    None => false,
-                }
+                self.accumulator_stack_white.pop_into(&mut self.accumulator_white)
             } else {
                 true
             };

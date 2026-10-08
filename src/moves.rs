@@ -132,7 +132,19 @@ impl MoveGenerator {
             player, is_in_check
         ));
 
-        let pseudo_legal_moves = self.generate_pseudo_legal_moves(board, player, captured_pieces);
+        let filter = MoveTestFilter::new(board, player, is_in_check, captured_pieces);
+        // In check, a drop is legal only on a square between the checker and the
+        // king (the filter would reject the rest), so generate only those.
+        let mut pseudo_legal_moves = Vec::with_capacity(192);
+        self.generate_all_piece_moves_into(board, player, &mut pseudo_legal_moves);
+        let drop_squares = if is_in_check { filter.evasion_targets } else { u128::MAX };
+        self.generate_drop_moves_masked_into(
+            board,
+            player,
+            captured_pieces,
+            |_| drop_squares,
+            &mut pseudo_legal_moves,
+        );
         crate::debug_log_fast!(&format!(
             "[GENERATE_LEGAL_MOVES] Generated {} pseudo-legal moves",
             pseudo_legal_moves.len()
@@ -149,7 +161,6 @@ impl MoveGenerator {
         // Filtered in place, keeping order, so the list is allocated once.
         let mut scratch = board.clone();
         let mut legal_moves = pseudo_legal_moves;
-        let filter = MoveTestFilter::new(board, player, is_in_check, captured_pieces);
         legal_moves.retain_mut(|m| {
             let (safe, check) = filter.test(&mut scratch, m, player, captured_pieces);
             m.gives_check = check;
@@ -736,6 +747,77 @@ impl MoveGenerator {
         captured_pieces: &CapturedPieces,
         moves: &mut Vec<Move>,
     ) {
+        self.generate_drop_moves_masked_into(board, player, captured_pieces, |_| u128::MAX, moves);
+    }
+
+    /// The drops of [`Self::generate_drop_moves_into`] onto the squares of
+    /// `mask(piece_type)`, in the same order: hand order (first appearance in
+    /// the captured list), then square index (row-major), with the same
+    /// legality rules as `is_legal_drop_location`. Callers that would discard
+    /// every drop outside some set of squares pass that set and skip
+    /// generating them.
+    fn generate_drop_moves_masked_into(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+        mask: impl Fn(PieceType) -> u128,
+        moves: &mut Vec<Move>,
+    ) {
+        let captured =
+            if player == Player::Black { &captured_pieces.black } else { &captured_pieces.white };
+        if captured.is_empty() {
+            return;
+        }
+        const BOARD: u128 = (1u128 << 81) - 1;
+        let empty = !board.get_occupied_bitboard().to_u128() & BOARD;
+        let rank = |r: u32| ((1u128 << 9) - 1) << (9 * r);
+        let (last, second) = if player == Player::Black { (rank(0), rank(1)) } else { (rank(8), rank(7)) };
+        let mut processed = [false; PieceType::COUNT];
+        for &piece_type in captured {
+            if std::mem::replace(&mut processed[piece_type.as_index()], true) {
+                continue;
+            }
+            if captured_pieces.count(piece_type, player) == 0 {
+                continue; // Not in hand (the reference panicked here in debug builds).
+            }
+            let mut targets = empty & mask(piece_type);
+            match piece_type {
+                PieceType::Pawn => {
+                    // Nifu: no file that already holds one of our unpromoted pawns.
+                    let pawns = board.get_pieces()[player as usize][PieceType::Pawn.as_index()].to_u128();
+                    for col in 0..9 {
+                        let file = FILE_MASKS[col];
+                        if pawns & file != 0 {
+                            targets &= !file;
+                        }
+                    }
+                    targets &= !last;
+                }
+                PieceType::Lance => targets &= !last,
+                PieceType::Knight => targets &= !(last | second),
+                _ => {}
+            }
+            while targets != 0 {
+                let idx = targets.trailing_zeros() as u8;
+                targets &= targets - 1;
+                let pos = Position::from_index(idx);
+                if piece_type == PieceType::Pawn && is_pawn_drop_mate(board, pos, player) {
+                    continue; // Uchifuzume.
+                }
+                moves.push(Move::new_drop(piece_type, pos, player));
+            }
+        }
+    }
+
+    #[cfg(test)]
+    fn generate_drop_moves_into_reference(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+        moves: &mut Vec<Move>,
+    ) {
         let mut processed = [false; PieceType::COUNT];
         let captured =
             if player == Player::Black { &captured_pieces.black } else { &captured_pieces.white };
@@ -943,7 +1025,24 @@ impl MoveGenerator {
         self.generate_all_piece_moves_into(board, player, &mut pseudo);
         moves.extend(pseudo.iter().filter(|m| m.is_promotion).cloned());
         if include_checks {
-            self.generate_drop_moves_into(board, player, captured_pieces, &mut pseudo);
+            // Only drops that could give check: a drop never uncovers an attack,
+            // so it checks only by attacking the king itself. The mask is a
+            // superset of those squares; `checks_among` still decides.
+            let opp = player.opposite();
+            let check_squares = match board.find_king_position(opp) {
+                Some(k) if !board.is_king_in_check(opp, captured_pieces) => Some(k),
+                _ => None,
+            };
+            self.generate_drop_moves_masked_into(
+                board,
+                player,
+                captured_pieces,
+                |pt| match check_squares {
+                    Some(k) => drop_check_squares(board, k, pt, player),
+                    None => u128::MAX,
+                },
+                &mut pseudo,
+            );
             moves.extend(checks_among(board, player, captured_pieces, &pseudo));
         }
         self.deduplicate_and_sort_quiescence_moves(&mut moves);
@@ -1314,6 +1413,87 @@ mod tests {
         assert!(checks > 100 && unsafe_moves > 100, "{compared} {checks} {unsafe_moves}");
     }
 
+    /// The bitboard drop generator must list exactly the reference's drops, in
+    /// the same order, with or without a square mask.
+    #[test]
+    fn drop_generator_matches_reference() {
+        use rand::{seq::SliceRandom, Rng, SeedableRng};
+        let mg = MoveGenerator::new();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(43);
+        let mut drops_seen = 0usize;
+        for _ in 0..60 {
+            let mut board = BitboardBoard::new();
+            let mut captured = CapturedPieces::new();
+            let mut player = Player::Black;
+            for _ in 0..200 {
+                for side in [Player::Black, Player::White] {
+                    let mut reference = Vec::new();
+                    mg.generate_drop_moves_into_reference(&board, side, &captured, &mut reference);
+                    let mut got = Vec::new();
+                    mg.generate_drop_moves_into(&board, side, &captured, &mut got);
+                    let key = |v: &[Move]| v.iter().map(|m| m.to_usi_string()).collect::<Vec<_>>();
+                    assert_eq!(key(&got), key(&reference), "{}", board.to_fen(side, &captured));
+                    drops_seen += got.len();
+                    let masks: [u128; 7] = std::array::from_fn(|_| rng.gen::<u128>());
+                    let mask = |pt: PieceType| masks[pt.as_index() % 7];
+                    let mut masked = Vec::new();
+                    mg.generate_drop_moves_masked_into(&board, side, &captured, mask, &mut masked);
+                    let expected: Vec<Move> = reference
+                        .into_iter()
+                        .filter(|m| mask(m.piece_type) & (1u128 << m.to.to_index()) != 0)
+                        .collect();
+                    assert_eq!(key(&masked), key(&expected));
+                }
+                let legal = mg.generate_legal_moves(&board, player, &captured);
+                let Some(m) = legal.choose(&mut rng) else { break };
+                board.make_move_with_hand(m, &mut captured);
+                player = player.opposite();
+            }
+        }
+        assert!(drops_seen > 10_000, "{drops_seen}");
+    }
+
+    /// Legal move generation must match pseudo-legal moves filtered by the full
+    /// make/unmake test, in order and with `gives_check`, also in check (where
+    /// drops are generated only on blocking squares).
+    #[test]
+    fn legal_moves_match_full_filter() {
+        use rand::{seq::SliceRandom, Rng, SeedableRng};
+        let mg = MoveGenerator::new();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(44);
+        let mut in_check_positions = 0usize;
+        for _ in 0..100 {
+            let mut board = BitboardBoard::new();
+            let mut captured = CapturedPieces::new();
+            let mut player = Player::Black;
+            for _ in 0..200 {
+                let mut scratch = board.clone();
+                let expected: Vec<(String, bool)> = mg
+                    .generate_pseudo_legal_moves(&board, player, &captured)
+                    .iter()
+                    .filter_map(|m| {
+                        let (safe, check) = test_after(&mut scratch, m, player, &captured);
+                        safe.then(|| (m.to_usi_string(), check))
+                    })
+                    .collect();
+                let legal = mg.generate_legal_moves(&board, player, &captured);
+                let got: Vec<(String, bool)> = legal.iter().map(|m| (m.to_usi_string(), m.gives_check)).collect();
+                assert_eq!(got, expected, "{}", board.to_fen(player, &captured));
+                in_check_positions += board.is_king_in_check(player, &captured) as usize;
+                let checking: Vec<&Move> = legal.iter().filter(|m| m.gives_check).collect();
+                let m = if !checking.is_empty() && rng.gen_bool(0.5) {
+                    (*checking.choose(&mut rng).unwrap()).clone()
+                } else {
+                    let Some(m) = legal.choose(&mut rng) else { break };
+                    m.clone()
+                };
+                board.make_move_with_hand(&m, &mut captured);
+                player = player.opposite();
+            }
+        }
+        assert!(in_check_positions > 500, "{in_check_positions}");
+    }
+
     /// The in-check shortcut (non-king moves must capture or block the checker)
     /// must agree with the full test. Games here prefer checking moves, so
     /// they reach many in-check positions, double checks among them.
@@ -1617,6 +1797,35 @@ const fn reach_masks() -> ([u128; 81], [u128; 81]) {
 
 /// `.0`: rook/bishop lines through each square. `.1`: those plus knight jumps.
 static REACH: ([u128; 81], [u128; 81]) = reach_masks();
+
+/// The squares from which a `player` piece of type `pt` dropped there could
+/// attack the opposing king on `king` -- a superset: exact for step pieces
+/// (from the attack tables, point-symmetric between the colours as in
+/// `is_square_attacked_by`), every line through the king for lance, rook and
+/// bishop.
+fn drop_check_squares(board: &BitboardBoard, king: Position, pt: PieceType, player: Player) -> u128 {
+    match pt {
+        PieceType::Pawn | PieceType::Knight | PieceType::Silver | PieceType::Gold => {
+            board.get_attack_pattern_precomputed(king, pt, player.opposite()).to_u128()
+        }
+        _ => REACH.0[king.to_index() as usize],
+    }
+}
+
+/// The squares of each column (`Position::col`), as index bits.
+const FILE_MASKS: [u128; 9] = {
+    let mut m = [0u128; 9];
+    let mut c = 0;
+    while c < 9 {
+        let mut r = 0;
+        while r < 9 {
+            m[c] |= 1u128 << (r * 9 + c);
+            r += 1;
+        }
+        c += 1;
+    }
+    m
+};
 
 /// [`test_after`] with the attack tests it can answer without making the move.
 ///
