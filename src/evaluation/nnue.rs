@@ -1535,21 +1535,46 @@ fn layer_2_neon_i32(activated_1: &[i32], flat: &[i16], h2: &mut [i32; DEFAULT_HI
     // loaded from and stored to the 32-element array. `act_1` fits i16 (the
     // caller checks every activation against i16::MAX).
     unsafe {
+        // Two accumulator sets, for even and odd rows: one set is eight
+        // dependency chains of 512 multiply-adds each, so the loop waited on
+        // `smlal` latency. Integer sums, so the split changes nothing.
         let mut acc: [int32x4_t; 8] = std::array::from_fn(|k| vld1q_s32(h2.as_ptr().add(4 * k)));
-        for (&act_1, row) in activated_1.iter().zip(flat.chunks_exact(DEFAULT_HIDDEN_SIZE_2)) {
-            if act_1 == 0 {
-                continue; // Skip zero activations (ReLU killed)
+        let mut acc_odd: [int32x4_t; 8] = [vdupq_n_s32(0); 8];
+        let rows = activated_1.len().min(flat.len() / DEFAULT_HIDDEN_SIZE_2);
+        let mut i = 0;
+        while i + 1 < rows {
+            let (a0, a1) = (*activated_1.get_unchecked(i), *activated_1.get_unchecked(i + 1));
+            let p = flat.as_ptr().add(i * DEFAULT_HIDDEN_SIZE_2);
+            if a0 != 0 {
+                for k in 0..4 {
+                    let w = vld1q_s16(p.add(8 * k));
+                    acc[2 * k] = vmlal_n_s16(acc[2 * k], vget_low_s16(w), a0 as i16);
+                    acc[2 * k + 1] = vmlal_high_n_s16(acc[2 * k + 1], w, a0 as i16);
+                }
             }
-            let a = act_1 as i16;
-            let p = row.as_ptr();
-            for k in 0..4 {
-                let w = vld1q_s16(p.add(8 * k));
-                acc[2 * k] = vmlal_n_s16(acc[2 * k], vget_low_s16(w), a);
-                acc[2 * k + 1] = vmlal_high_n_s16(acc[2 * k + 1], w, a);
+            if a1 != 0 {
+                let p = p.add(DEFAULT_HIDDEN_SIZE_2);
+                for k in 0..4 {
+                    let w = vld1q_s16(p.add(8 * k));
+                    acc_odd[2 * k] = vmlal_n_s16(acc_odd[2 * k], vget_low_s16(w), a1 as i16);
+                    acc_odd[2 * k + 1] = vmlal_high_n_s16(acc_odd[2 * k + 1], w, a1 as i16);
+                }
+            }
+            i += 2;
+        }
+        if i < rows {
+            let a0 = *activated_1.get_unchecked(i);
+            if a0 != 0 {
+                let p = flat.as_ptr().add(i * DEFAULT_HIDDEN_SIZE_2);
+                for k in 0..4 {
+                    let w = vld1q_s16(p.add(8 * k));
+                    acc[2 * k] = vmlal_n_s16(acc[2 * k], vget_low_s16(w), a0 as i16);
+                    acc[2 * k + 1] = vmlal_high_n_s16(acc[2 * k + 1], w, a0 as i16);
+                }
             }
         }
-        for (k, a) in acc.iter().enumerate() {
-            vst1q_s32(h2.as_mut_ptr().add(4 * k), *a);
+        for k in 0..8 {
+            vst1q_s32(h2.as_mut_ptr().add(4 * k), vaddq_s32(acc[k], acc_odd[k]));
         }
     }
 }

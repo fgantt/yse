@@ -201,18 +201,51 @@ impl MoveGenerator {
         player: Player,
         cap: usize,
     ) -> usize {
+        // The board moves `generate_all_piece_moves_into` would list, walked
+        // per piece from the same target squares, building (and testing) only
+        // the captures and promotions: the rest count zero.
         let no_hands = CapturedPieces::new();
-        let mut moves = Vec::with_capacity(160);
-        self.generate_all_piece_moves_into(board, player, &mut moves);
         let in_check = board.is_king_in_check(player, &no_hands);
         let filter = MoveTestFilter::new(board, player, in_check, &no_hands);
         let mut scratch = board.clone();
+        let opp = player.opposite();
+        let own_bits = board.player_occupied(player).to_u128();
+        let enemy_bits = board.player_occupied(opp).to_u128();
         let mut n = 0;
-        for m in moves.iter().filter(|m| m.is_capture || m.is_promotion) {
-            if filter.is_safe(&mut scratch, m, player, &no_hands) {
-                n += m.is_capture as usize + m.is_promotion as usize;
+        let mut own = own_bits;
+        while own != 0 {
+            let pos = Position::from_index(own.trailing_zeros() as u8);
+            own &= own - 1;
+            let Some(piece) = board.get_piece(pos) else { continue };
+            let pt = piece.piece_type;
+            let from_zone = pos.is_in_promotion_zone(opp);
+            let mut targets = piece_move_targets(board, pt, pos, player) & !own_bits;
+            if !from_zone || !pt.can_promote() {
+                // Only captures can count, unless the move ends in the zone.
+                let zone = if player == Player::Black { PROMO_ROWS_BLACK } else { PROMO_ROWS_WHITE };
+                targets &= enemy_bits | if pt.can_promote() { zone } else { 0 };
+            }
+            while targets != 0 {
+                let to = Position::from_index(targets.trailing_zeros() as u8);
+                targets &= targets - 1;
+                let is_capture = enemy_bits & (1u128 << to.to_index()) != 0;
+                let can_promo = pt.can_promote() && (from_zone || to.is_in_promotion_zone(opp));
+                let mut test = |promote: bool| {
+                    let mut m = Move::new_move(pos, to, pt, player, promote);
+                    if is_capture {
+                        m.is_capture = true;
+                        m.captured_piece = board.get_piece(to);
+                    }
+                    filter.is_safe(&mut scratch, &m, player, &no_hands)
+                };
+                if is_capture && !must_promote(pt, player, to) && test(false) {
+                    n += 1;
+                }
+                if can_promo && test(true) {
+                    n += 1 + is_capture as usize;
+                }
                 if n >= cap {
-                    break;
+                    return n;
                 }
             }
         }
@@ -343,20 +376,20 @@ impl MoveGenerator {
                 }
             }
             PieceType::Lance | PieceType::Rook | PieceType::Bishop => {
-                let directions = match piece.piece_type {
+                let directions: &[(i8, i8)] = match piece.piece_type {
                     PieceType::Lance => {
                         if player == Player::Black {
-                            vec![(-1, 0)]
+                            &[(-1, 0)]
                         } else {
-                            vec![(1, 0)]
+                            &[(1, 0)]
                         }
                     }
-                    PieceType::Rook => vec![(1, 0), (-1, 0), (0, 1), (0, -1)],
-                    PieceType::Bishop => vec![(1, 1), (1, -1), (-1, 1), (-1, -1)],
-                    _ => vec![],
+                    PieceType::Rook => &[(1, 0), (-1, 0), (0, 1), (0, -1)],
+                    PieceType::Bishop => &[(1, 1), (1, -1), (-1, 1), (-1, -1)],
+                    _ => &[],
                 };
 
-                for (dr, dc) in directions {
+                for &(dr, dc) in directions {
                     let mut current_pos = pos;
                     loop {
                         let new_row = current_pos.row as i8 + dr;
@@ -474,23 +507,22 @@ impl MoveGenerator {
             let mut non_sliding_pieces: smallvec::SmallVec<[(Position, Piece); 64]> =
                 smallvec::SmallVec::new();
 
-            for r in 0..9 {
-                for c in 0..9 {
-                    let pos = Position::new(r, c);
-                    if let Some(piece) = board.get_piece(pos) {
-                        if piece.player == player {
-                            // Check if this is a sliding piece that can use SIMD batch processing
-                            match piece.piece_type {
-                                PieceType::Rook
-                                | PieceType::Bishop
-                                | PieceType::PromotedRook
-                                | PieceType::PromotedBishop => {
-                                    sliding_pieces.push((pos, piece));
-                                }
-                                _ => {
-                                    non_sliding_pieces.push((pos, piece));
-                                }
-                            }
+            // The side's own squares in index (row-major) order.
+            let mut own = board.player_occupied(player).to_u128();
+            while own != 0 {
+                let pos = Position::from_index(own.trailing_zeros() as u8);
+                own &= own - 1;
+                if let Some(piece) = board.get_piece(pos) {
+                    // Check if this is a sliding piece that can use SIMD batch processing
+                    match piece.piece_type {
+                        PieceType::Rook
+                        | PieceType::Bishop
+                        | PieceType::PromotedRook
+                        | PieceType::PromotedBishop => {
+                            sliding_pieces.push((pos, piece));
+                        }
+                        _ => {
+                            non_sliding_pieces.push((pos, piece));
                         }
                     }
                 }
@@ -650,20 +682,20 @@ impl MoveGenerator {
                 }
             }
             PieceType::Lance | PieceType::Rook | PieceType::Bishop => {
-                let directions = match piece.piece_type {
+                let directions: &[(i8, i8)] = match piece.piece_type {
                     PieceType::Lance => {
                         if player == Player::Black {
-                            vec![(-1, 0)]
+                            &[(-1, 0)]
                         } else {
-                            vec![(1, 0)]
+                            &[(1, 0)]
                         }
                     }
-                    PieceType::Rook => vec![(1, 0), (-1, 0), (0, 1), (0, -1)],
-                    PieceType::Bishop => vec![(1, 1), (1, -1), (-1, 1), (-1, -1)],
-                    _ => vec![],
+                    PieceType::Rook => &[(1, 0), (-1, 0), (0, 1), (0, -1)],
+                    PieceType::Bishop => &[(1, 1), (1, -1), (-1, 1), (-1, -1)],
+                    _ => &[],
                 };
 
-                for (dr, dc) in directions {
+                for &(dr, dc) in directions {
                     let mut current_pos = pos;
                     loop {
                         let new_row = current_pos.row as i8 + dr;
@@ -1750,6 +1782,51 @@ mod tests {
 /// Without this the generator offered the non-promoting move too. The engine
 /// could play it, and a GUI or teacher engine rejects it as illegal (found when
 /// YaneuraOu refused a random `6b6a` pawn move during corpus generation).
+/// Rows where Black (rows 0-2) and White (rows 6-8) promote, as index bits.
+const PROMO_ROWS_BLACK: u128 = (1u128 << 27) - 1;
+const PROMO_ROWS_WHITE: u128 = ((1u128 << 27) - 1) << 54;
+
+/// The squares a `player` piece of type `pt` on `pos` moves to, own pieces
+/// included (callers mask them): the targets `generate_moves_for_single_piece_into`
+/// walks.
+fn piece_move_targets(board: &BitboardBoard, pt: PieceType, pos: Position, player: Player) -> u128 {
+    match pt {
+        PieceType::Pawn => {
+            let row = pos.row as i8 + if player == Player::Black { -1 } else { 1 };
+            if (0..9).contains(&row) {
+                1u128 << (row as u32 * 9 + pos.col as u32)
+            } else {
+                0
+            }
+        }
+        PieceType::Lance | PieceType::Rook | PieceType::Bishop => {
+            let directions: &[(i8, i8)] = match pt {
+                PieceType::Lance if player == Player::Black => &[(-1, 0)],
+                PieceType::Lance => &[(1, 0)],
+                PieceType::Rook => &[(1, 0), (-1, 0), (0, 1), (0, -1)],
+                _ => &[(1, 1), (1, -1), (-1, 1), (-1, -1)],
+            };
+            let occupied = board.get_occupied_bitboard().to_u128();
+            let mut out = 0u128;
+            for &(dr, dc) in directions {
+                let (mut r, mut c) = (pos.row as i8 + dr, pos.col as i8 + dc);
+                while (0..9).contains(&r) && (0..9).contains(&c) {
+                    let bit = 1u128 << (r as u32 * 9 + c as u32);
+                    out |= bit;
+                    if occupied & bit != 0 {
+                        break;
+                    }
+                    r += dr;
+                    c += dc;
+                }
+            }
+            out
+        }
+        PieceType::PromotedBishop | PieceType::PromotedRook => board.get_attack_pattern(pos, pt).to_u128(),
+        _ => board.get_attack_pattern_precomputed(pos, pt, player).to_u128(),
+    }
+}
+
 fn must_promote(piece_type: PieceType, player: Player, to: Position) -> bool {
     let rank = if player == Player::Black { to.row } else { 8 - to.row };
     match piece_type {

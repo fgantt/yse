@@ -1654,6 +1654,12 @@ impl BitboardBoard {
     }
 
     /// Get occupied bitboard
+    /// The squares `player`'s pieces stand on.
+    #[inline]
+    pub fn player_occupied(&self, player: Player) -> Bitboard {
+        if player == Player::Black { self.black_occupied } else { self.white_occupied }
+    }
+
     pub fn get_occupied_bitboard(&self) -> Bitboard {
         self.occupied
     }
