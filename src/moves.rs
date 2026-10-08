@@ -281,27 +281,26 @@ impl MoveGenerator {
     }
 
     fn generate_capture_piece_moves(&self, board: &BitboardBoard, player: Player) -> Vec<Move> {
-        let mut moves = Vec::new();
-        for r in 0..9 {
-            for c in 0..9 {
-                let pos = Position::new(r, c);
-                if let Some(piece) = board.get_piece(pos) {
-                    if piece.player == player {
-                        moves.extend(self.generate_capture_moves_for_piece(board, &piece, pos));
-                    }
-                }
+        let mut moves = Vec::with_capacity(32);
+        // The side's own squares in index (row-major) order.
+        let mut own = board.player_occupied(player).to_u128();
+        while own != 0 {
+            let pos = Position::from_index(own.trailing_zeros() as u8);
+            own &= own - 1;
+            if let Some(piece) = board.get_piece(pos) {
+                self.generate_capture_moves_for_piece_into(board, &piece, pos, &mut moves);
             }
         }
         moves
     }
 
-    fn generate_capture_moves_for_piece(
+    fn generate_capture_moves_for_piece_into(
         &self,
         board: &BitboardBoard,
         piece: &Piece,
         pos: Position,
-    ) -> Vec<Move> {
-        let mut moves = Vec::new();
+        moves: &mut Vec<Move>,
+    ) {
         let player = piece.player;
 
         let handle_capture_move = |moves: &mut Vec<Move>, to_pos: Position| {
@@ -358,7 +357,7 @@ impl MoveGenerator {
                         }
                     }
                     
-                    handle_capture_move(&mut moves, target_pos);
+                    handle_capture_move(moves, target_pos);
                 }
             }
             PieceType::Knight => {
@@ -369,7 +368,7 @@ impl MoveGenerator {
                     let new_col = pos.col as i8 + dc;
                     if new_row >= 0 && new_row < 9 && new_col >= 0 && new_col < 9 {
                         handle_capture_move(
-                            &mut moves,
+                            moves,
                             Position::new(new_row as u8, new_col as u8),
                         );
                     }
@@ -399,7 +398,7 @@ impl MoveGenerator {
                         }
 
                         current_pos = Position::new(new_row as u8, new_col as u8);
-                        handle_capture_move(&mut moves, current_pos);
+                        handle_capture_move(moves, current_pos);
 
                         if board.is_square_occupied(current_pos) {
                             break;
@@ -417,7 +416,7 @@ impl MoveGenerator {
                 use crate::bitboards::integration::GlobalOptimizer;
                 let mut remaining = attacks;
                 while let Some(target_square) = GlobalOptimizer::bit_scan_forward(remaining) {
-                    handle_capture_move(&mut moves, Position::from_index(target_square));
+                    handle_capture_move(moves, Position::from_index(target_square));
                     remaining &= Bitboard::from_u128(remaining.to_u128() - 1);
                 }
             }
@@ -435,14 +434,13 @@ impl MoveGenerator {
                     let new_col = pos.col as i8 + dc;
                     if new_row >= 0 && new_row < 9 && new_col >= 0 && new_col < 9 {
                         handle_capture_move(
-                            &mut moves,
+                            moves,
                             Position::new(new_row as u8, new_col as u8),
                         );
                     }
                 }
             }
         }
-        moves
     }
 
     fn generate_pseudo_legal_moves(
@@ -1086,24 +1084,11 @@ impl MoveGenerator {
             return;
         }
 
-        // Sort first to group duplicates together
-        // Use indexed approach to ensure deterministic ordering even for identical moves
-        let mut indices: Vec<usize> = (0..moves.len()).collect();
-        indices.sort_by(|&idx_a, &idx_b| {
-            let cmp = self.compare_quiescence_moves_simple(&moves[idx_a], &moves[idx_b]);
-            if cmp != std::cmp::Ordering::Equal {
-                cmp
-            } else {
-                // Final tie-breaker: use original index to ensure deterministic ordering
-                idx_a.cmp(&idx_b)
-            }
-        });
-        // Reorder moves based on sorted indices
-        let mut new_moves = Vec::with_capacity(moves.len());
-        for idx in indices {
-            new_moves.push(moves[idx].clone());
-        }
-        *moves = new_moves;
+        // Sort first to group duplicates together. A stable sort keeps equal
+        // moves in their original order -- the same order the index sort with
+        // an index tie-break gave (the comparison is lexicographic, a total
+        // preorder), without the index list and the copy.
+        moves.sort_by(|a, b| self.compare_quiescence_moves_simple(a, b));
 
         // Remove duplicates (moves with same from, to, and piece_type)
         let mut write_index = 0;
