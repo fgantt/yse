@@ -8641,6 +8641,10 @@ impl PruningManager {
 
     /// Smart conditional pruning based on position characteristics
     pub fn should_apply_conditional_pruning(&mut self, state: &SearchState, _mv: &Move) -> bool {
+        static PLAIN: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        if *PLAIN.get_or_init(|| std::env::var_os("SHOGI_PRUNE_PLAIN").is_some()) {
+            return state.move_number >= 3;
+        }
         let analysis = self.analyze_position(state);
 
         // Don't prune in very tactical positions

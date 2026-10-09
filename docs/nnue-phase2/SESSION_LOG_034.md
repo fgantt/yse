@@ -206,6 +206,27 @@ noise much; 60 counted games resolve about ±12%.
 self-play. Not shipped.** This rung (54%) responds, unlike six-piece; it is the measurement to
 use for king-danger work, at 60+ counted games per engine.
 
+## Pruning gated on the static score (`SHOGI_PRUNE_PLAIN`, opt-in)
+
+`PruningManager::should_apply_conditional_pruning` derives "king safety", "complexity" and
+"tactical potential" from the static score alone: a side more than 300 behind is "king in
+danger" and gets no futility, razoring or late-move pruning; |score| feeds complexity, so a
+lopsided endgame gets none either. In a handicap game that is White at nearly every node.
+`SHOGI_PRUNE_PLAIN=1` replaces the gate with `move_number >= 3` (default unchanged).
+
+Game-1 position after `8e9f`, nodes to depth 7: 18.1M -> 6.1M. The 15 mistake positions: the
+same move in 14 at 1 s; mean YaneuraOu score after our move −306 (stable) vs −259 (1 s),
+−348 (5 s): no help there.
+
+| test | stable | plain |
+|---|---|---|
+| six-piece SPRT vs stable (seed 3403) | | **PASS**, 32-2-22, +62.7 ± 48.9, LLR +3.02 after 56 games |
+| four-piece vs YaneuraOu 2,000 nodes, Black games (seed 2910) | 31-26-3, 54.2% | 28-30-2, 48.3% |
+
+Paired by opening (four-piece): both won 15, both lost 16, stable only 14, plain only 10.
+**They disagree**: self-play +63, YaneuraOu −6 points (±12, not significant). Not shipped; the
+SPRT stopped at 28 pairs, under the spirit of the minimum-pairs rule.
+
 ## Next
 
 1. King-danger evaluation (threat inputs in the network), gated by the six-piece handicap
