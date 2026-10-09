@@ -185,6 +185,22 @@ Same openings, paired: 23 both won, 5 only stable won, 5 only threat won; stable
 net's −48 in self-play does not show against YaneuraOu, and the +74 self-play Elo of the speed-ups
 does not show either (76% vs 78%). Self-play against stable is a poor proxy for this rung.
 
+Four-piece rung, same settings (start `1nsgkgsn1/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1`,
+YaneuraOu 2,000 nodes), 120 games each (`matches/ladder_s34/yonmai2000_*`):
+
+| engine | Black W-L-D | score |
+|---|---|---|
+| stable `c0b2a03` | 31-26-3 | 54.2% |
+| threat net | 30-25-5 | 54.2% |
+
+**An exact tie.** Paired by opening: 14 both won, 9 both lost, 15 only stable won, 14 only
+threat won. The opening predicts little (random plies, timing), so pairing does not cut the
+noise much; 60 counted games resolve about ±12%.
+
+**Verdict on threat inputs: neutral against YaneuraOu on both rungs, −17% nps, −48 in
+self-play. Not shipped.** This rung (54%) responds, unlike six-piece; it is the measurement to
+use for king-danger work, at 60+ counted games per engine.
+
 ## Next
 
 1. King-danger evaluation (threat inputs in the network), gated by the six-piece handicap
