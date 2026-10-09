@@ -156,16 +156,21 @@ Fifteen of our worst moves from the three games, searched again (`go byoyomi`, Y
   the position moves by under 200 cp where YaneuraOu says −1,500 to −3,700.
 - **No pruning rule hides it.** Six collapse positions at 5 s with `SHOGI_NO_NULLMOVE`,
   `SHOGI_NO_LMR`, `SHOGI_NO_PRUNING` each: the same move every time, scores within ~250.
-- **YaneuraOu's line is an evaluation, not a mate.** After `8e9f` (game 1, move 50)
-  YaneuraOu says +3,740 for White at depth 18, no mate. Walking its PV with ours at 1 s per
-  position: +893, +813, +753, +872, then negative only from the fourth ply, mate seen at ply
-  16. The danger is 10-16 plies deep, beyond a 1 s search; YaneuraOu's evaluation sees it at
-  the root.
+- **YaneuraOu's line is not a mate, and it is found by depth.** After `8e9f` (game 1, move 50)
+  YaneuraOu says +3,740 for White at depth 18 (3M nodes), no mate. Walking its PV with ours at
+  1 s per position: +893, +813, +753, +872, negative only from the fourth ply, mate seen at
+  ply 16. Session 31 showed YaneuraOu's own network is as optimistic as ours at depth 1 on
+  such positions and needs ~10 plies; I first misread this as "YaneuraOu's evaluation sees
+  it at the root". It does not.
+- **Our search is very narrow in depth, very wide in breadth.** Same position: ours reaches
+  depth 4 in 1 s (184k nodes) and depth 7 in 20 s (11.9M nodes); YaneuraOu reaches depth 4
+  at 2,000 nodes and depth 18 at 3M. Effective branching ~10 against ~2.3. That, not a
+  single pruning rule, is why 20x the time changes nothing. (Nominal depths are not
+  comparable across engines -- YaneuraOu's reduces far more per ply -- so the ratio is the
+  signal, not the exact factor.)
 
-So a search-side king-danger change (my planned next step) was not built. The skill is in the
-evaluation. But note the gate: an SPRT against stable is self-play, and stable shares the
-blind spot, so it cannot reward seeing an attack the opponent never makes. The threat net
-lost there; it has not been tested against YaneuraOu.
+So neither a search-side king-danger rule nor a king-danger training set (Session 31 tried
+that: bias fell, per-position error rose) addresses it. The gap is tree shape.
 
 ## Threat net against YaneuraOu (six-piece, 2,000 nodes)
 
