@@ -142,6 +142,31 @@ built on the 7-file against our king on 8h; YaneuraOu wanted quiet king moves (`
 `8h7i`). Ours read +1,200 to +1,900 through the collapse. Labelled into
 `eval_gap/positions_s34b.jsonl` (130).
 
+## A third four-piece loss, and why search is not the fix
+
+`matches/user_games/2026-10-09_4mai_loss54.txt` (stable `c0b2a03`), lost in 54; analysis
+`matches/user_4mai_20261009b_analysis.jsonl`. YaneuraOu +2,600 through move 53, then −4,000 in
+moves 79-91 (`5h4h` −644, `2f1f` −470 trapping the rook, `5f6e` −444, `7c7d` −903, `G*3g`
+−1,032) while ours read +600 to +1,400, our king walking 6h-5h-4h into White's attack.
+
+Fifteen of our worst moves from the three games, searched again (`go byoyomi`, YaneuraOu
+3M nodes scoring the chosen move):
+
+- **More time does not help.** 1 s, 5 s, 20 s: 11 of 15 keep the same move, and our score of
+  the position moves by under 200 cp where YaneuraOu says −1,500 to −3,700.
+- **No pruning rule hides it.** Six collapse positions at 5 s with `SHOGI_NO_NULLMOVE`,
+  `SHOGI_NO_LMR`, `SHOGI_NO_PRUNING` each: the same move every time, scores within ~250.
+- **YaneuraOu's line is an evaluation, not a mate.** After `8e9f` (game 1, move 50)
+  YaneuraOu says +3,740 for White at depth 18, no mate. Walking its PV with ours at 1 s per
+  position: +893, +813, +753, +872, then negative only from the fourth ply, mate seen at ply
+  16. The danger is 10-16 plies deep, beyond a 1 s search; YaneuraOu's evaluation sees it at
+  the root.
+
+So a search-side king-danger change (my planned next step) was not built. The skill is in the
+evaluation. But note the gate: an SPRT against stable is self-play, and stable shares the
+blind spot, so it cannot reward seeing an attack the opponent never makes. The threat net
+lost there; it has not been tested against YaneuraOu.
+
 ## Next
 
 1. King-danger evaluation (threat inputs in the network), gated by the six-piece handicap
