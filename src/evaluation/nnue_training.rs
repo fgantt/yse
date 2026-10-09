@@ -353,6 +353,14 @@ pub struct ShadowWeights {
     pub input_shared: Option<Vec<Vec<f32>>>,
 }
 
+/// The king factoriser's shared row for input row `r` of a network with `rows`
+/// rows: only the king-bucketed rows have one, not a threat block after them
+/// ([`crate::evaluation::nnue_threats`]).
+fn shared_row(r: usize, rows: usize) -> Option<usize> {
+    use crate::evaluation::nnue::KING_FEATURE_STRIDE;
+    (r < rows - rows % KING_FEATURE_STRIDE).then(|| r % KING_FEATURE_STRIDE)
+}
+
 impl ShadowWeights {
     /// Build a shadow by casting each i16 weight to f32. This is the identity
     /// map — the shadow initially represents exactly the same values as the
@@ -397,11 +405,12 @@ impl ShadowWeights {
         let mut max: f32 = 0.0;
         let mut count = 0_usize;
 
+        let rows = self.input_weights_1.len();
         for (feat_i, row) in self.input_weights_1.iter().enumerate() {
             let shared = self
                 .input_shared
                 .as_ref()
-                .map(|sh| &sh[feat_i % crate::evaluation::nnue::KING_FEATURE_STRIDE]);
+                .and_then(|sh| shared_row(feat_i, rows).map(|r| &sh[r]));
             for (j, &w) in row.iter().enumerate() {
                 let old = weights.input_weights_1[feat_i][j];
                 let w = w + shared.map_or(0.0, |sh| sh[j]);
@@ -1109,9 +1118,11 @@ impl NNUETrainer {
                         for (i, &w) in row.iter().enumerate() {
                             v[i] += w;
                         }
-                        if let Some(sh) = self.shadow.input_shared.as_ref() {
-                            let srow = &sh[feat % crate::evaluation::nnue::KING_FEATURE_STRIDE];
-                            for (i, &w) in srow.iter().enumerate() {
+                        if let (Some(sh), Some(r)) = (
+                            self.shadow.input_shared.as_ref(),
+                            shared_row(feat, self.shadow.input_weights_1.len()),
+                        ) {
+                            for (i, &w) in sh[r].iter().enumerate() {
                                 v[i] += w;
                             }
                         }
@@ -1612,11 +1623,12 @@ impl NNUETrainer {
         // king bucket's copy of that feature.
         let acc_shared: std::collections::HashMap<usize, Vec<f32>> =
             if self.shadow.input_shared.is_some() {
-                let stride = crate::evaluation::nnue::KING_FEATURE_STRIDE;
+                let rows = self.shadow.input_weights_1.len();
                 let mut m: std::collections::HashMap<usize, Vec<f32>> =
                     std::collections::HashMap::new();
                 for (&r, g) in acc_input_w.iter() {
-                    let e = m.entry(r % stride).or_insert_with(|| vec![0.0_f32; h1_size]);
+                    let Some(sr) = shared_row(r, rows) else { continue };
+                    let e = m.entry(sr).or_insert_with(|| vec![0.0_f32; h1_size]);
                     for (a, b) in e.iter_mut().zip(g) {
                         *a += b;
                     }
@@ -1819,7 +1831,11 @@ impl NNUETrainer {
         // King factoriser: decoupled decay of the per-bucket corrections.
         let decay = self.config.king_delta_decay;
         if decay > 0.0 && self.shadow.input_shared.is_some() {
+            let rows = self.shadow.input_weights_1.len();
             for &r in acc_input_w.keys() {
+                if shared_row(r, rows).is_none() {
+                    continue;
+                }
                 for w in self.shadow.input_weights_1[r].iter_mut() {
                     *w *= 1.0 - decay;
                 }
@@ -1914,12 +1930,14 @@ impl NNUETrainer {
         let nb = (rows / KING_FEATURE_STRIDE).max(1);
         let mut shared = vec![vec![0.0_f32; h1]; KING_FEATURE_STRIDE];
         for (r, row) in self.shadow.input_weights_1.iter().enumerate() {
-            for (s, &w) in shared[r % KING_FEATURE_STRIDE].iter_mut().zip(row) {
+            let Some(sr) = shared_row(r, rows) else { continue };
+            for (s, &w) in shared[sr].iter_mut().zip(row) {
                 *s += w / nb as f32;
             }
         }
         for (r, row) in self.shadow.input_weights_1.iter_mut().enumerate() {
-            for (w, &s) in row.iter_mut().zip(&shared[r % KING_FEATURE_STRIDE]) {
+            let Some(sr) = shared_row(r, rows) else { continue };
+            for (w, &s) in row.iter_mut().zip(&shared[sr]) {
                 *w -= s;
             }
         }

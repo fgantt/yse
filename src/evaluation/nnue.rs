@@ -700,6 +700,29 @@ impl NNUEWeights {
         Ok(())
     }
 
+    /// First input row of the threat block ([`crate::evaluation::nnue_threats`]),
+    /// when the network has one: it follows the king-bucketed rows, so the row
+    /// count is `nbuckets * KING_FEATURE_STRIDE + NUM_THREAT_FEATURES`.
+    pub fn threat_base(&self) -> Option<usize> {
+        use crate::evaluation::nnue_threats::NUM_THREAT_FEATURES;
+        let n = self.input_weights_1.len();
+        (n > KING_FEATURE_STRIDE && n % KING_FEATURE_STRIDE == NUM_THREAT_FEATURES)
+            .then(|| n - NUM_THREAT_FEATURES)
+    }
+
+    /// Append a zero threat block to a king-conditioned network: the result
+    /// computes the same function until training moves the new rows.
+    pub fn add_threat_rows(&mut self) {
+        use crate::evaluation::nnue_threats::NUM_THREAT_FEATURES;
+        if self.threat_base().is_some() || self.input_weights_1.len() % KING_FEATURE_STRIDE != 0 {
+            return;
+        }
+        let h1 = self.hidden_biases_1.len();
+        for _ in 0..NUM_THREAT_FEATURES {
+            self.input_weights_1.push(vec![0i16; h1]);
+        }
+    }
+
     /// Whether layer 2 reads both perspectives (`2 × hidden_size_1` rows).
     pub fn is_dual(&self) -> bool {
         self.input_weights_2
@@ -1401,6 +1424,42 @@ impl NNUEAccumulator {
         }
         forward_from_activations(&act[..2 * h1], weights) + (stm.psqt - nstm.psqt) / 2
     }
+
+    /// [`Self::evaluate_dual`] for a network with a threat block at row `base`
+    /// (see [`crate::evaluation::nnue_threats`]): each perspective's threat rows
+    /// are added to its accumulator before activation. They carry no PSQT.
+    pub fn evaluate_dual_threats(
+        stm: &Self,
+        nstm: &Self,
+        weights: &NNUEWeights,
+        base: usize,
+        board: &BitboardBoard,
+        stm_player: Player,
+    ) -> i32 {
+        use crate::evaluation::nnue_threats::{KingZones, ThreatList};
+        let h1 = stm.hidden_1.len().min(MAX_ACTIVATIONS / 2);
+        let mut pre = [0i32; MAX_ACTIVATIONS];
+        for i in 0..h1 {
+            pre[i] = stm.hidden_1[i] + weights.hidden_biases_1[i];
+            pre[h1 + i] = nstm.hidden_1[i] + weights.hidden_biases_1[i];
+        }
+        if let Some(z) = KingZones::compute(board) {
+            for (frame, half) in [(stm_player, 0), (stm_player.opposite(), h1)] {
+                let mut list = ThreatList::new();
+                z.features(frame, &mut list);
+                for &f in list.as_slice() {
+                    let row = &weights.input_weights_1[base + f as usize];
+                    for (p, &w) in pre[half..half + h1].iter_mut().zip(row) {
+                        *p += w as i32;
+                    }
+                }
+            }
+        }
+        for v in pre[..2 * h1].iter_mut() {
+            *v = (*v).max(0);
+        }
+        forward_from_activations(&pre[..2 * h1], weights) + (stm.psqt - nstm.psqt) / 2
+    }
 }
 
 /// Upper bound on activated first-layer entries: `2 * DEFAULT_HIDDEN_SIZE_1`
@@ -1669,7 +1728,13 @@ pub fn score_pov_scratch(
     };
     let mine = build(stm);
     if weights.is_dual() {
-        NNUEAccumulator::evaluate_dual(&mine, &build(stm.opposite()), weights)
+        let theirs = build(stm.opposite());
+        match weights.threat_base() {
+            Some(base) => {
+                NNUEAccumulator::evaluate_dual_threats(&mine, &theirs, weights, base, board, stm)
+            }
+            None => NNUEAccumulator::evaluate_dual(&mine, &theirs, weights),
+        }
     } else {
         mine.evaluate(weights)
     }
@@ -1881,23 +1946,33 @@ impl NNUEEvaluator {
     /// POV score for `player` to move from the two perspective accumulators:
     /// the mover's alone for a single-perspective network, both for a
     /// two-perspective one.
-    fn pov_score(&self, player: Player) -> i32 {
+    fn pov_score(&self, player: Player, board: &BitboardBoard) -> i32 {
         let (mine, theirs) = if player == Player::White {
             (&self.accumulator_white, &self.accumulator)
         } else {
             (&self.accumulator, &self.accumulator_white)
         };
         if self.weights.is_dual() {
-            NNUEAccumulator::evaluate_dual(mine, theirs, &self.weights)
+            match self.weights.threat_base() {
+                Some(base) => NNUEAccumulator::evaluate_dual_threats(
+                    mine,
+                    theirs,
+                    &self.weights,
+                    base,
+                    board,
+                    player,
+                ),
+                None => NNUEAccumulator::evaluate_dual(mine, theirs, &self.weights),
+            }
         } else {
             mine.evaluate(&self.weights)
         }
     }
 
     /// Score for the side the accumulator last saw to move.
-    fn current_score(&self) -> i32 {
+    fn current_score(&self, board: &BitboardBoard) -> i32 {
         if self.use_pov {
-            self.pov_score(self.current_stm)
+            self.pov_score(self.current_stm, board)
         } else {
             self.accumulator.evaluate(&self.weights)
         }
@@ -2198,7 +2273,7 @@ impl NNUEEvaluator {
         self.needs_refresh = false;
 
         // Evaluate using accumulator
-        self.current_score()
+        self.current_score(board)
     }
 
     /// Score `board` for `player` to move. This is the search's evaluation entry
@@ -2234,7 +2309,7 @@ impl NNUEEvaluator {
             self.refresh_dirty_frames(board, captured);
         }
         let score = if self.use_pov {
-            self.pov_score(player)
+            self.pov_score(player, board)
         } else if player == self.current_stm {
             self.accumulator.evaluate(&self.weights)
         } else {
@@ -2393,7 +2468,7 @@ impl NNUEEvaluator {
             self.needs_refresh = false;
         }
 
-        self.current_score()
+        self.current_score(board)
     }
 
     /// Session 19: fold the thermometer hand-feature contributions into

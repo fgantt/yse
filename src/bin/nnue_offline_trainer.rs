@@ -323,6 +323,13 @@ struct Cli {
     #[arg(long, default_value_t = 81)]
     king_buckets: usize,
 
+    /// Append the threat block (`evaluation::nnue_threats`: attacks on each
+    /// king's zone) as zero rows after the king-bucketed rows, so training
+    /// starts from the same function. Needs `--king-features
+    /// --dual-perspective`. A network that already has the block keeps it.
+    #[arg(long)]
+    threat_features: bool,
+
     /// With `--king-factorizer`: per-batch decay of each touched king-specific
     /// correction towards zero (decoupled, AdamW-style), i.e. of each bucket
     /// towards the shared weights. 0 = off.
@@ -1045,10 +1052,41 @@ fn build_position_at(
     } else {
         (Vec::new(), None)
     };
+    // Threat block: computed from the board, added to each perspective's
+    // accumulator and active features (`NNUEAccumulator::evaluate_dual_threats`).
+    let (mut accumulator, mut active_features) = (accumulator, active_features);
+    let (mut accumulator_nstm, mut active_features_nstm) = (accumulator_nstm, active_features_nstm);
+    if let (Some(base), Some(nstm_acc)) = (weights.threat_base(), accumulator_nstm.as_mut()) {
+        if let Some(z) = shogi_engine::evaluation::nnue_threats::KingZones::compute(&board) {
+            for (frame, acc, feats) in [
+                (player, &mut accumulator, &mut active_features),
+                (player.opposite(), nstm_acc, &mut active_features_nstm),
+            ] {
+                let mut list = shogi_engine::evaluation::nnue_threats::ThreatList::new();
+                z.features(frame, &mut list);
+                for &f in list.as_slice() {
+                    let row = base + f as usize;
+                    feats.push(row);
+                    for (h, &w) in acc.hidden_1.iter_mut().zip(&weights.input_weights_1[row]) {
+                        *h += w as i32;
+                    }
+                }
+            }
+        }
+    }
     let nnue_eval = match &accumulator_nstm {
         Some(n) => NNUEAccumulator::evaluate_dual(&accumulator, n, weights),
         None => accumulator.evaluate(weights),
     };
+    // The trainer builds the threat inputs itself; check every 1,000th position
+    // against the engine's evaluation of the same board, throughout training.
+    if weights.threat_base().is_some() {
+        static CHECKED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        if CHECKED.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % 1000 == 0 {
+            let engine = score_pov_scratch(weights, use_king, use_hand_features, &board, player, &captured);
+            assert_eq!(nnue_eval, engine, "trainer and engine threat paths disagree on {sfen}");
+        }
+    }
     Some(TrainingPosition {
         active_features,
         accumulator,
@@ -1338,7 +1376,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if cli.king_features {
         initial_weights.tile_for_king(cli.king_buckets);
-        if initial_weights.input_weights_1.len()
+        if initial_weights.threat_base().unwrap_or(initial_weights.input_weights_1.len())
             != cli.king_buckets * shogi_engine::evaluation::nnue::KING_FEATURE_STRIDE
         {
             return Err(format!(
@@ -1353,6 +1391,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     if cli.dual_perspective {
         initial_weights.make_dual();
+    }
+    if cli.threat_features {
+        if !(cli.king_features && cli.dual_perspective) {
+            return Err("--threat-features needs --king-features --dual-perspective".into());
+        }
+        initial_weights.add_threat_rows();
+        println!(
+            "  Threat block: {} rows from row {}",
+            shogi_engine::evaluation::nnue_threats::NUM_THREAT_FEATURES,
+            initial_weights.threat_base().expect("threat rows were just added")
+        );
     }
     println!(
         "  Architecture: {} input rows, {}{} -> {} -> 1",

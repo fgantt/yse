@@ -71,6 +71,7 @@ pub mod storm_tracking;
 pub mod telemetry;
 pub mod weight_tuning;
 pub mod nnue;
+pub mod nnue_threats;
 pub mod nnue_training;
 
 /// Feature extraction namespace (re-exports for stable API)
