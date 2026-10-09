@@ -167,6 +167,24 @@ evaluation. But note the gate: an SPRT against stable is self-play, and stable s
 blind spot, so it cannot reward seeing an attack the opponent never makes. The threat net
 lost there; it has not been tested against YaneuraOu.
 
+## Threat net against YaneuraOu (six-piece, 2,000 nodes)
+
+Session 32's rung: start `2sgkgs2/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1`, ours at
+1 s, YaneuraOu `nodes 2000` (1 thread, no book), `--random-plies 2`, seed 2910, 80 games each,
+both run side by side (`matches/ladder_s34/`). Only our games as Black count:
+
+| engine | Black W-L-D | score |
+|---|---|---|
+| Session 30 stable | 22-13-5 | 61% |
+| Session 32 stable | 29-7-4 | 78% |
+| stable `c0b2a03` | 28-7-5 | 76% |
+| threat net | 31-8-1 | 78% |
+
+Same openings, paired: 23 both won, 5 only stable won, 5 only threat won; stable's draws went
+3-1 to threat. **A tie within noise** (40 games resolve about ±13%). Two readings: the threat
+net's −48 in self-play does not show against YaneuraOu, and the +74 self-play Elo of the speed-ups
+does not show either (76% vs 78%). Self-play against stable is a poor proxy for this rung.
+
 ## Next
 
 1. King-danger evaluation (threat inputs in the network), gated by the six-piece handicap
