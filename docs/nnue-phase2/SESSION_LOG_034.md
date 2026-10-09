@@ -16,7 +16,12 @@ back to king-danger evaluation.
 > 2. **Gate: PASS.** SPRT against stable (`11220d2`), 1 s/move, [0, 40], seed 3401:
 >    104-0-68 after 172 games (86 pairs), paired **+73.8 +/- 54.6 Elo**, LLR +3.05
 >    (`matches/s34_speed_sprt.*`). Self-play; speed gains overstate against YaneuraOu.
-> 3. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
+> 3. **Stable is now `c0b2a03`** (`engines/usi-engine-stable`; `-stable-prev` = `11220d2`,
+>    `-stable-prev-old` = the one before). `target/release` (the GUI's) untouched.
+> 4. **Threat inputs in the network (`9d77f1c`): six-piece SPRT FAIL**, 33-3-44,
+>    −48.1 ± 58.9 (below). The control fine-tune (same data, no threat inputs) is neutral,
+>    118-10-118, 0.0 ± 32.3: the threat inputs (or their 17% speed cost) lost, not the data.
+> 5. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
 >    king danger, judged only by games.
 
 ---
@@ -81,6 +86,61 @@ generation 20%, move ordering 20% (SEE ~5%), `generate_legal_moves` 12%.
 - **Promoted pieces fail `MoveOrdering::validate_move`**, so `score_move` errors (and builds a
   formatted error string) for every move by a tokin, promoted silver, dragon or horse; callers
   `unwrap_or(0)`. Fixing it changes ordering: a separate, gated change.
+
+## A four-piece loss (stable `11220d2` era build in the GUI)
+
+`matches/user_games/2026-10-08_4mai_loss57.txt`, lost in 57. YaneuraOu (3M nodes, 4 threads)
+against our stable at 1 s, every position (`matches/user_4mai_20261008_analysis.jsonl`):
+YaneuraOu about +2,500 through move 38 (the 2026-10-06 four-piece losses started sliding at
+moves 24-32). Then `S*5a` (39, −1,240), attacking drops while our king walked
+7i-8h-7g-7f-8e-9f; even at move 47, where ours read +1,300; `8e9f` (51) −3,600; mate by
+`G*9e`. Ours stayed +800 to +1,300 from move 45 to 53 while YaneuraOu went from 0 to lost:
+the king-danger blind spot again. Labelled into `eval_gap/positions_s34.jsonl` (114).
+
+## Threat inputs in the network (rejected)
+
+`src/evaluation/nnue_threats.rs` (`9d77f1c`): 90 inputs per perspective, from the board at
+every evaluation, added to the first layer before activation. For both kings' 3x3 zones:
+enemy attackers per square (1/2/3+), attacked and undefended (no defender but the king), a
+thermometer of attacked zone squares. A network has them when its row count is
+`nbuckets * KING_FEATURE_STRIDE + 90` (no format change; without them the search fingerprint
+is byte-identical). Trainer `--threat-features` appends zero rows; the king factoriser skips
+them; every 1,000th training position is asserted equal to the engine's evaluation (no
+mismatch in 4M).
+
+Two fine-tunes of `nnue/default.bin`, Session 30 recipe (`corpus_hc/mix_x1.jsonl`, lr 0.001,
+2 epochs, seed 47), identical but for the flag (`weights/session34/`, not in git):
+
+| network | val r_clamp | train err | eval gap, our king high (82) | mid (102) | low (752) | nps (search_bench d5) |
+|---|---|---|---|---|---|---|
+| stable `default.bin` | | | 0.180 (+0.147) | 0.183 | 0.021 | |
+| control | 0.778 | 0.1352 | 0.162 (+0.108) | 0.180 | 0.024 | 91.0k |
+| threat | 0.781 | 0.1333 | **0.142 (+0.077)** | 0.177 | 0.023 | 76.0k (−17%) |
+
+**Six-piece SPRT, threat vs stable** (`c0b2a03` both, 1 s/move, `--random-plies 2`, seed
+3402): **33-3-44, −48.1 ± 58.9, LLR −3.25: FAIL** after 80 games
+(`matches/s34_threat_6mai_sprt.*`). As Black (holding the odds): threat 28-10, stable 34-5.
+As White: threat won 5, stable 10. Worse in both roles; as in Session 32, the network nearer
+YaneuraOu's king-danger numbers converts the odds less often.
+
+**Control vs stable, same openings and seed:** 118-10-118 after 246 games, **0.0 ± 32.3**,
+LLR −2.97: FAIL against [0, 40], i.e. neutral (`matches/s34_control_6mai_sprt.*`). As Black:
+control 100-15 (8 draws), stable 103-18 (2 draws). The fine-tune data and recipe are harmless;
+the loss belongs to the threat inputs. Part of it is speed (−17% nps is worth roughly 15-20
+self-play Elo at 1 s/move), the rest is unresolved within ±59.
+
+## A second four-piece loss (stable `c0b2a03`)
+
+`matches/user_games/2026-10-09_4mai_loss65.txt`, lost in 65, partly while the control SPRT
+shared the CPU. YaneuraOu (3M nodes) on every position
+(`matches/user_4mai_20261009_analysis.jsonl`): +2,700 to +3,000 through move 26, the best
+opening so far. The bishop's diagonal stayed shut (YaneuraOu's first choice was `7g7f` at 9 of
+our first 12 moves; played at 34), but the net opening cost was about 60. Slow bleed 27-46
+(+2,750 -> +1,630: `5i5h` −305, `P*6f` −355, `N*3f` −416). Collapse at 47-52, about −5,000 in
+six moves (`P*5c` −677, `6f6e` −957, `N*4e` −1,016, `S*3c` −427, `3c2d` −1,067) while White
+built on the 7-file against our king on 8h; YaneuraOu wanted quiet king moves (`8h8i`,
+`8h7i`). Ours read +1,200 to +1,900 through the collapse. Labelled into
+`eval_gap/positions_s34b.jsonl` (130).
 
 ## Next
 
