@@ -21,7 +21,9 @@ back to king-danger evaluation.
 > 4. **Threat inputs in the network (`9d77f1c`): six-piece SPRT FAIL**, 33-3-44,
 >    −48.1 ± 58.9 (below). The control fine-tune (same data, no threat inputs) is neutral,
 >    118-10-118, 0.0 ± 32.3: the threat inputs (or their 17% speed cost) lost, not the data.
-> 5. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
+> 5. **Lean main search (`adcd003`, `SHOGI_LEAN=1`)**: four-piece vs YaneuraOu 2,000 nodes,
+>    Black games, **90.0% vs stable 57.1%** over 120 each (below). Not yet the default.
+> 6. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
 >    king danger, judged only by games.
 
 ---
@@ -231,10 +233,47 @@ Second batch, seed 2911 (`*_b`): stable 36-24-0 (60.0%), plain 30-26-4 (53.3%). 
 counted games each: stable 57.1%, plain 50.8%** (−6.3, about one standard error). Against
 YaneuraOu it leans negative; the self-play pass did not transfer. Rejected.
 
+## Lean main search (`SHOGI_LEAN=1`, opt-in, `adcd003`)
+
+The old main search is too wide: about 4.6 nodes per extra ply against YaneuraOu's ~2.3. Its
+pruning gates read the static score, the root searched every move with an open window, and the
+TT move was only taken from entries at least as deep as the current node. `src/search/lean.rs`
+is a new main search (child module of `search_engine`, so it reuses everything: time control,
+repetition and hand-repetition rules, mate scoring, TT, move generation and ordering,
+quiescence, parallel workers through `search_at_depth`). Default unchanged; the old search
+stays until lean wins on every gate.
+
+Per node: path repetition, mate-distance pruning, TT probe (move from any depth, cutoff at
+non-PV nodes when deep enough), reverse futility (d <= 6, 120/ply), razoring (d <= 2),
+null move (R = 3 + d/3 + margin term), IID at PV nodes without a TT move, then a move loop
+with late-move pruning (3 + d^2), futility (100 + 150 d), SEE pruning of quiets (-80 d) and
+captures (-150 d), check extension, log-log LMR and PVS. Root: PVS with the TT move first.
+
+Game-1 collapse position, interior nodes: depth 7 195k (old search 18.1M). Single thread,
+depth 7 in 4.5 s; the old search reached depth 3 in 0.3 s. Quiescence is now the main cost.
+The 15 mistake positions at 1 s: mean YaneuraOu score after our move −288 (lean) vs −306
+(stable) -- the individual mistakes mostly remain.
+
+Tests (lib, `--skip initiative_tracking`, whose test overflows the stack in both modes):
+1129 passed, 18 failed, the same 18 in both modes. `search_is_colour_symmetric_depth_1` fails
+under lean on one position by 2 cp (P*3d vs P*9d), PVS window instability; the old search shows
+the same at depth 2, where that test is ignored.
+
+| four-piece vs YaneuraOu 2,000 nodes, Black games | stable | lean |
+|---|---|---|
+| seed 2910 | 31-26-3, 54.2% | **52-6-2, 88.3%** |
+| seed 2911 | 36-24-0, 60.0% | **55-5-0, 91.7%** |
+| pooled, 120 counted games | 57.1% | **90.0%** |
+
+Paired by opening (pooled): both won 62, lean only 45, stable only 5, both lost 8. All games
+end by mate (no time losses; longest think 948 ms). **+33 points, about six standard errors**:
+the first change this session that moves the YaneuraOu ladder. Six-piece self-play SPRT against
+stable (seed 3405) running: `matches/s34_lean_6mai_sprt.*`.
+
 ## Next
 
-1. King-danger evaluation (threat inputs in the network), gated by the six-piece handicap
-   SPRT.
+1. Lean search: finish the self-play SPRT; then a USI option to select it, then make it the
+   default and ship; tune its margins and a leaner quiescence (now most of the nodes).
 2. More exact speed: an accumulator refresh cache per king square (Finny tables) for
    `refresh_pov`; quiescence still generates every board move to find promotions and checks
    (a direct promotion/check generator, as done for the threat count).
