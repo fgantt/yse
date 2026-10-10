@@ -513,11 +513,11 @@ thread_local! {
         std::cell::RefCell::new(vec![QSlot::default(); Q_SLOTS]);
 }
 
-/// Whether the lean search uses its own quiescence (`SHOGI_LEAN_Q=1`, opt-in until
-/// gated; otherwise the shared quiescence).
+/// Whether the lean search uses its own quiescence (default; `SHOGI_LEAN_Q=0`
+/// selects the shared one, for comparison).
 fn lean_q_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("SHOGI_LEAN_Q").is_some())
+    *ON.get_or_init(|| std::env::var("SHOGI_LEAN_Q").map_or(true, |v| v != "0"))
 }
 
 impl SearchEngine {
