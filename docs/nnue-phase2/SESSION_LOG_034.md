@@ -21,8 +21,12 @@ back to king-danger evaluation.
 > 4. **Threat inputs in the network (`9d77f1c`): six-piece SPRT FAIL**, 33-3-44,
 >    −48.1 ± 58.9 (below). The control fine-tune (same data, no threat inputs) is neutral,
 >    118-10-118, 0.0 ± 32.3: the threat inputs (or their 17% speed cost) lost, not the data.
-> 5. **Lean main search (`adcd003`, `SHOGI_LEAN=1`)**: four-piece vs YaneuraOu 2,000 nodes,
->    Black games, **90.0% vs stable 57.1%** over 120 each (below). Not yet the default.
+> 5. **Lean main search is the default and shipped (`bc12427`, stable)**: four-piece vs
+>    YaneuraOu 2,000 nodes, Black games, **90.0% vs 57.1%** over 120 each; six-piece SPRT vs
+>    `c0b2a03` PASS, 28-1-11, +157.7 +/- 95.4 after 20 pairs. USI option `SearchAlgorithm`
+>    (Lean/Classic); `SHOGI_LEAN=0` selects Classic, whose fingerprint is unchanged.
+>    `engines/usi-engine-stable` = `bc12427`, `-stable-prev` = `c0b2a03`. Fingerprints for
+>    exact changes must now be taken in the default (lean) mode.
 > 6. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
 >    king danger, judged only by games.
 
@@ -268,12 +272,20 @@ the same at depth 2, where that test is ignored.
 Paired by opening (pooled): both won 62, lean only 45, stable only 5, both lost 8. All games
 end by mate (no time losses; longest think 948 ms). **+33 points, about six standard errors**:
 the first change this session that moves the YaneuraOu ladder. Six-piece self-play SPRT against
-stable (seed 3405) running: `matches/s34_lean_6mai_sprt.*`.
+stable (seed 3405): **PASS**, 28-1-11, paired +157.7 +/- 95.4 Elo, LLR +3.64 after 20 pairs
+(`matches/s34_lean_6mai_sprt.*`). Short, but it agrees with the YaneuraOu result.
+
+Shipped as the default (`bc12427`): USI option `SearchAlgorithm` (Lean default, Classic),
+process-wide, so parallel workers follow it; `SHOGI_LEAN=0` selects Classic when the option is
+not set. Classic `search_bench` fingerprint unchanged. The depth-1 colour-symmetry test now
+allows <= 5 cp when the mirror picks a different move (root null windows make quiescence
+window-dependent; with full root windows the test is exact).
 
 ## Next
 
-1. Lean search: finish the self-play SPRT; then a USI option to select it, then make it the
-   default and ship; tune its margins and a leaner quiescence (now most of the nodes).
+1. Lean search: the six-piece YaneuraOu rung (Session 32 stable 78%) and harder rungs to find
+   the new ceiling; a leaner quiescence (now most of the nodes); tune margins, each gated
+   against YaneuraOu as well as by SPRT.
 2. More exact speed: an accumulator refresh cache per king square (Finny tables) for
    `refresh_pov`; quiescence still generates every board move to find promotions and checks
    (a direct promotion/check generator, as done for the threat count).
