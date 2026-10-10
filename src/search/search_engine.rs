@@ -736,6 +736,9 @@ fn same_position(entry: u64, hash: u64) -> bool {
     (entry | 1) == (hash | 1)
 }
 
+#[path = "lean.rs"]
+mod lean;
+
 pub(crate) fn search_toggles() -> SearchToggles {
     static TOGGLES: std::sync::OnceLock<SearchToggles> = std::sync::OnceLock::new();
     *TOGGLES.get_or_init(SearchToggles::from_env)
@@ -6255,6 +6258,15 @@ impl SearchEngine {
 
         // Task 3.0: Use advanced move ordering for better performance (no IID at this
         // level)
+        // The lean search orders the previous iteration's best move first: the
+        // table's move from an entry of any depth (`order_moves_for_negamax`
+        // only finds entries at least as deep as this iteration).
+        let root_tt_move = if lean::lean_enabled() {
+            let h = self.hash_calculator.get_position_hash(board, player, captured_pieces);
+            self.tt_probe(h, 0).and_then(|e| e.best_move)
+        } else {
+            None
+        };
         let sorted_moves = self.order_moves_for_negamax(
             &legal_moves,
             board,
@@ -6263,7 +6275,7 @@ impl SearchEngine {
             depth,
             alpha,
             beta,
-            None,
+            root_tt_move.as_ref(),
             None,
         );
         crate::debug_utils::end_timing("move_sorting", "SEARCH_AT_DEPTH");
@@ -6338,18 +6350,65 @@ impl SearchEngine {
                 }
             }
 
-            let score = -self.negamax(
-                &mut *board,
-                &new_captured,
-                player.opposite(),
-                depth - 1,
-                beta.saturating_neg(),
-                alpha.saturating_neg(),
-                &start_time,
-                time_limit_ms,
-                &mut hash_history,
-                true,
-            );
+            let score = if lean::lean_enabled() {
+                // Principal variation search at the root: the first move with
+                // the full window, the rest with a null window, re-searched
+                // only if they beat the best so far.
+                let d = depth as i32 - 1;
+                let full = |s: &mut Self, b: &mut BitboardBoard, h: &mut Vec<u64>, a: i32| {
+                    -s.lean_node(
+                        b,
+                        &new_captured,
+                        player.opposite(),
+                        d,
+                        beta.saturating_neg(),
+                        a.saturating_neg(),
+                        &start_time,
+                        time_limit_ms,
+                        h,
+                        false,
+                        true,
+                        Some(move_),
+                    )
+                };
+                if move_index == 0 {
+                    full(self, &mut *board, &mut hash_history, alpha)
+                } else {
+                    let s = -self.lean_node(
+                        &mut *board,
+                        &new_captured,
+                        player.opposite(),
+                        d,
+                        alpha.saturating_neg().saturating_sub(1),
+                        alpha.saturating_neg(),
+                        &start_time,
+                        time_limit_ms,
+                        &mut hash_history,
+                        true,
+                        true,
+                        Some(move_),
+                    );
+                    hash_history.truncate(self.root_path_len);
+                    if s > alpha && s < beta {
+                        full(self, &mut *board, &mut hash_history, alpha)
+                    } else {
+                        s
+                    }
+                }
+            } else {
+                -self.negamax(
+                    &mut *board,
+                    &new_captured,
+                    player.opposite(),
+                    depth - 1,
+                    beta.saturating_neg(),
+                    alpha.saturating_neg(),
+                    &start_time,
+                    time_limit_ms,
+                    &mut hash_history,
+                    true,
+                )
+            };
             // Each child pushes its own position onto the path and leaves it to
             // its parent to pop. The root loop never did, so the path grew by
             // one per root move: in a 50-move game the last root move searched
