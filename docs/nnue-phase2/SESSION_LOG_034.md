@@ -275,6 +275,18 @@ the first change this session that moves the YaneuraOu ladder. Six-piece self-pl
 stable (seed 3405): **PASS**, 28-1-11, paired +157.7 +/- 95.4 Elo, LLR +3.64 after 20 pairs
 (`matches/s34_lean_6mai_sprt.*`). Short, but it agrees with the YaneuraOu result.
 
+Other rungs with the shipped lean build (YaneuraOu 2,000 nodes, 120 games, seed 2910, Black
+games):
+
+| rung | stable (`c0b2a03` / Session 32) | lean (`bc12427`) |
+|---|---|---|
+| six-piece | 28-7-5, 76.2% (40 counted) | **56-4-0, 93.3%** |
+| four-piece | 57.1% (120 counted) | **90.0%** |
+| two-piece (rook + bishop) | not run at 2,000 nodes | **41-19-0, 68.3%** |
+
+It also won 1 (six-piece) and 2 (two-piece) games as White, giving the odds; stable never had.
+Two-piece at 2,000 nodes is the next measuring rung.
+
 Shipped as the default (`bc12427`): USI option `SearchAlgorithm` (Lean default, Classic),
 process-wide, so parallel workers follow it; `SHOGI_LEAN=0` selects Classic when the option is
 not set. Classic `search_bench` fingerprint unchanged. The depth-1 colour-symmetry test now
