@@ -319,6 +319,15 @@ Wins as White (giving the odds): four-piece 0 -> 4, two-piece 2 -> 4. Stable is 
 The user won their first four-piece game against YaneuraOu in the GUI with `bc12427`
 (`matches/user_games/2026-10-10_4mai_win88.txt`).
 
+A four-piece loss after the restart on `199ccd8` (`matches/user_games/2026-10-10_4mai_loss76.txt`):
+no single blunder. YaneuraOu (3M nodes) has Black at +2,500 to +2,900 to move 31, +1,500 at
+move 43, ~0 at move 47, −1,000 at move 52, mated at 76. Our score stays +700 to +1,300 through
+the slide (move 51: ours +733, YaneuraOu −424) -- the same blindness to an attack on our king
+(White's pawn and drops on the 6-7 files) as in Sessions 31-34. More time does not fix the
+moves that matter most: 2c2b+ (move 44, −571) is chosen at 1, 5 and 20 s; at move 51 every
+choice is about −650. Two of six positions improve with 5-20 s. The search fix made us much
+stronger, but evaluation of king danger is again the visible weakness.
+
 ## Next
 
 1. Lean search: two-piece vs YaneuraOu 2,000 nodes is the measuring rung now (82.5%); next
