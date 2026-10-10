@@ -227,6 +227,10 @@ Paired by opening (four-piece): both won 15, both lost 16, stable only 14, plain
 **They disagree**: self-play +63, YaneuraOu −6 points (±12, not significant). Not shipped; the
 SPRT stopped at 28 pairs, under the spirit of the minimum-pairs rule.
 
+Second batch, seed 2911 (`*_b`): stable 36-24-0 (60.0%), plain 30-26-4 (53.3%). **Pooled, 120
+counted games each: stable 57.1%, plain 50.8%** (−6.3, about one standard error). Against
+YaneuraOu it leans negative; the self-play pass did not transfer. Rejected.
+
 ## Next
 
 1. King-danger evaluation (threat inputs in the network), gated by the six-piece handicap
