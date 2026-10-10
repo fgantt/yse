@@ -328,6 +328,24 @@ moves that matter most: 2c2b+ (move 44, −571) is chosen at 1, 5 and 20 s; at m
 choice is about −650. Two of six positions improve with 5-20 s. The search fix made us much
 stronger, but evaluation of king danger is again the visible weakness.
 
+## A harder rung, and the threat net on the lean search (rejected again)
+
+The user's GUI gives YaneuraOu 4 threads, 1 GB hash, 60 min + 10 s byoyomi -- millions of nodes
+a move. Calibration, `199ccd8` vs YaneuraOu 1 thread, four-piece, 40 games (seed 2920), Black
+games: 20,000 nodes 10-9-1 (52.5%); 100,000 nodes 1-19 (5%). **New measuring rung: four-piece,
+YaneuraOu 20,000 nodes.**
+
+Threat net (`nets/threat.bin`, Session 34 above) on `199ccd8`, same 120 games (seed 2930):
+
+| four-piece vs YaneuraOu 20k nodes, Black games | result | score |
+|---|---|---|
+| `199ccd8`, `nnue/default.bin` | 28-31-1 | **47.5%** |
+| `199ccd8`, `nets/threat.bin` | 16-42-2 | 28.3% |
+
+Paired by opening: both won 10, stable only 18, threat only 6, both lost 26. **−19 points,
+about 3 standard errors: rejected.** Neutral at 2,000 nodes with the old search, clearly worse
+here; the deeper search does not make its cost worth paying.
+
 ## Next
 
 1. Lean search: two-piece vs YaneuraOu 2,000 nodes is the measuring rung now (82.5%); next
