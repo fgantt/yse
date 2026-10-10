@@ -25,8 +25,9 @@ back to king-danger evaluation.
 >    YaneuraOu 2,000 nodes, Black games, **90.0% vs 57.1%** over 120 each; six-piece SPRT vs
 >    `c0b2a03` PASS, 28-1-11, +157.7 +/- 95.4 after 20 pairs. USI option `SearchAlgorithm`
 >    (Lean/Classic); `SHOGI_LEAN=0` selects Classic, whose fingerprint is unchanged.
->    `engines/usi-engine-stable` = `bc12427`, `-stable-prev` = `c0b2a03`. Fingerprints for
->    exact changes must now be taken in the default (lean) mode.
+>    Then the **lean quiescence** (`199ccd8`, stable now): two-piece vs YaneuraOu 68.3% ->
+>    82.5%, SPRT PASS +34.9. `engines/usi-engine-stable` = `199ccd8`, `-stable-prev` =
+>    `bc12427`. Fingerprints for exact changes must be taken in the default mode.
 > 6. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
 >    king danger, judged only by games.
 
@@ -293,11 +294,36 @@ not set. Classic `search_bench` fingerprint unchanged. The depth-1 colour-symmet
 allows <= 5 cp when the mirror picks a different move (root null windows make quiescence
 window-dependent; with full root windows the test is exact).
 
+## Lean quiescence (`d29c658`, default in `199ccd8`, shipped)
+
+The shared quiescence (85-92% of nodes) has a bound bug: it stores results as Upper when
+`alpha <= -beta` instead of `alpha <= alpha_orig`, so fail-lows are stored Exact and later
+probes with other windows return them unconditionally. Its table is a HashMap that clones moves
+and sorts 10k entries on cleanup. The lean quiescence (in `lean.rs`, Classic untouched):
+stand pat, captures and promotions (checks at the first ply) in MVV/LVA order, skip moves that
+lose material by SEE or cannot reach alpha (+200 margin), all evasions in check, 8 plies,
+fail-soft, a per-thread direct-mapped bound table with flags against the original window.
+`SHOGI_LEAN_Q=0` selects the shared quiescence.
+
+search_bench depth 8, 30 positions: 208 s -> ~53 s; interior nodes 8.8M -> 0.82M.
+
+| gate (vs `bc12427`) | `bc12427` | lean quiescence |
+|---|---|---|
+| six-piece self-play SPRT (seed 3406) | | **PASS**, 65-2-53, +34.9 +/- 25.6, 60 pairs |
+| four-piece vs YaneuraOu, Black, pooled 120 | 90.0% | **93.3%** (111-7-2) |
+| two-piece vs YaneuraOu, Black, 60 (seed 2910) | 68.3% | **82.5%** (49-10-1) |
+
+Wins as White (giving the odds): four-piece 0 -> 4, two-piece 2 -> 4. Stable is now `199ccd8`
+(`-stable-prev` = `bc12427`, `-stable-prev-old` = `c0b2a03`).
+
+The user won their first four-piece game against YaneuraOu in the GUI with `bc12427`
+(`matches/user_games/2026-10-10_4mai_win88.txt`).
+
 ## Next
 
-1. Lean search: the six-piece YaneuraOu rung (Session 32 stable 78%) and harder rungs to find
-   the new ceiling; a leaner quiescence (now most of the nodes); tune margins, each gated
-   against YaneuraOu as well as by SPRT.
+1. Lean search: two-piece vs YaneuraOu 2,000 nodes is the measuring rung now (82.5%); next
+   even games or more YaneuraOu nodes. Tune lean margins and quiescence (SEE threshold,
+   check depth), each gated against YaneuraOu as well as by SPRT.
 2. More exact speed: an accumulator refresh cache per king square (Finny tables) for
    `refresh_pov`; quiescence still generates every board move to find promotions and checks
    (a direct promotion/check generator, as done for the threat count).
