@@ -131,7 +131,11 @@ Two coexisting evaluation strategies, selected/blended via `PositionEvaluator`:
     search running on one thread, LMR and null-move verification re-searches scoring fake 0
     draws, colour-blind Zobrist keys, and perpetual check scored as a draw -- together several
     hundred Elo of self-play. Trace any exact 0 or other suspicious score to its source.
-  - **The remaining weakness is evaluation of king danger**, not search depth: our score follows
+  - **Session 34: tree width was the constraint.** The old search grew ~4.6x per ply against
+    YaneuraOu's ~2.3; the lean search (`src/search/lean.rs`, default, USI `SearchAlgorithm`
+    Lean/Classic) took the four-piece / 2,000-node rung from 57% to 90%. Check tree shape
+    before evaluation, and gate on that rung as well as the SPRT.
+  - **Earlier view (Session 32): evaluation of king danger**, not search depth: our score follows
     material and swings 500-800 cp with the side to move in mutual attacks. But two attempts to
     move the evaluation toward YaneuraOu's numbers lost 110-180 Elo. Eval-gap error is a
     diagnostic, not a target; judge evaluation changes only by games.
