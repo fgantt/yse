@@ -738,6 +738,7 @@ fn same_position(entry: u64, hash: u64) -> bool {
 
 #[path = "lean.rs"]
 mod lean;
+pub use lean::{lean_enabled, set_lean_search};
 
 pub(crate) fn search_toggles() -> SearchToggles {
     static TOGGLES: std::sync::OnceLock<SearchToggles> = std::sync::OnceLock::new();

@@ -1492,6 +1492,15 @@ impl ShogiEngine {
                         output.push("info string Disabled tablebase".to_string());
                     }
                 }
+                "SearchAlgorithm" => match parts[3] {
+                    "Lean" | "Classic" => {
+                        crate::search::search_engine::set_lean_search(parts[3] == "Lean");
+                        output.push(format!("info string Set SearchAlgorithm to {}", parts[3]));
+                    }
+                    _ => output.push(
+                        "info string error SearchAlgorithm must be Lean or Classic".to_string(),
+                    ),
+                },
                 "USI_Threads" => {
                     if let Ok(threads) = parts[3].parse::<usize>() {
                         self.thread_count = threads.clamp(1, 32);

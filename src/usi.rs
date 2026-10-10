@@ -120,6 +120,7 @@ impl UsiHandler {
             // Fixed: MaxDepth now allows 0-100 (0 = unlimited/adaptive), default 0
             "option name MaxDepth type spin default 0 min 0 max 100".to_string(),
             format!("option name USI_Threads type spin default {} min 1 max 32", thread_count),
+            "option name SearchAlgorithm type combo default Lean var Lean var Classic".to_string(),
             // Time Management Options (Task 8.0, 4.0)
             "option name TimeCheckFrequency type spin default 1024 min 1 max 100000".to_string(),
             "option name TimeSafetyMargin type spin default 100 min 0 max 10000".to_string(),

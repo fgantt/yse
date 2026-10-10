@@ -34,10 +34,25 @@ fn lmr_table() -> &'static [[u8; 64]; 64] {
     })
 }
 
-/// Whether the lean search is selected (`SHOGI_LEAN`, read once).
-pub(crate) fn lean_enabled() -> bool {
-    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var_os("SHOGI_LEAN").is_some())
+/// Selected main search: 0 = unset (environment decides), 1 = lean, 2 = classic.
+static SEARCH_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Select the main search for the whole process (USI `SearchAlgorithm`).
+pub fn set_lean_search(lean: bool) {
+    SEARCH_MODE.store(if lean { 1 } else { 2 }, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether the lean search is selected. Default lean; `SHOGI_LEAN=0` selects the classic
+/// search unless the USI option has been set.
+pub fn lean_enabled() -> bool {
+    match SEARCH_MODE.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => true,
+        2 => false,
+        _ => {
+            static ENV: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            *ENV.get_or_init(|| std::env::var("SHOGI_LEAN").map_or(true, |v| v != "0"))
+        }
+    }
 }
 
 const INF: i32 = 1_000_000;
