@@ -133,6 +133,11 @@ pub fn resolve_nnue_path(file: &str) -> std::path::PathBuf {
     given
 }
 
+/// Default `USI_Hash`. At 16 MB (262,144 entries) one thread at 1 s/move filled
+/// the table: depth 10 over 76 game positions took 51 s against 39-41 s at
+/// 64-1,024 MB, and 16 Lazy SMP threads were no faster than one (Session 34).
+pub const DEFAULT_HASH_MB: usize = 256;
+
 impl ShogiEngine {
     pub fn new() -> Self {
         let stop_flag = Arc::new(AtomicBool::new(false));
@@ -145,7 +150,10 @@ impl ShogiEngine {
             opening_book_prefilled: false,
             tablebase: MicroTablebase::new(),
             stop_flag: stop_flag.clone(),
-            search_engine: Arc::new(Mutex::new(SearchEngine::new(Some(stop_flag), 16))),
+            search_engine: Arc::new(Mutex::new(SearchEngine::new(
+                Some(stop_flag),
+                DEFAULT_HASH_MB,
+            ))),
             debug_mode: false,
             pondering: false,
             depth: 0, // Default to 0 (unlimited/adaptive), like YaneuraOu

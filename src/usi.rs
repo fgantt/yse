@@ -66,7 +66,10 @@ impl UsiHandler {
         vec![
             "id name Yggdrasil".to_string(),
             "id author fgantt (Gemini & Cursor)".to_string(),
-            "option name USI_Hash type spin default 16 min 1 max 1024".to_string(),
+            format!(
+                "option name USI_Hash type spin default {} min 1 max 1024",
+                crate::DEFAULT_HASH_MB
+            ),
             "option name UseNNUE type check default true".to_string(),
             "option name MoveOverhead type spin default 100 min 0 max 10000".to_string(),
             format!("option name NNUEFile type string default {}", crate::DEFAULT_NNUE_FILE),
@@ -121,7 +124,7 @@ impl UsiHandler {
             "option name MaxDepth type spin default 0 min 0 max 100".to_string(),
             format!("option name USI_Threads type spin default {} min 1 max 32", thread_count),
             "option name SearchAlgorithm type combo default Lean var Lean var Classic".to_string(),
-            "option name ThreadAlgorithm type combo default Split var Lazy var Split".to_string(),
+            "option name ThreadAlgorithm type combo default Lazy var Lazy var Split".to_string(),
             // Time Management Options (Task 8.0, 4.0)
             "option name TimeCheckFrequency type spin default 1024 min 1 max 100000".to_string(),
             "option name TimeSafetyMargin type spin default 100 min 0 max 10000".to_string(),

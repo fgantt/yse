@@ -15676,6 +15676,9 @@ impl IterativeDeepening {
             )
         });
 
+        // The main thread's last completed iteration, for choosing between its
+        // result and a helper's.
+        let mut main_completed_depth = 0u8;
         for depth in 1..=effective_max_depth {
             // Reset global node counter for this depth and start periodic reporter
             GLOBAL_NODES_SEARCHED.store(0, Ordering::Relaxed);
@@ -16384,9 +16387,7 @@ impl IterativeDeepening {
                     best_move = Some(move_clone.clone());
                     best_score = score;
                     previous_scores.push(score);
-                    if let Some(h) = &lazy_helpers {
-                        h.main_completed(depth);
-                    }
+                    main_completed_depth = depth;
 
                     // Update shared state for periodic info messages
                     let pv_for_info = search_engine.pv_line_for(
@@ -16731,6 +16732,15 @@ impl IterativeDeepening {
                 best_score
             ),
         );
+
+        // A Lazy SMP helper that completed a deeper search with a higher score
+        // gives the move.
+        if let Some(h) = lazy_helpers {
+            if let Some((mv, score)) = h.finish(main_completed_depth, best_score) {
+                best_move = Some(mv);
+                best_score = score;
+            }
+        }
 
         // CRITICAL: Always return a move if we have one, even if search didn't complete
         // all depths This ensures we never return None when legal moves exist

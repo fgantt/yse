@@ -10,17 +10,16 @@
 //! tree is so narrow that the first move's line is nearly all the work, and
 //! below the split plies it ran on one thread.
 //!
-//! Half the helpers search one ply deeper than the other half, so the threads
-//! do not all fill the table with the same depth. USI `ThreadAlgorithm`
-//! (Lazy, Split) selects; when unset, `SHOGI_LAZY_SMP=1` selects Lazy.
+//! Helpers follow Stockfish 9's depth schedule (`SKIP_SIZE`/`SKIP_PHASE`), and
+//! a helper's completed result is played when it is deeper than the main
+//! thread's and scores higher. USI `ThreadAlgorithm`
+//! (Lazy, Split) selects; when unset, `SHOGI_LAZY_SMP=0` selects the split.
 //!
-//! Not the default. Once the magic tables were found (copied binaries had
-//! ray-cast, which choked every thread on two global counters), 16 Lazy
-//! threads searched ~10x the nodes of one and reached depth sooner, yet lost
-//! to one thread 63-3-76 (-32 Elo) at 1 s/move, while the split at 16 threads
-//! went 111-1-88 (+40) against the same opponent. Neutral-set move loss at
-//! fixed depth 8 did not separate Lazy from one thread, and 12 threads (the
-//! performance cores) were no better than 16, so the cause is not found.
+//! The first version lost to one thread 63-3-76 (-32 Elo) at 1 s/move while
+//! the split at 16 threads won 111-1-88 (+40). The cause was the 16 MB table
+//! (262,144 entries): 16 threads overwrote each other's entries, and reached
+//! depth 10 no sooner than one thread. With 256 MB, the skip schedule and the
+//! helper's result, Lazy 16 beat the split 16 32-1-11 (+180, SPRT pass).
 //!
 //! A child module of `search_engine` so it can use the engine's private state.
 
@@ -43,18 +42,32 @@ pub fn lazy_smp_enabled() -> bool {
         2 => false,
         _ => {
             static ENV: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-            *ENV.get_or_init(|| std::env::var("SHOGI_LAZY_SMP").is_ok_and(|v| v == "1"))
+            *ENV.get_or_init(|| std::env::var("SHOGI_LAZY_SMP").map_or(true, |v| v != "0"))
         }
     };
     lazy && lean::lean_enabled()
 }
 
+/// Depth schedule of helper `id` (Stockfish 9's): helper `i` searches depth `d`
+/// only when `(d + PHASE[i]) / SIZE[i]` is even, so helpers spread over depths
+/// instead of all searching the main thread's next one.
+const SKIP_SIZE: [u8; 20] = [1, 1, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4];
+const SKIP_PHASE: [u8; 20] = [0, 1, 0, 1, 2, 3, 0, 1, 2, 3, 4, 5, 0, 1, 2, 3, 4, 5, 6, 7];
+
+fn helper_skips(id: usize, depth: u8) -> bool {
+    let i = id % SKIP_SIZE.len();
+    ((depth + SKIP_PHASE[i]) / SKIP_SIZE[i]) % 2 != 0
+}
+
+/// A helper's completed root search: depth, score, move.
+type HelperResult = (u8, i32, Move);
+
 /// Running helper threads. Dropping it stops and joins them, so every return
 /// from the search ends them.
 pub(super) struct LazyHelpers {
     stop: Arc<AtomicBool>,
-    /// Depth of the main thread's last completed iteration.
-    main_depth: Arc<std::sync::atomic::AtomicU8>,
+    /// The deepest completed helper search (ties: the higher score).
+    best: Arc<std::sync::Mutex<Option<HelperResult>>>,
     handles: Vec<std::thread::JoinHandle<()>>,
 }
 
@@ -70,7 +83,7 @@ impl LazyHelpers {
         max_depth: u8,
     ) -> Self {
         let stop = Arc::new(AtomicBool::new(false));
-        let main_depth = Arc::new(std::sync::atomic::AtomicU8::new(0));
+        let best = Arc::new(std::sync::Mutex::new(None));
         let handles = (0..count)
             .filter_map(|id| {
                 let tt = Arc::clone(&main.transposition_table);
@@ -78,34 +91,41 @@ impl LazyHelpers {
                 let board = board.clone();
                 let captured = captured_pieces.clone();
                 let stop = stop.clone();
-                let main_depth = main_depth.clone();
+                let best = best.clone();
                 std::thread::Builder::new()
                     .name(format!("lazy-smp-{}", id + 1))
                     .stack_size(64 * 1024 * 1024)
                     .spawn(move || {
                         helper_search(
-                            id, tt, nnue, board, captured, player, stop, main_depth, max_depth,
+                            id, tt, nnue, board, captured, player, stop, best, max_depth,
                         );
                     })
                     .ok()
             })
             .collect();
-        Self { stop, main_depth, handles }
+        Self { stop, best, handles }
     }
 
-    /// The main thread finished an iteration at `depth`: helpers behind it
-    /// skip ahead.
-    pub(super) fn main_completed(&self, depth: u8) {
-        self.main_depth.store(depth, Ordering::Relaxed);
+    /// Stop the helpers and return a helper result to play in place of the
+    /// main thread's (completed to `main_depth` with `main_score`): one that is
+    /// deeper and scores higher, as Stockfish 9 chose its thread.
+    pub(super) fn finish(mut self, main_depth: u8, main_score: i32) -> Option<(Move, i32)> {
+        self.stop_and_join();
+        let best = self.best.lock().ok()?.clone()?;
+        (best.0 > main_depth && best.1 > main_score).then(|| (best.2, best.1))
+    }
+
+    fn stop_and_join(&mut self) {
+        self.stop.store(true, Ordering::Relaxed);
+        for h in self.handles.drain(..) {
+            let _ = h.join();
+        }
     }
 }
 
 impl Drop for LazyHelpers {
     fn drop(&mut self) {
-        self.stop.store(true, Ordering::Relaxed);
-        for h in self.handles.drain(..) {
-            let _ = h.join();
-        }
+        self.stop_and_join();
     }
 }
 
@@ -118,7 +138,7 @@ fn helper_search(
     captured: CapturedPieces,
     player: Player,
     stop: Arc<AtomicBool>,
-    main_depth: Arc<std::sync::atomic::AtomicU8>,
+    best: Arc<std::sync::Mutex<Option<HelperResult>>>,
     max_depth: u8,
 ) {
     // The engine's own table is replaced by the shared one, so keep it small.
@@ -127,11 +147,23 @@ fn helper_search(
     engine.evaluator.install_nnue(nnue);
     engine.time_manager.begin_search(None);
     engine.evaluator.nnue_refresh(&board, player, &captured);
-    let offset = (id % 2) as u8;
-    let mut depth = 1 + offset;
-    while depth <= max_depth && !stop.load(Ordering::Relaxed) {
+    for depth in 1..=max_depth {
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        if helper_skips(id, depth) {
+            continue;
+        }
         // An hour: in effect no limit of its own; the main thread's stop ends it.
-        engine.search_at_depth(&mut board, &captured, player, depth, 3_600_000, MIN_SCORE, MAX_SCORE);
-        depth = (depth + 1).max(main_depth.load(Ordering::Relaxed) + 1 + offset);
+        let result = engine.search_at_depth(
+            &mut board, &captured, player, depth, 3_600_000, MIN_SCORE, MAX_SCORE,
+        );
+        if let Some((mv, score)) = result.filter(|_| !engine.last_search_interrupted()) {
+            if let Ok(mut b) = best.lock() {
+                if b.as_ref().map_or(true, |x| (depth, score) > (x.0, x.1)) {
+                    *b = Some((depth, score, mv));
+                }
+            }
+        }
     }
 }
