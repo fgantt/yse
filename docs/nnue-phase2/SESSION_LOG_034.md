@@ -429,8 +429,26 @@ thread's with a higher score is played. Main-thread time to depth did not change
 | `56ce0aa` (Lazy, 256 MB) vs stable `199ccd8` (Split, 16 MB; seed 3421) | 32-0-10 | **+202.1 +/- 134.7, PASS** |
 
 (`matches/s34_lazyv2_vs_split16.*`, `matches/s34_gate_lazy_hash.*`.) Shipped as stable;
-`-prev` = `199ccd8`, `-prev-old` = `bc12427`. Not yet measured: the split with 256 MB alone,
-20 vs 16 threads (the GUI's prefs say 20 on 12+4 cores), and the YaneuraOu rungs.
+`-prev` = `199ccd8`, `-prev-old` = `bc12427`.
+
+**Against YaneuraOu it does not transfer.** Four-piece, YaneuraOu 20,000 nodes (1 thread, no
+book), ours 1 s/move at 16 threads, 120 games each, seed 2930, Black games
+(`matches/ladder_s34/yonmai20k_t16_*`):
+
+| engine | Black games | score |
+|---|---|---|
+| `199ccd8` (Split, 16 MB) | 34-24-2 | 58.3% |
+| `56ce0aa` (Lazy, 256 MB) | 34-25-1 | 57.5% |
+
+Paired by game: both won 19, each alone 15, both lost 11. The +202 self-play gain is worth
+nothing here, as with earlier search gains: the losses are the king-danger evaluation, not
+depth. (The earlier 47.5% for `199ccd8` on this rung ran without the magic tables, with no
+thread count set and two matches at once; 58.3% replaces it as the baseline.)
+
+Settings checked with fixed-time probes (10 s/move, 19 positions of the loss game, Lazy 16):
+20 threads reach no deeper than 16 (mean depth 12.84 vs 13.00, same nodes) -- the GUI's prefs
+are now 16; 1 GB reaches 0.3-0.5 ply deeper than 256 MB, within run-to-run noise (0.3), so
+the default stays 256 MB.
 
 ## Next
 
@@ -440,5 +458,5 @@ thread's with a higher score is played. Main-thread time to depth did not change
 2. More exact speed: an accumulator refresh cache per king square (Finny tables) for
    `refresh_pov`; quiescence still generates every board move to find promotions and checks
    (a direct promotion/check generator, as done for the threat count).
-3. Threads: Lazy SMP is shipped. Check 16 vs 20 threads, re-run the four-piece YaneuraOu
-   rungs with the new stable, and consider a larger default hash for long time controls.
+3. Threads: Lazy SMP is shipped (16 threads, 256 MB). It did not move the four-piece
+   YaneuraOu rung (58.3% -> 57.5%): king-danger evaluation is again the limit there.
