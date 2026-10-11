@@ -28,10 +28,12 @@ back to king-danger evaluation.
 >    Then the **lean quiescence** (`199ccd8`, stable now): two-piece vs YaneuraOu 68.3% ->
 >    82.5%, SPRT PASS +34.9. `engines/usi-engine-stable` = `199ccd8`, `-stable-prev` =
 >    `bc12427`. Fingerprints for exact changes must be taken in the default mode.
-> 6. **Threads: the split stays.** Lazy SMP (USI `ThreadAlgorithm`, opt-in) lost to one thread
->    (−32) while the split at 16 threads beat it (+40); cause unknown. Kept: `USI_Threads`
->    switching parallel search on, a lock-free and tear-proof thread-safe table. Copied
->    binaries must find `resources/magic_tables` or threads choke (see "Threads" below).
+> 6. **Threads: Lazy SMP shipped (`56ce0aa`, stable).** The first Lazy SMP lost to one thread;
+>    the cause was the 16 MB `USI_Hash` default (262,144 entries), which 16 threads overwrote
+>    faster than they could use. Default now 256 MB; helpers use Stockfish 9's skip schedule
+>    and a deeper, higher-scoring helper result is played. Lazy 16 vs Split 16 +180 (PASS);
+>    vs stable `199ccd8` at 16 threads **+202.1 +/- 134.7, PASS**. `engines/usi-engine-stable`
+>    = `56ce0aa`, `-prev` = `199ccd8`. Copied binaries must find `resources/magic_tables`.
 > 7. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
 >    king danger, judged only by games.
 
@@ -397,6 +399,39 @@ A false alarm to avoid repeating: a probe script mixed `select` on the pipe with
 buffered `readline`, so a `bestmove` that arrived with the last `info` line sat in the buffer
 and looked like a hang. Read engine output on a thread.
 
+## Lazy SMP fixed: the table was too small (shipped, `56ce0aa`)
+
+After the failures above, cheap single-position tests replaced matches until a mechanism
+showed. At 2 threads and fixed depth Lazy was healthy (75/90 moves equal to one thread's,
+median score difference 3.5 cp), also with the table carried over between game moves. Time
+to depth 10 over the 76 positions of the user's loss game, table kept between moves:
+
+| threads | 16 MB | 512 MB |
+|---|---|---|
+| 1 | 51 s | 41 s |
+| Lazy 2 / 4 / 8 | | 31 / 27 / 24 s |
+| Lazy 16 | 48 s (1.06x) | 26 s (1.6x) |
+
+`USI_Hash` defaulted to 16 MB = 262,144 entries (`hash_mb * 1 MiB / 100`, rounded up to a
+power of two); one thread nearly fills that in a second, and 16 threads sharing it gained
+nothing. The GUI sends no `USI_Hash` (no saved options), so the default is what plays. One
+thread: 51 s at 16 MB, 39-41 s at 64, 256 and 1,024 MB. **Default now 256 MB** (131 MB
+resident; the split's per-search `ParallelHash` stays 16 MB, as it is allocated per `go`).
+
+Lazy changes: Stockfish 9's skip schedule (`SKIP_SIZE`/`SKIP_PHASE`) in place of "half the
+helpers one ply deeper", and the result of a helper whose completed depth exceeds the main
+thread's with a higher score is played. Main-thread time to depth did not change (1.3-1.6x at
+2-16 threads); the gain is in games:
+
+| 1 s/move, 16 threads, SPRT [0, 40] | result | paired Elo |
+|---|---|---|
+| Lazy vs Split, both 256 MB (seed 3420) | 32-1-11 | **+180.5 +/- 117.6, PASS** |
+| `56ce0aa` (Lazy, 256 MB) vs stable `199ccd8` (Split, 16 MB; seed 3421) | 32-0-10 | **+202.1 +/- 134.7, PASS** |
+
+(`matches/s34_lazyv2_vs_split16.*`, `matches/s34_gate_lazy_hash.*`.) Shipped as stable;
+`-prev` = `199ccd8`, `-prev-old` = `bc12427`. Not yet measured: the split with 256 MB alone,
+20 vs 16 threads (the GUI's prefs say 20 on 12+4 cores), and the YaneuraOu rungs.
+
 ## Next
 
 1. Lean search: two-piece vs YaneuraOu 2,000 nodes is the measuring rung now (82.5%); next
@@ -405,7 +440,5 @@ and looked like a hang. Read engine output on a thread.
 2. More exact speed: an accumulator refresh cache per king square (Finny tables) for
    `refresh_pov`; quiescence still generates every board move to find promotions and checks
    (a direct promotion/check generator, as done for the threat count).
-3. Threads: the split at 16 is worth ~+40 over one thread (not yet significant). A gate of
-   this commit at the GUI's thread count against stable would show whether the lock-free
-   table helps the split. Lazy SMP's loss is unexplained; candidates are helper entries'
-   bounds at PV nodes and the main thread's share of memory bandwidth.
+3. Threads: Lazy SMP is shipped. Check 16 vs 20 threads, re-run the four-piece YaneuraOu
+   rungs with the new stable, and consider a larger default hash for long time controls.
