@@ -1501,12 +1501,21 @@ impl ShogiEngine {
                         "info string error SearchAlgorithm must be Lean or Classic".to_string(),
                     ),
                 },
+                "ThreadAlgorithm" => match parts[3] {
+                    "Lazy" | "Split" => {
+                        crate::search::search_engine::set_lazy_smp(parts[3] == "Lazy");
+                        output.push(format!("info string Set ThreadAlgorithm to {}", parts[3]));
+                    }
+                    _ => output
+                        .push("info string error ThreadAlgorithm must be Lazy or Split".to_string()),
+                },
                 "USI_Threads" => {
                     if let Ok(threads) = parts[3].parse::<usize>() {
                         self.thread_count = threads.clamp(1, 32);
-                        if self.thread_count <= 1 {
-                            self.parallel_options.enable_parallel = false;
-                        }
+                        // As at startup. Only switching off used to be handled, so
+                        // an engine started with one thread in its prefs stayed on
+                        // one after `USI_Threads 4`.
+                        self.parallel_options.enable_parallel = self.thread_count > 1;
                         self.sync_parallel_options();
                         self.save_prefs();
                         output

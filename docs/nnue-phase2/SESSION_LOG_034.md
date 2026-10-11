@@ -28,7 +28,11 @@ back to king-danger evaluation.
 >    Then the **lean quiescence** (`199ccd8`, stable now): two-piece vs YaneuraOu 68.3% ->
 >    82.5%, SPRT PASS +34.9. `engines/usi-engine-stable` = `199ccd8`, `-stable-prev` =
 >    `bc12427`. Fingerprints for exact changes must be taken in the default mode.
-> 6. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
+> 6. **Threads: the split stays.** Lazy SMP (USI `ThreadAlgorithm`, opt-in) lost to one thread
+>    (−32) while the split at 16 threads beat it (+40); cause unknown. Kept: `USI_Threads`
+>    switching parallel search on, a lock-free and tear-proof thread-safe table. Copied
+>    binaries must find `resources/magic_tables` or threads choke (see "Threads" below).
+> 7. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
 >    king danger, judged only by games.
 
 ---
@@ -346,6 +350,53 @@ Paired by opening: both won 10, stable only 18, threat only 6, both lost 26. **�
 about 3 standard errors: rejected.** Neutral at 2,000 nodes with the old search, clearly worse
 here; the deeper search does not make its cost worth paying.
 
+## Threads: Lazy SMP tried and rejected; the split stays
+
+The GUI runs 20 threads (on 12 performance + 4 efficiency cores). A first 20-vs-1 thread match
+read −23 Elo, but it was an artifact: binaries copied out of the repo do not find
+`resources/magic_tables` and ray-cast, which bumps two global atomics per call. With the tables,
+nps scales 6.5x at 8 threads and 10.4x at 16 (Lazy), against 2.4x without them. The split's own
+nps scaling is 3.9x at 16.
+
+Changes kept (single-threaded fingerprints identical, Lean and Classic):
+
+- `USI_Threads` now switches the parallel search on as well as off. An engine started with one
+  thread in its prefs stayed on one after `setoption USI_Threads 4`.
+- Thread-safe table: stores take no mutex (a pure `ReplacementPolicyHandler::decide` and an
+  atomic age stamp in place of the locked statistics handler and cache manager), and each
+  entry's key is stored as `hash ^ data` with the data read once, so a torn read from a
+  concurrent store is a miss and not another position's entry.
+- The engine's table is an `Arc`, shared by Lazy SMP helpers.
+- Lazy SMP (`src/search/lazy_smp.rs`): helpers run their own iterative deepening from the root,
+  half one ply deeper, sharing the table; the main thread alone picks the move. USI
+  `ThreadAlgorithm` Lazy/Split, **default Split**; `SHOGI_LAZY_SMP=1` when unset.
+
+Lazy SMP lost every test that counts (1 s/move, SPRT [0, 40], seed 3413, the same build on
+both sides unless named):
+
+| A | B | result | paired Elo | SPRT |
+|---|---|---|---|---|
+| Lazy 16 | stable `199ccd8` 16 | 23-0-43 | −108.7 | FAIL |
+| Lazy 16, torn-read fix | stable `199ccd8` 16 | 14-1-31 | −134.8 | FAIL |
+| Lazy 16 | 1 thread | 63-3-76 | −31.9 +/- 53.0 | FAIL |
+| Split 16 | 1 thread | 111-1-88 | **+40.1 +/- 47.8** | inconclusive at the 200 cap, LLR +1.41 |
+
+(`matches/s34_lazy16_vs_stable16`, `s34_lazy2_16_vs_stable16`, `s34_lazy16_vs_1`,
+`s34_split16_vs_1`.) Yet Lazy reaches depth sooner: time to depth 11 on the loss-game
+positions was below one thread's on five of six, the split's above it on all six, and at 1 s
+Lazy 16 searches 5-10x one thread's nodes and one or two plies deeper. Neutral-set move loss
+(150 positions, YaneuraOu depth 10) separates nothing: Lazy 16 at fixed depth 8 is within
+10 cp of one thread at depth 8, and at 1 s every configuration is within one or two standard
+errors of one thread (Lazy 16 −6.7, Lazy 12 +17.0, Split 16 −26.5 cp; SE 11-23). Lazy 12
+(only performance cores) is no better than Lazy 16, so the efficiency cores are not the
+cause. Ruled out by reading: the helpers' networks are private copies, the move and PV come
+from the main thread, and the globals they touch only feed reporting. **The cause is not
+found**; games are the only measurement that separated these engines.
+
+A false alarm to avoid repeating: a probe script mixed `select` on the pipe with Python's
+buffered `readline`, so a `bestmove` that arrived with the last `info` line sat in the buffer
+and looked like a hang. Read engine output on a thread.
+
 ## Next
 
 1. Lean search: two-piece vs YaneuraOu 2,000 nodes is the measuring rung now (82.5%); next
@@ -354,4 +405,7 @@ here; the deeper search does not make its cost worth paying.
 2. More exact speed: an accumulator refresh cache per king square (Finny tables) for
    `refresh_pov`; quiescence still generates every board move to find promotions and checks
    (a direct promotion/check generator, as done for the threat count).
-3. Re-measure parallel nps at 1 s/move (the engine we ship) against stable.
+3. Threads: the split at 16 is worth ~+40 over one thread (not yet significant). A gate of
+   this commit at the GUI's thread count against stable would show whether the lock-free
+   table helps the split. Lazy SMP's loss is unexplained; candidates are helper entries'
+   bounds at PV nodes and the main thread's share of memory bandwidth.

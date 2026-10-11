@@ -232,22 +232,37 @@ impl AtomicPackedEntry {
         Self { data: AtomicU64::new(packed) }
     }
 
+    /// The packed word, read once: fields decoded from one load belong to one
+    /// entry (see `ThreadSafeTranspositionTable::probe`).
+    fn load(&self) -> u64 {
+        self.unpack(Ordering::Acquire)
+    }
+
     /// Extract score from packed data
     pub fn score(&self) -> i32 {
-        let data = self.unpack(Ordering::Acquire);
+        Self::score_of(self.load())
+    }
+
+    fn score_of(data: u64) -> i32 {
         let encoded = (data >> Self::SCORE_SHIFT) & Self::SCORE_MASK;
         (encoded as i32) + Self::SCORE_MIN
     }
 
     /// Extract depth from packed data
     pub fn depth(&self) -> u8 {
-        let data = self.unpack(Ordering::Acquire);
+        Self::depth_of(self.load())
+    }
+
+    fn depth_of(data: u64) -> u8 {
         ((data >> Self::DEPTH_SHIFT) & Self::DEPTH_MASK) as u8
     }
 
     /// Extract flag from packed data
     pub fn flag(&self) -> TranspositionFlag {
-        let data = self.unpack(Ordering::Acquire);
+        Self::flag_of(self.load())
+    }
+
+    fn flag_of(data: u64) -> TranspositionFlag {
         match (data >> Self::FLAG_SHIFT) & Self::FLAG_MASK {
             0 => TranspositionFlag::Exact,
             1 => TranspositionFlag::LowerBound,
@@ -258,7 +273,10 @@ impl AtomicPackedEntry {
 
     /// Extract best move from packed data
     pub fn best_move(&self) -> Option<Move> {
-        let data = self.unpack(Ordering::Acquire);
+        Self::best_move_of(self.load())
+    }
+
+    fn best_move_of(data: u64) -> Option<Move> {
         let has_move = ((data >> Self::HAS_MOVE_SHIFT) & Self::HAS_MOVE_MASK) == 1;
         if !has_move {
             return None;
@@ -356,6 +374,12 @@ pub struct ThreadSafeTranspositionTable {
     cache_manager: Arc<Mutex<CacheManager>>,
     /// Replacement policy handler
     replacement_handler: Arc<Mutex<ReplacementPolicyHandler>>,
+    /// The same policy, consulted without a lock on every store (the handler
+    /// above keeps statistics behind a table-wide mutex, which serialised the
+    /// stores of every search thread).
+    replacement_decider: ReplacementPolicyHandler,
+    /// The cache manager's age stamp, readable without its mutex.
+    age_stamp: AtomicU32,
     /// Performance statistics
     stats: Arc<Mutex<ThreadSafeStats>>,
     /// Number of poison recovery events observed
@@ -420,6 +444,8 @@ impl ThreadSafeTranspositionTable {
             replacement_handler: Arc::new(Mutex::new(ReplacementPolicyHandler::new(
                 config.clone(),
             ))),
+            replacement_decider: ReplacementPolicyHandler::new(config.clone()),
+            age_stamp: AtomicU32::new(CacheManager::new(config.clone()).current_age_stamp()),
             stats: Arc::new(Mutex::new(ThreadSafeStats::default())),
             poison_recoveries: AtomicU64::new(0),
         }
@@ -448,36 +474,26 @@ impl ThreadSafeTranspositionTable {
         let index = self.get_index(hash);
         let entry = &self.entries[index];
 
-        // Atomic read of hash key
-        let stored_hash = entry.hash_key.load(Ordering::Acquire);
-        if stored_hash != hash {
-            self.increment_misses();
-            return None;
-        }
-
-        // Atomic read of packed data
-        let packed_data = &entry.packed_data;
-        if !packed_data.is_valid() {
+        // The key is stored XORed with the data, and the data is read once: a
+        // store racing with this probe (search threads share the table) leaves
+        // a key and data that do not belong together, which fails the check,
+        // instead of one position's score or move under another's key. Each
+        // field used to be a separate load, so even a matching key could come
+        // with fields from two different stores.
+        let stored_key = entry.hash_key.load(Ordering::Acquire);
+        let data = entry.packed_data.load();
+        if data == 0 || stored_key ^ data != hash {
             self.increment_misses();
             return None;
         }
 
         // Check depth requirement
-        if packed_data.depth() < depth {
+        if AtomicPackedEntry::depth_of(data) < depth {
             self.increment_misses();
             return None;
         }
 
-        // Reconstruct the entry
-        let reconstructed_entry = TranspositionEntry {
-            score: packed_data.score(),
-            depth: packed_data.depth(),
-            flag: packed_data.flag(),
-            best_move: packed_data.best_move(),
-            hash_key: hash,
-            age: entry.age.load(Ordering::Acquire),
-            source: EntrySource::from_discriminant(entry.source.load(Ordering::SeqCst)),
-        };
+        let reconstructed_entry = Self::reconstruct_entry_static(entry, hash, data);
 
         self.increment_hits();
         Some(reconstructed_entry)
@@ -602,7 +618,7 @@ impl ThreadSafeTranspositionTable {
     #[inline(always)]
     fn store_with_synchronization(&self, index: usize, entry: TranspositionEntry) {
         // Get the bucket lock for this hash (clone Arc to avoid borrow issues)
-        let bucket_lock = Arc::clone(self.get_bucket_lock(entry.hash_key));
+        let bucket_lock = self.get_bucket_lock(entry.hash_key);
         let _write_guard = self.recover_write_guard(bucket_lock.write(), || {
             format!("bucket lock for hash 0x{:016x}", entry.hash_key)
         });
@@ -612,24 +628,20 @@ impl ThreadSafeTranspositionTable {
 
     fn store_entry_core(&self, index: usize, entry: TranspositionEntry) {
         // Check if we should replace the existing entry
-        let current_hash = self.entries[index].hash_key.load(Ordering::Acquire);
-        if current_hash != 0 {
-            let current_entry = Self::reconstruct_entry_static(&self.entries[index], current_hash);
+        let current_key = self.entries[index].hash_key.load(Ordering::Acquire);
+        let current_data = self.entries[index].packed_data.load();
+        if current_key != 0 || current_data != 0 {
+            let current_entry = Self::reconstruct_entry_static(
+                &self.entries[index],
+                current_key ^ current_data,
+                current_data,
+            );
 
-            // Use replacement policy to decide (drop guards before mutating entry)
-            let decision = {
-                let cache_age = {
-                    let cache_manager = self.recover_mutex_guard(self.cache_manager.lock(), || {
-                        "cache manager mutex during store".to_string()
-                    });
-                    cache_manager.current_age_stamp()
-                };
-
-                let mut handler = self.recover_mutex_guard(self.replacement_handler.lock(), || {
-                    "replacement handler mutex during store".to_string()
-                });
-                handler.should_replace_entry(&current_entry, &entry, cache_age)
-            };
+            let decision = self.replacement_decider.decide(
+                &current_entry,
+                &entry,
+                self.age_stamp.load(Ordering::Relaxed),
+            );
 
             match decision {
                 ReplacementDecision::Replace => {
@@ -741,11 +753,15 @@ impl ThreadSafeTranspositionTable {
     /// Store entry using atomic operations (static helper)
     #[inline(always)]
     fn store_atomic_entry_static(table_entry: &ThreadSafeEntry, entry: &TranspositionEntry) {
-        // Atomic write of hash key
-        table_entry.hash_key.store(entry.hash_key, Ordering::Release);
-
-        // Atomic write of packed data
-        table_entry.packed_data.store_entry(entry);
+        // Data first, then the key XORed with it (see `probe`).
+        let data = AtomicPackedEntry::pack(
+            entry.score,
+            entry.depth,
+            entry.flag,
+            entry.best_move.clone(),
+        );
+        table_entry.packed_data.store_raw(data, Ordering::Release);
+        table_entry.hash_key.store(entry.hash_key ^ data, Ordering::Release);
 
         // Atomic write of age
         table_entry.age.store(entry.age, Ordering::Release);
@@ -755,12 +771,16 @@ impl ThreadSafeTranspositionTable {
     }
 
     /// Reconstruct entry from atomic data (static helper)
-    fn reconstruct_entry_static(table_entry: &ThreadSafeEntry, hash: u64) -> TranspositionEntry {
+    fn reconstruct_entry_static(
+        table_entry: &ThreadSafeEntry,
+        hash: u64,
+        data: u64,
+    ) -> TranspositionEntry {
         TranspositionEntry {
-            score: table_entry.packed_data.score(),
-            depth: table_entry.packed_data.depth(),
-            flag: table_entry.packed_data.flag(),
-            best_move: table_entry.packed_data.best_move(),
+            score: AtomicPackedEntry::score_of(data),
+            depth: AtomicPackedEntry::depth_of(data),
+            flag: AtomicPackedEntry::flag_of(data),
+            best_move: AtomicPackedEntry::best_move_of(data),
             hash_key: hash,
             age: table_entry.age.load(Ordering::Acquire),
             source: EntrySource::from_discriminant(table_entry.source.load(Ordering::SeqCst)),
@@ -769,8 +789,8 @@ impl ThreadSafeTranspositionTable {
 
     /// Reconstruct entry from atomic data
     #[inline(always)]
-    fn reconstruct_entry(&self, table_entry: &ThreadSafeEntry, hash: u64) -> TranspositionEntry {
-        Self::reconstruct_entry_static(table_entry, hash)
+    fn reconstruct_entry(&self, table_entry: &ThreadSafeEntry, hash: u64, data: u64) -> TranspositionEntry {
+        Self::reconstruct_entry_static(table_entry, hash, data)
     }
 
     /// Get table index from hash
@@ -852,7 +872,9 @@ impl ThreadSafeTranspositionTable {
         let mut cache_manager = self.recover_mutex_guard(self.cache_manager.lock(), || {
             "cache manager mutex during increment_age".to_string()
         });
-        cache_manager.increment_age(node_count)
+        let advanced = cache_manager.increment_age(node_count);
+        self.age_stamp.store(cache_manager.current_age_stamp(), Ordering::Relaxed);
+        advanced
     }
 
     /// Get hit rate
@@ -933,12 +955,13 @@ impl ThreadSafeTranspositionTable {
         }
 
         let entry = &self.entries[index];
-        let hash = entry.hash_key.load(Ordering::Acquire);
+        let key = entry.hash_key.load(Ordering::Acquire);
+        let data = entry.packed_data.load();
 
-        if hash == 0 {
+        if key == 0 && data == 0 {
             None
         } else {
-            Some(self.reconstruct_entry(entry, hash))
+            Some(self.reconstruct_entry(entry, key ^ data, data))
         }
     }
 
@@ -1339,10 +1362,11 @@ mod tests {
         initial_entry.hash_key = 0xAA55_AA55_AA55_AA55;
         table.store(initial_entry.clone());
 
-        // Poison the replacement handler lock
-        let handler = Arc::clone(&table.replacement_handler);
+        // Poison the bucket lock the next store takes (the replacement
+        // decision no longer takes a lock)
+        let lock = Arc::clone(table.get_bucket_lock(initial_entry.hash_key));
         let _ = panic::catch_unwind(|| {
-            let _guard = handler.lock().unwrap();
+            let _guard = lock.write().unwrap();
             panic!("intentional poison");
         });
 

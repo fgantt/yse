@@ -370,7 +370,9 @@ pub struct SearchEngine {
         Option<(Option<u64>, Arc<Option<crate::evaluation::nnue::NNUEEvaluator>>)>,
     move_generator: MoveGenerator,
     tablebase: MicroTablebase,
-    transposition_table: crate::search::ThreadSafeTranspositionTable,
+    /// Shared with Lazy SMP helper threads (see `lazy_smp`), which search
+    /// into the same table; single-threaded, only this engine holds it.
+    transposition_table: Arc<crate::search::ThreadSafeTranspositionTable>,
     /// Optional shared transposition table for parallel search contexts
     shared_transposition_table: Option<Arc<RwLock<crate::search::ThreadSafeTranspositionTable>>>,
     hash_calculator: crate::search::ShogiHashHandler,
@@ -736,8 +738,11 @@ fn same_position(entry: u64, hash: u64) -> bool {
     (entry | 1) == (hash | 1)
 }
 
+#[path = "lazy_smp.rs"]
+mod lazy_smp;
 #[path = "lean.rs"]
 mod lean;
+pub use lazy_smp::{lazy_smp_enabled, set_lazy_smp};
 pub use lean::{lean_enabled, set_lean_search};
 
 pub(crate) fn search_toggles() -> SearchToggles {
@@ -1698,7 +1703,7 @@ impl SearchEngine {
             nnue_worker_template: None,
             move_generator: MoveGenerator::new(),
             tablebase: MicroTablebase::new(),
-            transposition_table: crate::search::ThreadSafeTranspositionTable::new(config),
+            transposition_table: Arc::new(crate::search::ThreadSafeTranspositionTable::new(config)),
             shared_transposition_table: None,
             hash_calculator: crate::search::ShogiHashHandler::new(1000),
             move_orderer: crate::search::TranspositionMoveOrderer::new(),
@@ -2235,7 +2240,7 @@ impl SearchEngine {
             nnue_worker_template: None,
             move_generator: MoveGenerator::new(),
             tablebase: MicroTablebase::new(),
-            transposition_table: crate::search::ThreadSafeTranspositionTable::new(tt_config),
+            transposition_table: Arc::new(crate::search::ThreadSafeTranspositionTable::new(tt_config)),
             shared_transposition_table: None,
             hash_calculator: crate::search::ShogiHashHandler::new(1000),
             move_orderer: crate::search::TranspositionMoveOrderer::new(),
@@ -2456,7 +2461,9 @@ impl SearchEngine {
     /// Prefill the transposition table with entries derived from an opening
     /// book. Returns the number of entries inserted.
     pub fn prefill_tt_from_opening_book(&mut self, book: &mut OpeningBook, depth: u8) -> usize {
-        self.transposition_table.prefill_from_book(book, depth)
+        // Helper threads hold the table only during a search.
+        Arc::get_mut(&mut self.transposition_table)
+            .map_or(0, |tt| tt.prefill_from_book(book, depth))
     }
 
     /// Check if opening book prefill is enabled in the current configuration.
@@ -9371,7 +9378,9 @@ impl SearchEngine {
     }
 
     pub fn clear(&mut self) {
-        self.transposition_table.clear();
+        if let Some(tt) = Arc::get_mut(&mut self.transposition_table) {
+            tt.clear();
+        }
         self.history_table = [[0; 9]; 9];
         self.killer_moves = [None, None];
         self.lmr_stats.reset();
@@ -10999,7 +11008,9 @@ impl SearchEngine {
 
         // Clear transposition table if it gets too large
         if self.transposition_table.size() > 100_000 {
-            self.transposition_table.clear();
+            if let Some(tt) = Arc::get_mut(&mut self.transposition_table) {
+            tt.clear();
+        }
         }
     }
 
@@ -13278,7 +13289,9 @@ impl SearchEngine {
 
         // Clear transposition table if it gets too large
         if self.transposition_table.size() > 100_000 {
-            self.transposition_table.clear();
+            if let Some(tt) = Arc::get_mut(&mut self.transposition_table) {
+            tt.clear();
+        }
         }
     }
 
@@ -15424,7 +15437,11 @@ impl IterativeDeepening {
             parallel_config.enable_parallel = false;
         }
         let parallel_min_depth = parallel_config.min_depth_parallel;
-        let parallel_engine = if threads > 1 && parallel_config.enable_parallel {
+        // Lazy SMP needs no split engine: its helpers are started per search.
+        let parallel_engine = if threads > 1
+            && parallel_config.enable_parallel
+            && !lazy_smp::lazy_smp_enabled()
+        {
             match ParallelSearchEngine::new_with_stop_flag(
                 parallel_config.clone(),
                 stop_flag.clone(),
@@ -15645,6 +15662,19 @@ impl IterativeDeepening {
         // internal bookkeeping but the wrong one for `info time`, which USI
         // defines as time since the search began.
         let search_start_instant = std::time::Instant::now();
+
+        // Lazy SMP: the other threads search beside this one through the shared
+        // table (see `lazy_smp`); dropped, they stop, on every way out.
+        let lazy_helpers = (self.thread_count > 1 && lazy_smp::lazy_smp_enabled()).then(|| {
+            lazy_smp::LazyHelpers::start(
+                search_engine,
+                board,
+                captured_pieces,
+                player,
+                self.thread_count - 1,
+                effective_max_depth,
+            )
+        });
 
         for depth in 1..=effective_max_depth {
             // Reset global node counter for this depth and start periodic reporter
@@ -16354,6 +16384,9 @@ impl IterativeDeepening {
                     best_move = Some(move_clone.clone());
                     best_score = score;
                     previous_scores.push(score);
+                    if let Some(h) = &lazy_helpers {
+                        h.main_completed(depth);
+                    }
 
                     // Update shared state for periodic info messages
                     let pv_for_info = search_engine.pv_line_for(

@@ -142,6 +142,44 @@ impl ReplacementPolicyHandler {
     ///
     /// Replace if the new entry has higher depth, or if depths are equal
     /// but the new entry has a better score bound.
+    /// The decision `should_replace_entry` makes, without its statistics, so
+    /// a table shared by search threads can decide without a lock.
+    pub fn decide(
+        &self,
+        existing: &TranspositionEntry,
+        new_entry: &TranspositionEntry,
+        current_age: u32,
+    ) -> ReplacementDecision {
+        use ReplacementDecision::{Keep, Replace};
+        let replace_if = |b: bool| if b { Replace } else { Keep };
+        match self.policy {
+            ReplacementPolicy::AlwaysReplace => Replace,
+            ReplacementPolicy::DepthPreferred => replace_if(
+                new_entry.depth > existing.depth
+                    || (new_entry.depth == existing.depth
+                        && self.get_bound_quality(new_entry) > self.get_bound_quality(existing)),
+            ),
+            ReplacementPolicy::AgeBased => {
+                let age_difference = self.age_delta(current_age, existing.age);
+                replace_if(
+                    age_difference > self.config.max_age
+                        || age_difference > self.config.max_age / 2,
+                )
+            }
+            ReplacementPolicy::DepthAndAge => replace_if(
+                self.calculate_entry_score(new_entry, current_age)
+                    > self.calculate_entry_score(existing, current_age),
+            ),
+            ReplacementPolicy::ExactPreferred => {
+                let (old_exact, new_exact) = (existing.is_exact(), new_entry.is_exact());
+                replace_if(
+                    (!old_exact && new_exact)
+                        || (old_exact == new_exact && new_entry.depth > existing.depth),
+                )
+            }
+        }
+    }
+
     fn should_replace_depth_preferred(
         &mut self,
         existing: &TranspositionEntry,
