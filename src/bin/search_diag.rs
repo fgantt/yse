@@ -23,7 +23,7 @@ use clap::Parser;
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::search::search_engine::{
     IterativeDeepening, SearchEngine, DIAG_CUT_INDEX, DIAG_INTERIOR_NODES, DIAG_PVS_RESEARCHES,
-    DIAG_PVS_SCOUTS, DIAG_QUIESCENCE_NODES,
+    DIAG_PVS_SCOUTS, DIAG_Q, DIAG_QUIESCENCE_NODES,
 };
 use shogi_engine::search::statistics::{DIAG_LMR_REJECT, GLOBAL_SEARCH_NODES};
 use std::sync::atomic::Ordering;
@@ -63,6 +63,9 @@ fn reset() {
     }
     DIAG_INTERIOR_NODES.store(0, Ordering::Relaxed);
     DIAG_QUIESCENCE_NODES.store(0, Ordering::Relaxed);
+    for c in DIAG_Q.iter() {
+        c.store(0, Ordering::Relaxed);
+    }
     DIAG_PVS_SCOUTS.store(0, Ordering::Relaxed);
     DIAG_PVS_RESEARCHES.store(0, Ordering::Relaxed);
     for c in DIAG_LMR_REJECT.iter() {
@@ -116,6 +119,14 @@ fn main() {
             );
             prev_nodes = nodes;
 
+            if depth == cli.max_depth {
+                let d: Vec<u64> = DIAG_Q.iter().map(|c| c.load(Ordering::Relaxed)).collect();
+                println!(
+                    "\n  lean quiescence: in-check nodes {}  evasions searched {} \
+                     (quiet {}, drops {})  first-ply quiet checks {} (drops {})",
+                    d[0], d[1], d[2], d[3], d[4], d[5]
+                );
+            }
             if depth == cli.max_depth {
                 println!(
                     "\n  null move: attempts {}  tried {}  cutoffs {}  \

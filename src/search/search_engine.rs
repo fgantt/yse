@@ -569,6 +569,9 @@ pub static DIAG_PVS_RESEARCHES: AtomicU64 = AtomicU64::new(0);
 /// began. Their ratio says how much of the tree is quiescence.
 pub static DIAG_INTERIOR_NODES: AtomicU64 = AtomicU64::new(0);
 pub static DIAG_QUIESCENCE_NODES: AtomicU64 = AtomicU64::new(0);
+/// Lean quiescence breakdown (diagnostics only): in-check nodes, evasions searched,
+/// of which quiet, of which drops; quiet checks searched at the first ply, of which drops.
+pub static DIAG_Q: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
 
 /// Bucket a cutoff's move index for `DIAG_CUT_INDEX`.
 pub fn cut_index_bucket(index: usize) -> usize {

@@ -285,11 +285,23 @@ impl SearchEngine {
             move_count += 1;
             let quiet = !mv.is_capture && !mv.is_promotion;
             let is_tt = tt_move.as_ref().is_some_and(|t| self.moves_equal(mv, t));
+            // A check that loses material: not extended, and prunable like any
+            // other move (see `lean_check_see`).
+            let losing_check = mv.gives_check && lean_check_see() && {
+                let see = if mv.is_capture {
+                    crate::search::move_ordering::see_calculation::calculate_see_internal(
+                        mv, board,
+                    )
+                } else {
+                    crate::search::move_ordering::see_calculation::see_quiet(mv, board)
+                };
+                see < 0
+            };
 
             // Shallow pruning, once a move has been searched, never of checks.
             if !in_check
                 && best_score > -MATE_THRESHOLD
-                && !mv.gives_check
+                && (!mv.gives_check || losing_check)
                 && !is_tt
                 && !search_toggles().no_pruning
             {
@@ -321,6 +333,7 @@ impl SearchEngine {
             // Check extension, bounded per path as in negamax.
             let ext = i32::from(
                 mv.gives_check
+                    && !losing_check
                     && !search_toggles().no_check_ext
                     && self.check_extensions_on_path < self.current_depth.max(1) as u32,
             );
@@ -513,6 +526,24 @@ thread_local! {
         std::cell::RefCell::new(vec![QSlot::default(); Q_SLOTS]);
 }
 
+/// Whether checks that lose material (negative SEE) lose the check extension
+/// and the exemption from pruning (`SHOGI_LEAN_CHECK_SEE=0` restores both).
+/// With full hands a position has dozens of checking drops, most of which hang
+/// the piece; extended and unpruned, they made the tree grow ~3.7x per ply
+/// against YaneuraOu's ~2 (Session 34, four-piece loss of 2026-10-11, move 50:
+/// 6.7M nodes to depth 11, 2.2-2.7M with this).
+fn lean_check_see() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SHOGI_LEAN_CHECK_SEE").map_or(true, |v| v != "0"))
+}
+
+/// Whether the lean quiescence searches quiet checks at its first ply
+/// (`SHOGI_LEAN_Q_CHECKS=0` turns them off; experiment).
+fn lean_q_checks() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SHOGI_LEAN_Q_CHECKS").map_or(true, |v| v != "0"))
+}
+
 /// Whether the lean search uses its own quiescence (default; `SHOGI_LEAN_Q=0`
 /// selects the shared one, for comparison).
 fn lean_q_enabled() -> bool {
@@ -576,7 +607,7 @@ impl SearchEngine {
         if qply >= LEAN_Q_MAX_PLY && !in_check {
             return self.evaluator.evaluate(board, player, captured);
         }
-        let with_checks = qply == 0;
+        let with_checks = qply == 0 && lean_q_checks();
 
         let key = self.hash_calculator.get_position_hash(board, player, captured);
         let slot = (key as usize) & (Q_SLOTS - 1);
@@ -603,6 +634,9 @@ impl SearchEngine {
             alpha = alpha.max(stand_pat);
         }
 
+        if diag() && in_check {
+            DIAG_Q[0].fetch_add(1, Ordering::Relaxed);
+        }
         let mut moves = if in_check {
             self.move_generator.generate_legal_moves(board, player, captured)
         } else {
@@ -636,6 +670,24 @@ impl SearchEngine {
                 }
             }
 
+            if diag() {
+                let quiet = !mv.is_capture && !mv.is_promotion;
+                let drop = mv.from.is_none();
+                let (all, q, d) = if in_check {
+                    (Some(1), 2, 3)
+                } else {
+                    (None, 4, 5)
+                };
+                if let Some(a) = all {
+                    DIAG_Q[a].fetch_add(1, Ordering::Relaxed);
+                }
+                if quiet && (in_check || mv.gives_check) {
+                    DIAG_Q[q].fetch_add(1, Ordering::Relaxed);
+                    if drop {
+                        DIAG_Q[d].fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
             let move_info = board.make_move_with_info(mv);
             self.nnue_make_move(&move_info);
             let mut new_captured = captured.clone();
