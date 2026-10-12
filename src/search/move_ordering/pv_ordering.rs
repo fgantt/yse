@@ -5,7 +5,7 @@
 //! the highest priority in move ordering.
 
 use crate::types::core::Move;
-use std::collections::HashMap;
+use crate::utils::fast_hash::FastMap;
 
 /// PV move ordering manager
 ///
@@ -16,33 +16,33 @@ use std::collections::HashMap;
 pub struct PVOrdering {
     /// PV move cache: maps position hash -> PV move
     /// Caches PV moves from transposition table lookups
-    pv_move_cache: HashMap<u64, Option<Move>>,
+    pv_move_cache: FastMap<u64, Option<Move>>,
     /// PV moves organized by depth: maps depth -> PV move
     /// Stores the best move found at each search depth
-    pv_moves: HashMap<u8, Move>,
+    pv_moves: FastMap<u8, Move>,
     /// Task 11.0: Multiple PV moves per position (top N moves)
     /// Maps position hash -> Vec of PV moves (ordered by quality)
-    multiple_pv_cache: HashMap<u64, Vec<Move>>,
+    multiple_pv_cache: FastMap<u64, Vec<Move>>,
     /// Task 11.0: Previous iteration PV moves
     /// Maps position hash -> PV move from previous search iteration
-    previous_iteration_pv: HashMap<u64, Move>,
+    previous_iteration_pv: FastMap<u64, Move>,
     /// Task 11.0: Maximum number of PV moves to store per position
     max_pv_moves_per_position: usize,
     /// Task 11.4: Sibling node PV moves
     /// Maps parent position hash -> Vec of PV moves from sibling nodes
-    sibling_pv_moves: HashMap<u64, Vec<Move>>,
+    sibling_pv_moves: FastMap<u64, Vec<Move>>,
 }
 
 impl PVOrdering {
     /// Create a new PV ordering manager
     pub fn new() -> Self {
         Self {
-            pv_move_cache: HashMap::new(),
-            pv_moves: HashMap::new(),
-            multiple_pv_cache: HashMap::new(),
-            previous_iteration_pv: HashMap::new(),
+            pv_move_cache: FastMap::default(),
+            pv_moves: FastMap::default(),
+            multiple_pv_cache: FastMap::default(),
+            previous_iteration_pv: FastMap::default(),
             max_pv_moves_per_position: 3, // Default: store top 3 PV moves
-            sibling_pv_moves: HashMap::new(), // Task 11.4
+            sibling_pv_moves: FastMap::default(), // Task 11.4
         }
     }
 
@@ -50,12 +50,12 @@ impl PVOrdering {
     /// Task 11.0: Allows configuration of maximum PV moves per position
     pub fn with_max_pv_moves(max_pv_moves: usize) -> Self {
         Self {
-            pv_move_cache: HashMap::new(),
-            pv_moves: HashMap::new(),
-            multiple_pv_cache: HashMap::new(),
-            previous_iteration_pv: HashMap::new(),
+            pv_move_cache: FastMap::default(),
+            pv_moves: FastMap::default(),
+            multiple_pv_cache: FastMap::default(),
+            previous_iteration_pv: FastMap::default(),
             max_pv_moves_per_position: max_pv_moves,
-            sibling_pv_moves: HashMap::new(), // Task 11.4
+            sibling_pv_moves: FastMap::default(), // Task 11.4
         }
     }
 

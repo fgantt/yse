@@ -5,7 +5,7 @@
 //! in a sibling node, and are likely to be good moves in similar positions.
 
 use crate::types::core::Move;
-use std::collections::HashMap;
+use crate::utils::fast_hash::FastMap;
 
 /// Killer move configuration
 #[derive(Debug, Clone, serde::Serialize)]
@@ -39,7 +39,7 @@ impl Default for KillerConfig {
 pub struct KillerMoveManager {
     /// Killer moves organized by depth
     /// Each depth can have multiple killer moves
-    killer_moves: HashMap<u8, Vec<Move>>,
+    killer_moves: FastMap<u8, Vec<Move>>,
     /// Current search depth for killer move management
     current_depth: u8,
 }
@@ -47,7 +47,7 @@ pub struct KillerMoveManager {
 impl KillerMoveManager {
     /// Create a new killer move manager
     pub fn new() -> Self {
-        Self { killer_moves: HashMap::new(), current_depth: 0 }
+        Self { killer_moves: FastMap::default(), current_depth: 0 }
     }
 
     /// Set the current search depth for killer move management

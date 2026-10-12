@@ -84,7 +84,9 @@ impl Default for CacheConfig {
 pub struct MoveOrderingCacheManager {
     /// Move ordering result cache
     /// Maps (position_hash, depth) -> cache entry with metadata
-    cache: HashMap<(u64, u8), MoveOrderingCacheEntry>,
+    /// Fx-hashed: SipHash was ~5% of the lean search in drop-heavy positions.
+    /// Exact: LRU eviction uses `lru_index`, not the map's order.
+    cache: crate::utils::fast_hash::FastMap<(u64, u8), MoveOrderingCacheEntry>,
     /// LRU access counter (incremented on each cache access for LRU tracking)
     lru_access_counter: u64,
     /// Every entry's `last_access`, ordered: the LRU victim is the first.
@@ -97,7 +99,7 @@ pub struct MoveOrderingCacheManager {
 impl MoveOrderingCacheManager {
     /// Create a new cache manager
     pub fn new() -> Self {
-        Self { cache: HashMap::new(), lru_access_counter: 0, lru_index: BTreeMap::new() }
+        Self { cache: Default::default(), lru_access_counter: 0, lru_index: BTreeMap::new() }
     }
 
     /// Get a cached entry for a key

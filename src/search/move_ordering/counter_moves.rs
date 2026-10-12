@@ -5,7 +5,7 @@
 //! and are likely to be good responses to similar moves.
 
 use crate::types::core::Move;
-use std::collections::HashMap;
+use crate::utils::fast_hash::FastMap;
 
 /// Counter-move heuristic configuration
 #[derive(Debug, Clone, serde::Serialize)]
@@ -40,13 +40,13 @@ pub struct CounterMoveManager {
     /// Counter-move table: maps opponent's move -> counter-moves that refuted
     /// it Used for quiet move ordering: if opponent played move X, try
     /// counter-moves that refuted X
-    counter_move_table: HashMap<Move, Vec<Move>>,
+    counter_move_table: FastMap<Move, Vec<Move>>,
 }
 
 impl CounterMoveManager {
     /// Create a new counter-move manager
     pub fn new() -> Self {
-        Self { counter_move_table: HashMap::new() }
+        Self { counter_move_table: FastMap::default() }
     }
 
     /// Add a counter-move for an opponent's move
