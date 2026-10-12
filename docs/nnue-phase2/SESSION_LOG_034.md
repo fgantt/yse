@@ -34,7 +34,11 @@ back to king-danger evaluation.
 >    and a deeper, higher-scoring helper result is played. Lazy 16 vs Split 16 +180 (PASS);
 >    vs stable `199ccd8` at 16 threads **+202.1 +/- 134.7, PASS**. `engines/usi-engine-stable`
 >    = `56ce0aa`, `-prev` = `199ccd8`. Copied binaries must find `resources/magic_tables`.
-> 7. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
+> 7. **Losing checks pruned (`3bd5228`, stable).** Checks with negative SEE are no longer
+>    extended or exempt from pruning: SPRT vs `56ce0aa` **+93.8 +/- 64.5, PASS**; four-piece
+>    vs YaneuraOu 20k nodes **57.5% -> 68.3%**. `engines/usi-engine-stable` = `3bd5228`,
+>    `-prev` = `56ce0aa`, `-prev-old` = `199ccd8`.
+> 8. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
 >    king danger, judged only by games.
 
 ---
@@ -449,6 +453,40 @@ Settings checked with fixed-time probes (10 s/move, 19 positions of the loss gam
 20 threads reach no deeper than 16 (mean depth 12.84 vs 13.00, same nodes) -- the GUI's prefs
 are now 16; 1 GB reaches 0.3-0.5 ply deeper than 256 MB, within run-to-run noise (0.3), so
 the default stays 256 MB.
+
+## Checks that lose material: pruned, not extended (shipped, `3bd5228`)
+
+Another four-piece loss on `56ce0aa` (`matches/user_games/2026-10-11_4mai_loss70.txt`,
+per-move analysis `..._analysis.jsonl`, ours 1 s vs YaneuraOu 1M nodes). Ahead until our
+move 48 (YaneuraOu +1,956); then edge moves (9c9d, 9d9e, 1e1d) while Gote's B*3h, promoted
+at 2i, and drops gathered at our king: YaneuraOu −2,380 by move 55, ours still +827.
+
+At move 50 YaneuraOu (1 thread) needs ~11k nodes (depth 9) to see it and 400k for depth 13;
+we reached depth 8 in 1 s and 11 in 30 s on 16 threads. Nodes per depth, one thread:
+
+| depth | YaneuraOu | ours |
+|---|---|---|
+| 8 | 1,674 | 138,496 |
+| 10 | 56,532 | 1,844,736 |
+
+Ours grew 3.5-4x per ply. `search-diag` (now with a lean quiescence breakdown): quiescence
+is 70-80% of nodes, 80% of it in-check nodes from first-ply quiet checks (255k at depth 9,
+150k of them drops). But dropping quiet checks from quiescence grew the tree (depth 11:
+9.0M nodes against 6.7M; `SHOGI_LEAN_Q_CHECKS=0`). The main-search cause: every check was
+extended and never pruned, and with full hands dozens of checking drops hang the piece.
+No check extension at all: 1.6M nodes at depth 11; checks with SEE < 0 neither extended
+nor exempt from pruning: 2.2-2.7M. Neither changed the move at move 50 (+1,450, 9d9e at
+depth 12), nor the eval-gap close subset at 200k/1M nodes (mean|dp| 0.157-0.170, noise).
+Games decided:
+
+| 1 s/move, 16 threads | result |
+|---|---|
+| SPRT [0, 40] vs stable `56ce0aa` (seed 3430) | 69-1-40, **+93.8 +/- 64.5, PASS** |
+| four-piece vs YaneuraOu 20k nodes, Black games (seed 2930) | **41-19, 68.3%** (stable 57.5%) |
+
+Paired by opening against stable: both won 25, stable only 9, new only 16. Shipped;
+`SHOGI_LEAN_CHECK_SEE=0` restores the old rule. The position at move 50 is still misjudged:
+YaneuraOu's evaluation sees the attack at depth 9, ours not at depth 12.
 
 ## Next
 
