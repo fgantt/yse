@@ -627,6 +627,9 @@ impl ThreadSafeTranspositionTable {
     }
 
     fn store_entry_core(&self, index: usize, entry: TranspositionEntry) {
+        let generation = self.age_stamp.load(Ordering::Relaxed);
+        let mut entry = entry;
+        entry.age = generation;
         // Check if we should replace the existing entry
         let current_key = self.entries[index].hash_key.load(Ordering::Acquire);
         let current_data = self.entries[index].packed_data.load();
@@ -637,11 +640,26 @@ impl ThreadSafeTranspositionTable {
                 current_data,
             );
 
-            let decision = self.replacement_decider.decide(
-                &current_entry,
-                &entry,
-                self.age_stamp.load(Ordering::Relaxed),
-            );
+            // Fresh results win over stale ones: the same position unless the new
+            // result is much shallower, and any entry from an earlier search.
+            // `increment_age` was never called, so every entry looked current and
+            // depth alone decided: once the table filled (within one 10 s move)
+            // a slot's first deep entry, from however many moves ago, refused
+            // every later one, and a same-position update of equal depth was
+            // dropped unless its bound was better (Session 34).
+            let decision = if !generations_enabled() {
+                self.replacement_decider.decide(&current_entry, &entry, generation)
+            } else if current_entry.hash_key == entry.hash_key {
+                if entry.depth + 3 >= current_entry.depth || entry.is_exact() {
+                    ReplacementDecision::Replace
+                } else {
+                    ReplacementDecision::Keep
+                }
+            } else if current_entry.age != generation {
+                ReplacementDecision::Replace
+            } else {
+                self.replacement_decider.decide(&current_entry, &entry, generation)
+            };
 
             match decision {
                 ReplacementDecision::Replace => {
@@ -868,6 +886,12 @@ impl ThreadSafeTranspositionTable {
     }
 
     /// Increment age counter
+    /// Start a new search: entries stored before now become replaceable by
+    /// any entry for another position (see `store_entry_core`).
+    pub fn new_search(&self) {
+        self.age_stamp.fetch_add(1, Ordering::Relaxed);
+    }
+
     pub fn increment_age(&mut self, node_count: u64) -> bool {
         let mut cache_manager = self.recover_mutex_guard(self.cache_manager.lock(), || {
             "cache manager mutex during increment_age".to_string()
@@ -1549,4 +1573,11 @@ mod tests {
         assert_eq!(retrieved.score, entry.score);
         assert_eq!(retrieved.depth, entry.depth);
     }
+}
+
+/// Whether stores use search generations (`SHOGI_TT_GENERATIONS=0` restores
+/// the depth-only replacement).
+fn generations_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SHOGI_TT_GENERATIONS").map_or(true, |v| v != "0"))
 }

@@ -15668,6 +15668,8 @@ impl IterativeDeepening {
 
         // Lazy SMP: the other threads search beside this one through the shared
         // table (see `lazy_smp`); dropped, they stop, on every way out.
+        // A new search generation: entries from earlier moves give way.
+        search_engine.transposition_table.new_search();
         let lazy_helpers = (self.thread_count > 1 && lazy_smp::lazy_smp_enabled()).then(|| {
             lazy_smp::LazyHelpers::start(
                 search_engine,
