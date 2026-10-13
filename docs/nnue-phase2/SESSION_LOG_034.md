@@ -527,6 +527,16 @@ management gives 1/30 of main time + byoyomi per move (95 s on move 1 of 60 min 
 by move 50), untested; repetitions across a null move still detected (minor). NNUE incremental
 updates checked on 31,451 moves of three games (`tests/nnue_incremental_games.rs`).
 
+## Mate-in-one in quiescence instead of searching quiet checks (rejected)
+
+Quiet checks at quiescence ply 1 were only tested for mate in one (opponent has no legal
+move), not searched. Offline it looked good: depth 11 on the 2026-10-11 move-50 position
+30.4 s -> 18.7 s; the 2026-10-12 move-59 position now chose 8h6f; 16 threads, 10 s/move over
+the 2026-10-12 loss, mean depth 14.88/14.93 -> 15.31/15.29 with 12% more nodes. Games:
+SPRT [0, 40] vs `a115260` (seed 3460) **36-1-51, -59.8 +/- 67.3, FAIL**. Searching quiet
+checks finds more than mates (checks that win material); depth did not pay for losing them.
+Reverted; `SHOGI_LEAN_Q_CHECKS=0` (no quiet checks at all) also grew the tree earlier.
+
 ## Next
 
 1. Lean search: two-piece vs YaneuraOu 2,000 nodes is the measuring rung now (82.5%); next
