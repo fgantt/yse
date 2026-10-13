@@ -131,7 +131,7 @@ fn main() {
                 println!(
                     "\n  null move: attempts {}  tried {}  cutoffs {}  \
                      disabled-in-check {}  skipped-time-pressure {}",
-                    nm.attempts, nm.null_moves_tried, nm.cutoffs_after_null_move,
+                    nm.attempts, nm.null_moves_tried, nm.cutoffs,
                     nm.disabled_in_check, nm.skipped_time_pressure
                 );
             }
