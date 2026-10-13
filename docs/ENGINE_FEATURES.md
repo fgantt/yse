@@ -1,6 +1,6 @@
 # Yggdrasil Engine Features
 
-What the engine does as shipped (`engines/usi-engine-stable`, `3bd5228`, 2026-10-13), where
+What the engine does as shipped (`engines/usi-engine-stable`, `a115260`, 2026-10-13), where
 each feature lives, and how it compares with YaneuraOu. Session logs
 (`docs/nnue-phase2/SESSION_LOG_*.md`) hold the measurements behind each item.
 
@@ -16,7 +16,7 @@ Classic selects the older `negamax` in `search_engine.rs`).
 | Aspiration windows | Each depth starts with a window around the previous score | `IterativeDeepening::search` | USI `EnableAspirationWindows`, `AspirationWindowSize` |
 | Lazy SMP | Helper threads search the same root and share the hash table; Stockfish 9 skip schedule; a deeper, higher-scoring helper result is played | `src/search/lazy_smp.rs` | Default since `56ce0aa`; USI `ThreadAlgorithm` Lazy/Split; `USI_Threads` (16) |
 | Root/PV split (alternative) | YBWC split at the root and first PV plies, workers with own tables | `parallel_search.rs` | `ThreadAlgorithm` Split |
-| Transposition table | Shared, lock-free stores; key stored as `hash ^ data` so torn reads miss; depth/age replacement | `thread_safe_table.rs`, `replacement_policies.rs` | `USI_Hash` default 256 MB (was 16 MB, which starved Lazy SMP) |
+| Transposition table | Shared, lock-free stores; key stored as `hash ^ data` so torn reads miss; a generation per search, fresh entries replace stale ones, else depth/bound | `thread_safe_table.rs`, `replacement_policies.rs` | `USI_Hash` default 256 MB (was 16 MB, which starved Lazy SMP) |
 | Null-move pruning | Pass the move; if still >= beta at reduced depth, prune | `lean_node` | R = 3 + depth/3 + margin term; not in check, depth >= 3 |
 | Reverse futility / razoring | Static-evaluation cut-offs near the leaves | `lean_node` | Razoring drops to quiescence |
 | Late move pruning | Skip late quiet moves at depth <= 8 on non-PV nodes | `lean_node` move loop | Threshold 3 + depth^2 |
@@ -82,7 +82,7 @@ value. Details in `SESSION_LOG_034.md`.
 
 | Feature | Finding |
 |---|---|
-| Transposition table replacement | **Bug**: `increment_age` was never called, so depth alone decided; once full, a slot's first deep entry refused later ones and same-position updates were dropped. Fix: search generations (`new_search`), fresh entries replace stale ones. 16 threads, 10 s/move: +0.7-0.9 ply. Gating |
+| Transposition table replacement | **Bug**: `increment_age` was never called, so depth alone decided; once full, a slot's first deep entry refused later ones and same-position updates were dropped. Fixed (`a115260`): search generations (`new_search`), fresh entries replace stale ones. 16 threads, 10 s/move: +0.7-0.9 ply; SPRT +191 PASS; four-piece vs YaneuraOu 68.3% -> 83.3% |
 | Time management | Design issue: 1/30 of main time + byoyomi per move front-loads (95 s on move 1 of 60 min + 10 s; ~30 s by move 50). Not yet tested |
 | NNUE incremental updates | Sound: equal to a full refresh on 31,451 moves of three handicap games (`tests/nnue_incremental_games.rs`) |
 | Aspiration windows | Sound: +-200 as tuned (the USI option's 25 does not drive the lean search) |
@@ -91,4 +91,4 @@ value. Details in `SESSION_LOG_034.md`.
 | Repetition | Sound; minor: repetitions across a null move are still detected |
 | Opening book | Not used in handicap games (exact-position lookup, even-game book) |
 | Mate search | Sound: ~10 nodes/ms budget, our checking mates only |
-| Lazy SMP | Fixed earlier this session (table size); result selection to review |
+| Lazy SMP | Fixed earlier this session (table size); result selection (deeper and higher-scoring helper) reviewed, sound |

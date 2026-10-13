@@ -38,7 +38,12 @@ back to king-danger evaluation.
 >    extended or exempt from pruning: SPRT vs `56ce0aa` **+93.8 +/- 64.5, PASS**; four-piece
 >    vs YaneuraOu 20k nodes **57.5% -> 68.3%**. `engines/usi-engine-stable` = `3bd5228`,
 >    `-prev` = `56ce0aa`, `-prev-old` = `199ccd8`.
-> 8. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
+> 8. **Transposition table generations (`a115260`, stable).** Replacement never aged
+>    (`increment_age` uncalled): a full table refused fresh entries all game. SPRT vs
+>    `3bd5228` **+190.8 +/- 110.4, PASS**; four-piece vs YaneuraOu **68.3% -> 83.3%**.
+>    `engines/usi-engine-stable` = `a115260`, `-prev` = `3bd5228`, `-prev-old` = `56ce0aa`.
+>    Feature reference and audit: `docs/ENGINE_FEATURES.md`.
+> 9. Session 32's READ THIS FIRST still holds otherwise: the open problem is the evaluation of
 >    king danger, judged only by games.
 
 ---
@@ -487,6 +492,40 @@ Games decided:
 Paired by opening against stable: both won 25, stable only 9, new only 16. Shipped;
 `SHOGI_LEAN_CHECK_SEE=0` restores the old rule. The position at move 50 is still misjudged:
 YaneuraOu's evaluation sees the attack at depth 9, ours not at depth 12.
+
+## Speed work, and a feature audit that found the table's replacement broken (shipped, `a115260`)
+
+Another four-piece loss on `3bd5228` (`matches/user_games/2026-10-12_4mai_loss84.txt`). The
+bishop/rook shuffles of moves 20-32 were YaneuraOu's choices too (+3,300 held to move 47); the
+game turned at moves 59-60, where 8h6f (bishop takes the dropped knight) was the only win and
+we played 4e5c+ and 5c6b. Our engine rated 8h6f, 4e5c+, 4e3c+ and G*3e within ~150 cp and chose
+differently run to run; YaneuraOu needed depth 18 (780k nodes) to separate them. On one thread
+YaneuraOu ran 1.01M nodes/s against our 123k.
+
+**Speed (exact):** `206ed16` Fx-hashes the move-ordering maps (SipHash was ~5%): depth 10 on
+the 2026-10-11 move-50 position 7.50-7.57 s -> 7.17-7.23 s, fingerprint identical. A
+quiescence evaluation cache gained nothing (its table already catches repeats). Profile with
+children: move ordering 38% of the search (an exchange per quiet move onto an attacked
+square), quiescence 41% (evaluation 22%), legal move generation 12%.
+
+**Not shipped:** table move searched before ordering the rest (time to depth 9 over two
+games: -21% and +19%); quiet-move SEE dropped from ordering under the lean search (-24% time
+to depth): SPRT stopped at 241-10-222 after 473 games, LLR -0.93, no verdict; reverted.
+
+**Audit** (`docs/ENGINE_FEATURES.md`): `increment_age` was never called, so replacement was by
+depth and bound alone in a table cleared only at `usinewgame`. Generations per search and
+fresh-over-stale replacement: 16 threads, 10 s/move, 21 positions of the loss game, mean depth
+13.79/13.76 -> 14.50/14.67 (two runs each, same nodes).
+
+| 1 s/move, 16 threads | result |
+|---|---|
+| SPRT [0, 40] vs stable `3bd5228` (seed 3450) | 30-0-10, **+190.8 +/- 110.4, PASS** |
+| four-piece vs YaneuraOu 20k nodes, Black games (seed 2930) | **50-10, 83.3%** (stable 68.3%) |
+
+Paired by opening: both won 33, stable only 8, new only 17. Shipped. Also found: time
+management gives 1/30 of main time + byoyomi per move (95 s on move 1 of 60 min + 10 s, ~30 s
+by move 50), untested; repetitions across a null move still detected (minor). NNUE incremental
+updates checked on 31,451 moves of three games (`tests/nnue_incremental_games.rs`).
 
 ## Next
 
