@@ -2805,7 +2805,8 @@ impl MoveOrdering {
     /// Uses bit manipulation for maximum performance in the hot scoring path.
     fn get_move_hash_fast(&self, move_: &Move) -> u64 {
         // OPTIMIZATION: Use bit manipulation instead of arithmetic operations
-        let from = move_.from.map(|pos| pos.to_u8() as u64).unwrap_or(0);
+        // Drops apart from moves off square 0, which score differently.
+        let from = move_.from.map_or(0xFF, |pos| pos.to_u8() as u64);
         let to = move_.to.to_u8() as u64;
         let piece_type = move_.piece_type.to_u8() as u64;
         let flags = (move_.is_promotion as u64)
@@ -6055,36 +6056,9 @@ impl MoveOrdering {
 
         let start_time = TimeSource::now();
 
-        // Task 6.2: Check cache for move ordering results
-        // Task 3.0: Note: Cache doesn't account for IID move, so we skip cache if IID
-        // move is present This ensures IID move is properly prioritized even if
-        // ordering was cached before
-        let skip_cache = iid_move.is_some();
-
-        let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
-        let cache_key = (position_hash, depth);
-
-        // Check if we have a cached ordering result for this position and depth (Task
-        // 6.0: use cache_manager)
-        if !skip_cache {
-            if let Some(cached_entry) = self.cache_manager.get_mut(&cache_key) {
-                // Verify that cached moves match current moves (moves might differ for same
-                // position)
-                if cached_entry.moves.len() == moves.len()
-                    && cached_entry
-                        .moves
-                        .iter()
-                        .zip(moves.iter())
-                        .all(|(cached, current)| moves_equal_helper(cached, current))
-                {
-                    // Task 6.0: LRU tracking is handled by cache_manager.get_mut()
-                    self.stats.cache_hits += 1;
-                    self.stats.total_moves_ordered += moves.len() as u64;
-                    return cached_entry.moves.clone();
-                }
-            }
-        }
-
+        // No ordering cache here. It returned a stored ordering for the same
+        // position and depth -- 39 hits in 435k orderings over a 12 s search --
+        // and cloned and inserted every ordering to get them.
         self.stats.cache_misses += 1;
 
         // Update statistics
@@ -6126,27 +6100,6 @@ impl MoveOrdering {
         // Sort by key - tuple comparison is guaranteed to be total order
         move_keys.sort_by_key(|(key, _)| *key);
         let ordered_moves: Vec<Move> = move_keys.into_iter().map(|(_, m)| m).collect();
-
-        // Task 6.2: Cache the ordering result for this position and depth (Task 6.0:
-        // use cache_manager) Task 3.0: Use improved eviction policy (LRU,
-        // depth-preferred, or hybrid)
-        let entry = MoveOrderingCacheEntry {
-            moves: ordered_moves.clone(),
-            last_access: 0, // Will be updated by cache_manager.insert()
-            depth,
-            access_count: 1,
-        };
-        let evicted_key = self.cache_manager.insert(
-            cache_key,
-            entry,
-            self.config.cache_config.max_cache_size,
-            self.config.cache_config.cache_eviction_policy,
-            self.config.cache_config.hybrid_lru_weight,
-        );
-        if evicted_key.is_some() {
-            self.stats.cache_evictions += 1;
-            self.stats.cache_evictions_size_limit += 1;
-        }
 
         // Update timing statistics
         let elapsed_ms = start_time.elapsed_ms();
