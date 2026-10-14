@@ -167,6 +167,19 @@ impl SearchStatistics {
         }
     }
 
+    /// Count a quiescence node in the global counters (`info nodes`/`nps`,
+    /// `go nodes`), as other engines do. Quiescence is ~75% of the tree, and
+    /// leaving it out made our node counts a quarter of the work done. The
+    /// per-iteration main-search counters are left alone.
+    pub fn increment_quiescence_nodes(&mut self) {
+        self.pending_global_nodes += 1;
+        if self.pending_global_nodes >= GLOBAL_NODE_BATCH {
+            GLOBAL_NODES_SEARCHED.fetch_add(self.pending_global_nodes, Ordering::Relaxed);
+            GLOBAL_SEARCH_NODES.fetch_add(self.pending_global_nodes, Ordering::Relaxed);
+            self.pending_global_nodes = 0;
+        }
+    }
+
     /// Update selective depth (maximum depth reached)
     pub fn update_seldepth(&mut self, depth_from_root: u8) {
         let prev_seldepth = GLOBAL_SELDEPTH.load(Ordering::Relaxed);

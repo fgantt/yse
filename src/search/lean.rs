@@ -608,6 +608,7 @@ impl SearchEngine {
         qply: i32,
     ) -> i32 {
         self.quiescence_stats.nodes_searched += 1;
+        self.search_statistics.increment_quiescence_nodes();
         if diag() {
             DIAG_QUIESCENCE_NODES.fetch_add(1, Ordering::Relaxed);
         }
