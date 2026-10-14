@@ -128,6 +128,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut fp_lines = Vec::new();
     let mut total_nodes: u64 = 0;
+    // `nodes` (and the fingerprint) is the engine's per-iteration count: the last
+    // `search_at_depth` call's main-search nodes only. The work done is every
+    // main-search node of every iteration plus the quiescence nodes, ~10x more.
+    let mut all_nodes: u64 = 0;
     let mut total_ms: f64 = 0.0;
 
     for (idx, sfen) in sfens.iter().enumerate() {
@@ -223,17 +227,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 mo.cutoff_index_sum as f64 / mo.cutoff_index_count.max(1) as f64
             );
         }
+        all_nodes += engine.get_core_search_metrics().total_nodes
+            + engine.get_quiescence_stats().nodes_searched;
         fp_lines.push(format!("{} {} {} {}{}", idx, mv, score, nodes, tag));
         total_nodes += nodes;
         total_ms += ms;
     }
 
     println!(
-        "TOTAL positions={} nodes={} ms={:.0} nps={:.0}",
+        "TOTAL positions={} nodes={} ms={:.0} nps={:.0} all_nodes={} all_nps={:.0}",
         fp_lines.len(),
         total_nodes,
         total_ms,
-        total_nodes as f64 / (total_ms / 1000.0).max(1e-9)
+        total_nodes as f64 / (total_ms / 1000.0).max(1e-9),
+        all_nodes,
+        all_nodes as f64 / (total_ms / 1000.0).max(1e-9)
     );
 
     if let Some(p) = &cli.fingerprint {
