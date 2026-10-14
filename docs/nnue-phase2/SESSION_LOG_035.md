@@ -28,7 +28,20 @@
 >    **-10.5%** on both saved positions (12.31 -> 11.03 s, 1.25 -> 1.11 s, interleaved
 >    pairs). All exact except `d50a313` (below). Too small to pass an SPRT [0, 40] on its
 >    own; stack more before gating.
-> 5. Stable is unchanged (`a115260`, `engines/usi-engine-stable`). No matches were run.
+> 5. **USI now counts every node** (`849b44a`): `info nodes`/`nps` and the `go nodes N` stop
+>    include quiescence nodes, as YaneuraOu does. One thread reports ~471k nps (YaneuraOu
+>    1.08M). A `go nodes N` search now does about a quarter of the work it did before, so
+>    node-limited results from earlier sessions (ladder rungs, `depth_ab.py`,
+>    `eval_gap_build.py`, `tt_time.py`, `odds_rejudge.py`) are not comparable with new ones.
+> 6. **Quiescence prunes losing checks** (SEE < 0), default since `db7eae0`: depth-7 tree
+>    -27% (1.33M -> 0.97M nodes), **SPRT +95.6 ± 67.7, 51-2-29, PASS after 82 games**
+>    (self-play, 1 s/move, 16 threads, `matches/s35/q1_sprt.log`).
+> 7. **The "improving" flag failed** (`6e1642b`, `SHOGI_IMPROVING`, default 0): all three
+>    uses shrink the depth-7 tree 24% but scored **-34.9 ± 53.5, 66-3-81, FAIL after 150
+>    games** (`matches/s35/imp_sprt.log`). A smaller tree is not a better one.
+> 8. Stable is unchanged (`a115260`, `engines/usi-engine-stable`). The stack (speed + node
+>    count + losing-check pruning) is not yet gated against stable or on the YaneuraOu
+>    four-piece rung.
 
 ---
 
@@ -118,3 +131,43 @@ Decide before more speed work (question for the user):
   cannot uncover a check, so gives-check is one pattern lookup instead of make/unmake),
   quiescence move generation, `refresh_pov` on king moves (Finny tables, ~3%). Stack to
   ~+30% before an SPRT: +12% alone would not resolve against [0, 40].
+
+## Quiescence: losing checks (`0c5007d`, `db7eae0`)
+
+Quiescence searched every checking move. `SHOGI_Q_PRUNE_LOSING_CHECKS` skips checks whose SEE
+is negative (1: all checks, 2: quiet checks only); `SHOGI_Q_EVASION_PRUNING` skips losing
+quiet evasions. Fixed-depth tree (`all_nodes`, NNUE, 32 MB):
+
+| setting | 30 positions, depth 7 | pos_loss70 d10 | pos_loss84 d10 |
+|---|---|---|---|
+| base | 1.33M | 5.35M (9d9e) | 0.53M (4e3c+) |
+| losing checks pruned (1) | 0.97M (-27%, -13% time) | 2.30M (9d9e) | 1.07M (1i1f) |
+| losing quiet checks pruned (2) | 1.01M | | |
+| evasion pruning | -2 to -3% | | |
+
+SPRT, setting 1 against the same build without it: 51-2-29, +95.6 ± 67.7, LLR +3.00, PASS
+after 82 games. Default on.
+
+## The improving flag (`6e1642b`)
+
+Static evaluation compared with two plies earlier (four if that ply was in check; unknown
+counts as improving). `SHOGI_IMPROVING` bits: 1 reverse futility margin `120 * (depth -
+improving)` (Stockfish's direction: prunes more when improving), 2 late-move pruning count
+`(3 + d²) / (1 + !improving)`, 4 one more LMR reduction when not improving.
+
+| bits | 30 positions, depth 7 | pos_loss70 d10 | pos_loss84 d10 |
+|---|---|---|---|
+| 0 (with losing-check pruning) | 0.97M | 2.30M | 1.07M |
+| 1 | 1.16M* | 1.47M | 0.51M |
+| 2 | 1.28M* | 1.77M | 0.65M |
+| 4 | 1.29M* | 2.70M | 0.70M |
+| 3 | 0.71M | 2.42M (9d9e) | 0.64M (4e5c+) |
+| 7 | 1.02M* (-24%) | 1.74M | 0.46M (4e3c+) |
+
+(* measured without losing-check pruning, against 1.33M.)
+
+SPRT, bits 7 on top of losing-check pruning against losing-check pruning alone: 66-3-81,
+-34.9 ± 53.5, LLR -3.07, FAIL after 150 games. Left off. Bits 1 and 2 alone (3) shrink the
+tree about as much as 7, so the extra reduction is not what shrank it; whether the pruning
+uses lose too is untested. Our futility and move-count margins were tuned without the flag;
+the flag may need them retuned to help.
