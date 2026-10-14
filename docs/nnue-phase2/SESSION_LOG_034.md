@@ -537,6 +537,16 @@ SPRT [0, 40] vs `a115260` (seed 3460) **36-1-51, -59.8 +/- 67.3, FAIL**. Searchi
 checks finds more than mates (checks that win material); depth did not pay for losing them.
 Reverted; `SHOGI_LEAN_Q_CHECKS=0` (no quiet checks at all) also grew the tree earlier.
 
+## Staged move generation (no gain, not gated)
+
+Not in check: the table move (legality checked by generating only its piece's moves or that
+drop), then legal captures by most valuable victim, and only then every move, generated and
+ordered, skipping those searched. Benchmark nodes 42.4k -> 34.5k; time to depth 9 over two
+games +19% / -10% with PV nodes staged, 0% / -5% with PV nodes ordered in full. 16 threads,
+10 s/move over the 2026-10-12 loss: mean depth 15.07/15.14 -> 15.02/15.29, with 10-17% more
+nodes: cheaper nodes, larger trees (captures ahead of killers and history order worse).
+Reverted without a gate.
+
 ## Next
 
 1. Lean search: two-piece vs YaneuraOu 2,000 nodes is the measuring rung now (82.5%); next
