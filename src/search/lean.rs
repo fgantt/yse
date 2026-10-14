@@ -262,6 +262,11 @@ impl SearchEngine {
             // No legal move is a loss in shogi, in check or not.
             return MATED_SCORE + ply;
         }
+        if diag() {
+            let d = (depth as usize).min(15);
+            DIAG_LEGAL[d].fetch_add(legal_moves.len() as u64, Ordering::Relaxed);
+            DIAG_MOVE_NODES[d].fetch_add(1, Ordering::Relaxed);
+        }
         self.initialize_move_orderer();
         let moves = self.order_moves_for_negamax(
             &legal_moves,
@@ -339,6 +344,9 @@ impl SearchEngine {
             );
             let new_depth = depth - 1 + ext;
 
+            if diag() {
+                DIAG_SEARCHED[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
+            }
             let move_info = board.make_move_with_info(mv);
             self.nnue_make_move(&move_info);
             let mut new_captured = captured_pieces.clone();
@@ -382,6 +390,9 @@ impl SearchEngine {
                         r -= 1;
                     }
                     r = r.clamp(0, new_depth - 1);
+                }
+                if diag() {
+                    DIAG_REDUCTION[(depth as usize).min(15)].fetch_add(r as u64, Ordering::Relaxed);
                 }
                 score = -self.lean_node(
                     board,

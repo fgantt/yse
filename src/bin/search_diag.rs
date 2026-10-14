@@ -23,7 +23,7 @@ use clap::Parser;
 use shogi_engine::bitboards::BitboardBoard;
 use shogi_engine::search::search_engine::{
     IterativeDeepening, SearchEngine, DIAG_CUT_INDEX, DIAG_INTERIOR_NODES, DIAG_PVS_RESEARCHES,
-    DIAG_PVS_SCOUTS, DIAG_Q, DIAG_QUIESCENCE_NODES,
+    DIAG_PVS_SCOUTS, DIAG_Q, DIAG_QUIESCENCE_NODES, DIAG_LEGAL, DIAG_SEARCHED, DIAG_REDUCTION, DIAG_MOVE_NODES, DIAG_NODES, DIAG_CUTS,
 };
 use shogi_engine::search::statistics::{DIAG_LMR_REJECT, GLOBAL_SEARCH_NODES};
 use std::sync::atomic::Ordering;
@@ -63,6 +63,11 @@ fn reset() {
     }
     DIAG_INTERIOR_NODES.store(0, Ordering::Relaxed);
     DIAG_QUIESCENCE_NODES.store(0, Ordering::Relaxed);
+    for t in [&DIAG_LEGAL, &DIAG_SEARCHED, &DIAG_REDUCTION, &DIAG_MOVE_NODES, &DIAG_NODES, &DIAG_CUTS] {
+        for c in t.iter() {
+            c.store(0, Ordering::Relaxed);
+        }
+    }
     for c in DIAG_Q.iter() {
         c.store(0, Ordering::Relaxed);
     }
@@ -126,6 +131,25 @@ fn main() {
                      (quiet {}, drops {})  first-ply quiet checks {} (drops {})",
                     d[0], d[1], d[2], d[3], d[4], d[5]
                 );
+            }
+            if depth == cli.max_depth {
+                println!("\n  per remaining depth: nodes  legal/node  searched/node  cut%  avg LMR (searched moves)");
+                for d in 1..16 {
+                    let g = |t: &[std::sync::atomic::AtomicU64; 16]| t[d].load(Ordering::Relaxed);
+                    let (n, mn) = (g(&DIAG_NODES), g(&DIAG_MOVE_NODES));
+                    if n == 0 {
+                        continue;
+                    }
+                    let per = |x: u64| if mn > 0 { x as f64 / mn as f64 } else { 0.0 };
+                    let srch = g(&DIAG_SEARCHED);
+                    println!(
+                        "    {d:>2}  {n:>10}  {:>8.1}  {:>8.1}  {:>5.1}%  {:>5.2}",
+                        per(g(&DIAG_LEGAL)),
+                        per(srch),
+                        100.0 * g(&DIAG_CUTS) as f64 / n as f64,
+                        if srch > 0 { g(&DIAG_REDUCTION) as f64 / srch as f64 } else { 0.0 }
+                    );
+                }
             }
             if depth == cli.max_depth {
                 println!(

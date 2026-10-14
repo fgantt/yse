@@ -548,6 +548,12 @@ fn diag() -> bool {
 pub static DIAG_NODES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
 pub static DIAG_MOVES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
 pub static DIAG_CUTS: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+/// Lean search, per remaining depth (diagnostics only): legal moves at nodes that
+/// generated them, moves actually searched, and the sum of LMR reductions.
+pub static DIAG_LEGAL: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+pub static DIAG_SEARCHED: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+pub static DIAG_REDUCTION: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
+pub static DIAG_MOVE_NODES: [AtomicU64; 16] = [const { AtomicU64::new(0) }; 16];
 
 /// Beta cutoffs bucketed by the index of the move that caused them: 0, 1, 2, 3,
 /// 4-7, 8-15, 16-31, 32+.

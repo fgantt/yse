@@ -10,6 +10,17 @@ back to king-danger evaluation.
 
 > **READ THIS FIRST** (state at the end of this session).
 >
+> **HANDOFF (2026-10-14): the next session starts the speed work** -- see "Next" at the end.
+> Stable is `a115260` (Lazy SMP 16 threads, 256 MB table with search generations, losing
+> checks pruned). Four-piece vs YaneuraOu 20k nodes: 57.5% -> 68.3% -> 83.3% this session.
+> The gains that landed were bugs found by testing stateful parts the way games use them
+> (table size, table never aged); four YaneuraOu/Stockfish features did not land (below).
+> YaneuraOu is ~8x faster per thread and often needs 10-100x fewer nodes to the right move.
+> Do not treat YaneuraOu-vs-us move differences that our judge scores as equal as harmless:
+> the user is confident its choices lead to better games, and our measurement is suspect
+> (see "YaneuraOu holding the odds").
+>
+>
 > 1. **Five exact speed-up commits** (`1c59f8d` .. `c0b2a03`): `search_bench --depth 5` over
 >    the default 30 positions with `nnue/default.bin`, fingerprint byte-identical after every
 >    commit, **60.7k -> ~92k nps** (+51%, separate runs; paired A/Bs per step below).
@@ -557,13 +568,82 @@ losses 26/20 s -> 31/21 s; at a quarter weight 31/21, one ply only 30/21, both 3
 the table's contribution zeroed the times are 26/20: no overhead, the reordering itself grew
 the drop-heavy trees. Reverted.
 
-## Next
+## YaneuraOu holding the odds: where its moves differ from ours (open)
 
-1. Lean search: two-piece vs YaneuraOu 2,000 nodes is the measuring rung now (82.5%); next
-   even games or more YaneuraOu nodes. Tune lean margins and quiescence (SEE threshold,
-   check depth), each gated against YaneuraOu as well as by SPRT.
-2. More exact speed: an accumulator refresh cache per king square (Finny tables) for
-   `refresh_pov`; quiescence still generates every board move to find promotions and checks
-   (a direct promotion/check generator, as done for the threat count).
-3. Threads: Lazy SMP is shipped (16 threads, 256 MB). It did not move the four-piece
-   YaneuraOu rung (58.3% -> 57.5%): king-danger evaluation is again the limit there.
+The user won a four-piece game on `a115260` (`matches/user_games/2026-10-13_4mai_win71.txt`)
+but saw the bishop under-used (8h1a+ grabbing the corner lance, the horse then shuffling
+1a2a/2a1b/1b1a) and missed drops behind YaneuraOu's front, and believes it could have been
+finished sooner. YaneuraOu 1M and 10M nodes found no forced mate before move 61 there.
+
+Then: 20 YaneuraOu-vs-YaneuraOu four-piece games (1M nodes each side, the odds side won all
+20, `matches/yane_odds/yy_*.csv`); on 500 odds-side positions (move >= 15, <= 25 a game) our
+move (1 s, 4 threads) against YaneuraOu's game move, judged at 3M nodes
+(`scripts/session34/odds_compare.py`, `odds_rejudge.py`, `odds_classify.py`;
+`matches/yane_odds/compare2.jsonl`). A first judge pass capped scores at 3,000 cp, and 494
+of 500 positions sat at the cap: worthless; re-judged uncapped.
+
+- Same move as YaneuraOu 44%. Judge says ours >= 150 cp worse on 28, >= 400 on 8.
+- Move kinds over all 500 (YaneuraOu / ours): rook moves 73 / 59, drops into the enemy camp
+  37 / 27, knight drops 24 / 16, promotions 63 / 51, captures 191 / 175; pawn moves 95 / 104,
+  king moves 11 / 18, horse 19 / 26, tokin 13 / 19. In the 28: rook moves 8 / 1, captures
+  7 / 3, drops 5 / 1, pawn moves 5 / 11, king moves 0 / 3. YaneuraOu is more active.
+- Mates: G*6b (mate in 21, a gold drop behind the enemy pawn) and 5f5e (mate in 11) were
+  missed at 1 s and found by us at 10 s on 16 threads.
+- Nodes to a good move (one thread each, budgets 10k-3M, good = within 50 cp of
+  YaneuraOu's game move by the judge) on the 28: YaneuraOu first on 6 (10k vs 1M, 30k vs 1M,
+  10k vs 300k ...), ours first on 3, equal 2; **neither** within 3M on 16.
+
+**Caution (the user's, and right):** the judge rates our different choice "about equal" on
+most of the 500, but that is more likely a limit of the measurement than equivalence:
+YaneuraOu at one thread cannot reproduce its own game move's verdict on 16 of 28; at +3,000
+and above every winning move scores alike; the judge's scores move between runs; and no
+alternative was played out. Untested: play both continuations out (YaneuraOu vs YaneuraOu
+from each disagreement, our move vs its move) and compare game length or result. Keep the
+activity differences (rook, drops into the camp, captures vs pawn and king moves) and the
+corner-promotion bias (Session 30) as open evaluation questions.
+
+## Why the YaneuraOu/Stockfish features did not land (working view)
+
+Mate-in-one quiescence (SPRT -60), staged generation, continuation history (both rejected on
+time to depth, never gated) and quiet-SEE removal (no verdict at 473 games). Per-depth width
+on the 2026-10-12 move-59 position (`search-diag`, new per-depth table): 3-6 of 60-80 legal
+moves searched near the leaves, 22-46 at depth 7-10, LMR 2-3 plies there -- a normal shape;
+YaneuraOu's reported depth counts far fewer nodes, so depth is not comparable across engines.
+Likely reasons: those features are tuned as one system around a fast search and an accurate
+evaluation (e.g. continuation history also drives reductions and pruning there; ours drive
+neither); our speed (8x) and evaluation make removing search costly; my implementations were
+first approximations; and time to depth over two games is a speed proxy, not a quality test
+-- features that change move quality need games.
+
+## Next: speed work (exact, cumulative)
+
+Goal: more nodes per second without changing what the search computes. Each step must keep
+`search_bench --depth 5 --nnue-weights nnue/default.bin --fingerprint F` byte-identical to
+stable (reference: `matches/s34_threads/speed/fp_a115260.txt`; regenerate from `a115260` if
+missing) and pass `cargo test --release --test nnue_incremental_games`; stack the steps and
+gate the stack once (SPRT vs stable at 16 threads, then four-piece vs YaneuraOu 20k nodes,
+`matches/ladder_s34/yonmai20k_t16_*` baseline 83.3%).
+
+Where the time goes, one thread, drop-heavy position (2026-10-11 loss move 50,
+`matches/s34_threads/pos_loss70_m50.sfen`; profile with `sample PID 20` while
+`search_bench --sfen ... --depth 12` runs, callers with `scripts/session34/sample_callers.py`):
+
+| Part (inclusive) | Share |
+|---|---|
+| move ordering (`order_moves_for_negamax`) | ~38%: quiet-move SEE (`swap_value`, `add_sliders`) ~12%, sort, positional bonuses |
+| quiescence | ~41%, of which NNUE evaluation ~22% (`forward_from_activations` ~16% self) |
+| legal move generation | ~12% (`MoveTestFilter::test` per move, make/unmake on a scratch board) |
+| NNUE incremental updates | ~6% |
+
+Candidates, all exact: (1) compute quiet SEE only for moves onto squares the opponent
+attacks more cheaply (an exact pre-test before `swap_value`), or speed `AttackList`;
+(2) avoid cloning `Move` vectors in ordering (sort indices); (3) legality: test only moves
+that can leave the king in check (pinned pieces, king moves, in check) instead of
+make/unmake for every pseudo-legal move; (4) NNUE: accumulator refresh cache per king square
+(Finny tables) for `refresh_pov`; (5) quiescence generates every board move to find
+promotions and checks -- a direct generator. Measure each with time to depth 10 on the two
+saved positions (`pos_loss70_m50.sfen`, `pos_loss84_m59.sfen`) and `search_bench` corpus ms.
+
+Also open, not to be dropped: time management front-loads (1/30 of main time + byoyomi;
+95 s on move 1 of 60 min + 10 s, ~30 s by move 50); repetitions across a null move still
+detected; corner-promotion bias; YaneuraOu's more active play when holding the odds (above).
