@@ -6182,9 +6182,9 @@ impl MoveOrdering {
         // quiet move, worst loss last, so LMR reduces it and cutoffs come from
         // moves that keep the material. (Near the leaves the search prunes them.)
         if !crate::search::search_engine::search_toggles().no_see_quiet
-            && board.is_square_attacked_by(move_.to, move_.player.opposite())
+            && scan.attacked_by(board, move_.to, move_.player.opposite())
         {
-            let see = see_calculation::see_quiet(move_, board);
+            let see = scan.see.see_quiet(move_, board);
             if see < 0 {
                 return -QUIET_CAP - 1 + see;
             }
@@ -14398,8 +14398,11 @@ mod tests {
 /// Board scans shared by the quiet-move ordering bonuses, made at most once
 /// per ordering call: the board is the same for every move ordered. Each is
 /// the scan the bonus used to repeat for every move, with the same result.
-#[derive(Default)]
 struct QuietScan {
+    /// Per player and square: 0 not yet tested, 1 not attacked, 2 attacked.
+    attacked: [[u8; 81]; 2],
+    /// Quiet-move SEE sharing each square's attacker list.
+    see: see_calculation::QuietSee,
     /// Per mover: whether the opponent's pawns storm its side, and those
     /// advanced at least two ranks (row, column).
     storm: [Option<(bool, Vec<(u8, u8)>)>; 2],
@@ -14411,7 +14414,34 @@ struct QuietScan {
     defender_near: [Option<(Position, bool)>; 2],
 }
 
+impl Default for QuietScan {
+    fn default() -> Self {
+        Self {
+            attacked: [[0; 81]; 2],
+            see: see_calculation::QuietSee::default(),
+            storm: Default::default(),
+            edge_dragon: Default::default(),
+            developed: Default::default(),
+            defender_near: Default::default(),
+        }
+    }
+}
+
 impl QuietScan {
+    /// `board.is_square_attacked_by(square, player)`, tested once per square.
+    fn attacked_by(
+        &mut self,
+        board: &crate::bitboards::BitboardBoard,
+        square: Position,
+        player: Player,
+    ) -> bool {
+        let slot = &mut self.attacked[player as usize][square.to_index() as usize];
+        if *slot == 0 {
+            *slot = 1 + u8::from(board.is_square_attacked_by(square, player));
+        }
+        *slot == 2
+    }
+
     fn storm(
         &mut self,
         board: &crate::bitboards::BitboardBoard,

@@ -190,6 +190,7 @@ pub fn see_quiet(move_: &Move, board: &BitboardBoard) -> i32 {
 /// Attackers of a square in SEE order, on the stack. Mirrors the `Vec` the
 /// exchange used to build -- same order, same deduplication, same removal by
 /// shifting -- so the exchange picks exactly the same pieces.
+#[derive(Clone, Copy)]
 struct AttackList {
     items: [(Position, Piece); 48],
     len: usize,
@@ -363,6 +364,44 @@ impl AttackList {
 /// without heap allocation: SEE runs for every attacked quiet move in move
 /// ordering.
 fn swap_value(move_: &Move, board: &BitboardBoard, first_gain: i32) -> i32 {
+    swap_value_from(AttackList::attackers_of(move_.to, board), move_, board, first_gain)
+}
+
+/// Quiet-move SEE ([`see_quiet`]) for many moves on one board. The attackers
+/// of a square under the board's occupancy do not depend on the move, so each
+/// target square's list is built once and shared by every move onto it --
+/// drops of different pieces, and pieces converging on one square.
+pub struct QuietSee {
+    index: [u8; 81],
+    lists: Vec<AttackList>,
+}
+
+impl Default for QuietSee {
+    fn default() -> Self {
+        Self { index: [u8::MAX; 81], lists: Vec::new() }
+    }
+}
+
+impl QuietSee {
+    /// [`see_quiet`] of `move_` on `board`, which must be the same board on
+    /// every call.
+    pub fn see_quiet(&mut self, move_: &Move, board: &BitboardBoard) -> i32 {
+        let t = move_.to.to_index() as usize;
+        if self.index[t] == u8::MAX {
+            self.index[t] = self.lists.len() as u8;
+            self.lists.push(AttackList::attackers_of(move_.to, board));
+        }
+        swap_value_from(self.lists[self.index[t] as usize], move_, board, 0)
+    }
+}
+
+/// [`swap_value`] given the attackers of `move_.to` under the board's occupancy.
+fn swap_value_from(
+    mut pieces: AttackList,
+    move_: &Move,
+    board: &BitboardBoard,
+    first_gain: i32,
+) -> i32 {
     let to = move_.to;
     let mover = move_.player;
 
@@ -375,7 +414,6 @@ fn swap_value(move_: &Move, board: &BitboardBoard, first_gain: i32) -> i32 {
     if let Some(from) = move_.from {
         occupied &= !crate::types::Bitboard::from_u128(1u128 << from.to_index());
     }
-    let mut pieces = AttackList::attackers_of(to, board);
     if let Some(from) = move_.from {
         if let Some(i) = pieces.as_slice().iter().position(|(p, _)| *p == from) {
             pieces.remove(i);
