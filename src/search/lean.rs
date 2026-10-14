@@ -607,11 +607,12 @@ fn env_flag(name: &str, default: bool) -> bool {
 }
 
 /// Quiescence: checks that lose material by SEE are pruned like other moves
-/// (1: all checks, 2: quiet checks only).
+/// (1, default: all checks; 2: quiet checks only; 0: none). Session 35 SPRT
+/// against 0 at 1 s/move, 16 threads: +95.6 +/- 67.7, PASS.
 fn lean_q_losing_checks_pruned() -> u8 {
     static ON: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
-        std::env::var("SHOGI_Q_PRUNE_LOSING_CHECKS").ok().and_then(|v| v.parse().ok()).unwrap_or(0)
+        std::env::var("SHOGI_Q_PRUNE_LOSING_CHECKS").ok().and_then(|v| v.parse().ok()).unwrap_or(1)
     })
 }
 
