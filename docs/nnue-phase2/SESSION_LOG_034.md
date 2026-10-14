@@ -547,6 +547,16 @@ games +19% / -10% with PV nodes staged, 0% / -5% with PV nodes ordered in full. 
 nodes: cheaper nodes, larger trees (captures ahead of killers and history order worse).
 Reverted without a gate.
 
+## Continuation history (no gain in handicap positions, not gated)
+
+Per-thread table keyed by (piece type, destination) of the move one and two plies back and
+the quiet move, Stockfish gravity, bonus to the cutting quiet move and malus to those tried
+before it; the plain quiet tier of the ordering re-sorted by its score plus the table's.
+Benchmark (even-game corpus) nodes 42.4k -> 32.6k, but time to depth 9 over the two handicap
+losses 26/20 s -> 31/21 s; at a quarter weight 31/21, one ply only 30/21, both 34/20. With
+the table's contribution zeroed the times are 26/20: no overhead, the reordering itself grew
+the drop-heavy trees. Reverted.
+
 ## Next
 
 1. Lean search: two-piece vs YaneuraOu 2,000 nodes is the measuring rung now (82.5%); next
