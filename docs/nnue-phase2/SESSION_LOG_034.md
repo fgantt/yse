@@ -17,7 +17,8 @@ back to king-danger evaluation.
 > (table size, table never aged); four YaneuraOu/Stockfish features did not land (below).
 > YaneuraOu is ~8x faster per thread and often needs 10-100x fewer nodes to the right move.
 > Do not treat YaneuraOu-vs-us move differences that our judge scores as equal as harmless:
-> the user is confident its choices lead to better games, and our measurement is suspect
+> the user is confident its choices lead to better games, our measurement is suspect, and
+> the choices of mature engines (YaneuraOu, Stockfish) deserve respect -- not deference
 > (see "YaneuraOu holding the odds").
 >
 >
@@ -597,7 +598,9 @@ of 500 positions sat at the cap: worthless; re-judged uncapped.
 most of the 500, but that is more likely a limit of the measurement than equivalence:
 YaneuraOu at one thread cannot reproduce its own game move's verdict on 16 of 28; at +3,000
 and above every winning move scores alike; the judge's scores move between runs; and no
-alternative was played out. Untested: play both continuations out (YaneuraOu vs YaneuraOu
+alternative was played out. And YaneuraOu and Stockfish are mature engines: their common
+choices carry years of testing, so a difference from them deserves a presumption that it
+matters until shown otherwise -- not deference, but respect. Untested: play both continuations out (YaneuraOu vs YaneuraOu
 from each disagreement, our move vs its move) and compare game length or result. Keep the
 activity differences (rook, drops into the camp, captures vs pawn and king moves) and the
 corner-promotion bias (Session 30) as open evaluation questions.
