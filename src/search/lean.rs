@@ -57,6 +57,48 @@ pub fn lean_enabled() -> bool {
 
 const INF: i32 = 1_000_000;
 
+/// Where the "improving" flag applies (`SHOGI_IMPROVING`, a bit set): 1 reverse
+/// futility margin, 2 late-move pruning count, 4 one more reduction when not
+/// improving. 0 (default) leaves the search unchanged.
+fn improving_uses() -> u8 {
+    static ON: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("SHOGI_IMPROVING").ok().and_then(|v| v.parse().ok()).unwrap_or(0)
+    })
+}
+
+const EVAL_STACK_LEN: usize = 256;
+
+thread_local! {
+    /// Static evaluation by ply on the current path (`-INF` in check), one per
+    /// search thread.
+    static EVAL_STACK: std::cell::RefCell<[i32; EVAL_STACK_LEN]> =
+        const { std::cell::RefCell::new([-INF; EVAL_STACK_LEN]) };
+}
+
+/// Records this node's static evaluation and returns whether it is above the
+/// one two plies earlier -- the same side to move -- or four plies earlier when
+/// that node was in check. With neither known (near the root, or both in
+/// check), it counts as improving, as in Stockfish.
+fn record_and_test_improving(ply: i32, static_eval: i32) -> bool {
+    let Ok(p) = usize::try_from(ply) else { return true };
+    if p >= EVAL_STACK_LEN {
+        return true;
+    }
+    EVAL_STACK.with(|st| {
+        let mut st = st.borrow_mut();
+        st[p] = static_eval;
+        if static_eval == -INF {
+            return false;
+        }
+        let earlier = [2, 4].iter().find_map(|&k| {
+            let e = *st.get(p.checked_sub(k)?)?;
+            (e != -INF).then_some(e)
+        });
+        earlier.map_or(true, |e| static_eval > e)
+    })
+}
+
 impl SearchEngine {
     /// A node of the lean search: the superior/inferior hand rule, then
     /// [`Self::lean_inner`]. Same path conventions as `negamax_with_context`.
@@ -181,10 +223,16 @@ impl SearchEngine {
         let static_eval =
             if in_check { -INF } else { self.evaluate_position(board, player, captured_pieces) };
         let prunable = !pv_node && !in_check && !search_toggles().no_pruning;
+        let uses = improving_uses();
+        let improving = uses == 0 || record_and_test_improving(ply, static_eval);
+        let improving_for = |bit: u8| uses & bit == 0 || improving;
 
         // Reverse futility: far enough above beta that a quiet move will not
         // bring it back down within a few plies.
-        if prunable && depth <= 6 && static_eval - 120 * depth >= beta && static_eval < MATE_THRESHOLD
+        if prunable
+            && depth <= 6
+            && static_eval - 120 * (depth - i32::from(uses & 1 != 0 && improving)) >= beta
+            && static_eval < MATE_THRESHOLD
         {
             return static_eval;
         }
@@ -312,7 +360,8 @@ impl SearchEngine {
             {
                 if quiet {
                     // Late move pruning.
-                    if !pv_node && depth <= 8 && move_count > (3 + (depth * depth) as usize) {
+                    let lmp_count = (3 + (depth * depth) as usize) / (1 + usize::from(!improving_for(2)));
+                    if !pv_node && depth <= 8 && move_count > lmp_count {
                         continue;
                     }
                     // Futility.
@@ -384,6 +433,9 @@ impl SearchEngine {
                         r -= 1;
                     }
                     if cut_node {
+                        r += 1;
+                    }
+                    if !improving_for(4) {
                         r += 1;
                     }
                     if in_check || self.is_killer_move(mv) {
