@@ -550,6 +550,26 @@ fn lean_check_see() -> bool {
 
 /// Whether the lean quiescence searches quiet checks at its first ply
 /// (`SHOGI_LEAN_Q_CHECKS=0` turns them off; experiment).
+fn env_flag(name: &str, default: bool) -> bool {
+    std::env::var(name).map_or(default, |v| v != "0")
+}
+
+/// Quiescence: checks that lose material by SEE are pruned like other moves
+/// (1: all checks, 2: quiet checks only).
+fn lean_q_losing_checks_pruned() -> u8 {
+    static ON: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("SHOGI_Q_PRUNE_LOSING_CHECKS").ok().and_then(|v| v.parse().ok()).unwrap_or(0)
+    })
+}
+
+/// Quiescence in check: quiet evasions that lose material are skipped once
+/// some evasion has a non-mated score.
+fn lean_q_evasion_pruning() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_Q_EVASION_PRUNING", false))
+}
+
 fn lean_q_checks() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("SHOGI_LEAN_Q_CHECKS").map_or(true, |v| v != "0"))
@@ -664,12 +684,27 @@ impl SearchEngine {
         });
 
         for mv in &moves {
+            let see_filtered = if in_check {
+                // A quiet evasion that loses material, once some evasion holds.
+                lean_q_evasion_pruning()
+                    && !mv.is_capture
+                    && best > -MATE_THRESHOLD
+            } else {
+                !mv.gives_check
+                    || match lean_q_losing_checks_pruned() {
+                        1 => true,
+                        2 => !mv.is_capture,
+                        _ => false,
+                    }
+            };
             if !in_check && !mv.gives_check {
                 let promo = if mv.is_promotion { 300 } else { 0 };
                 // Even winning the piece outright does not reach alpha.
                 if stand_pat + mv.captured_piece_value() + promo + 200 <= alpha {
                     continue;
                 }
+            }
+            if see_filtered {
                 let see = if mv.is_capture {
                     crate::search::move_ordering::see_calculation::calculate_see_internal(
                         mv, board,
