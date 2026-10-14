@@ -2962,91 +2962,37 @@ impl MoveOrdering {
         &self,
         move_: &Move,
         board: &crate::bitboards::BitboardBoard,
+        scan: &mut QuietScan,
     ) -> Option<i32> {
-        use crate::types::core::{PieceType, Player};
+        use crate::types::core::PieceType;
 
-        let player = move_.player;
-        let opponent = player.opposite();
-
-        // Check for opponent pawns advancing on files 6, 7, 8 (for Black) or 0, 1, 2 (for White)
-        let threatened_files = match player {
-            Player::Black => [6u8, 7u8, 8u8],
-            Player::White => [0u8, 1u8, 2u8],
-        };
-
-        let mut storm_detected = false;
+        let (storm_detected, storm_pawns) = scan.storm(board, move_.player);
         let mut move_responds_to_storm = false;
+        for &(row, file) in storm_pawns {
+            // Check if our move blocks or responds to this storm
+            if move_.to.col == file {
+                // Move is on the threatened file
+                let blocking_row = match move_.player {
+                    Player::Black => row + 1,
+                    Player::White => row - 1,
+                };
+                if move_.to.row == blocking_row {
+                    move_responds_to_storm = true;
+                }
+            }
 
-        // Check if opponent has advancing pawns
-        for &file in &threatened_files {
-            for row in 0..9 {
-                let pos = crate::types::core::Position::new(row, file);
-                if let Some(piece) = board.get_piece(pos) {
-                    if piece.player == opponent && piece.piece_type == PieceType::Pawn {
-                        // Check if pawn has advanced significantly
-                        let progress = match player {
-                            Player::Black => {
-                                if row < 5 {
-                                    storm_detected = true;
-                                    Some(5 - row)
-                                } else {
-                                    None
-                                }
-                            }
-                            Player::White => {
-                                if row > 3 {
-                                    storm_detected = true;
-                                    Some(row - 3)
-                                } else {
-                                    None
-                                }
-                            }
-                        };
-
-                        if let Some(advance) = progress {
-                            if advance >= 2 {
-                                // Check if our move blocks or responds to this storm
-                                if move_.to.col == file {
-                                    // Move is on the threatened file
-                                    let blocking_row = match player {
-                                        Player::Black => row + 1,
-                                        Player::White => row - 1,
-                                    };
-                                    if move_.to.row == blocking_row {
-                                        move_responds_to_storm = true;
-                                    }
-                                }
-
-                                // Check if move places defensive piece (gold, silver, pawn) near threatened area
-                                if matches!(
-                                    move_.piece_type,
-                                    PieceType::Gold
-                                        | PieceType::Silver
-                                        | PieceType::Pawn
-                                        | PieceType::PromotedSilver
-                                        | PieceType::PromotedPawn
-                                ) {
-                                    let distance = {
-                                        let dr = if move_.to.row > row {
-                                            move_.to.row - row
-                                        } else {
-                                            row - move_.to.row
-                                        };
-                                        let dc = if move_.to.col > file {
-                                            move_.to.col - file
-                                        } else {
-                                            file - move_.to.col
-                                        };
-                                        dr + dc
-                                    };
-
-                                    if distance <= 2 {
-                                        move_responds_to_storm = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
+            // Check if move places defensive piece (gold, silver, pawn) near threatened area
+            if matches!(
+                move_.piece_type,
+                PieceType::Gold
+                    | PieceType::Silver
+                    | PieceType::Pawn
+                    | PieceType::PromotedSilver
+                    | PieceType::PromotedPawn
+            ) {
+                let distance = move_.to.row.abs_diff(row) + move_.to.col.abs_diff(file);
+                if distance <= 2 {
+                    move_responds_to_storm = true;
                 }
             }
         }
@@ -6156,6 +6102,9 @@ impl MoveOrdering {
         // Get killer moves for current depth (Task 6.4: depth-aware)
         let killer_moves = self.get_current_killer_moves().cloned().unwrap_or_default();
 
+        // Board scans the quiet-move bonuses share, done once for all the moves.
+        let mut scan = QuietScan::default();
+
         // Compute deterministic sort keys for all moves
         // Use a tuple key to ensure total order: (negative_score, move_key, original_index)
         // Negative score because we want descending order (higher scores first)
@@ -6167,6 +6116,7 @@ impl MoveOrdering {
                 &killer_moves,
                 opponent_last_move,
                 board,
+                &mut scan,
             );
             // Create a deterministic key from move properties for tie-breaking
             let move_key = self.get_move_sort_key(&m);
@@ -6230,6 +6180,7 @@ impl MoveOrdering {
         killer_moves: &[Move],
         opponent_last_move: Option<&Move>,
         board: &crate::bitboards::BitboardBoard,
+        scan: &mut QuietScan,
     ) -> i32 {
         // Task 3.0: Check if this is the IID move (highest priority)
         if let Some(iid_mv) = iid_move {
@@ -6295,7 +6246,7 @@ impl MoveOrdering {
             return TIER_COUNTER;
         }
 
-        self.score_quiet_move_heuristics(move_, board).clamp(-QUIET_CAP, QUIET_CAP)
+        self.score_quiet_move_heuristics(move_, board, scan).clamp(-QUIET_CAP, QUIET_CAP)
     }
 
     /// Ordering score of a quiet move: history, then the positional bonuses.
@@ -6303,6 +6254,7 @@ impl MoveOrdering {
         &mut self,
         move_: &Move,
         board: &crate::bitboards::BitboardBoard,
+        scan: &mut QuietScan,
     ) -> i32 {
         // Check if this move has history score (medium priority)
         let history_score = self.score_history_move(move_);
@@ -6331,7 +6283,7 @@ impl MoveOrdering {
         }
         
         // Check if move responds to pawn storms
-        if let Some(storm_bonus) = self.score_storm_response_move(move_, board) {
+        if let Some(storm_bonus) = self.score_storm_response_move(move_, board, scan) {
             stability_bonus += storm_bonus;
         }
         
@@ -6341,12 +6293,12 @@ impl MoveOrdering {
         }
         
         // Check if move creates active counterplay (checks, rook trades) when opponent has dragon
-        if let Some(counterplay_bonus) = self.score_active_counterplay_move(move_, board) {
+        if let Some(counterplay_bonus) = self.score_active_counterplay_move(move_, board, scan) {
             stability_bonus += counterplay_bonus;
         }
         
         // Check if move creates vulnerabilities (e.g., ▲7六歩 leaving 8八 undefended)
-        let safety_penalty = self.check_move_safety(move_, board);
+        let safety_penalty = self.check_move_safety(move_, board, scan);
         
         // If stability bonuses are significant, return early with bonus (but subtract safety penalty)
         if stability_bonus > 0 || safety_penalty < 0 {
@@ -6370,10 +6322,11 @@ impl MoveOrdering {
         let history = self.score_history_move(move_);
         let see = if move_.is_capture { self.score_see_move(move_, board).ok() } else { None };
         let castle = self.score_castle_progress_move(move_, board);
-        let storm = self.score_storm_response_move(move_, board);
+        let mut scan = QuietScan::default();
+        let storm = self.score_storm_response_move(move_, board, &mut scan);
         let flank = self.score_flank_security_move(move_, board);
-        let counter = self.score_active_counterplay_move(move_, board);
-        let safety = self.check_move_safety(move_, board);
+        let counter = self.score_active_counterplay_move(move_, board, &mut scan);
+        let safety = self.check_move_safety(move_, board, &mut scan);
         let base = self.score_move(move_).unwrap_or(0);
         format!(
             "history={history} see={see:?} castle={castle:?} storm={storm:?} flank={flank:?} \
@@ -6390,6 +6343,7 @@ impl MoveOrdering {
         &self,
         move_: &Move,
         board: &crate::bitboards::BitboardBoard,
+        scan: &mut QuietScan,
     ) -> i32 {
         use crate::types::core::{PieceType, Position};
         
@@ -6434,39 +6388,8 @@ impl MoveOrdering {
                             };
                             
                             // Also check for defensive pieces
-                            let mut has_defensive = false;
-                            for row in 0..9 {
-                                for col in 0..9 {
-                                    let pos = Position::new(row, col);
-                                    if let Some(piece) = board.get_piece(pos) {
-                                        if piece.player == move_.player {
-                                            if matches!(piece.piece_type, PieceType::Gold | PieceType::Silver) {
-                                                let distance = {
-                                                    let dr = if row > from.row {
-                                                        row - from.row
-                                                    } else {
-                                                        from.row - row
-                                                    };
-                                                    let dc = if col > from.col {
-                                                        col - from.col
-                                                    } else {
-                                                        from.col - col
-                                                    };
-                                                    dr + dc
-                                                };
-                                                if distance <= 2 {
-                                                    has_defensive = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                                if has_defensive {
-                                    break;
-                                }
-                            }
-                            
+                            let has_defensive = scan.defender_near(board, move_.player, from);
+
                             is_castle_pos || has_defensive
                         };
                         
@@ -6483,26 +6406,8 @@ impl MoveOrdering {
         if move_.piece_type == PieceType::Bishop {
             // Check if this is an early move (first 8 moves)
             // We'll estimate this by checking if defensive pieces are developed
-            let defensive_pieces_developed = {
-                let mut count = 0;
-                for row in 0..9 {
-                    for col in 0..9 {
-                        let pos = Position::new(row, col);
-                        if let Some(piece) = board.get_piece(pos) {
-                            if piece.player == move_.player {
-                                if matches!(piece.piece_type, PieceType::Gold | PieceType::Silver) {
-                                    let start_row = if move_.player == crate::types::core::Player::Black { 8 } else { 0 };
-                                    if pos.row != start_row {
-                                        count += 1;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                count
-            };
-            
+            let defensive_pieces_developed = scan.developed_defenders(board, move_.player);
+
             // If defensive pieces not developed, this is likely an early bishop sortie
             if defensive_pieces_developed < 2 {
                 // Check if bishop is moving to exposed central square (5五, 2二, etc.)
@@ -6906,33 +6811,15 @@ impl MoveOrdering {
         &self,
         move_: &Move,
         board: &crate::bitboards::BitboardBoard,
+        scan: &mut QuietScan,
     ) -> Option<i32> {
-        let player = move_.player;
-        let opponent = player.opposite();
-        
+        let opponent = move_.player.opposite();
+
         // Check if opponent has a promoted rook/dragon on edge files (8 or 2)
-        let mut has_opponent_dragon = false;
-        let mut dragon_file = 0;
-        
-        for row in 0..9 {
-            for col in 0..9 {
-                let pos = crate::types::core::Position::new(row, col);
-                if let Some(piece) = board.get_piece(pos) {
-                    if piece.player == opponent && piece.piece_type == crate::types::core::PieceType::PromotedRook {
-                        let file = 9 - col;
-                        if file == 8 || file == 2 {
-                            has_opponent_dragon = true;
-                            dragon_file = file;
-                            break;
-                        }
-                    }
-                }
-            }
-            if has_opponent_dragon {
-                break;
-            }
-        }
-        
+        let dragon = scan.edge_dragon_file(board, opponent);
+        let has_opponent_dragon = dragon.is_some();
+        let dragon_file = dragon.unwrap_or(0);
+
         if !has_opponent_dragon {
             return None; // No dragon threat, no counterplay bonus needed
         }
@@ -14552,5 +14439,136 @@ mod tests {
         assert!(parallel_config.shared_history);
         assert!(parallel_config.shared_pv);
         assert!(!parallel_config.shared_killers);
+    }
+}
+
+/// Board scans shared by the quiet-move ordering bonuses, made at most once
+/// per ordering call: the board is the same for every move ordered. Each is
+/// the scan the bonus used to repeat for every move, with the same result.
+#[derive(Default)]
+struct QuietScan {
+    /// Per mover: whether the opponent's pawns storm its side, and those
+    /// advanced at least two ranks (row, column).
+    storm: [Option<(bool, Vec<(u8, u8)>)>; 2],
+    /// Per player: the file (1-9) of that player's first dragon on file 2 or 8.
+    edge_dragon: [Option<Option<u8>>; 2],
+    /// Per player: golds and silvers off their starting rank.
+    developed: [Option<i32>; 2],
+    /// Per player: whether a gold or silver is within two squares of this square.
+    defender_near: [Option<(Position, bool)>; 2],
+}
+
+impl QuietScan {
+    fn storm(
+        &mut self,
+        board: &crate::bitboards::BitboardBoard,
+        player: Player,
+    ) -> (bool, &[(u8, u8)]) {
+        let (detected, pawns) = self.storm[player as usize].get_or_insert_with(|| {
+            let opponent = player.opposite();
+            // Opponent pawns advancing on files 6, 7, 8 (for Black) or 0, 1, 2 (for White)
+            let threatened_files = match player {
+                Player::Black => [6u8, 7u8, 8u8],
+                Player::White => [0u8, 1u8, 2u8],
+            };
+            let mut detected = false;
+            let mut pawns = Vec::new();
+            for &file in &threatened_files {
+                for row in 0..9 {
+                    let Some(piece) = board.get_piece(Position::new(row, file)) else {
+                        continue;
+                    };
+                    if piece.player != opponent || piece.piece_type != PieceType::Pawn {
+                        continue;
+                    }
+                    let advance = match player {
+                        Player::Black if row < 5 => 5 - row,
+                        Player::White if row > 3 => row - 3,
+                        _ => continue,
+                    };
+                    detected = true;
+                    if advance >= 2 {
+                        pawns.push((row, file));
+                    }
+                }
+            }
+            (detected, pawns)
+        });
+        (*detected, pawns)
+    }
+
+    fn edge_dragon_file(
+        &mut self,
+        board: &crate::bitboards::BitboardBoard,
+        player: Player,
+    ) -> Option<u8> {
+        *self.edge_dragon[player as usize].get_or_insert_with(|| {
+            for row in 0..9 {
+                for col in 0..9 {
+                    if let Some(piece) = board.get_piece(Position::new(row, col)) {
+                        if piece.player == player && piece.piece_type == PieceType::PromotedRook {
+                            let file = 9 - col;
+                            if file == 8 || file == 2 {
+                                return Some(file);
+                            }
+                        }
+                    }
+                }
+            }
+            None
+        })
+    }
+
+    fn developed_defenders(
+        &mut self,
+        board: &crate::bitboards::BitboardBoard,
+        player: Player,
+    ) -> i32 {
+        *self.developed[player as usize].get_or_insert_with(|| {
+            let start_row = if player == Player::Black { 8 } else { 0 };
+            let mut count = 0;
+            for row in 0..9 {
+                for col in 0..9 {
+                    if let Some(piece) = board.get_piece(Position::new(row, col)) {
+                        if piece.player == player
+                            && matches!(piece.piece_type, PieceType::Gold | PieceType::Silver)
+                            && row != start_row
+                        {
+                            count += 1;
+                        }
+                    }
+                }
+            }
+            count
+        })
+    }
+
+    fn defender_near(
+        &mut self,
+        board: &crate::bitboards::BitboardBoard,
+        player: Player,
+        from: Position,
+    ) -> bool {
+        if let Some((sq, near)) = self.defender_near[player as usize] {
+            if sq == from {
+                return near;
+            }
+        }
+        let mut near = false;
+        'scan: for row in 0..9 {
+            for col in 0..9 {
+                if let Some(piece) = board.get_piece(Position::new(row, col)) {
+                    if piece.player == player
+                        && matches!(piece.piece_type, PieceType::Gold | PieceType::Silver)
+                        && row.abs_diff(from.row) + col.abs_diff(from.col) <= 2
+                    {
+                        near = true;
+                        break 'scan;
+                    }
+                }
+            }
+        }
+        self.defender_near[player as usize] = Some((from, near));
+        near
     }
 }

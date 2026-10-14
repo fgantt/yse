@@ -767,17 +767,18 @@ impl BitboardBoard {
         let defender = attacking_player.opposite();
         let t = target_pos.to_index() as u8;
         let pcs = |pt: PieceType| self.pieces[a][pt.to_u8() as usize];
-        for pt in [
-            PieceType::Pawn,
-            PieceType::Knight,
-            PieceType::Silver,
-            PieceType::Gold,
-            PieceType::PromotedPawn,
-            PieceType::PromotedLance,
-            PieceType::PromotedKnight,
-            PieceType::PromotedSilver,
+        // Promoted minors move like a gold (their tables are the gold table).
+        let golds = pcs(PieceType::Gold)
+            | pcs(PieceType::PromotedPawn)
+            | pcs(PieceType::PromotedLance)
+            | pcs(PieceType::PromotedKnight)
+            | pcs(PieceType::PromotedSilver);
+        for (pt, p) in [
+            (PieceType::Pawn, pcs(PieceType::Pawn)),
+            (PieceType::Knight, pcs(PieceType::Knight)),
+            (PieceType::Silver, pcs(PieceType::Silver)),
+            (PieceType::Gold, golds),
         ] {
-            let p = pcs(pt);
             if !p.is_empty()
                 && !(self.attack_tables.get_attack_pattern(t, pt, defender) & p).is_empty()
             {

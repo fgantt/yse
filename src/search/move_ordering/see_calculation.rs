@@ -193,11 +193,19 @@ pub fn see_quiet(move_: &Move, board: &BitboardBoard) -> i32 {
 struct AttackList {
     items: [(Position, Piece); 48],
     len: usize,
+    /// Squares ever listed, plus the target. A listed piece leaves the list
+    /// only when it captures, and its square then leaves the occupancy the
+    /// sliders are found under, so for an occupied square "seen" is "listed".
+    seen: u128,
 }
 
 impl AttackList {
-    fn new() -> Self {
-        Self { items: [(Position::new(0, 0), Piece::new(PieceType::Pawn, Player::Black)); 48], len: 0 }
+    fn new(square: Position) -> Self {
+        Self {
+            items: [(Position::new(0, 0), Piece::new(PieceType::Pawn, Player::Black)); 48],
+            len: 0,
+            seen: 1u128 << square.to_index(),
+        }
     }
 
     #[inline]
@@ -206,16 +214,23 @@ impl AttackList {
     }
 
     #[inline]
-    fn contains(&self, pos: Position) -> bool {
-        self.as_slice().iter().any(|(p, _)| *p == pos)
-    }
-
-    #[inline]
     fn push(&mut self, item: (Position, Piece)) {
         // At most 40 pieces exist; the bound is never reached.
         if self.len < self.items.len() {
             self.items[self.len] = item;
             self.len += 1;
+            self.seen |= 1u128 << item.0.to_index();
+        }
+    }
+
+    /// Appends `player`'s `pt` on the squares of `bb` not yet seen, in square order.
+    #[inline]
+    fn push_all(&mut self, bb: crate::types::Bitboard, player: Player, pt: PieceType) {
+        let mut v = bb.to_u128() & !self.seen;
+        while v != 0 {
+            let sq = v.trailing_zeros() as u8;
+            v &= v - 1;
+            self.push((Position::from_index(sq), Piece::new(pt, player)));
         }
     }
 
@@ -235,18 +250,8 @@ impl AttackList {
         // colours and gave golds, silvers and promoted minors a king's eight
         // squares, so SEE saw attackers that were not there and missed ones that
         // were.
-        use crate::bitboards::integration::GlobalOptimizer;
         let pieces = board.get_pieces();
-        let mut found = Self::new();
-        let push_all = |mut bb: crate::types::Bitboard, player: Player, pt: PieceType, found: &mut Self| {
-            while let Some(sq) = GlobalOptimizer::bit_scan_forward(bb) {
-                bb &= crate::types::Bitboard::from_u128(bb.to_u128() - 1);
-                let pos = Position::from_index(sq);
-                if pos != square && !found.contains(pos) {
-                    found.push((pos, Piece::new(pt, player)));
-                }
-            }
-        };
+        let mut found = Self::new(square);
         for player in [Player::Black, Player::White] {
             let own = &pieces[player as usize];
             // Step attacks, looked up from the target: pieces are point-symmetric
@@ -262,20 +267,35 @@ impl AttackList {
                 PieceType::PromotedKnight,
                 PieceType::PromotedSilver,
             ] {
-                let bb = board.get_attack_pattern_precomputed(square, pt, player.opposite())
-                    & own[pt.as_index()];
-                push_all(bb, player, pt, &mut found);
+                let bb = own[pt.as_index()];
+                if bb.is_empty() {
+                    continue;
+                }
+                found.push_all(
+                    board.get_attack_pattern_precomputed(square, pt, player.opposite()) & bb,
+                    player,
+                    pt,
+                );
             }
             // The king, and the one-step moves of dragon and horse.
             let adjacent = board.get_attack_pattern_precomputed(square, PieceType::King, player);
             for pt in [PieceType::King, PieceType::PromotedRook, PieceType::PromotedBishop] {
-                push_all(adjacent & own[pt.as_index()], player, pt, &mut found);
+                found.push_all(adjacent & own[pt.as_index()], player, pt);
             }
         }
         // Sliders (rook, bishop, dragon, horse rays, lance) under the current occupancy.
         found.add_sliders(board, square, board.get_occupied_bitboard());
-        // Least valuable first for SEE.
-        found.items[..found.len].sort_by_key(|(_, p)| p.piece_type.base_value());
+        // Least valuable first for SEE: a stable insertion sort.
+        for i in 1..found.len {
+            let item = found.items[i];
+            let v = item.1.piece_type.base_value();
+            let mut j = i;
+            while j > 0 && found.items[j - 1].1.piece_type.base_value() > v {
+                found.items[j] = found.items[j - 1];
+                j -= 1;
+            }
+            found.items[j] = item;
+        }
         found
     }
 
@@ -286,9 +306,22 @@ impl AttackList {
             return;
         };
         let to_idx = to.to_index();
-        let rook_rays = magic.get_attacks(to_idx, PieceType::Rook, occupied);
-        let bishop_rays = magic.get_attacks(to_idx, PieceType::Bishop, occupied);
+        let rook_rays = magic.get_attacks(to_idx, PieceType::Rook, occupied).to_u128();
+        let bishop_rays = magic.get_attacks(to_idx, PieceType::Bishop, occupied).to_u128();
         let pieces = board.get_pieces();
+        let unseen = occupied.to_u128() & !self.seen;
+        let bb = |player: Player, pt: PieceType| pieces[player as usize][pt.as_index()].to_u128();
+        let straight = |player: Player| {
+            bb(player, PieceType::Rook) | bb(player, PieceType::PromotedRook) | bb(player, PieceType::Lance)
+        };
+        let diagonal =
+            |player: Player| bb(player, PieceType::Bishop) | bb(player, PieceType::PromotedBishop);
+        let any = ((straight(Player::Black) | straight(Player::White)) & rook_rays
+            | (diagonal(Player::Black) | diagonal(Player::White)) & bishop_rays)
+            & unseen;
+        if any == 0 {
+            return;
+        }
         for player in [Player::Black, Player::White] {
             for pt in [
                 PieceType::Rook,
@@ -301,11 +334,10 @@ impl AttackList {
                     PieceType::Bishop | PieceType::PromotedBishop => bishop_rays,
                     _ => rook_rays,
                 };
-                let mut bb = pieces[player as usize][pt.as_index()] & rays & occupied;
-                while let Some(sq) =
-                    crate::bitboards::integration::GlobalOptimizer::bit_scan_forward(bb)
-                {
-                    bb &= crate::types::Bitboard::from_u128(bb.to_u128() - 1);
+                let mut v = bb(player, pt) & rays & any;
+                while v != 0 {
+                    let sq = v.trailing_zeros() as u8;
+                    v &= v - 1;
                     let pos = Position::from_index(sq);
                     if pt == PieceType::Lance {
                         if pos.col != to.col {
@@ -317,9 +349,7 @@ impl AttackList {
                             continue;
                         }
                     }
-                    if pos != to && !self.contains(pos) {
-                        self.push((pos, Piece::new(pt, player)));
-                    }
+                    self.push((pos, Piece::new(pt, player)));
                 }
             }
         }
@@ -377,7 +407,11 @@ fn swap_value(move_: &Move, board: &BitboardBoard, first_gain: i32) -> i32 {
         let (used_pos, used_piece) = pieces.remove(idx);
         on_square = used_piece.piece_type.base_value();
         occupied &= !crate::types::Bitboard::from_u128(1u128 << used_pos.to_index());
-        pieces.add_sliders(board, to, occupied);
+        // A knight stands on no line through the target: lifting it uncovers
+        // nothing.
+        if used_piece.piece_type != PieceType::Knight {
+            pieces.add_sliders(board, to, occupied);
+        }
         side = side.opposite();
     }
 

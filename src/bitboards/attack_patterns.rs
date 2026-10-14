@@ -171,6 +171,7 @@ impl AttackTables {
     }
 
     /// Get attack pattern for a piece at a given square
+    #[inline]
     pub fn get_attack_pattern(
         &self,
         square: u8,
