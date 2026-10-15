@@ -251,3 +251,27 @@ deterministic): stable network 57 / 81 mistakes repeated, 5 / 30 controls broken
 
 The deployed network was trained on 14.0M positions (Session 26: 9.89M teacher corpus plus our
 own games), not the 67,000 of `nnue_corpus_yaneura_d10.jsonl` that CLAUDE.md names.
+
+### A four-piece network: no gain on openings it had not seen
+
+Teacher self-play from the four-piece start is useless as data (Black wins 95%, evals +2,900 to
++3,500). Instead, positions our engine actually reaches against YaneuraOu, labelled by
+YaneuraOu depth 14 (`scripts/label_games.py`): 2,040 ladder games (193,696 positions, 81%
+> +2,500) and 322 games against YaneuraOu at 300,000 nodes (us 4 threads, 500 ms, seeds
+3701-3704; 28,404 positions; we won 19 of 161 as Black). Mix `corpus_s35/mix_4mai.jsonl`:
+the 1.98M `value_sub` base + ladder x2 + vs-300k x6 + ladder positions with |eval| < 2,500 x4
+= 2.62M. Fine-tuned from `nnue/default.bin`, 2 epochs, lr 0.001, Session 30 flags ->
+`weights/session35/yon.bin`; control on the base alone -> `control.bin`.
+
+| network | screen d12 mistakes / 81 | controls >= 250 | as Black vs 300k, seeds 3701-04 (in training) | seeds 3901-02 (fresh) |
+|---|---|---|---|---|
+| stable | 57 | 5 | 23 / 161 | 21 / 160 |
+| control | 54 | 3 | - | - |
+| yon | 44 | 4 | 33 / 161 | 22 / 160 |
+
+(`matches/s35/net/`; 4 threads, 500 ms, YaneuraOu 300k nodes one thread, our games as Black
+paired by game index.) On the training seeds yon won 29 games stable lost, against 19;
+**on fresh seeds 16 against 17**. The network memorised the openings it was trained on and
+learned nothing that transfers. The screen's 57 -> 44 did not predict games either; the screen
+positions are from the same kind of game but not in training, so it measures something, just
+not strength. Not shipped.
