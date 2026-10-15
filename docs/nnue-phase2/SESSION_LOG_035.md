@@ -275,3 +275,30 @@ paired by game index.) On the training seeds yon won 29 games stable lost, again
 learned nothing that transfers. The screen's 57 -> 44 did not predict games either; the screen
 positions are from the same kind of game but not in training, so it measures something, just
 not strength. Not shipped.
+
+### More data, and a target that sees past +2,000 (`weights/session35/wide.bin`)
+
+The trainer's target is `sigmoid(clamp(eval, +/-2000) / 410)`: every position above +2,000
+gets the same target, and 81% of four-piece ladder positions are above +2,500, which is where
+the user's games are lost. 2,440 more games against YaneuraOu 300k (8 runs, us 2 threads,
+500 ms, seeds 4001-4008, `corpus_s35/vs300k_r3_*.csv`; games sharing their first 8 moves with
+a test game dropped) labelled at depth 14: 217,104 positions (`vs300k_r3_d14.jsonl`). Mix
+`mix_4mai_big.jsonl`: base + ladder x2 + all 245,508 vs-300k positions x3 + erosion x4 = 3.19M.
+Two networks, otherwise Session 30 flags, from `nnue/default.bin`, 2 epochs:
+
+| network | target | as Black vs 300k, fresh seeds 3901-02 | paired vs stable (only-net / only-stable) |
+|---|---|---|---|
+| stable | - | 21 / 160 | - |
+| yon (above) | clamp 2000, scale 410, outcome 0.3 | 22 | 17 / 16 |
+| big | clamp 2000, scale 410, outcome 0.3 | 24 | 21 / 18 |
+| **wide** | **clamp 6000, scale 1000, outcome 0** | **36** | **29 / 14 (p ~ 0.02)** |
+
+More data alone did nothing; the wider target is the first network change in Session 35 to
+win more games against YaneuraOu on openings it was not trained on (+71%, bar set before the
+result: 32).
+
+Even games (self-play, wide vs stable network, same binary, 4 x 4 threads, 250 ms, SPRT
+[-40, 0], `matches/s35/wide/even_*`): one FAIL, one PASS, two at the 300-game cap; pooled
+**417-4-463, -18 +/- 23 Elo** over 884 games. Probably a little weaker in even games, not
+established. Not installed: the trade (four-piece +71% wins vs YaneuraOu, even games ~-18) is
+the user's call.
