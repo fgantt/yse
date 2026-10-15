@@ -302,3 +302,9 @@ Even games (self-play, wide vs stable network, same binary, 4 x 4 threads, 250 m
 **417-4-463, -18 +/- 23 Elo** over 884 games. Probably a little weaker in even games, not
 established. Not installed: the trade (four-piece +71% wins vs YaneuraOu, even games ~-18) is
 the user's call.
+
+**Installed 2026-10-15 at the user's request**: `nnue/default.bin` is now `wide.bin` (every
+engine that does not set `NNUEFile`, including `engines/usi-engine-stable`, loads it); the
+Session 26 network is kept as `nnue/default-s26.bin`. Experiments that need the old network
+must name it. The user's goal is even games against YaneuraOu; four-piece games are their
+practice, so the wide target is a lead for even-game training, not a four-piece special.
