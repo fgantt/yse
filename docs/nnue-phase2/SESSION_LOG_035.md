@@ -175,3 +175,30 @@ SPRT, bits 7 on top of losing-check pruning against losing-check pruning alone: 
 tree about as much as 7, so the extra reduction is not what shrank it; whether the pruning
 uses lose too is untested. Our futility and move-count margins were tuned without the flag;
 the flag may need them retuned to help.
+
+## Screens before matches
+
+Matches take hours per idea and most ideas fail, so two cheaper screens were checked against
+two known results: losing-check pruning (SPRT +95.6, PASS) and the improving flag (-34.9,
+FAIL). Script `matches/s35/screen/` (rows and logs).
+
+**Neutral-set move loss: useless as a screen.** 150 held-out positions, 16 threads, 1 s/move,
+YaneuraOu depth 10 as judge. Mean loss (cp): before losing-check pruning 83, with it 121, the
+same binary again 129, improving 108. The two runs of one binary differ by 8 cp and the worst
+engine (before pruning) scores best; medians are all 0. As in Session 34, it separates nothing.
+
+**Fast games: right on both, twice each.** Four matches at once, 4 threads each, 250 ms/move,
+SPRT [0, 40], two seeds per comparison:
+
+| comparison | seed | result | verdict | wall time |
+|---|---|---|---|---|
+| losing-check pruning vs before | 3601 | 227-5-178, +41.7 ± 34.1 | PASS at 410 games | 80 min |
+| | 3602 | 105-5-70, +68.4 ± 50.9 | PASS at 180 games | 28 min |
+| improving vs without | 3603 | 126-3-137, -14.4 ± 42.5 | FAIL at 266 games | 42 min |
+| | 3604 | 63-1-82, -45.5 ± 59.5 | FAIL at 146 games | 22 min |
+
+The full gates took about 1.5 h (82 games) and 2.5 h (150 games) for one verdict each; the
+fast screen gave four in 80 min, and each of its four slots can test a different candidate.
+Two known results is a small validation set: treat a fast-screen verdict as a filter, run the
+16-thread 1 s SPRT against stable only on survivors, and keep checking the screen's verdicts
+against the full gates as they accumulate. None of this predicts the YaneuraOu rung.
