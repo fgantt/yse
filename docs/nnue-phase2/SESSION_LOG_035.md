@@ -39,9 +39,13 @@
 > 7. **The "improving" flag failed** (`6e1642b`, `SHOGI_IMPROVING`, default 0): all three
 >    uses shrink the depth-7 tree 24% but scored **-34.9 ± 53.5, 66-3-81, FAIL after 150
 >    games** (`matches/s35/imp_sprt.log`). A smaller tree is not a better one.
-> 8. Stable is unchanged (`a115260`, `engines/usi-engine-stable`). The stack (speed + node
->    count + losing-check pruning) is not yet gated against stable or on the YaneuraOu
->    four-piece rung.
+> 8. **Shipped: stable is now `db7eae0`** (speed stack + every node counted + losing-check
+>    pruning; old stable kept as `engines/usi-engine-stable-a115260`). SPRT vs `a115260`
+>    **+62.4 ± 47.6, 104-4-72, PASS at 180 games** (`matches/s35/stack_sprt.log`).
+>    Four-piece vs YaneuraOu 20k nodes, Black games: **50-9-1, 84.2%** vs stable's 83.3%
+>    (same seed 2930; paired: both won 43, each alone 7, both lost 3;
+>    `matches/ladder_s35/yonmai20k_t16_stack.*`). **Unchanged: the second search gain in a
+>    row (after Session 34's +202) that does not transfer to YaneuraOu.**
 
 ---
 
