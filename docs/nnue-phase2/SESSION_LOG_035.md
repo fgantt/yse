@@ -202,3 +202,52 @@ fast screen gave four in 80 min, and each of its four slots can test a different
 Two known results is a small validation set: treat a fast-screen verdict as a filter, run the
 16-thread 1 s SPRT against stable only on survivors, and keep checking the screen's verdicts
 against the full gates as they accumulate. None of this predicts the YaneuraOu rung.
+
+## The user's games: what loses them (2026-10-15)
+
+A four-piece loss in 58 moves on the new stable (`matches/user_games/2026-10-15_4mai_loss58.txt`)
+after a day of self-play gains. The user: the measurements did not reflect their games. Right:
+
+- **The yardstick was wrong.** The four-piece rung gives YaneuraOu 20,000 nodes; the GUI gives
+  it 4 threads, 1 GB, 60 min + 10 s (millions of nodes a move). We score 84% on the rung, so it
+  barely moves, and it never shows a strong opponent's slow drop attack.
+- **"10 s per move" probes were not the game either.** Our allocation (`src/usi.rs`
+  `allocate_ms`) is remaining/30 + byoyomi every move: ~130 s on move 1, ~80 s at move 16,
+  ~63 s at 25, ~33 s at 50. The user saw 43 of 60 minutes used by move 57, YaneuraOu 33.
+
+### Test set from the user's games (`scripts/loss_set.py`, `matches/s35/losses/`)
+
+All 728 of our moves in the 11 saved GUI four-piece games (9 losses, 2 wins) judged by
+YaneuraOu (12-16 threads, 20M nodes; a played move's score by searching the position after
+it, since `searchmoves` ignores drops). Opening moves 0-19: mean loss 43-84 cp, 8 mistakes
+>= 250 cp. **Moves 20-59 lose the games**: a run of 250-1,000 cp mistakes from +2,000-3,000,
+then collapse. The two wins have none. Set: 81 mistakes (>= 250 cp, game open:
+-1,500 < best < 8,000) and 30 controls (moves 15-60, within 30 cp of YaneuraOu).
+
+Stable `db7eae0`, 16 threads, each position searched for 2x its GUI allocation, the move at
+each time read from the iterations:
+
+| time | mistakes repeated (>= 250) | controls broken |
+|---|---|---|
+| 0.25x GUI | 54 / 81 | 2 / 30 |
+| 0.5x | 48 | 2 |
+| 1x (~60 s, depth 20+) | 45 | 2 |
+| 2x | 43 | 3 |
+
+YaneuraOu alone, one thread, on the same positions: 1,000 nodes 37 / 81; 10,000 nodes 32;
+100,000 21; 1,000,000 13. (The judge is YaneuraOu, which flatters its own shallow choices.)
+**A minute of our search plays these positions about like YaneuraOu at a few thousand
+nodes, and more time stops helping past half the allocation.** Time allocation is not the
+lever (a plan moving opening time to the middlegame was written and discarded); the
+evaluation is: deeper search on it keeps choosing the same wrong moves.
+
+Mistakes by kind: no clean pattern (YaneuraOu's choice stays in our camp in 25 / 81; we
+played into the enemy camp in 14 / 81).
+
+Fixed-depth screen for networks (`loss_set.py fixed`, depth 12, one thread, 12 in parallel,
+deterministic): stable network 57 / 81 mistakes repeated, 5 / 30 controls broken.
+
+### Correction
+
+The deployed network was trained on 14.0M positions (Session 26: 9.89M teacher corpus plus our
+own games), not the 67,000 of `nnue_corpus_yaneura_d10.jsonl` that CLAUDE.md names.
