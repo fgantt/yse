@@ -308,3 +308,19 @@ engine that does not set `NNUEFile`, including `engines/usi-engine-stable`, load
 Session 26 network is kept as `nnue/default-s26.bin`. Experiments that need the old network
 must name it. The user's goal is even games against YaneuraOu; four-piece games are their
 practice, so the wide target is a lead for even-game training, not a four-piece special.
+
+### Even games against YaneuraOu (the real goal), `matches/s35/even/`
+
+Stable binary, 4 threads, 500 ms/move vs YaneuraOu one thread, node-limited; startpos with 2
+random plies, seed 4201, 120 games (60 opening pairs, both colours), same openings for both
+networks:
+
+| YaneuraOu nodes | wide | s26 (old default) | paired (wide better / s26 better) |
+|---|---|---|---|
+| 3,000 (~10 ms/move) | 36-0-84, 30.0% (-147) | 51-0-69, 42.5% (-53) | 23 / 38 |
+| 10,000 (~20 ms/move) | 10-0-110, 8.3% (-417) | 4-0-116, 3.3% (-585) | 10 / 4 |
+
+**Where we stand:** our engine at 4 threads and 500 ms per move is roughly YaneuraOu at 3,000
+nodes on one thread (a few ms); at 10,000 nodes it wins ~5%. **The wide network is probably
+worse in even games** at the 50% point (23 vs 38 pairs, p ~ 0.06; self-play -18 +/- 23); its
+better 10k score is from 14 pairs.
