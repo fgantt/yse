@@ -181,6 +181,35 @@ impl MoveGenerator {
         legal_moves
     }
 
+    /// Whether `player` has a legal move: [`Self::generate_legal_moves`] with the
+    /// same legality test, stopping at the first legal move. The search's
+    /// mate-in-one test asks this after every checking move it tries.
+    pub fn has_legal_move(
+        &self,
+        board: &BitboardBoard,
+        player: Player,
+        captured_pieces: &CapturedPieces,
+    ) -> bool {
+        let is_in_check = board.is_king_in_check(player, captured_pieces);
+        let filter = MoveTestFilter::new(board, player, is_in_check, captured_pieces);
+        let mut scratch = board.clone();
+        let mut moves = Vec::with_capacity(128);
+        self.generate_all_piece_moves_into(board, player, &mut moves);
+        if moves.iter().any(|m| filter.test(&mut scratch, m, player, captured_pieces).0) {
+            return true;
+        }
+        moves.clear();
+        let drop_squares = if is_in_check { filter.evasion_targets } else { u128::MAX };
+        self.generate_drop_moves_masked_into(
+            board,
+            player,
+            captured_pieces,
+            |_| drop_squares,
+            &mut moves,
+        );
+        moves.iter().any(|m| filter.test(&mut scratch, m, player, captured_pieces).0)
+    }
+
     /// Number of `player`'s legal board moves that capture, plus the number that
     /// promote (a capturing promotion counts twice), with no pieces in hand.
     ///

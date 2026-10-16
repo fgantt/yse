@@ -185,6 +185,14 @@ impl SearchEngine {
             );
         }
 
+        let hist = super::lean_hist::hist_uses();
+        if hist != 0 {
+            super::lean_hist::with(|h| {
+                h.enter(ply, prev_move);
+                h.clear_child_killers(ply);
+            });
+        }
+
         self.search_statistics.increment_nodes();
         self.core_search_metrics.total_nodes += 1;
         self.search_statistics.update_seldepth(ply.clamp(0, 255) as u8);
@@ -285,9 +293,77 @@ impl SearchEngine {
             }
         }
 
-        // Internal iterative deepening: a PV node without a table move.
+        // ProbCut: a capture whose reduced search clears beta by a margin
+        // would almost surely clear beta at full depth.
+        if prunable && lean_probcut() && depth >= 5 && beta.abs() < MATE_THRESHOLD {
+            let pc_beta = beta + 200;
+            let tt_says_below = tt_entry.as_ref().is_some_and(|e| {
+                e.depth as i32 >= depth - 3
+                    && e.flag != TranspositionFlag::LowerBound
+                    && mate_score_from_tt(e.score, ply) < pc_beta
+            });
+            if !tt_says_below {
+                let captures =
+                    self.move_generator.generate_legal_captures(board, player, captured_pieces);
+                for mv in &captures {
+                    let see =
+                        crate::search::move_ordering::see_calculation::calculate_see_internal(
+                            mv, board,
+                        );
+                    if static_eval + see < pc_beta {
+                        continue;
+                    }
+                    let move_info = board.make_move_with_info(mv);
+                    self.nnue_make_move(&move_info);
+                    let mut new_captured = captured_pieces.clone();
+                    if let Some(ref c) = move_info.captured_piece {
+                        new_captured.add_piece(c.piece_type, player);
+                    }
+                    let path_len = hash_history.len();
+                    let mut v = -self.lean_q_entry(
+                        board,
+                        &new_captured,
+                        player.opposite(),
+                        -pc_beta,
+                        -pc_beta + 1,
+                        start_time,
+                        time_limit_ms,
+                    );
+                    hash_history.truncate(path_len);
+                    if v >= pc_beta {
+                        v = -self.lean_node(
+                            board,
+                            &new_captured,
+                            player.opposite(),
+                            depth - 4,
+                            -pc_beta,
+                            -pc_beta + 1,
+                            start_time,
+                            time_limit_ms,
+                            hash_history,
+                            !cut_node,
+                            true,
+                            Some(mv),
+                        );
+                        hash_history.truncate(path_len);
+                    }
+                    self.nnue_unmake_move();
+                    board.unmake_move(&move_info);
+                    if self.search_aborted {
+                        return alpha;
+                    }
+                    if v >= pc_beta {
+                        return v - (pc_beta - beta);
+                    }
+                }
+            }
+        }
+
+        // Internal iterative deepening: a PV node without a table move. With
+        // `SHOGI_LEAN_IIR`, any node without one is searched a ply shallower instead.
         let mut tt_move = tt_move;
-        if tt_move.is_none() && pv_node && depth >= 5 {
+        let depth = if lean_iir() && tt_move.is_none() && depth >= 4 { depth - 1 } else { depth };
+        if !lean_iir() && tt_move.is_none() && pv_node && depth >= 5 {
             self.lean_node(
                 board,
                 captured_pieces,
@@ -310,23 +386,38 @@ impl SearchEngine {
             // No legal move is a loss in shogi, in check or not.
             return MATED_SCORE + ply;
         }
+        // Mate in one: a checking move that leaves the opponent no legal reply.
+        // Found by search too, unless pruning drops it first -- a checking drop
+        // that SEE scores as losing material is pruned like any other move.
+        if lean_mate1() {
+            if let Some(score) = self.lean_mate_in_one(board, captured_pieces, player, &legal_moves, ply)
+            {
+                return score;
+            }
+        }
         if diag() {
             let d = (depth as usize).min(15);
             DIAG_LEGAL[d].fetch_add(legal_moves.len() as u64, Ordering::Relaxed);
             DIAG_MOVE_NODES[d].fetch_add(1, Ordering::Relaxed);
         }
-        self.initialize_move_orderer();
-        let moves = self.order_moves_for_negamax(
-            &legal_moves,
-            board,
-            captured_pieces,
-            player,
-            depth.clamp(1, 255) as u8,
-            alpha,
-            beta,
-            tt_move.as_ref(),
-            prev_move,
-        );
+        let moves = if hist & 1 != 0 {
+            super::lean_hist::with(|h| h.order(&legal_moves, board, tt_move.as_ref(), ply))
+        } else {
+            self.initialize_move_orderer();
+            self.order_moves_for_negamax(
+                &legal_moves,
+                board,
+                captured_pieces,
+                player,
+                depth.clamp(1, 255) as u8,
+                alpha,
+                beta,
+                tt_move.as_ref(),
+                prev_move,
+            )
+        };
+        let mut quiets_tried: Vec<Move> = Vec::new();
+        let mut captures_tried: Vec<Move> = Vec::new();
 
         let alpha_orig = alpha;
         let mut best_score = -INF;
@@ -359,6 +450,14 @@ impl SearchEngine {
                 && !search_toggles().no_pruning
             {
                 if quiet {
+                    // Quiet moves with a bad record, near the leaves.
+                    if hist & 4 != 0
+                        && !pv_node
+                        && depth <= 3
+                        && super::lean_hist::with(|h| h.quiet_score(mv, ply)) < -4000 * depth
+                    {
+                        continue;
+                    }
                     // Late move pruning.
                     let lmp_count = (3 + (depth * depth) as usize) / (1 + usize::from(!improving_for(2)));
                     if !pv_node && depth <= 8 && move_count > lmp_count {
@@ -438,8 +537,16 @@ impl SearchEngine {
                     if !improving_for(4) {
                         r += 1;
                     }
-                    if in_check || self.is_killer_move(mv) {
+                    let killer = if hist & 1 != 0 {
+                        super::lean_hist::with(|h| h.is_killer(mv, ply))
+                    } else {
+                        self.is_killer_move(mv)
+                    };
+                    if in_check || killer {
                         r -= 1;
+                    }
+                    if hist & 2 != 0 {
+                        r -= super::lean_hist::with(|h| h.quiet_score(mv, ply)) / 8000;
                     }
                     r = r.clamp(0, new_depth - 1);
                 }
@@ -503,6 +610,13 @@ impl SearchEngine {
             if self.search_aborted {
                 return best_score.max(alpha_orig);
             }
+            if hist & 1 != 0 {
+                if mv.is_capture {
+                    captures_tried.push(mv.clone());
+                } else if quiet {
+                    quiets_tried.push(mv.clone());
+                }
+            }
 
             if score > best_score {
                 best_score = score;
@@ -515,7 +629,11 @@ impl SearchEngine {
                             DIAG_CUT_INDEX[cut_index_bucket(move_count - 1)]
                                 .fetch_add(1, Ordering::Relaxed);
                         }
-                        if quiet {
+                        if hist & 1 != 0 {
+                            super::lean_hist::with(|h| {
+                                h.cutoff(mv, &quiets_tried, &captures_tried, depth, ply);
+                            });
+                        } else if quiet {
                             self.update_killer_moves(mv.clone());
                             let d = depth.clamp(1, 255) as u8;
                             self.advanced_move_orderer.set_current_depth(d);
@@ -564,6 +682,52 @@ impl SearchEngine {
         );
         self.maybe_buffer_tt_store(entry, d, flag);
         best_score
+    }
+}
+
+/// Whether nodes without a table move are reduced a ply (`SHOGI_LEAN_IIR=1`).
+fn lean_iir() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_LEAN_IIR", false))
+}
+
+/// Whether non-PV nodes try ProbCut (`SHOGI_LEAN_PROBCUT=1`).
+fn lean_probcut() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_LEAN_PROBCUT", false))
+}
+
+/// Whether main-search nodes test for a mate in one (`SHOGI_LEAN_MATE1=1`).
+fn lean_mate1() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_LEAN_MATE1", false))
+}
+
+impl SearchEngine {
+    /// The mate score if one of `legal_moves` checkmates at once.
+    fn lean_mate_in_one(
+        &mut self,
+        board: &mut BitboardBoard,
+        captured_pieces: &CapturedPieces,
+        player: Player,
+        legal_moves: &[Move],
+        ply: i32,
+    ) -> Option<i32> {
+        for mv in legal_moves.iter().filter(|m| m.gives_check) {
+            let info = board.make_move_with_info(mv);
+            let mut after = captured_pieces.clone();
+            if let Some(ref c) = info.captured_piece {
+                after.add_piece(c.piece_type, player);
+            } else if mv.from.is_none() {
+                after.remove_piece(mv.piece_type, player);
+            }
+            let mate = !self.move_generator.has_legal_move(board, player.opposite(), &after);
+            board.unmake_move(&info);
+            if mate {
+                return Some(-(MATED_SCORE + ply + 1));
+            }
+        }
+        None
     }
 }
 

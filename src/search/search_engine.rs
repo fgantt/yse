@@ -751,6 +751,8 @@ fn same_position(entry: u64, hash: u64) -> bool {
 mod lazy_smp;
 #[path = "lean.rs"]
 mod lean;
+#[path = "lean_hist.rs"]
+mod lean_hist;
 pub use lazy_smp::{lazy_smp_enabled, set_lazy_smp};
 pub use lean::{lean_enabled, set_lean_search};
 
