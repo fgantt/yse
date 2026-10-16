@@ -193,4 +193,11 @@ fn main() {
             }
         }
     }
+    {
+        use shogi_engine::search::search_engine::{SE_EXT, SE_MULTICUT, SE_TESTS};
+        let t = SE_TESTS.load(Ordering::Relaxed).max(1);
+        println!("singular tests {t}  extended {:.1}%  multicut {:.1}%",
+            100.0 * SE_EXT.load(Ordering::Relaxed) as f64 / t as f64,
+            100.0 * SE_MULTICUT.load(Ordering::Relaxed) as f64 / t as f64);
+    }
 }

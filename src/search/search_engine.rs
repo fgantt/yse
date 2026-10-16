@@ -754,7 +754,7 @@ mod lean;
 #[path = "lean_hist.rs"]
 mod lean_hist;
 pub use lazy_smp::{lazy_smp_enabled, set_lazy_smp};
-pub use lean::{lean_enabled, set_lean_search};
+pub use lean::{lean_enabled, set_lean_search, SE_EXT, SE_MULTICUT, SE_TESTS};
 
 pub(crate) fn search_toggles() -> SearchToggles {
     static TOGGLES: std::sync::OnceLock<SearchToggles> = std::sync::OnceLock::new();

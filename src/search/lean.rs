@@ -427,14 +427,14 @@ impl SearchEngine {
         // move's score in a reduced search, the table move gets one more ply.
         // If even the others reach beta, more than one move cuts: return.
         let mut singular = false;
-        if lean_se() && excluded.is_none() && depth >= 6 {
+        if lean_se() && excluded.is_none() && depth >= se_param("SHOGI_LEAN_SE_DEPTH", 6) {
             if let (Some(e), Some(ttm)) = (tt_entry.as_ref(), tt_move.as_ref()) {
                 let s = mate_score_from_tt(e.score, ply);
                 if e.depth as i32 >= depth - 3
                     && e.flag != TranspositionFlag::UpperBound
                     && s.abs() < MATE_THRESHOLD
                 {
-                    let sing_beta = s - 2 * depth;
+                    let sing_beta = s - se_param("SHOGI_LEAN_SE_MARGIN", 2) * depth;
                     set_excluded(ply, Some(ttm.clone()));
                     // The same node again: off the path, or it would be a repetition.
                     hash_history.pop();
@@ -459,9 +459,12 @@ impl SearchEngine {
                     if self.search_aborted {
                         return alpha;
                     }
+                    SE_TESTS.fetch_add(1, Ordering::Relaxed);
                     if v < sing_beta {
+                        SE_EXT.fetch_add(1, Ordering::Relaxed);
                         singular = true;
                     } else if sing_beta >= beta {
+                        SE_MULTICUT.fetch_add(1, Ordering::Relaxed);
                         return sing_beta;
                     }
                 }
@@ -743,6 +746,22 @@ impl SearchEngine {
 }
 
 /// Whether the table move may get a singular extension (`SHOGI_LEAN_SE=1`).
+pub static SE_TESTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static SE_EXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+pub static SE_MULTICUT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Singular-extension tuning: `SHOGI_LEAN_SE_DEPTH` (minimum depth) and
+/// `SHOGI_LEAN_SE_MARGIN` (centipawns per ply below the table score).
+fn se_param(name: &'static str, default: i32) -> i32 {
+    static CACHE: std::sync::OnceLock<(i32, i32)> = std::sync::OnceLock::new();
+    let (d, m) = *CACHE.get_or_init(|| {
+        let get = |n: &str, dv: i32| std::env::var(n).ok().and_then(|v| v.parse().ok()).unwrap_or(dv);
+        (get("SHOGI_LEAN_SE_DEPTH", 6), get("SHOGI_LEAN_SE_MARGIN", 2))
+    });
+    let _ = default;
+    if name == "SHOGI_LEAN_SE_DEPTH" { d } else { m }
+}
+
 fn lean_se() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| env_flag("SHOGI_LEAN_SE", false))
