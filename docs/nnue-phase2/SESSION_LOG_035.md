@@ -324,3 +324,27 @@ networks:
 nodes on one thread (a few ms); at 10,000 nodes it wins ~5%. **The wide network is probably
 worse in even games** at the 50% point (23 vs 38 pairs, p ~ 0.06; self-play -18 +/- 23); its
 better 10k score is from 14 pairs.
+
+**Reverted the same evening** (the user's goal is even games): `nnue/default.bin` is the
+Session 26 network again (`default-s26.bin` identical); wide stays in `weights/session35/`.
+
+### How far our evaluation is from YaneuraOu's, on even-game positions
+
+All 50,175 positions of the 480 even games above, labelled by YaneuraOu depth 14
+(`corpus_s35/even/even_d14.jsonl`) and depth 1 (`even_d1.jsonl`). Our engine (stable binary,
+Session 26 network, one thread) searched a random 3,000 at depths 1, 4, 8. Pearson against the
+depth-14 score (clamped +/-2000):
+
+| | all positions | balanced (|d14| < 1000, n = 1,458) |
+|---|---|---|
+| YaneuraOu depth 1 | 0.941 | **0.671** |
+| ours, static (network alone, all 50k) | 0.646 | - |
+| ours depth 1 | 0.758 | **0.293** |
+| ours depth 4 | 0.806 | 0.368 |
+| ours depth 8 | 0.843 | **0.491** |
+
+The judge is YaneuraOu, which flatters its own shallow search; even so, in the balanced
+positions where games are decided, **our depth-8 search agrees with the deep score less than
+YaneuraOu's depth 1 does.** The engine reproduces the trainer's own accuracy (0.761 vs 0.757 on
+held-out `value_sub`), so this is the network as trained, not an inference bug; the eval-scale
+slope of 0.33 is regression to the mean, not a units error.
