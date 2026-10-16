@@ -46,6 +46,15 @@
 >    (same seed 2930; paired: both won 43, each alone 7, both lost 3;
 >    `matches/ladder_s35/yonmai20k_t16_stack.*`). **Unchanged: the second search gain in a
 >    row (after Session 34's +202) that does not transfer to YaneuraOu.**
+> 9. **Move ordering was the search gap, and the gain transfers (2026-10-16).** The general
+>    orderer's history was shared by both players, positive-only and aged 10% every 1,000
+>    updates. `src/search/lean_hist.rs` (default; `SHOGI_LEAN_HIST=0` restores the old
+>    orderer) keeps per-side, continuation and capture history with penalties. **Even games
+>    vs YaneuraOu, our network: 3k nodes 42.5% -> 60.0%, 10k 3.3% -> 10.8%; SPRT vs stable
+>    PASS 31-9 (+215 ± 120).** Installed as `engines/usi-engine-stable` (old one kept as
+>    `engines/usi-engine-stable-pre-hist`). Details: "Move ordering" at the end.
+>    YaneuraOu's code is read for which techniques it uses only, never copied (user rule);
+>    the YaneuraOu-network loader is behind the non-default `yo-diagnostic` feature.
 
 ---
 
@@ -378,3 +387,39 @@ drops are 21% of our moves but 39% of mistakes (8.8% vs 3.6% mistake rate). The 
 mostly search noise: re-searched under the same conditions (4 threads, 500 ms, full history,
 fresh or after replaying the game's earlier searches) only ~1/3 repeat the move played; one
 thread at 2 s or 8 s repeats 7-11 / 40. No game-state bug found (time use 90-100% of byoyomi).
+
+### Move ordering: the search gap was the history tables (`src/search/lean_hist.rs`)
+
+The YaneuraOu-network testbed above (our search + its network vs YaneuraOu at 10k nodes, 4
+threads x 500 ms, 120 games) measures search changes with evaluation held fixed. `search-diag`
+on 12 even-game midgame positions (depth 12, one thread) found only ~80% of cutoffs on the
+first move. The general orderer's quiet history was a hash map keyed by (piece, from, to) with
+no side to move, positive-only, clamped at 10,000 and aged 10% every 1,000 updates; without a
+history entry it fell back to castle/storm bonuses.
+
+`lean_hist.rs` replaces it in the lean search (our own implementation of the standard
+statistics): quiet history by side x origin (square or dropped piece) x target; continuation
+history one and two plies back, keyed by (side, piece, target); capture history; two killers
+per ply; counter moves. Updates move an entry toward +/-16,000 by a shrinking share
+(reward for the cutting move, penalty for same-kind moves tried before it). Ordering: table
+move, SEE >= 0 captures and non-silver promotions, killers, counter move, quiets by history,
+quiets that hang the piece, SEE < 0 captures.
+
+| measure | old orderer | `lean_hist` |
+|---|---|---|
+| depth-12 first-move cutoffs | 79.3% | 88.1% |
+| depth-12 main nodes (geomean of 12) | 252k | 195k (-23%) |
+| testbed, seed 4202 | 40.8% (49-0-71) | **73.8%** (88-1-31); pairs 35 better, 5 worse |
+| testbed, seed 4201 | 32.5% (earlier run) | **61.3%** (73-1-46); pairs 36 better, 7 worse |
+| **our network**, even vs YaneuraOu 3k | 42.5% (s26 run) | **60.0%** (72-0-48); pairs 28 / 16 |
+| **our network**, even vs YaneuraOu 10k | 3.3% | **10.8%** (13-0-107); pairs 12 / 3 |
+| SPRT [0, 40] vs stable, 4 threads 500 ms | | **PASS 31-0-9, +215 ± 120** |
+
+Files: `matches/s35/hist/`. Tried on top, no gain on the testbed: history-adjusted LMR
+(`SHOGI_LEAN_HIST=3`, 60.8% vs 61.3%), ProbCut (`SHOGI_LEAN_PROBCUT=1`, ~72% vs 73.8%).
+Not yet game-tested: `SHOGI_LEAN_IIR=1` (reduce a ply without a table move, replaces IID),
+`SHOGI_LEAN_MATE1=1` (mate-in-one test at each node: of 469 even-game mate-in-3 positions,
+depth 4 missed 6 entirely; the test recovers 1).
+
+The old-orderer testbed baseline differs between runs (32.5% on 4201 earlier, 40.8% on 4202
+now), so compare variants only within one run and on the same openings.

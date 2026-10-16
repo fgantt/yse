@@ -27,13 +27,13 @@ use crate::bitboards::BitboardBoard;
 use crate::search::move_ordering::see_calculation::{calculate_see_internal, QuietSee};
 use crate::types::core::{Move, PieceType};
 
-/// Which parts are on (`SHOGI_LEAN_HIST`, a bit set): 1 move ordering, 2
-/// reductions adjusted by history, 4 shallow pruning of quiet moves with bad
-/// history. 0 (default) leaves the search unchanged.
+/// Which parts are on (`SHOGI_LEAN_HIST`, a bit set): 1 move ordering (default),
+/// 2 reductions adjusted by history, 4 shallow pruning of quiet moves with bad
+/// history. 0 restores the general move orderer.
 pub(super) fn hist_uses() -> u8 {
     static ON: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
-        std::env::var("SHOGI_LEAN_HIST").ok().and_then(|v| v.parse().ok()).unwrap_or(0)
+        std::env::var("SHOGI_LEAN_HIST").ok().and_then(|v| v.parse().ok()).unwrap_or(1)
     })
 }
 
