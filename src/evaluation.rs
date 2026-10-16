@@ -73,6 +73,7 @@ pub mod weight_tuning;
 pub mod nnue;
 pub mod nnue_threats;
 pub mod nnue_training;
+pub mod yo_nnue;
 
 /// Feature extraction namespace (re-exports for stable API)
 pub mod extractors;
@@ -671,6 +672,9 @@ impl PositionEvaluator {
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> i32 {
+        if let Some(yo) = yo_nnue::global() {
+            return yo.evaluate(board, player, captured_pieces);
+        }
         if self.use_nnue {
             if let Some(ref mut nnue) = self.nnue_evaluator {
                 return nnue.evaluate_for(board, player, captured_pieces);

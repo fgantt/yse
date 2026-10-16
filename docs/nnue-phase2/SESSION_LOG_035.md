@@ -348,3 +348,33 @@ positions where games are decided, **our depth-8 search agrees with the deep sco
 YaneuraOu's depth 1 does.** The engine reproduces the trainer's own accuracy (0.761 vs 0.757 on
 held-out `value_sub`), so this is the network as trained, not an inference bug; the eval-scale
 slope of 0.33 is regression to the mean, not a units error.
+
+### Search or evaluation? YaneuraOu's network inside our search (`src/evaluation/yo_nnue.rs`)
+
+Diagnostic only, never shipped: with `SHOGI_YO_NNUE=<YaneuraOu eval/nn.bin>` set,
+`PositionEvaluator::evaluate` returns YaneuraOu's `halfkpvm_256x2-32-32` score (evaluated from
+scratch each call; same nps as ours, ~290k one thread). Checked: start position 75 vs
+YaneuraOu's 76; depth-1 scores correlate 0.964 with YaneuraOu depth 1 over 474 positions.
+
+Even games, same protocol and openings as above (stable binary, 4 threads, 500 ms):
+
+| YaneuraOu nodes | our network | **YaneuraOu's network in our search** |
+|---|---|---|
+| 3,000 | 42.5% | **95.0%** (114-0-6) |
+| 10,000 | 3.3% | 32.5% (39-0-81) |
+| 30,000 | - | 10.4% (12-1-107) |
+| 100,000 | - | 0.0% (0-0-120) |
+
+**Evaluation is worth a lot (42.5% -> 95% at 3k), but search is the larger gap:** with the
+identical evaluation, our ~1M nodes a move (4 threads x 500 ms) play like YaneuraOu at
+~7,000 nodes. Nodes to depth 13, one thread, same network, 5 even-game positions: YaneuraOu
+39k-161k (median ~110k), ours 353k-2.66M (median ~580k), and YaneuraOu's depth 13 includes
+more extensions. At equal depth our search tracks the deep score well (balanced positions:
+d1 0.748, d8 0.818 vs YaneuraOu d1 0.671), so the loss is in how many nodes a depth costs and
+how the tree is spent, not in a broken score.
+
+Mistakes in those games (YaneuraOu-30k games, first >= 300 cp loss per game from |eval| < 1,500):
+drops are 21% of our moves but 39% of mistakes (8.8% vs 3.6% mistake rate). The mistakes are
+mostly search noise: re-searched under the same conditions (4 threads, 500 ms, full history,
+fresh or after replaying the game's earlier searches) only ~1/3 repeat the move played; one
+thread at 2 s or 8 s repeats 7-11 / 40. No game-state bug found (time use 90-100% of byoyomi).
