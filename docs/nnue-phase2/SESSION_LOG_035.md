@@ -423,3 +423,25 @@ depth 4 missed 6 entirely; the test recovers 1).
 
 The old-orderer testbed baseline differs between runs (32.5% on 4201 earlier, 40.8% on 4202
 now), so compare variants only within one run and on the same openings.
+
+#### Screens on top of the history ordering (testbed, YaneuraOu 10k nodes, 120 games each)
+
+Reference `lean_hist` alone: seed 4201 73.5/120, seed 4202 88.5/120. Every variant on 4202 scored
+75-85, so that 88.5 was probably a lucky run; 4201 is the steadier comparison.
+
+| variant | 4201 | 4202 |
+|---|---|---|
+| singular extension, depth >= 6, margin 2 cp/ply (extends 58% of tests, tree ~4x) | 73.0 | 68.0 (pairs 7 better / 24 worse) |
+| singular extension, depth >= 8, 32 cp/ply (extends 16.5%) | 69.5 | 77.5 |
+| singular extension, depth >= 8, 64 cp/ply (extends 9.9%, tree unchanged) | 75.5 | 75.5 |
+| IIR (`SHOGI_LEAN_IIR=1`) | - | 78.5 |
+| mate in one (`SHOGI_LEAN_MATE1=1`) | - | 84.5 |
+| ProbCut (`SHOGI_LEAN_PROBCUT=1`) | - | 87.0 |
+
+None gained; all stay off. Singular extension's counters are printed by `search-diag`.
+
+### Labelling the generated games (`scripts/label_stream.py`, `corpus_s35/gen_d8/`)
+
+583,687 YaneuraOu self-play games (4k vs 6k nodes, 8 random opening plies; 67.0M plies) are
+being labelled at YaneuraOu depth 8 in resumable batches of 500 games (~57k positions each),
+15 workers, ~2,900 positions/s.
