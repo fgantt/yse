@@ -26,6 +26,10 @@ material_fast_loop = []
 # Note: WebAssembly support has been removed - this feature is native-only.
 # SIMD is enabled by default for optimal performance. Disable with --no-default-features.
 simd = []
+# Diagnostic only, never in shipped builds: load a third-party YaneuraOu network file at
+# runtime (SHOGI_YO_NNUE) to separate search from evaluation. No third-party weights are
+# bundled; see src/evaluation/yo_nnue.rs.
+yo-diagnostic = []
 
 [lib]
 crate-type = ["rlib"]

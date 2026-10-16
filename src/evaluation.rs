@@ -73,6 +73,7 @@ pub mod weight_tuning;
 pub mod nnue;
 pub mod nnue_threats;
 pub mod nnue_training;
+#[cfg(feature = "yo-diagnostic")]
 pub mod yo_nnue;
 
 /// Feature extraction namespace (re-exports for stable API)
@@ -672,6 +673,7 @@ impl PositionEvaluator {
         player: Player,
         captured_pieces: &CapturedPieces,
     ) -> i32 {
+        #[cfg(feature = "yo-diagnostic")]
         if let Some(yo) = yo_nnue::global() {
             return yo.evaluate(board, player, captured_pieces);
         }
