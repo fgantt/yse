@@ -172,6 +172,8 @@ impl SearchEngine {
         hash_history.push(path_entry(position_hash, in_check));
         let ply = (hash_history.len().saturating_sub(self.root_path_len.max(1))) as i32;
         self.node_ply = ply;
+        // The table move, while a singular search asks how the others do without it.
+        let excluded = excluded_at(ply);
 
         if depth <= 0 {
             return self.lean_q_entry(
@@ -215,7 +217,7 @@ impl SearchEngine {
         let tt_entry = if search_toggles().no_tt { None } else { self.tt_probe(position_hash, 0) };
         let tt_move = tt_entry.as_ref().and_then(|e| e.best_move.clone());
         if let Some(ref e) = tt_entry {
-            if !pv_node && e.depth as i32 >= depth {
+            if !pv_node && excluded.is_none() && e.depth as i32 >= depth {
                 let s = mate_score_from_tt(e.score, ply);
                 let usable = match e.flag {
                     TranspositionFlag::Exact => true,
@@ -230,7 +232,8 @@ impl SearchEngine {
 
         let static_eval =
             if in_check { -INF } else { self.evaluate_position(board, player, captured_pieces) };
-        let prunable = !pv_node && !in_check && !search_toggles().no_pruning;
+        let prunable =
+            !pv_node && !in_check && excluded.is_none() && !search_toggles().no_pruning;
         let uses = improving_uses();
         let improving = uses == 0 || record_and_test_improving(ply, static_eval);
         let improving_for = |bit: u8| uses & bit == 0 || improving;
@@ -362,7 +365,11 @@ impl SearchEngine {
         // Internal iterative deepening: a PV node without a table move. With
         // `SHOGI_LEAN_IIR`, any node without one is searched a ply shallower instead.
         let mut tt_move = tt_move;
-        let depth = if lean_iir() && tt_move.is_none() && depth >= 4 { depth - 1 } else { depth };
+        let depth = if lean_iir() && excluded.is_none() && tt_move.is_none() && depth >= 4 {
+            depth - 1
+        } else {
+            depth
+        };
         if !lean_iir() && tt_move.is_none() && pv_node && depth >= 5 {
             self.lean_node(
                 board,
@@ -389,7 +396,7 @@ impl SearchEngine {
         // Mate in one: a checking move that leaves the opponent no legal reply.
         // Found by search too, unless pruning drops it first -- a checking drop
         // that SEE scores as losing material is pruned like any other move.
-        if lean_mate1() {
+        if lean_mate1() && excluded.is_none() {
             if let Some(score) = self.lean_mate_in_one(board, captured_pieces, player, &legal_moves, ply)
             {
                 return score;
@@ -416,6 +423,51 @@ impl SearchEngine {
                 prev_move,
             )
         };
+        // Singular extension: if every other move falls well short of the table
+        // move's score in a reduced search, the table move gets one more ply.
+        // If even the others reach beta, more than one move cuts: return.
+        let mut singular = false;
+        if lean_se() && excluded.is_none() && depth >= 6 {
+            if let (Some(e), Some(ttm)) = (tt_entry.as_ref(), tt_move.as_ref()) {
+                let s = mate_score_from_tt(e.score, ply);
+                if e.depth as i32 >= depth - 3
+                    && e.flag != TranspositionFlag::UpperBound
+                    && s.abs() < MATE_THRESHOLD
+                {
+                    let sing_beta = s - 2 * depth;
+                    set_excluded(ply, Some(ttm.clone()));
+                    // The same node again: off the path, or it would be a repetition.
+                    hash_history.pop();
+                    let base = hash_history.len();
+                    let v = self.lean_inner(
+                        board,
+                        captured_pieces,
+                        player,
+                        (depth - 1) / 2,
+                        sing_beta - 1,
+                        sing_beta,
+                        start_time,
+                        time_limit_ms,
+                        hash_history,
+                        cut_node,
+                        false,
+                        prev_move,
+                    );
+                    hash_history.truncate(base);
+                    hash_history.push(path_entry(position_hash, in_check));
+                    set_excluded(ply, None);
+                    if self.search_aborted {
+                        return alpha;
+                    }
+                    if v < sing_beta {
+                        singular = true;
+                    } else if sing_beta >= beta {
+                        return sing_beta;
+                    }
+                }
+            }
+        }
+
         let mut quiets_tried: Vec<Move> = Vec::new();
         let mut captures_tried: Vec<Move> = Vec::new();
 
@@ -426,6 +478,9 @@ impl SearchEngine {
         let lmr = lmr_table();
 
         for mv in &moves {
+            if excluded.as_ref().is_some_and(|x| self.moves_equal(mv, x)) {
+                continue;
+            }
             move_count += 1;
             let quiet = !mv.is_capture && !mv.is_promotion;
             let is_tt = tt_move.as_ref().is_some_and(|t| self.moves_equal(mv, t));
@@ -483,11 +538,10 @@ impl SearchEngine {
                 }
             }
 
-            // Check extension, bounded per path as in negamax.
+            // Check and singular extensions, bounded per path as in negamax.
             let ext = i32::from(
-                mv.gives_check
-                    && !losing_check
-                    && !search_toggles().no_check_ext
+                ((mv.gives_check && !losing_check && !search_toggles().no_check_ext)
+                    || (singular && is_tt))
                     && self.check_extensions_on_path < self.current_depth.max(1) as u32,
             );
             let new_depth = depth - 1 + ext;
@@ -680,8 +734,38 @@ impl SearchEngine {
             0,
             crate::types::EntrySource::MainSearch,
         );
-        self.maybe_buffer_tt_store(entry, d, flag);
+        // A search without the table move must not overwrite what the table knows.
+        if excluded.is_none() {
+            self.maybe_buffer_tt_store(entry, d, flag);
+        }
         best_score
+    }
+}
+
+/// Whether the table move may get a singular extension (`SHOGI_LEAN_SE=1`).
+fn lean_se() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_LEAN_SE", false))
+}
+
+thread_local! {
+    /// The move a singular search leaves out, by ply, one per search thread.
+    static EXCLUDED: std::cell::RefCell<Vec<Option<Move>>> =
+        std::cell::RefCell::new(vec![None; EVAL_STACK_LEN]);
+}
+
+fn excluded_at(ply: i32) -> Option<Move> {
+    let p = usize::try_from(ply).ok()?;
+    EXCLUDED.with(|x| x.borrow().get(p).cloned().flatten())
+}
+
+fn set_excluded(ply: i32, mv: Option<Move>) {
+    if let Ok(p) = usize::try_from(ply) {
+        EXCLUDED.with(|x| {
+            if let Some(slot) = x.borrow_mut().get_mut(p) {
+                *slot = mv;
+            }
+        });
     }
 }
 
