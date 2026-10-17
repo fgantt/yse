@@ -1,7 +1,9 @@
 # Per-move analysis of a user game: ours (score, move) vs YaneuraOu (score, best, score of our move).
 import subprocess,sys,threading,queue,json,os
-REPO="/Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue"
-YANE="/Users/fgantt/projects/vibe/shogi-game/yaneuraou-V900-git-mac-all/NNUE_halfkpvm_256x2_32_32/YaneuraOu_NNUE_halfkpvm_256x2_32_32-V900Git_APPLEM1"
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from paths import REPO, require_yane
+YANE = require_yane()
 lines=[l for l in open(sys.argv[1]) if l.strip()]
 start=[l for l in lines if l.startswith("# start:")][0].split("start:")[1].strip()
 moves=[l for l in lines if not l.startswith("#")][0].split()

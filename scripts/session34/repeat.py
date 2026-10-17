@@ -1,7 +1,10 @@
 # Repeat one position N times in one engine; flag any search that does not answer.
 import subprocess,sys,time,threading,queue
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from paths import REPO
 eng,sfen,go,reps=sys.argv[1],open(sys.argv[2]).read().strip(),sys.argv[3],int(sys.argv[4])
-p=subprocess.Popen([eng],cwd="/Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue",stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,bufsize=1)
+p=subprocess.Popen([eng],cwd=REPO,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.DEVNULL,text=True,bufsize=1)
 Q=queue.Queue()
 threading.Thread(target=lambda: [Q.put(l) for l in p.stdout],daemon=True).start()
 def send(s): p.stdin.write(s+"\n"); p.stdin.flush()

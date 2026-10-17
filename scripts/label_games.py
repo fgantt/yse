@@ -7,8 +7,9 @@ BOARD is the start position's board field; the side to move is read off each gam
 move (a piece leaving ranks a-c is White's).
 """
 import csv, json, os, subprocess, sys, threading, queue
+from paths import require_yane
 from multiprocessing import Pool
-YANE = "/Users/fgantt/projects/vibe/shogi-game/yaneuraou-V900-git-mac-all/NNUE_halfkpvm_256x2_32_32/YaneuraOu_NNUE_halfkpvm_256x2_32_32-V900Git_APPLEM1"
+YANE = require_yane()
 MATE = 30000
 
 class Y:

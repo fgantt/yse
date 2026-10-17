@@ -21,7 +21,7 @@ GAMES=${1:-150}
 WORKERS=${2:-8}
 OUT=corpus_hc
 mkdir -p "$OUT"
-YANE=/Users/fgantt/projects/vibe/shogi-game/yaneuraou-V900-git-mac-all/NNUE_halfkpvm_256x2_32_32/YaneuraOu_NNUE_halfkpvm_256x2_32_32-V900Git_APPLEM1
+YANE=${YSE_YANE:-$(python3 scripts/paths.py yane)} || exit 1
 GEN=${CORPUS_GEN:-./target/release/corpus-gen}
 PLAYER=$PWD/engines/usi-engine-stable
 

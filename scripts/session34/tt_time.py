@@ -1,6 +1,8 @@
 # Fixed time per move over a game's positions (table kept): depth and nodes reached.
 import subprocess,sys,time,threading,queue
-REPO="/Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue"
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from paths import REPO
 eng,ms,step,movesfile=sys.argv[1],int(sys.argv[2]),int(sys.argv[3]),sys.argv[4]; opts=sys.argv[5:]
 moves=open(movesfile).read().split()
 START="1nsgkgsn1/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"

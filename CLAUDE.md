@@ -5,9 +5,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Project
 
 Yggdrasil Shogi Engine — a Rust Shogi (Japanese chess) engine implementing the USI (Universal Shogi
-Interface) protocol. Single-crate workspace: `lib.rs` (library) + many binaries under `src/bin/`. This
-worktree (`nnue` branch/worktree at `yse-worktrees/nnue`) is dedicated to NNUE evaluation development;
-the main repo checkout may be elsewhere.
+Interface) protocol. Single-crate workspace: `lib.rs` (library) + many binaries under `src/bin/`.
+`main` is the NNUE engine (the former `nnue` branch, since 2026-10-17); the old classical engine is
+`legacy-main` / tag `pre-nnue-main`. On the development machine the working copy is the worktree at
+`yse-worktrees/nnue` (now on `main`). **Read `docs/REPOSITORY.md`** for what is in git, in Git LFS
+(`nnue/default.bin`), and only on disk (corpora, weights, `engines/`), and for setting up a machine.
 
 ## Build
 
@@ -117,11 +119,10 @@ Two coexisting evaluation strategies, selected/blended via `PositionEvaluator`:
     static corpus (`nnue_corpus_yaneura_d10.jsonl`, ~67K YaneuraOu depth-10 positions) and is the
     trainer used by every session in `docs/nnue-phase2/SESSION_LOG_*.md`. **This is the one in active
     use**; default output is the `.bin` (bincode) format, not JSON.
-- Weight files: the canonical `nnue_weights_trained.json` at repo root is auto-loaded by the engine
-  and is the one file intentionally *not* gitignored (`.gitignore` excludes all other
-  `nnue_weights_*.{json,bin}` at the root — the trainer writes checkpoints there by default, so clean
-  up or redirect `--output-weights` to avoid sprawl). Older/superseded weight snapshots live in
-  `weights/archive/`.
+- Weight files: the engine loads `nnue/default.bin` (USI `NNUEFile`; Git LFS). Without it, it falls
+  back to classical evaluation. The trainer writes checkpoints to the repo root by default
+  (`nnue_weights_*.{json,bin}`, gitignored); redirect `--output-weights` into `weights/<session>/`
+  (also ignored). Older/superseded weight snapshots live in `weights/archive/`.
 - Strength measurement tool: `elo-tester` (`src/bin/elo_tester.rs`) plays head-to-head bake-offs
   between two configs (e.g. NNUE vs PST, or two NNUE variants via `--nnue-weights`/
   `--nnue-weights-b`) and reports win/draw/loss + ELO with a 95% CI.
@@ -192,9 +193,12 @@ to move / captured pieces / move number.
 1. SIMD is default — build errors on unusual/older CPUs mean drop to
    `--no-default-features --features hierarchical-tt`.
 2. Most benchmarks and some examples require `--features legacy-tests` to compile at all.
-3. Don't accidentally commit NNUE weight checkpoints — `.gitignore` already excludes
-   `nnue_weights_*.{json,bin}` except the canonical `nnue_weights_trained.json`; also gitignored:
-   `elo_results.csv`, `nnue_corpus_*.jsonl`.
+3. Don't accidentally commit NNUE weight checkpoints or data: `.gitignore` excludes root
+   `nnue_weights_*.{json,bin}`, `corpus_*/`, `weights/*` (except `archive/`), `engines/`, and
+   `matches/*` (except `user_games/`). Never run `git clean -x`: it deletes ignored corpora and
+   weights. Only a shipping network is committed (`nnue/default.bin`, LFS).
+6. Scripts find YaneuraOu through `scripts/paths.py` (`$YSE_YANE`, or a `yaneuraou-*` directory
+   beside the repo or a parent); import `REPO`/`require_yane` from it, never hard-code paths.
 4. `memory/` in the repo root holds structured docs for AI agents (`AGENT_QUICKSTART.md`,
    `ARCHITECTURE.md`, `MODULES.md`, `BINARIES.md`) — check there before re-deriving architecture facts.
 5. Bake-off / ELO measurements are wall-clock heavy (minutes per game at depth 3); when running

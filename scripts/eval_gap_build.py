@@ -14,9 +14,9 @@ Output: JSONL, one position per line, scores from Black's (our) point of view.
     python3 scripts/eval_gap_build.py [--nodes 3000000] [--out eval_gap/positions.jsonl]
 """
 import argparse, glob, json, os, subprocess
+from paths import require_yane
 
-YANE = ("/Users/fgantt/projects/vibe/shogi-game/yaneuraou-V900-git-mac-all/"
-        "NNUE_halfkpvm_256x2_32_32/YaneuraOu_NNUE_halfkpvm_256x2_32_32-V900Git_APPLEM1")
+YANE = require_yane()
 STARTS = {
     "4mai": "1nsgkgsn1/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1",
     "6mai": "2sgkgs2/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1",

@@ -11,8 +11,8 @@ score: an engine plays each selected position at a fixed byoyomi (MS), or with M
     python3 scripts/loss_set.py score JUDGE.jsonl ENGINE MS OUT.jsonl [reps]
 """
 import json, os, re, subprocess, sys, threading, queue
-REPO = "/Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue"
-YANE = "/Users/fgantt/projects/vibe/shogi-game/yaneuraou-V900-git-mac-all/NNUE_halfkpvm_256x2_32_32/YaneuraOu_NNUE_halfkpvm_256x2_32_32-V900Git_APPLEM1"
+from paths import REPO, require_yane
+YANE = require_yane()
 START = "1nsgkgsn1/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"
 MOVE = re.compile(r"^([1-9][a-i][1-9][a-i]\+?|[PLNSGBR]\*[1-9][a-i])$")
 CAP = 30000

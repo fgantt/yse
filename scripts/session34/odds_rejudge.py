@@ -1,6 +1,9 @@
 # Re-judge compare.jsonl rows with uncapped YaneuraOu scores (mate = +-(100000 - plies)).
 import json, os, subprocess, sys, threading, queue
-YANE = "/Users/fgantt/projects/vibe/shogi-game/yaneuraou-V900-git-mac-all/NNUE_halfkpvm_256x2_32_32/YaneuraOu_NNUE_halfkpvm_256x2_32_32-V900Git_APPLEM1"
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from paths import require_yane
+YANE = require_yane()
 inp, out_path, w, nw = sys.argv[1], sys.argv[2], int(sys.argv[3]), int(sys.argv[4])
 rows = [json.loads(l) for l in open(inp)][w::nw]
 p = subprocess.Popen([YANE], cwd=os.path.dirname(YANE), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, bufsize=1)

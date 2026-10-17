@@ -21,9 +21,10 @@ loss = clamp(best score) - clamp(score of the played move), both from
 engine played the judge's best move. Scores clamp to +-3000 cp; mate = +-3000.
 """
 import json, os, subprocess, sys, statistics
+from paths import require_yane
 
 CORPUS = "nnue_corpus_yaneura_d10.jsonl"
-YANE = "/Users/fgantt/projects/vibe/shogi-game/yaneuraou-V900-git-mac-all/NNUE_halfkpvm_256x2_32_32/YaneuraOu_NNUE_halfkpvm_256x2_32_32-V900Git_APPLEM1"
+YANE = require_yane()
 CAP = 3000
 
 def neutral_positions(n):

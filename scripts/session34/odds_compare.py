@@ -3,9 +3,11 @@
 # For each position (move >= MIN_MOVE, odds side to move): YaneuraOu's game move, our move
 # (1 s, 4 threads), and a judge (YaneuraOu 3M nodes) scoring best, Yane's move and ours.
 import csv, json, os, subprocess, sys, threading, queue
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from paths import REPO, require_yane
 
-REPO = "/Users/fgantt/projects/vibe/shogi-game/yse-worktrees/nnue"
-YANE = "/Users/fgantt/projects/vibe/shogi-game/yaneuraou-V900-git-mac-all/NNUE_halfkpvm_256x2_32_32/YaneuraOu_NNUE_halfkpvm_256x2_32_32-V900Git_APPLEM1"
+YANE = require_yane()
 START = "1nsgkgsn1/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1"
 MIN_MOVE, MAX_PER_GAME = 15, 25
 CAP = 3000
