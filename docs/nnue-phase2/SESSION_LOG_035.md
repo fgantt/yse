@@ -445,3 +445,31 @@ None gained; all stay off. Singular extension's counters are printed by `search-
 583,687 YaneuraOu self-play games (4k vs 6k nodes, 8 random opening plies; 67.0M plies) are
 being labelled at YaneuraOu depth 8 in resumable batches of 500 games (~57k positions each),
 15 workers, ~2,900 positions/s.
+
+### Networks from 62.6M even-game positions (`weights/session35b/`)
+
+`corpus_s35/gen_d8`: 583,687 YaneuraOu self-play games, every position labelled by YaneuraOu
+at depth 8 (`scripts/label_stream.py`, 15 workers, ~7 h): 67.0M positions, 62.6M after
+dropping repeated positions (`corpus_s35/dedupe.py`, first record kept). Session 30 recipe
+(clamp 2000, scale 410, outcome 0.3, lr 0.001, 2 epochs from `nnue/default.bin`), 9 king
+buckets (`k9.bin`, 3.2 h) and 81 (`k81.bin`, 8.4 h; the trainer now expands a 9-bucket
+network to 81, `f795464`). Held-out pearson 0.808 / 0.813.
+
+Even games vs YaneuraOu (stable binary + `NNUEFile`, 4 threads 500 ms, seed 4201, same
+openings as `matches/s35/hist/own_h1_*`; pairs better / worse than the current network):
+
+| YaneuraOu nodes | current | k9 | k81 |
+|---|---|---|---|
+| 3,000 | 60.0% | **80.0%** (27 / 9) | **78.3%** (23 / 9) |
+| 10,000 | 10.8% | 20.0% (16 / 8) | **27.5%** (20 / 6) |
+
+SPRT [0, 40] vs stable, 1 s, 4 threads (`matches/s35/net8/sprt_*`): k9 PASS 34-6, k81 PASS
+37-3, both at the 40-game minimum.
+
+The user's lost four-piece game (Black, our engine, scored +730 at move 30 where YaneuraOu
+said -360): both networks avoid the pawn drops that lost it (moves 26-29), but still score
+move 30 at about +500. King danger in handicap positions is better, not fixed; the corpus
+has no handicap games.
+
+**Installed 2026-10-17**: `nnue/default.bin` is `k81.bin` (old default kept as
+`nnue/default-s26.bin`).
