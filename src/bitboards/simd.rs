@@ -15,12 +15,12 @@
 //! - **Compile-time**: Enable the Cargo feature `simd` to compile the explicit
 //!   SSE/AVX/NEON implementations. Without it, this module automatically falls
 //!   back to scalar `u128` operations, mirroring the behavior described in
-//!   `docs/design/implementation/simd-optimization/
+//!   `docs/archive/design/implementation/simd-optimization/
 //!   SIMD_IMPLEMENTATION_EVALUATION.md`.
 //! - **Runtime**: The engine routes calls through `config::SimdConfig`
 //!   (`enable_simd_evaluation`, `enable_simd_pattern_matching`,
 //!   `enable_simd_move_generation`) as documented in
-//!   `docs/design/implementation/simd-optimization/SIMD_INTEGRATION_STATUS.md`.
+//!   `docs/archive/design/implementation/simd-optimization/SIMD_INTEGRATION_STATUS.md`.
 //!   API consumers can update these flags via helpers such as
 //!   `MoveGenerator::set_simd_config()` to force scalar fallbacks even when the
 //!   `simd` feature is on.

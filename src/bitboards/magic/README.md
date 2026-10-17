@@ -179,11 +179,11 @@ See Task 8 in `MAGIC_BITBOARDS_TASKS.md`:
 
 ## References
 
-- Design: `docs/design/implementation/bitboard-optimizations/MAGIC_BITBOARDS_DESIGN.md`
-- Tasks: `docs/design/implementation/bitboard-optimizations/MAGIC_BITBOARDS_TASKS.md`
-- Implementation Plan: `docs/design/implementation/bitboard-optimizations/MAGIC_BITBOARDS_IMPLEMENTATION_PLAN.md`
-- Architecture Decision: `docs/design/implementation/bitboard-optimizations/MAGIC_BITBOARDS_IMMUTABLE_SOLUTION.md`
-- Completion Summary: `docs/design/implementation/bitboard-optimizations/MAGIC_BITBOARDS_COMPLETION_SUMMARY.md`
+- Design: `docs/archive/design/implementation/bitboard-optimizations/MAGIC_BITBOARDS_DESIGN.md`
+- Tasks: `docs/archive/design/implementation/bitboard-optimizations/MAGIC_BITBOARDS_TASKS.md`
+- Implementation Plan: `docs/archive/design/implementation/bitboard-optimizations/MAGIC_BITBOARDS_IMPLEMENTATION_PLAN.md`
+- Architecture Decision: `docs/archive/design/implementation/bitboard-optimizations/MAGIC_BITBOARDS_IMMUTABLE_SOLUTION.md`
+- Completion Summary: `docs/archive/design/implementation/bitboard-optimizations/MAGIC_BITBOARDS_COMPLETION_SUMMARY.md`
 
 ## License
 

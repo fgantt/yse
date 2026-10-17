@@ -2,7 +2,7 @@
 //!
 //! Provides canonical template metadata so the book compiler can bucket
 //! concrete openings (Yagura, Anaguma, etc.) into the stability templates
-//! described in `docs/design/gameplay-stability/OPENING_TEMPLATE_POLICY.md`.
+//! described in `docs/archive/design/gameplay-stability/OPENING_TEMPLATE_POLICY.md`.
 //! The registry powers:
 //! - Guardrails such as king-first and early rook-swing bans.
 //! - Reporting (template coverage summaries in validation reports).

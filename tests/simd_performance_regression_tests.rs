@@ -3,7 +3,7 @@
 //! Baseline-driven performance regression tests for SIMD bitboard operations.
 //!
 //! These tests implement **Test Task 2** from
-//! `docs/design/implementation/simd-optimization/
+//! `docs/archive/design/implementation/simd-optimization/
 //! tasks-SIMD_FUTURE_IMPROVEMENTS.md` by comparing the current implementation
 //! against the documented baselines in `SIMD_IMPLEMENTATION_EVALUATION.md`.
 //! Each scenario reads its baseline ratio (SIMD vs scalar) from

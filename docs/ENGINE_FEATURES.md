@@ -1,6 +1,7 @@
 # Yggdrasil Engine Features
 
-What the engine does as shipped (`engines/usi-engine-stable`, `a115260`, 2026-10-13), where
+What the engine does as shipped (`main`: history move ordering 2026-10-16, network `nnue/default.bin`
+= Session 35 `k81` 2026-10-17), where
 each feature lives, and how it compares with YaneuraOu. Session logs
 (`docs/nnue-phase2/SESSION_LOG_*.md`) hold the measurements behind each item.
 
@@ -32,26 +33,28 @@ Classic selects the older `negamax` in `search_engine.rs`).
 
 ## Move ordering
 
-`src/search/move_ordering/`, called from `order_moves_for_negamax`. Every legal move is
-generated and scored before the first is searched.
+The lean search orders with `src/search/lean_hist.rs` (default since 2026-10-16;
+`SHOGI_LEAN_HIST=0` restores the older general orderer in `src/search/move_ordering/`). Every
+legal move is generated and scored before the first is searched.
 
 | Order | Moves |
 |---|---|
-| 1 | Hash-table move (passed as the IID move) |
-| 2 | PV move |
-| 3 | Captures, most valuable victim first |
-| 4 | Promotions |
-| 5 | Killer moves, then counter-moves |
-| 6 | Quiet moves by history score and positional bonuses (castle, storm, flank) |
-| last | Quiet moves and drops that hang the piece (quiet-move SEE, Session 30) |
+| 1 | Hash-table move |
+| 2 | Captures with SEE >= 0, and promotions other than silver |
+| 3 | Two killer moves per ply |
+| 4 | Counter move |
+| 5 | Quiet moves by history: per side (origin square or dropped piece x target), plus continuation history one and two plies back |
+| 6 | Quiet moves and drops that hang the piece |
+| last | Captures with SEE < 0 (ordered by capture history) |
 
-Ordering is ~38% of search time in drop-heavy positions (Session 34 profile).
+History entries move toward +/-16,000: a reward for the move that cut off, a penalty for the
+same-kind moves tried before it. First-move cutoffs rose from 79% to 88% (Session 35).
 
 ## Evaluation
 
 | Feature | What it does | Where |
 |---|---|---|
-| NNUE | 256 -> 32 -> 1 network; king-relative (HalfKP-style), piece-in-hand and side-to-move features; incremental accumulator; exact integer SIMD forward pass | `src/evaluation/nnue.rs`, weights `nnue/default.bin` |
+| NNUE | 256 -> 32 -> 1 network; king-relative features with 81 king buckets (one per square), piece-in-hand and side-to-move features; incremental accumulator; exact integer SIMD forward pass. Trained on 62.6M YaneuraOu self-play positions labelled at depth 8 | `src/evaluation/nnue.rs`, weights `nnue/default.bin` (Git LFS) |
 | Classical fallback | Piece-square tables, tapered opening/endgame, king safety, castle recognition | `src/evaluation/` |
 
 ## Other
@@ -60,20 +63,21 @@ Ordering is ~38% of search time in drop-heavy positions (Session 34 profile).
 - Micro endgame tablebase (`src/tablebase/`).
 - Magic bitboards for sliding pieces (`resources/magic_tables/`; a binary that cannot find
   them falls back to ray casting, which chokes multi-threaded search).
-- USI protocol with pondering; preferences (thread count) persist in
-  `~/Library/Application Support/shogi-vibe/engine_prefs.json` (`SHOGI_PREFS_DIR` overrides).
+- USI protocol with pondering; preferences (thread count) persist in the OS config directory
+  (`~/Library/Application Support/shogi-vibe/engine_prefs.json` on macOS; `SHOGI_PREFS_DIR`
+  overrides).
 
 ## Compared with YaneuraOu
 
 | YaneuraOu has | What it does | Our state |
 |---|---|---|
-| ~1,000k nodes/s per thread | | ~120k (8x slower) on drop-heavy positions |
+| ~1,080k nodes/s per thread | | ~470k counting every node (USI reports quiescence nodes since Session 35; the earlier "8x" compared unequal counts) |
 | Staged move generation | Captures first, quiet moves only if needed; legality checked lazily | Full legal generation and full ordering at every node |
 | Mate-in-1 in quiescence | Catches short mates without searching every checking drop | Quiet checks at quiescence ply 1, every evasion searched |
-| Singular extensions | Extends a table move that is much better than all alternatives | None |
-| ProbCut | Prunes when a shallow search already beats beta by a margin | None |
-| Continuation history | History keyed by the previous moves | Plain history and counter-moves |
-| Larger, better-trained network | Trained on billions of positions | Trained on ~67k-155k positions; misjudges attacks on our king |
+| Singular extensions | Extends a table move that is much better than all alternatives | Implemented, off (`SHOGI_LEAN_SE_DEPTH`); screens showed no gain |
+| ProbCut | Prunes when a shallow search already beats beta by a margin | Implemented, off (`SHOGI_LEAN_PROBCUT=1`); no gain |
+| Continuation history | History keyed by the previous moves | Yes, since 2026-10-16 (`lean_hist.rs`) |
+| Larger, better-trained network | Trained on billions of positions | 62.6M positions; still misjudges drop attacks on our king in handicap games |
 
 ## Feature audit (2026-10-13)
 

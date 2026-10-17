@@ -12,7 +12,7 @@
 //!   `config::SimdConfig::enable_simd_evaluation` before calling into
 //!   `SimdEvaluator`. Toggling that flag lets you switch back to the scalar
 //!   path without rebuilding, as described in
-//!   `docs/design/implementation/simd-optimization/SIMD_INTEGRATION_STATUS.md`.
+//!   `docs/archive/design/implementation/simd-optimization/SIMD_INTEGRATION_STATUS.md`.
 //! - **Telemetry**: Every invocation is tracked through `SimdTelemetry`, making
 //!   it easy to validate performance regressions reported in
 //!   `SIMD_IMPLEMENTATION_EVALUATION.md`.

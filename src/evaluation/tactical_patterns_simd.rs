@@ -10,7 +10,7 @@
 //!   simd`.
 //! - **Runtime**: `TacticalPatternRecognizer` checks
 //!   `SimdConfig::enable_simd_pattern_matching` (see
-//!   `docs/design/implementation/simd-optimization/SIMD_INTEGRATION_STATUS.md`)
+//!   `docs/archive/design/implementation/simd-optimization/SIMD_INTEGRATION_STATUS.md`)
 //!   before delegating to `SimdPatternMatcher`. This enables per-profile
 //!   control without recompilation, which is essential for experiments
 //!   documented in `SIMD_IMPLEMENTATION_EVALUATION.md`.

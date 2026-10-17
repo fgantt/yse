@@ -1,6 +1,6 @@
 {
   "version": "2024-11-25",
-  "source": "docs/design/implementation/simd-optimization/SIMD_IMPLEMENTATION_EVALUATION.md",
+  "source": "docs/archive/design/implementation/simd-optimization/SIMD_IMPLEMENTATION_EVALUATION.md",
   "description": "Baseline ratios derived from the 2024 SIMD evaluation report. Ratios capture the known slowdown of the placeholder SIMD implementation so regressions can be detected automatically until real SIMD lands.",
   "scenarios": [
     {

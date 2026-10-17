@@ -17,7 +17,7 @@ Copy this template for each session and fill in details as you work.
 
 ## Pre-Session Checklist
 
-- [ ] Read relevant section of `NNUE_IMPLEMENTATION_PLAN.md`
+- [ ] Read the latest session log's READ THIS FIRST block
 - [ ] Reviewed decision criteria from plan
 - [ ] Backup current code (if major changes)
 - [ ] All previous sessions' work compiles

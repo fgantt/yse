@@ -1,239 +1,49 @@
-# NNUE Phase 2: Implementation Plan & Research
+# NNUE and search development log
 
-**Comprehensive documentation for improving NNUE from +0 to +150-350 ELO**
+One log per working session, from the first NNUE experiments to the current engine. **Start
+with the latest log's READ THIS FIRST block**; it states what is current. Older logs keep their
+original conclusions, and several were later corrected (later logs say so).
 
-This directory contains the complete planning, analysis, and research documentation for Phase 2 of NNUE improvements.
+- `FEATURE_SPEC_AND_AUDIT.md`: feature encoding specification and audit (2026-09-17).
+- `SESSION_LOG_TEMPLATE.md`: template for a new log.
+- `run.sh`, `patches/`: scripts and patches cited by individual sessions.
+- The April 2026 phase-2 plan that started this work is in `docs/archive/nnue-phase2-plan-2026-04/`.
 
----
-
-## 📚 Documents Overview
-
-### 🚀 Start Here
-
-**`README_START_HERE.md`** - **Read this first!**
-- 5-minute orientation
-- 3 reading paths (deep/quick/minimal)
-- Pre-implementation checklist
-- Next steps
-
----
-
-### 📋 Implementation Planning
-
-**`NNUE_IMPLEMENTATION_PLAN.md`** (44 KB) - **Complete Roadmap**
-- 5 phases with detailed instructions
-- Specific code changes with line numbers
-- Decision trees and contingencies
-- Testing procedures and timelines
-- Effort estimates
-
-**`IMPLEMENTATION_QUICK_REFERENCE.md`** (12 KB) - **Fast Lookup**
-- Phase summary tables
-- File locations checklist
-- Debugging quick guide
-- Session structure template
-
-**`IMPLEMENTATION_PLAN_INDEX.md`** (12 KB) - **Navigation Guide**
-- Master index to all documents
-- Cross-references and links
-- Learning progression paths
-- Pre-implementation checklist
-
-**`SESSION_LOG_TEMPLATE.md`** (8 KB) - **Progress Tracking**
-- Template for each implementation session
-- Work completion checklist
-- Decision recording format
-- Issue tracking
-
----
-
-### 🔬 Problem Analysis
-
-**`NNUE_DEEP_DIVE_ANALYSIS.md`** (18 KB) - **What's Broken**
-- 7 critical issues identified
-- Root cause analysis for each
-- Evidence and code references
-- Impact assessment
-
-**`NNUE_CODE_ISSUES_DETAILED.md`** (30 KB) - **Code Examples**
-- Before/after code for 5 critical fixes
-- Detailed problem explanations
-- Implementation guidance with comments
-
-**`NNUE_ISSUES_REFERENCE.txt`** (10 KB) - **Quick Reference**
-- Quick lookup by issue
-- Exact code locations
-- Problem statements and evidence
-
-**`README_ANALYSIS.md`** (5 KB) - **Analysis Overview**
-- Summary of all findings
-- Recommended priorities
-- Quick start for fixing
-
-**`ANALYSIS_INDEX.txt`** (7 KB) - **Analysis Navigation**
-- Index and cross-references
-- Finding specific issues
-- Evidence and proof
-
----
-
-### 📊 Research & Comparison
-
-**`NNUE_RESEARCH_STOCKFISH_COMPARISON.md`** (22 KB) - **Research Deep-Dive**
-- Architecture comparison (HalfKP, HalfKAv2)
-- Training procedures (TD(λ), supervised learning)
-- Weight initialization strategies
-- Search integration approaches
-- Accumulator optimization
-- Modern variations (Quantmoid4, bucketing)
-
-**`NNUE_CRITICAL_FIXES_QUICK_REFERENCE.md`** (8 KB) - **Quick Fixes**
-- Problem severity assessment
-- Exact code fixes (before/after)
-- Implementation priority roadmap
-- Verification checklist
-
-**`NNUE_RESEARCH_SUMMARY.txt`** (5 KB) - **Executive Summary**
-- Key findings from research
-- Comparison with Stockfish
-- Recommendations by urgency
-
-**`README_NNUE_RESEARCH.md`** (5 KB) - **Research Overview**
-- Research documentation guide
-- What was studied and why
-- Resources and references
-
----
-
-## 🎯 Quick Navigation
-
-### If you want to...
-
-**Understand what's broken:**
-1. Read: `NNUE_DEEP_DIVE_ANALYSIS.md`
-2. Reference: `NNUE_CODE_ISSUES_DETAILED.md`
-
-**Understand how to fix it:**
-1. Read: `NNUE_IMPLEMENTATION_PLAN.md` (Phase 1 section)
-2. Reference: `NNUE_CRITICAL_FIXES_QUICK_REFERENCE.md`
-
-**Understand why (Stockfish approach):**
-1. Read: `NNUE_RESEARCH_STOCKFISH_COMPARISON.md`
-2. Reference: `NNUE_RESEARCH_SUMMARY.txt`
-
-**Start implementing:**
-1. Read: `README_START_HERE.md`
-2. Use: `IMPLEMENTATION_QUICK_REFERENCE.md`
-3. Reference: `NNUE_IMPLEMENTATION_PLAN.md`
-4. Track: `SESSION_LOG_TEMPLATE.md`
-
-**Debug an issue:**
-1. Check: `IMPLEMENTATION_QUICK_REFERENCE.md` (Debugging section)
-2. Reference: `NNUE_ISSUES_REFERENCE.txt`
-3. Deep dive: `NNUE_CODE_ISSUES_DETAILED.md`
-
----
-
-## 📈 The Plan at a Glance
-
-### Problem
-NNUE trained for 700 iterations → **0 ELO improvement**
-- 4 critical bugs identified
-- 7 major issues preventing convergence
-
-### Solution
-**5-phase implementation roadmap:**
-1. **Phase 1** (1-2 days): Critical math fixes
-2. **Phase 2** (3 days, conditional): Training algorithm
-3. **Phase 3** (5 days): Speed optimization
-4. **Phase 4** (4 days): Strength measurement
-5. **Phase 5** (ongoing): Deployment
-
-### Expected
-- **+150-350 ELO improvement**
-- **2-10× faster evaluation**
-- **4 weeks, 30-40 development hours**
-
----
-
-## ✅ Quick Start (30 minutes)
-
-1. **Read** `README_START_HERE.md` (5 min)
-2. **Choose** reading path: A (deep), B (quick), or C (minimal) (15-60 min)
-3. **Review** pre-implementation checklist (10 min)
-4. **Schedule** Session 1 (1-2 hours)
-
----
-
-## 📚 Document Statistics
-
-- **Total files**: 14
-- **Total size**: 170+ KB
-- **Total lines**: 6,000+
-- **Implementation phases**: 5
-- **Decision points**: 12
-- **Code changes detailed**: 50+
-- **Expected sessions**: 6-7
-
----
-
-## 🔑 Key Decisions (Already Made)
-
-✓ **Output Scaling**: Stockfish-compatible (400/16320)
-✓ **Training Target**: Hybrid (outcomes first, search later)
-✓ **Architecture**: Test both 256→32→1 AND 512→128→32→1
-✓ **Success Metric**: Ensemble beats both pure approaches
-
----
-
-## 📖 Reading Paths
-
-### Path A: Deep Understanding (1 hour)
-1. This README
-2. `README_START_HERE.md`
-3. `IMPLEMENTATION_PLAN_INDEX.md`
-4. `NNUE_IMPLEMENTATION_PLAN.md` (full)
-5. `NNUE_DEEP_DIVE_ANALYSIS.md`
-
-### Path B: Quick Start (30 minutes)
-1. This README
-2. `README_START_HERE.md`
-3. `IMPLEMENTATION_QUICK_REFERENCE.md`
-4. `NNUE_IMPLEMENTATION_PLAN.md` (Phases 1-2)
-
-### Path C: Ready to Code (15 minutes)
-1. This README
-2. `README_START_HERE.md`
-3. `IMPLEMENTATION_QUICK_REFERENCE.md` (Phase 1 only)
-
----
-
-## 🚀 Next Steps
-
-1. **Read** `README_START_HERE.md`
-2. **Choose** your learning path (A, B, or C)
-3. **Schedule** implementation Session 1
-4. **Use** `IMPLEMENTATION_QUICK_REFERENCE.md` during work
-5. **Track** progress with `SESSION_LOG_TEMPLATE.md`
-
----
-
-## 📞 Questions?
-
-Refer to:
-- **General**: `IMPLEMENTATION_PLAN_INDEX.md`
-- **Quick lookup**: `IMPLEMENTATION_QUICK_REFERENCE.md`
-- **Deep dive**: `NNUE_IMPLEMENTATION_PLAN.md`
-- **Why something is broken**: `NNUE_DEEP_DIVE_ANALYSIS.md`
-- **How Stockfish does it**: `NNUE_RESEARCH_STOCKFISH_COMPARISON.md`
-
----
-
-**Status**: Ready for Implementation  
-**Last Updated**: April 20, 2026  
-**Estimated Duration**: 4 weeks, 30-40 hours  
-**Expected Outcome**: +150-350 ELO improvement
-
----
-
-**Start with**: `README_START_HERE.md`
+| Session | Date | Title |
+|---|---|---|
+| [1](SESSION_LOG_001.md) | 2026-04-22 | Phase 1.1 + 1.2 - Weight Initialization & Output Scaling |
+| [2](SESSION_LOG_002.md) | 2026-04-22 | Phase 1.3 + Phase 2.1-2.3 - Training Verification & Algorithm Fixes |
+| [3](SESSION_LOG_003.md) | 2026-04-22 | Extended Training Verification + Game Diversity Fixes |
+| [4](SESSION_LOG_004.md) | 2026-04-22 | Phase 3 - Speed Optimization (Incremental Accumulator + Forward Pass) |
+| [5](SESSION_LOG_005.md) | 2026-04-22 | Phase 4 - ELO Validation Infrastructure + First Head-to-Head Match |
+| [6](SESSION_LOG_006.md) | 2026-04-22 | External USI Teacher - Corpus Generator Infrastructure |
+| [7](SESSION_LOG_007.md) | 2026-04-23 | YaneuraOu Teacher Corpus + Offline Trainer — Integration Lessons |
+| [8](SESSION_LOG_008.md) | 2026-04-24 | f32 Shadow Weights — Mechanics Fixed, Reveals Deeper Structural Ceiling |
+| [9](SESSION_LOG_009.md) | 2026-04-24 | Relaxed Teacher Target + elo-tester Fix — Output-Range Ceiling Breaks |
+| [10](SESSION_LOG_010.md) | 2026-04-25 | Symmetric Output-Layer Init — Negative Result, Reframes the 0.47 Floor |
+| [11](SESSION_LOG_011.md) | 2026-04-25 | Lower the Output Mapping Divisor — Mechanically Correct, Reveals the Real Floor |
+| [12](SESSION_LOG_012.md) | 2026-04-26 | Three Diagnostics for Input-Layer Starvation — All Three Negative |
+| [13](SESSION_LOG_013.md) | 2026-04-26 | Sigmoid+MSE Loss — Eval-Path Bug Falsified, Sigmoid Loss Negative |
+| [14](SESSION_LOG_014.md) | 2026-04-26 | Side-to-Move Feature — Structural Intervention Lifts Pearson r From Noise Floor To +0.59 |
+| [15](SESSION_LOG_015.md) | 2026-04-27 | Adam Optimiser + Extended ELO Bake-Off — Adam Matches SGD From S3 Init, **Beats It From Fresh Init (+0.61 r)**, ELO CI Tightens |
+| [16](SESSION_LOG_016.md) | 2026-04-28 | HalfKP Feature Engineering + Adam-Fresh-Init ELO Confirmation — HalfKP Beats Session 15 Ceiling **+0.61 → +0.614 r** (40% lower td_err); Adam-Fresh ELO Confirms **+66 ± 52 over 90 cumulative games** (CI95 [+16, +120]) |
+| [17](SESSION_LOG_017.md) | 2026-04-29 | Engine-Side HalfKP + ELO Confirmation Bake-Off — HalfKP Reaches **+120.4 ± 76.8 ELO** (CI95 [+43.6, +197.2]) Over PST in 30 Games (11W-18D-**1L**), Strongest NNUE Result of Phase 2 |
+| [18](SESSION_LOG_018.md) | 2026-04-29 / 2026-04-30 (bake-off ran across midnight UTC) | Head-to-Head HalfKP vs Flat-NNUE + Binary Weights Format — HalfKP **+23.2 ± 72.7 ELO** Over Flat-NNUE (CI95 [-49.5, +95.9]) in 30 Games (6W-20D-4L); Binary Format Lands at **4.57× Shrink, 7.7× Faster Load** |
+| [18 (Evaluation)](SESSION_LOG_018_Evaluation.md) |  | Evaluation |
+| [19](SESSION_LOG_019.md) | 2026-05-01 | Pieces-in-Hand Thermometer Encoding + Trainer `.bin` Default + Weight-File Cleanup — 11/11 NNUE Tests Pass; Fresh-Init Hand-Feature Network Reaches **r_blk = +0.610, r_wht = +0.566** in 10 Epochs (Per-Stratum Parity with S15 Baseline at 1/3 the Epoch Count) |
+| [20](SESSION_LOG_020.md) | 2026-05-01 (training + diagnostic) / 2026-05-02 (bake-off completion) | Mode-Independent Pearson Diagnostic + 30-Epoch Hand-Feature Retrain + Two Head-to-Head Bake-Offs — Diagnostic Lifted, Both Bake-Offs Inconclusive (CIs Bracket Zero) |
+| [21](SESSION_LOG_021.md) | 2026-09-17 | Feature-Space Audit — The Plateau Was the Metric; Perspective Normalisation Lifts Held-Out r From 0.449 to 0.641 |
+| [22](SESSION_LOG_022.md) | 2026-09-18 | Search Harness and Search Audit — NNUE Has Never Chosen a Move |
+| [23](SESSION_LOG_023.md) | 2026-09-18 | Material PSQT Path — NNUE Beats Classical |
+| [24](SESSION_LOG_024.md) | 2026-09-18 – 2026-09-19 | Modern Architecture — Two Perspectives, King Buckets, and a Trustworthy Bake-off |
+| [25](SESSION_LOG_025.md) | 2026-09-19 | Search and Time Management — and Where the Strength Actually Goes |
+| [26](SESSION_LOG_026.md) | 2026-09-19 – 2026-09-20 | Training on Our Own Games — +65 Elo Against Ourselves, Nothing Against the Teacher |
+| [27](SESSION_LOG_027.md) | 2026-09-20 | The Search Was Throwing the Evaluation Away |
+| [28](SESSION_LOG_028.md) | 2026-09-21 – 2026-09-22 | 100K Games, and Finding Out What We Were Measuring |
+| [29](SESSION_LOG_029.md) | 2026-09-23 | Training on Move Ranking |
+| [30](SESSION_LOG_030.md) | 2026-09-24 to 2026-09-27 | Nodes Per Second |
+| [31](SESSION_LOG_031.md) | 2026-09-27 to 2026-09-28 | Four Bugs That Did Not Matter, and One Blind Spot That Does |
+| [32](SESSION_LOG_032.md) | 2026-09-30 to 2026-10-07 | Idle Threads, Fake Draws, and a Gate That Can Decide |
+| [33](SESSION_LOG_033.md) | 2026-10-07 to 2026-10-08 | Reductions at Split Nodes (rejected) |
+| [34](SESSION_LOG_034.md) | 2026-10-08 | Exact Speed-ups (single-threaded +51%) |
+| [35](SESSION_LOG_035.md) | 2026-10-14 | Speed work, and our node counts were wrong |

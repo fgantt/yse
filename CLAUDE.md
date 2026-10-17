@@ -114,7 +114,7 @@ Two coexisting evaluation strategies, selected/blended via `PositionEvaluator`:
   wraps weights + accumulator and exposes the toggles above.
 - **Two trainers exist** — know which one you mean:
   - `nnue_trainer` (auto-discovered binary from `src/bin/nnue_trainer.rs`) — the original *online*
-    self-play + TD(λ) trainer described in `docs/NNUE_TRAINING_GUIDE.md`. Largely superseded.
+    self-play + TD(λ) trainer described in `docs/archive/NNUE_TRAINING_GUIDE.md`. Largely superseded.
   - `nnue-offline-trainer` (`src/bin/nnue_offline_trainer.rs`, explicit `[[bin]]`) — trains from a
     static corpus (`nnue_corpus_yaneura_d10.jsonl`, ~67K YaneuraOu depth-10 positions) and is the
     trainer used by every session in `docs/nnue-phase2/SESSION_LOG_*.md`. **This is the one in active
@@ -173,7 +173,7 @@ Two coexisting evaluation strategies, selected/blended via `PositionEvaluator`:
 - `src/tuning/` — parameter tuning infra used by the `tuner` binary (Adam/LBFGS/Genetic methods).
 - `src/types/` — core domain types (pieces, players, moves, positions).
 
-### Binaries (`src/bin/`, see `docs/ENGINE_UTILITIES_GUIDE.md` for full usage/examples)
+### Binaries (`src/bin/`; `docs/archive/ENGINE_UTILITIES_GUIDE.md` is an older usage guide, check `--help`)
 
 `usi-engine`, `tuner`, `analyzer`, `strength-tester`, `move-assessor`, `puzzle-gen`,
 `generate_magic_tables`, `optimize_magic_numbers`, `pst-tuning-runner`, `elo-tester`, `corpus-gen`,
@@ -197,10 +197,10 @@ to move / captured pieces / move number.
    `nnue_weights_*.{json,bin}`, `corpus_*/`, `weights/*` (except `archive/`), `engines/`, and
    `matches/*` (except `user_games/`). Never run `git clean -x`: it deletes ignored corpora and
    weights. Only a shipping network is committed (`nnue/default.bin`, LFS).
-6. Scripts find YaneuraOu through `scripts/paths.py` (`$YSE_YANE`, or a `yaneuraou-*` directory
-   beside the repo or a parent); import `REPO`/`require_yane` from it, never hard-code paths.
-4. `memory/` in the repo root holds structured docs for AI agents (`AGENT_QUICKSTART.md`,
-   `ARCHITECTURE.md`, `MODULES.md`, `BINARIES.md`) — check there before re-deriving architecture facts.
+4. Documentation map: `docs/README.md`. Current behaviour is in `docs/ENGINE_FEATURES.md` and the
+   session logs; `docs/archive/` (including the old `memory/` agent docs) describes earlier engines.
 5. Bake-off / ELO measurements are wall-clock heavy (minutes per game at depth 3); when running
    `elo-tester` at scale, expect multi-hour wall times and consider running two configs in parallel
    background processes with distinct `--output`/`--seed` values.
+6. Scripts find YaneuraOu through `scripts/paths.py` (`$YSE_YANE`, or a `yaneuraou-*` directory
+   beside the repo or a parent); import `REPO`/`require_yane` from it, never hard-code paths.
