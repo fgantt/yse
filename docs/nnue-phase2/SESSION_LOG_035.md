@@ -55,6 +55,10 @@
 >    `engines/usi-engine-stable-pre-hist`). Details: "Move ordering" at the end.
 >    YaneuraOu's code is read for which techniques it uses only, never copied (user rule);
 >    the YaneuraOu-network loader is behind the non-default `yo-diagnostic` feature.
+10. **Paused for git/site cleanup (2026-10-17).** k81 network installed as `nnue/default.bin`.
+    Latest user four-piece game: the lead held to move 56 (improved), then the same king-danger
+    collapse. **Before any cleanup, read "Handoff for the next training session" at the end:
+    `nnue/`, `engines/`, `weights/`, `corpus_s35/` (30 GB) are untracked and not ignored.**
 
 ---
 
@@ -473,3 +477,87 @@ has no handicap games.
 
 **Installed 2026-10-17**: `nnue/default.bin` is `k81.bin` (old default kept as
 `nnue/default-s26.bin`).
+
+---
+
+## Handoff for the next training session (2026-10-17)
+
+Work on the engine pauses here for git branch and site cleanup. State for whoever picks it up.
+
+### What is installed, and what is not in git
+
+- `engines/usi-engine-stable`: the history-ordering binary (2026-10-16). The GUI runs it.
+- `nnue/default.bin` = `weights/session35b/k81.bin` (81 king buckets, 62.6M even-game
+  positions; 99.6 MB). The previous default is `nnue/default-s26.bin`.
+- **None of these are tracked or gitignored, so `git clean` deletes them**: `nnue/`, `engines/`,
+  `weights/session35*/`, `corpus_s35/` (30 GB; `gen_d8_dedup.jsonl` is 13 GB, ~7 h of YaneuraOu
+  labelling plus the self-play generation), the other `corpus_*` directories, most of
+  `matches/`. Back them up or leave them alone during branch cleanup. Never run `git clean -fdx`
+  in this worktree.
+- Rebuilding k81: `weights/session35b/train81.sh` (8.4 h; `trainer-bin81` is the trainer at
+  `f795464`, which expands a 9-bucket network to 81 buckets).
+
+### The latest user game: four-piece loss in 87 (k81 + history ordering)
+
+`matches/user_games/2026-10-17_4mai_loss87.txt` (analysis at 1M nodes in
+`..._analysis.jsonl`; 20M-node judgement in `matches/s35/losses/judge.jsonl`). The user: "It does
+seem slightly improved." **It is improved**: YaneuraOu kept Black at +2,700 to +3,400 through move 56,
+where Session 35's earlier loss was already lost by move 30. Then came the collapse. Move numbers
+follow the GUI list, where White's first move is move 1; scores are YaneuraOu at 20M nodes, 14 threads:
+
+| move | played | YaneuraOu | best | played | loss |
+|---|---|---|---|---|---|
+| 57 | S\*4b | P\*4c | 3205 | 2890 | 315 |
+| **60** | **N\*7e** | 4d4c+ | 2770 | 1894 | **876** |
+| 62 | 8c7c | 4h4f | 1591 | 1296 | 295 |
+| 66 | 4h4f | S\*8c | 1040 | 723 | 317 |
+| **67** | **4c5b** | 4c5c | 1241 | 553 | **688** |
+| **69** | **4d4c** | 4d4a+ | 745 | -676 | **1421** |
+| 72 | 5b5c | B\*6h | -1486 | -2232 | 746 |
+
+Our own score lagged YaneuraOu's by 1,000-2,300 cp through the collapse (move 67: ours +1,520 at
+1 s; move 71: ours +1,650, YaneuraOu -810), while White's horse returned to 6e and knights, a
+silver and a gold were dropped around our king on 8h. **This is the same failure as the earlier
+games: in handicap positions the network does not see a drop attack building against our own king.**
+The 62.6M-position corpus contains no handicap games. Earlier slips: P\*1b (move 10, -277) and G\*5b
+(move 42, -293).
+
+### Test set (`matches/s35/losses/`)
+
+The 10 mistakes from this game (moves 10, 42, 57, 60, 62, 66, 67, 69, 71, 72) and 3 controls
+(moves 21, 43, 54) are **appended** to `set.jsonl`: now 91 mistakes and 33 controls from 12
+games. The first 81 + 30 rows are unchanged, so earlier screen figures still compare on that
+subset. (`loss_set.py select` would re-shuffle the controls; to add a game, run `judge OUT N T
+GAME.txt`, which appends, then append that game's rows as done here.)
+
+`scripts/loss_set.py` fix: when YaneuraOu's only score line was a bound (it prints just the final
+iteration on short searches), `go` returned no score, and the judge recorded the loss as 0 or
+missing. It now uses the bound. Earlier judge rows were made at 20M nodes, where this was rare
+(their recorded scores are unaffected unless null).
+
+### Next, in order
+
+1. **Baselines for k81 not yet measured** (cheap, do first):
+   - the fixed depth-12 screen on `set.jsonl` (`loss_set.py fixed`). The s26 network scored
+     57 / 81 there; the screen did not predict games (yon 44 / 81, no gain).
+   - Four-piece as Black against YaneuraOu at 300k nodes on fresh seeds 3901-02 (us 4 threads,
+     500 ms; stable s26 network 21 / 160, wide 36 / 160). This shows whether the even-game data
+     alone moved handicap play.
+2. **Add handicap king-danger positions to the even-game corpus, at a small share.** We have
+   ~440k four-piece positions labelled at depth 14 (`corpus_s35/vs300k_d14.jsonl`,
+   `vs300k_r3_d14.jsonl`, `ladder_games_d14.jsonl`). On the 2M base, `yon` memorised its
+   training openings, with no gain on fresh seeds. On a 62.6M base at ~1-3% the regime is
+   different and untested. Fine-tune from k81. Gate on all three:
+   - SPRT [0, 40] against stable;
+   - even games against YaneuraOu must not drop (k81: 3k nodes 78.3%, 10k 27.5%, seed 4201);
+   - four-piece fresh seeds must rise.
+3. **The collapse positions are rare in our data.** Our games are lost at moves 55-72 against a
+   long drop attack, and the 300k-node games seldom get there. Candidates: four-piece games against
+   YaneuraOu at 1M+ nodes (closer to the GUI's 4 threads, 60 min), labelled at depth 14+, with
+   the positions after move 50 weighted up.
+4. **The wide target** (clamp 6000, scale 1000) was Session 35's only four-piece network gain
+   (+71% wins on fresh seeds) and cost ~-18 Elo in even games. It is worth retrying on the
+   62.6M base, where the even-game cost may differ.
+5. **Even-game data volume is still a lever**: 14M to 62.6M positions took 3k nodes from 60% to
+   78% and 10k from 10.8% to 27.5%. More labelled YaneuraOu self-play (`scripts/label_stream.py`)
+   or more epochs from k81 are both open.

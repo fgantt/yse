@@ -3,7 +3,8 @@
 judge: every Black (our) move of every game in matches/user_games/*4mai*.txt is judged by
   YaneuraOu (best move and score; the played move's score by searching the position after it,
   negated -- `searchmoves` ignores drops). Output: one JSON row per position.
-    python3 scripts/loss_set.py judge OUT.jsonl NODES THREADS
+    python3 scripts/loss_set.py judge OUT.jsonl NODES THREADS [GAME.txt]
+  (with GAME, only that game is judged and its rows are appended to OUT)
 score: an engine plays each selected position at a fixed byoyomi (MS), or with MS 0 at the
   clock it would have in the GUI at that move (60 min + 10 s); its moves are judged the same
   way (cached in the judge file's rows).
@@ -44,14 +45,19 @@ class Engine:
             if l.startswith(t): return out
     def go(self, pos, go):
         self.send("position " + pos); self.send("go " + go)
-        out = self.until("bestmove"); sc = None; depth = None
+        out = self.until("bestmove"); sc = None; depth = None; bound = None
         for l in out:
             t = l.split()
-            if t[:1] == ["info"] and "score" in t and "lowerbound" not in t and "upperbound" not in t:
+            if t[:1] == ["info"] and "score" in t:
                 i = t.index("score"); v = t[i + 2]
-                sc = int(v) if t[i + 1] == "cp" else (-CAP if v.startswith("-") else CAP)
+                v = int(v) if t[i + 1] == "cp" else (-CAP if v.startswith("-") else CAP)
+                if "lowerbound" in t or "upperbound" in t:
+                    bound = v; continue
+                sc = v
                 if "depth" in t: depth = int(t[t.index("depth") + 1])
-        return out[-1].split()[1], sc, depth
+        # YaneuraOu may print only its final iteration, and that line can be a bound;
+        # use the bound then rather than report no score.
+        return out[-1].split()[1], sc if sc is not None else bound, depth
     def quit(self): self.send("quit")
 
 def yane(threads):
@@ -63,10 +69,11 @@ def judge_move(y, pos, mv, nodes):
     _, sc, _ = y.go(pos + " " + mv if " moves " in pos else pos + " moves " + mv, f"nodes {nodes}")
     return -(sc if sc is not None else 0)
 
-def judge(out, nodes, threads):
+def judge(out, nodes, threads, game=None):
     y = yane(threads)
-    games = sorted(f for f in os.listdir(REPO + "/matches/user_games") if "4mai" in f and f.endswith(".txt"))
-    with open(out, "w") as f:
+    games = [game] if game else sorted(
+        f for f in os.listdir(REPO + "/matches/user_games") if "4mai" in f and f.endswith(".txt"))
+    with open(out, "a" if game else "w") as f:
         for g in games:
             start, moves = load_game(REPO + "/matches/user_games/" + g)
             first = start.split()[1]
@@ -251,5 +258,6 @@ if __name__ == "__main__":
     if sys.argv[1] == "select": select(sys.argv[2], sys.argv[3]); sys.exit()
     if sys.argv[1] == "trace": trace(sys.argv[2], sys.argv[3], float(sys.argv[4]), sys.argv[5]); sys.exit()
     if sys.argv[1] == "report": report(sys.argv[2], sys.argv[3], [float(x) for x in sys.argv[4].split(",")]); sys.exit()
-    if sys.argv[1] == "judge": judge(sys.argv[2], int(sys.argv[3]), int(sys.argv[4]))
+    if sys.argv[1] == "judge": judge(sys.argv[2], int(sys.argv[3]), int(sys.argv[4]),
+                                        sys.argv[5] if len(sys.argv) > 5 else None)
     else: score(sys.argv[2], sys.argv[3], int(sys.argv[4]), sys.argv[5], int(sys.argv[6]) if len(sys.argv) > 6 else 1)
