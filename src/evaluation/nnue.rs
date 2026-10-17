@@ -745,7 +745,8 @@ impl NNUEWeights {
 
     /// Turn a POV network (`KING_FEATURE_STRIDE` input rows) into a
     /// king-conditioned one by copying its input rows and PSQT into all 81
-    /// own-king buckets. The result computes exactly the same function; training
+    /// own-king buckets (or a 9-bucket network into 81, each square from its
+    /// bucket). The result computes exactly the same function; training
     /// then specialises each bucket. This stands in for the "factoriser" of
     /// modern NNUE trainers: rarely seen king squares keep sensible weights
     /// instead of starting from noise.
@@ -753,6 +754,20 @@ impl NNUEWeights {
     /// scheme back from the row count.
     pub fn tile_for_king(&mut self, nbuckets: usize) {
         assert!(KING_BUCKET_SCHEMES.contains(&nbuckets), "unsupported king buckets {nbuckets}");
+        if nbuckets == 81 && self.input_weights_1.len() == 9 * KING_FEATURE_STRIDE {
+            // A 9-bucket network: each king square starts as a copy of its bucket.
+            let rows = |s: usize| {
+                let b = king_bucket(s as u8, 9) * KING_FEATURE_STRIDE;
+                b..b + KING_FEATURE_STRIDE
+            };
+            let base = std::mem::take(&mut self.input_weights_1);
+            self.input_weights_1 = (0..81).flat_map(|s| base[rows(s)].iter().cloned()).collect();
+            if self.psqt.len() == base.len() {
+                let p = std::mem::take(&mut self.psqt);
+                self.psqt = (0..81).flat_map(|s| p[rows(s)].iter().copied()).collect();
+            }
+            return;
+        }
         if self.input_weights_1.len() != KING_FEATURE_STRIDE {
             return;
         }
