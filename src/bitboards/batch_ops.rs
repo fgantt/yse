@@ -35,6 +35,24 @@
 
 use crate::bitboards::SimdBitboard;
 
+/// Packs four 128-bit lanes into one 512-bit register, `e0` lowest.
+/// `std::arch` has no `_mm512_set_m128i`; this is its equivalent.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f")]
+#[inline]
+unsafe fn mm512_set_m128i(
+    e3: std::arch::x86_64::__m128i,
+    e2: std::arch::x86_64::__m128i,
+    e1: std::arch::x86_64::__m128i,
+    e0: std::arch::x86_64::__m128i,
+) -> std::arch::x86_64::__m512i {
+    use std::arch::x86_64::{_mm512_castsi128_si512, _mm512_inserti32x4};
+    let v = _mm512_castsi128_si512(e0);
+    let v = _mm512_inserti32x4::<1>(v, e1);
+    let v = _mm512_inserti32x4::<2>(v, e2);
+    _mm512_inserti32x4::<3>(v, e3)
+}
+
 /// Aligned array of bitboards for SIMD-friendly batch operations
 ///
 /// This struct provides memory-aligned storage for multiple bitboards,
@@ -244,6 +262,8 @@ mod x86_64_batch {
     use crate::bitboards::{platform_detection, SimdBitboard};
     use std::arch::x86_64::*;
 
+    use super::mm512_set_m128i;
+
     /// Process batch AND operation using SSE/AVX2/AVX-512
     /// Processes multiple bitboards simultaneously using SIMD vectorization
     /// With AVX-512 (512-bit), we can process 4 bitboards at once (for large
@@ -330,8 +350,8 @@ mod x86_64_batch {
 
             // Pack four 128-bit values into 512-bit AVX-512 register
             // _mm512_set_m128i creates a 512-bit register from four 128-bit values
-            let a_512 = _mm512_set_m128i(a4_vec, a3_vec, a2_vec, a1_vec);
-            let b_512 = _mm512_set_m128i(b4_vec, b3_vec, b2_vec, b1_vec);
+            let a_512 = mm512_set_m128i(a4_vec, a3_vec, a2_vec, a1_vec);
+            let b_512 = mm512_set_m128i(b4_vec, b3_vec, b2_vec, b1_vec);
 
             // Perform AVX-512 AND on all four bitboards simultaneously
             let result_512 = _mm512_and_si512(a_512, b_512);
@@ -611,8 +631,8 @@ mod x86_64_batch {
             let b4_vec = _mm_loadu_si128(b4_bytes.as_ptr() as *const __m128i);
 
             // Pack four 128-bit values into 512-bit AVX-512 register
-            let a_512 = _mm512_set_m128i(a4_vec, a3_vec, a2_vec, a1_vec);
-            let b_512 = _mm512_set_m128i(b4_vec, b3_vec, b2_vec, b1_vec);
+            let a_512 = mm512_set_m128i(a4_vec, a3_vec, a2_vec, a1_vec);
+            let b_512 = mm512_set_m128i(b4_vec, b3_vec, b2_vec, b1_vec);
 
             // Perform AVX-512 OR on all four bitboards simultaneously
             let result_512 = _mm512_or_si512(a_512, b_512);
@@ -885,8 +905,8 @@ mod x86_64_batch {
             let b4_vec = _mm_loadu_si128(b4_bytes.as_ptr() as *const __m128i);
 
             // Pack four 128-bit values into 512-bit AVX-512 register
-            let a_512 = _mm512_set_m128i(a4_vec, a3_vec, a2_vec, a1_vec);
-            let b_512 = _mm512_set_m128i(b4_vec, b3_vec, b2_vec, b1_vec);
+            let a_512 = mm512_set_m128i(a4_vec, a3_vec, a2_vec, a1_vec);
+            let b_512 = mm512_set_m128i(b4_vec, b3_vec, b2_vec, b1_vec);
 
             // Perform AVX-512 XOR on all four bitboards simultaneously
             let result_512 = _mm512_xor_si512(a_512, b_512);
@@ -1302,6 +1322,8 @@ mod x86_64_combine_all {
     use crate::bitboards::{platform_detection, SimdBitboard};
     use std::arch::x86_64::*;
 
+    use super::mm512_set_m128i;
+
     /// Combine all bitboards using SIMD-optimized OR operations
     /// Uses AVX-512 when available for large batches (>= 16), AVX2 for medium
     /// batches, otherwise SSE AVX-512 is only used for large batches to
@@ -1367,8 +1389,8 @@ mod x86_64_combine_all {
             };
 
             // Pack into AVX-512 register (duplicate result for all 4 positions)
-            let result_512 = _mm512_set_m128i(result_vec, result_vec, result_vec, result_vec);
-            let b_512 = _mm512_set_m128i(b4_vec, b3_vec, b2_vec, b1_vec);
+            let result_512 = mm512_set_m128i(result_vec, result_vec, result_vec, result_vec);
+            let b_512 = mm512_set_m128i(b4_vec, b3_vec, b2_vec, b1_vec);
 
             // OR all four pairs simultaneously
             let combined_512 = _mm512_or_si512(result_512, b_512);

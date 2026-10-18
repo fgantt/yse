@@ -5,9 +5,6 @@
 
 #![cfg(feature = "simd")]
 
-#[cfg(target_arch = "x86_64")]
-use std::arch::x86_64::is_x86_feature_detected;
-
 /// SIMD alignment requirements
 pub mod alignment {
     /// 16-byte alignment for SSE/NEON (128-bit SIMD)
@@ -85,17 +82,16 @@ pub mod prefetch {
     /// # Arguments
     /// * `bb` - Reference to the bitboard to prefetch
     /// * `level` - Cache level to prefetch into
-    pub fn prefetch_bitboard(bb: &SimdBitboard, _level: PrefetchLevel) {
+    pub fn prefetch_bitboard(bb: &SimdBitboard, level: PrefetchLevel) {
         #[cfg(target_arch = "x86_64")]
         {
-            let hint = match level {
-                PrefetchLevel::L1 => _MM_HINT_T0,
-                PrefetchLevel::L2 => _MM_HINT_T1,
-                PrefetchLevel::L3 => _MM_HINT_T2,
-            };
             unsafe {
                 let ptr = bb as *const SimdBitboard as *const i8;
-                _mm_prefetch(ptr, hint);
+                match level {
+                    PrefetchLevel::L1 => _mm_prefetch::<_MM_HINT_T0>(ptr),
+                    PrefetchLevel::L2 => _mm_prefetch::<_MM_HINT_T1>(ptr),
+                    PrefetchLevel::L3 => _mm_prefetch::<_MM_HINT_T2>(ptr),
+                }
             }
         }
 
@@ -105,6 +101,7 @@ pub mod prefetch {
             // Use inline assembly or compiler hints as fallback
             unsafe {
                 let ptr = bb as *const SimdBitboard as *const i8;
+                let _ = level;
                 // Compiler hint for prefetching
                 std::ptr::read_volatile(ptr);
             }
@@ -158,20 +155,20 @@ pub mod prefetch {
     /// * `ptr` - Pointer to memory address to prefetch
     /// * `level` - Cache level to prefetch into
     #[inline(always)]
-    pub unsafe fn prefetch_ptr(ptr: *const i8, _level: PrefetchLevel) {
+    pub unsafe fn prefetch_ptr(ptr: *const i8, level: PrefetchLevel) {
         #[cfg(target_arch = "x86_64")]
         {
-            let hint = match level {
-                PrefetchLevel::L1 => _MM_HINT_T0,
-                PrefetchLevel::L2 => _MM_HINT_T1,
-                PrefetchLevel::L3 => _MM_HINT_T2,
-            };
-            _mm_prefetch(ptr, hint);
+            match level {
+                PrefetchLevel::L1 => _mm_prefetch::<_MM_HINT_T0>(ptr),
+                PrefetchLevel::L2 => _mm_prefetch::<_MM_HINT_T1>(ptr),
+                PrefetchLevel::L3 => _mm_prefetch::<_MM_HINT_T2>(ptr),
+            }
         }
 
         #[cfg(target_arch = "aarch64")]
         {
             // ARM64 prefetch - use compiler hint
+            let _ = level;
             std::ptr::read_volatile(ptr);
         }
 

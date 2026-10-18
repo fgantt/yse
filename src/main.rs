@@ -34,6 +34,7 @@ fn format_panic_payload(payload: &Box<dyn Any + Send>) -> String {
     }
 }
 
+#[cfg(unix)]
 unsafe extern "C" fn signal_handler(
     signal: libc::c_int,
     _info: *mut libc::siginfo_t,
@@ -44,6 +45,7 @@ unsafe extern "C" fn signal_handler(
     libc::_exit(128 + signal);
 }
 
+#[cfg(unix)]
 fn install_signal_handlers() {
     unsafe {
         let mut action: libc::sigaction = std::mem::zeroed();
@@ -57,6 +59,7 @@ fn install_signal_handlers() {
 
 fn main() {
     install_panic_hook();
+    #[cfg(unix)]
     install_signal_handlers();
     run_with_panic_logging(|| run_usi_loop());
 }
