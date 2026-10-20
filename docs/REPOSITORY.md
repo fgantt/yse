@@ -25,12 +25,13 @@ clone at `shogi-game/yse` has `legacy-main` checked out.
 |---|---|---|
 | source, tests, docs, `scripts/` | yes | |
 | `nnue/default.bin` (shipped network, ~100 MB) | **Git LFS** | Loaded by the engine by default (USI `NNUEFile`, `src/lib.rs` `DEFAULT_NNUE_FILE`). Without it the engine falls back to the much weaker classical evaluation and says so on `isready`. |
-| `nnue/default-s26.bin` | Git LFS | The previous default network (Session 26), for comparisons. |
+| `nnue/default-k81.bin` | Git LFS | The previous default network (Session 35, 81 king buckets), for comparisons. |
+| `nnue/default-s26.bin` | Git LFS | An older default network (Session 26), for comparisons. |
 | `matches/user_games/`, `matches/s35/losses/` | yes | The user's GUI games and the test set built from them (`scripts/loss_set.py`). |
 | `eval_gap/` | yes | Eval-gap positions and results (`scripts/eval_gap.py`). |
 | `weights/archive/` | yes | Old weight snapshots. |
-| `corpus_*/` | no (ignored) | Training corpora, ~40 GB. `corpus_s35/gen_d8_dedup.jsonl` (13 GB, 62.6M positions labelled by YaneuraOu) is what the current network was trained on, and it costs ~7 h of labelling plus generation to rebuild. **Lives only on the development machine for now.** |
-| `weights/session*/` | no (ignored) | Training runs and checkpoints. `weights/session35b/k81.bin` is the current network. |
+| `corpus_*/` | no (ignored) | Training corpora, ~40 GB. `corpus_s36/pool_d8.jsonl` (29 GB, 125M positions labelled by YaneuraOu; `corpus_s35` plus `corpus_s36/gen_d8`) is what the current network was trained on, and it costs ~2 x 11 h of generation and labelling to rebuild. **Lives only on the development machine for now.** |
+| `weights/session*/` | no (ignored) | Training runs and checkpoints. `weights/session36/p9.bin` is the current network. |
 | `engines/` | no (ignored) | Local builds kept for matches; `engines/usi-engine-stable` is what the GUI runs. Rebuild from a commit; binaries are machine-specific. |
 | `matches/*` other than the above | no (ignored) | Match logs and CSVs. Commit the few a session log cites. |
 | `resources/magic_tables/magic_table.bin` | no (ignored) | Generated (86 MB). |

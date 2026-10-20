@@ -47,3 +47,4 @@ original conclusions, and several were later corrected (later logs say so).
 | [33](SESSION_LOG_033.md) | 2026-10-07 to 2026-10-08 | Reductions at Split Nodes (rejected) |
 | [34](SESSION_LOG_034.md) | 2026-10-08 | Exact Speed-ups (single-threaded +51%) |
 | [35](SESSION_LOG_035.md) | 2026-10-14 | Speed work, and our node counts were wrong |
+| [36](SESSION_LOG_036.md) | 2026-10-17 | Twice the even-game data: p9 shipped (+100) |

@@ -1,0 +1,4 @@
+# Four-piece handicap WIN, GUI, stable (hist orderer) + nnue/default.bin = k81, 2026-10-18. Black wins at move 56 (4b4c).
+# User: "a lovely 4 handicap against YaneuraOu win for our current stable engine."
+# start: sfen 1nsgkgsn1/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1
+4a3b 2g2f 7a6b 2f2e 3a2b 7g7f 6a5b 2e2d 2c2d 2h2d 5c5d 2d5d 6b5c 5d5e 5b6b 1g1f 2b2c 1f1e 4c4d 5e8e 6b7b P*2d 2c3d 1e1d 1c1d 1i1d P*1c 1d1c+ 2a1c 8e1e 3b2b P*1d P*1b 3g3f 5a6a 5i6h 7c7d 3f3e 3d4c 7i7h 7d7e 7f7e 9c9d 1d1c+ 1b1c 1e2e 4c3b 3i4h 6c6d 2e2f P*2c 2d2c+ 3b2c 4h5i 8c8d N*1e P*2e 2f5f 6a6b 1e2c+ 2b2c 6h7i 7b6c 5i5h 2c2d 5f8f 6c7c S*8b 7c8c 8b8a 2d3e 8f1f L*1a 1f7f P*7c 7f8f 1c1d P*2d 7c7d 8f7f 3e3d 7e7d 3d2d N*4e N*6a 4e5c 6b5c 8a7b 8c8b 7b6a 1a1b N*3f P*5e 3f2d 2e2f 7f2f N*9f 9g9f 8b7b 6a7b 3c3d S*6b 5c4c G*5c 4c3c 2d3b+ 3c3b G*4b 3b3c 4b4c

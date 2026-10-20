@@ -5,7 +5,8 @@ millions of positions one interruption loses hours. This labels batches of games
 each batch to its own file (atomically), and skips batches already written, so it can be
 stopped and restarted with a different worker count.
     python3 scripts/label_stream.py OUT_DIR DEPTH WORKERS BOARD csv [csv ...]
-Output: OUT_DIR/b_NNNNN.jsonl in the trainer format of `label_games.py`. Positions within
+Output: OUT_DIR/b_NNNNN.jsonl in the trainer format of `label_games.py` (game ids from
+$GID_START, default 1000000). Positions within
 the opening's random plies (`--random-plies`, read from RANDOM_PLIES, default 8) are kept
 and marked `from_random_opening`.
 """
@@ -53,7 +54,7 @@ if __name__ == "__main__":
     out_dir, depth, workers, board = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
     os.makedirs(out_dir, exist_ok=True)
     games = []
-    gid = 1_000_000
+    gid = int(os.environ.get("GID_START", "1000000"))  # distinct per corpus when corpora are pooled
     for fname in sys.argv[5:]:
         for r in csv.DictReader(open(fname)):
             moves = r["record"].split()
