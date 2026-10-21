@@ -1,0 +1,4 @@
+# Four-piece handicap WIN, user's Windows PC, YSE at 2940e55 (network p9), 2026-10-20. Black wins at move 59 (7c6c).
+# User: "I played a 4 handicap YaneuraOu game on my windows PC with the latest. We won."
+# start: sfen 1nsgkgsn1/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1
+4a3b 2g2f 7c7d 7g7f 6a6b 2f2e 7a7b 2e2d 2c2d 2h2d P*2b 2d7d 3a4b 8h6f 7b7c 7d7e 3c3d 8i7g 5a6a 7i6h 6b7b 3i3h 5c5d 6i7i 6a6b 9g9f 6b6a 7e2e 2a3c 2e1e 3b2c 1e1f 1c1d 1f5f 7c6d 5f5d 7b6b 3g3f 6b5b 2i3g 6a6b 3f3e 5b5c 5d3d 4c4d 3d4d 5c4d 6f4d 6d5c 4d5e 6c6d 5i6i 6b5b 6i7h 5b4c 5e4f 9c9d 5g5f 9d9e 9f9e 1d1e G*3d 2c3d 3e3d 4c3d G*3e 3d4c P*3d P*3b 3d3c+ 3b3c 3g4e 4c5b 4e5c+ 4b5c N*4e N*8d S*8e P*9h 4e5c+ 5b5c 9i9h 8a7c 8e8d 8c8d S*7d R*9i 7h8h 9i9h+ 8h9h L*9f 9h8h N*6e R*7b G*8i 8h8i S*9h 8i7h 6e7g+ 7h7g 9h8g+ 7g6f 6d6e 6f5g N*6b 4f6d 5c4c G*4b 4c5d 5f5e 5d6d 7b7c+ 6d5e P*5f 5e5d 7c6c
