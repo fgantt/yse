@@ -57,6 +57,62 @@ pub fn lean_enabled() -> bool {
 
 const INF: i32 = 1_000_000;
 
+/// What reverse futility returns (`SHOGI_RFP_RETURN`): 0 (default) the static
+/// evaluation, 1 beta, 2 halfway between them. Session 37 found the static
+/// evaluation, often far above beta, surfacing as root fail-highs that the
+/// re-search then contradicted by 400-500 cp.
+fn rfp_return() -> u8 {
+    static MODE: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *MODE.get_or_init(|| {
+        std::env::var("SHOGI_RFP_RETURN").ok().and_then(|v| v.parse().ok()).unwrap_or(0)
+    })
+}
+
+/// Rules of the lean search that `SHOGI_LEAN_OFF` can switch off, one bit each.
+mod off {
+    pub const RFP: u16 = 1;
+    pub const RAZOR: u16 = 2;
+    pub const NULL: u16 = 4;
+    pub const HIST: u16 = 8;
+    pub const LMP: u16 = 16;
+    pub const FUT: u16 = 32;
+    pub const SEE_QUIET: u16 = 64;
+    pub const SEE_CAPTURE: u16 = 128;
+    pub const LMR: u16 = 256;
+    pub const Q_DELTA: u16 = 512;
+    pub const Q_SEE: u16 = 1024;
+}
+
+/// Diagnostic: whether a pruning or reduction rule is switched off.
+/// `SHOGI_LEAN_OFF` is a comma list of rfp, razor, null, hist, lmp, fut, see_quiet,
+/// see_capture, lmr, q_delta, q_see (unset: everything on, the search unchanged).
+/// Session 37 used it to ask which rule hides the opponent's attack.
+fn lean_off(rule: u16) -> bool {
+    static OFF: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+    let bits = *OFF.get_or_init(|| {
+        std::env::var("SHOGI_LEAN_OFF").map_or(0, |v| {
+            v.split(',')
+                .map(|s| match s.trim() {
+                    "rfp" => off::RFP,
+                    "razor" => off::RAZOR,
+                    "null" => off::NULL,
+                    "hist" => off::HIST,
+                    "lmp" => off::LMP,
+                    "fut" => off::FUT,
+                    "see_quiet" => off::SEE_QUIET,
+                    "see_capture" => off::SEE_CAPTURE,
+                    "lmr" => off::LMR,
+                    "q_delta" => off::Q_DELTA,
+                    "q_see" => off::Q_SEE,
+                    "" => 0,
+                    other => panic!("SHOGI_LEAN_OFF: unknown rule {other}"),
+                })
+                .fold(0, |a, b| a | b)
+        })
+    });
+    bits & rule != 0
+}
+
 /// Where the "improving" flag applies (`SHOGI_IMPROVING`, a bit set): 1 reverse
 /// futility margin, 2 late-move pruning count, 4 one more reduction when not
 /// improving. 0 (default) leaves the search unchanged.
@@ -241,15 +297,20 @@ impl SearchEngine {
         // Reverse futility: far enough above beta that a quiet move will not
         // bring it back down within a few plies.
         if prunable
+            && !lean_off(off::RFP)
             && depth <= 6
             && static_eval - 120 * (depth - i32::from(uses & 1 != 0 && improving)) >= beta
             && static_eval < MATE_THRESHOLD
         {
-            return static_eval;
+            return match rfp_return() {
+                1 => beta,
+                2 => (static_eval + beta) / 2,
+                _ => static_eval,
+            };
         }
 
         // Razoring: hopeless at the frontier, let quiescence decide.
-        if prunable && depth <= 2 && static_eval + 250 * depth < alpha {
+        if prunable && !lean_off(off::RAZOR) && depth <= 2 && static_eval + 250 * depth < alpha {
             let q = self.lean_q_entry(
                 board,
                 captured_pieces,
@@ -270,6 +331,7 @@ impl SearchEngine {
             && depth >= 3
             && static_eval >= beta
             && !search_toggles().no_null_move
+            && !lean_off(off::NULL)
             && beta > -MATE_THRESHOLD
         {
             let r = 3 + depth / 3 + ((static_eval - beta) / 200).min(3);
@@ -510,6 +572,7 @@ impl SearchEngine {
                 if quiet {
                     // Quiet moves with a bad record, near the leaves.
                     if hist & 4 != 0
+                        && !lean_off(off::HIST)
                         && !pv_node
                         && depth <= 3
                         && super::lean_hist::with(|h| h.quiet_score(mv, ply)) < -4000 * depth
@@ -518,21 +581,23 @@ impl SearchEngine {
                     }
                     // Late move pruning.
                     let lmp_count = (3 + (depth * depth) as usize) / (1 + usize::from(!improving_for(2)));
-                    if !pv_node && depth <= 8 && move_count > lmp_count {
+                    if !pv_node && !lean_off(off::LMP) && depth <= 8 && move_count > lmp_count {
                         continue;
                     }
                     // Futility.
-                    if !pv_node && depth <= 6 && static_eval + 100 + 150 * depth <= alpha {
+                    if !pv_node && !lean_off(off::FUT) && depth <= 6 && static_eval + 100 + 150 * depth <= alpha {
                         continue;
                     }
                     // Quiet moves and drops that lose material.
                     if depth <= 6
+                        && !lean_off(off::SEE_QUIET)
                         && crate::search::move_ordering::see_calculation::see_quiet(mv, board)
                             < -80 * depth
                     {
                         continue;
                     }
                 } else if depth <= 6
+                    && !lean_off(off::SEE_CAPTURE)
                     && crate::search::move_ordering::see_calculation::calculate_see_internal(
                         mv, board,
                     ) < -150 * depth
@@ -582,7 +647,11 @@ impl SearchEngine {
             } else {
                 // Late move reductions for quiet moves past the first few.
                 let mut r = 0;
-                if depth >= 2 && move_count > 1 + usize::from(pv_node) && quiet && !mv.gives_check
+                if depth >= 2
+                    && !lean_off(off::LMR)
+                    && move_count > 1 + usize::from(pv_node)
+                    && quiet
+                    && !mv.gives_check
                 {
                     r = i32::from(lmr[(depth as usize).min(63)][move_count.min(63)]);
                     if pv_node {
@@ -1017,14 +1086,14 @@ impl SearchEngine {
                         _ => false,
                     }
             };
-            if !in_check && !mv.gives_check {
+            if !in_check && !mv.gives_check && !lean_off(off::Q_DELTA) {
                 let promo = if mv.is_promotion { 300 } else { 0 };
                 // Even winning the piece outright does not reach alpha.
                 if stand_pat + mv.captured_piece_value() + promo + 200 <= alpha {
                     continue;
                 }
             }
-            if see_filtered {
+            if see_filtered && !lean_off(off::Q_SEE) {
                 let see = if mv.is_capture {
                     crate::search::move_ordering::see_calculation::calculate_see_internal(
                         mv, board,
