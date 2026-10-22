@@ -27,7 +27,7 @@ class E:
             if t[:2]==["info","depth"] and "score" in t and "lowerbound" not in t and "upperbound" not in t:
                 i=t.index("score"); sc=int(t[i+2]) if t[i+1]=="cp" else (30000 if not t[i+2].startswith("-") else -30000)
         return out[-1].split()[1],sc
-ours=E(REPO+"/engines/usi-engine-stable",REPO,[("NNUEFile","nnue/default.bin"),("USI_Threads","4")])
+ours=E(REPO+"/engines/usi-engine-stable",REPO,[("NNUEFile",os.environ.get("YSE_NNUE","nnue/default.bin")),("USI_Threads","4")])
 yane=E(YANE,os.path.dirname(YANE),[("USI_OwnBook","false"),("BookFile","no_book"),("Threads","4"),("USI_Hash","512")])
 first="w" if " w " in start else "b"
 for i,mv in enumerate(moves):

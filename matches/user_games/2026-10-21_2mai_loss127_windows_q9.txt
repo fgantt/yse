@@ -1,0 +1,4 @@
+# Two-piece handicap LOSS, user's Windows PC, YSE with network q9 (cc2933e) vs YaneuraOu + Suisho5, 2026-10-21. 127 plies; White's last move G*5h.
+# User: "Here is the result of q9 against 2 handicap YaneuraOu Suisho5 on the PC. Another loss for our engine"
+# start: sfen lnsgkgsnl/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1
+5c5d 2g2f 6a5b 2f2e 5b5c 7g7f 4a3b 3i3h 5a6b 3h2g 9c9d 2g3f 9d9e 3f3e 3a2b 7i6h 6c6d 6i7i 7c7d 4g4f 8a7c 4f4e 6b7b 4e4d 7b6c 2h4h 7a6b 5i6i 8c8d 4d4c+ 5c4c 8h6f 2b3a 9g9f 6d6e 6f8d 3c3d P*4d 4c3c 3e3d 3c3d 4d4c+ P*4e P*4d S*8c 8d7c+ 6b7c 9f9e 5d5e 7i7h 8c8d 4c3b 3a3b G*4b 9a9e P*9f 9e9f 9i9f 3d4d 4b3b P*9e N*3f 4d3d 9f9e 8d9e 3b4b 4e4f 4i5h P*3e S*4c 3d4e 4c5b 6c7b P*9d 7c8b 9d9c+ 8b9c P*9f 9e8d 8i7g 3e3f L*8e N*3e 8e8d 9c8d S*8e 8d8e 7g8e S*8d 8g8f 4f4g+ 5h4g 3e4g+ 4h4g L*4f S*6c 7b8b 4g4f 4e4f 6c7d+ R*9i L*7i 4f4g 8e7c+ 8d7c 7d7c 8b7c S*5h P*7g N*8e 7c6d 7h7g B*3h 6h5i S*8h 5b6c+ 6d6c 8e7c+ 6c7c 5i6h 9i8i+ 7f7e 4g5h 6i5h S*4g 5h6i G*5h

@@ -3,7 +3,7 @@
 Turns match CSVs (start SFEN + `record` move list) into trainer JSONL: the positions our
 engine actually reaches against YaneuraOu, which teacher self-play never visits.
     python3 scripts/label_games.py OUT.jsonl DEPTH WORKERS BOARD csv [csv ...]
-BOARD is the start position's board field; the side to move is read off each game's first
+BOARD is the start position's board field (GID_START sets the first game id); the side to move is read off each game's first
 move (a piece leaving ranks a-c is White's).
 """
 import csv, json, os, subprocess, sys, threading, queue
@@ -58,7 +58,7 @@ def work(args):
 
 if __name__ == "__main__":
     out, depth, workers, board = sys.argv[1], int(sys.argv[2]), int(sys.argv[3]), sys.argv[4]
-    games = []; gid = 900000
+    games = []; gid = int(os.environ.get("GID_START", "900000"))  # distinct per corpus when pooled
     for f in sys.argv[5:]:
         for r in csv.DictReader(open(f)):
             moves = r["record"].split()

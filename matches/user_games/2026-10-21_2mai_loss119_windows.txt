@@ -1,0 +1,4 @@
+# Two-piece handicap LOSS, user's Windows PC, YSE at 2940e55 (network p9) vs YaneuraOu + Suisho5, 2026-10-21. 119 plies; White's last move 6i3i.
+# User: "I played a 2 piece handicapped YaneuraOu Suisho5 on the windows pc. Our P9 lost."
+# start: sfen lnsgkgsnl/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1
+9c9d 7g7f 4a3b 2g2f 7a6b 2f2e 3a2b 3i3h 5c5d 2e2d 2c2d 2h2d 6b5c 3g3f 7c7d 2i3g 6a6b 3g4e 5c4d 2d4d 4c4d 8h4d R*4a S*5c 6b7b 5i6h 3b4c 4d2f P*4d 2f3g 4d4e 3g9a+ 4c5c 9a8a 5a6b 8a7b 6b7b N*6e 5c5b G*5c 5b6b 5c6b 7b6b G*5c 6b7b 5c5d N*6a 6h7h 6c6d 5d6d 4a4d 6d7d 4d7d L*7e 7d7e 7f7e G*6b R*4b 2b3a 4b4a+ B*6d 7e7d S*5b 7d7c+ 6a7c 6e7c+ 7b7c 4a8a L*6a N*2c 3a2b P*7d 7c8d 2c1a+ 2b1a L*6e 6d1i+ 6e6b+ L*7e 7h6h 6a6b 8g8f 7e7i+ G*8e 8d9c 6i7i S*7f L*6f N*5e 7i7h 6b6f 6g6f G*6g 6h5i 6g7h L*6i P*6h 8a9a L*9b P*2h 1i2h 8e9d 9c9d 9a9b 9d8d 9b8c 8d7e 8c8d 7e8d 8f8e 8d7e L*3g R*7i 7d7c+ 7i6i+ 5i4h G*5h 4i5h 6i3i
