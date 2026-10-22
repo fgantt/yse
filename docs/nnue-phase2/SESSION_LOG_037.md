@@ -38,7 +38,16 @@ moves before we do, is the cause our evaluation or our search?
 >    `SHOGI_RFP_RETURN=1/2` in games (4x 250 ms SPRTs, needs a window the user picks); or look for
 >    the remaining ~430 cp in what YaneuraOu's tree does that ours does not (extensions, mate
 >    search near the king), with the network held fixed.
-> 5. Earlier handoff options (before the search measurements):
+> 5. **RUNNING since 2026-10-22 06:55: data batch 4 -> r9 -> SPRT vs q9** (`corpus_s37/pipeline.sh`,
+>    progress in `corpus_s37/pipeline.out`). Batch 3's recipe, seeds 390001-14, game ids from
+>    4,000,000; label depth 8; pooled with `corpus_s36b/pool_d8.jsonl` into `corpus_s37/pool_d8.jsonl`
+>    (~250M expected); `r9` = q9 trained 2 epochs at lr 0.001, seed 51 (`weights/session37/`); SPRT
+>    [0, 40] r9 vs q9, same binary, 1 s, 4 threads each, seed 3701 (`matches/s37/sprt_r9.log`).
+>    Expected: generation ~7 h, labelling ~7 h, training ~7 h per epoch, SPRT 1-3 h.
+>    The trainer now splits validation in place (`nnue_offline_trainer.rs`): the old `partition` held
+>    two record arrays at once and would need ~75 GB on this 64 GB machine past 268M positions.
+>    Same weights byte for byte as the old trainer on a 200k-position run.
+> 6. Earlier handoff options (before the search measurements):
 >    - Search: measure node-efficiency to a verdict on more positions (YaneuraOu nodes vs ours to
 >      reach the same score band), then add per-rule toggles to `lean.rs` (LMR, LMP, futility, SEE
 >      pruning of quiet moves and drops) and find which one costs the most here.

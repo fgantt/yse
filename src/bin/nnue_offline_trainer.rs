@@ -1236,9 +1236,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // the split — a record-level split leaks near-identical positions into
     // validation and reports a training-fit score as if it were generalisation.
     const VALIDATION_GAME_STRIDE: u32 = 20;
-    let (mut records, val_records): (Vec<_>, Vec<_>) = std::mem::take(&mut all_records)
-        .into_iter()
-        .partition(|r| r.game_id % VALIDATION_GAME_STRIDE != 0);
+    // In place, in the same order as a partition: a partition held the source and
+    // the training vector at once, ~2x the record array at 250M positions.
+    let val_records: Vec<CorpusRecord> = all_records
+        .iter()
+        .filter(|r| r.game_id % VALIDATION_GAME_STRIDE == 0)
+        .cloned()
+        .collect();
+    all_records.retain(|r| r.game_id % VALIDATION_GAME_STRIDE != 0);
+    let mut records = std::mem::take(&mut all_records);
     if cli.skip_noisy {
         let before = records.len();
         records.retain(|r| !r.noisy);
