@@ -59,7 +59,8 @@ same-kind moves tried before it. First-move cutoffs rose from 79% to 88% (Sessio
 
 ## Other
 
-- Opening book (`src/opening_book.rs`, embedded data), prefilled into the table.
+- No opening book. The old embedded book never loaded (wrong JSON layout) and was removed in
+  October 2026; `USI_OwnBook` is accepted but has no effect until a new book exists.
 - Micro endgame tablebase (`src/tablebase/`).
 - Magic bitboards for sliding pieces (`resources/magic_tables/`; a binary that cannot find
   them falls back to ray casting, which chokes multi-threaded search).
@@ -93,6 +94,6 @@ value. Details in `SESSION_LOG_034.md`.
 | Null move | Sound (`search-diag` printed the wrong counter, fixed) |
 | History heuristic | Sound: decays every 1,000 updates |
 | Repetition | Sound; minor: repetitions across a null move are still detected |
-| Opening book | Not used in handicap games (exact-position lookup, even-game book) |
+| Opening book | None (the old one never loaded; removed) |
 | Mate search | Sound: ~10 nodes/ms budget, our checking mates only |
 | Lazy SMP | Fixed earlier this session (table size); result selection (deeper and higher-scoring helper) reviewed, sound |

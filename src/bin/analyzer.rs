@@ -108,7 +108,6 @@ fn analyze_starting_position(depth: u8, verbose: bool) -> Result<(), Box<dyn std
         if verbose {
             println!("\n=== Engine Information ===");
             println!("Debug mode: {}", engine.is_debug_enabled());
-            println!("Opening book loaded: {}", engine.is_opening_book_loaded());
         }
     } else {
         println!("No legal moves found!");
@@ -143,7 +142,6 @@ fn analyze_sfen_position(
         if verbose {
             println!("\n=== Engine Information ===");
             println!("Debug mode: {}", engine.is_debug_enabled());
-            println!("Opening book loaded: {}", engine.is_opening_book_loaded());
         }
     } else {
         println!("No legal moves found!");

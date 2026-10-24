@@ -81,28 +81,6 @@ pub trait TranspositionTableTrait {
     fn hit_rate(&self) -> f64 {
         0.0 // Default: no statistics available
     }
-
-    /// Prefill the table with entries from an opening book.
-    ///
-    /// This is an optional method - not all implementations support opening
-    /// book prefilling. The default implementation is a no-op that returns
-    /// 0.
-    ///
-    /// # Arguments
-    /// * `book` - The opening book to extract positions from
-    /// * `depth` - The depth to assign to prefilled entries
-    ///
-    /// # Returns
-    /// The number of entries inserted.
-    ///
-    /// # Task 3.0 (Task 3.21)
-    fn prefill_from_book(
-        &mut self,
-        _book: &mut crate::opening_book::OpeningBook,
-        _depth: u8,
-    ) -> usize {
-        0 // Default: no-op
-    }
 }
 
 // Task 3.16: Implement TranspositionTableTrait for TranspositionTable (basic,
@@ -124,14 +102,6 @@ impl TranspositionTableTrait for RefCell<crate::search::transposition_table::Tra
 
     fn size(&self) -> usize {
         self.borrow().get_size()
-    }
-
-    fn prefill_from_book(
-        &mut self,
-        book: &mut crate::opening_book::OpeningBook,
-        depth: u8,
-    ) -> usize {
-        self.get_mut().prefill_from_book(book, depth)
     }
 }
 
@@ -171,16 +141,6 @@ impl TranspositionTableTrait for crate::search::thread_safe_table::ThreadSafeTra
     fn hit_rate(&self) -> f64 {
         // ThreadSafeTranspositionTable tracks statistics
         crate::search::thread_safe_table::ThreadSafeTranspositionTable::hit_rate(self)
-    }
-
-    fn prefill_from_book(
-        &mut self,
-        book: &mut crate::opening_book::OpeningBook,
-        depth: u8,
-    ) -> usize {
-        crate::search::thread_safe_table::ThreadSafeTranspositionTable::prefill_from_book(
-            self, book, depth,
-        )
     }
 }
 
@@ -225,19 +185,6 @@ impl TranspositionTableTrait
         // ThreadSafeTranspositionTable tracks statistics
         self.borrow().hit_rate()
     }
-
-    fn prefill_from_book(
-        &mut self,
-        book: &mut crate::opening_book::OpeningBook,
-        depth: u8,
-    ) -> usize {
-        // Note: prefill_from_book takes &mut self, but ThreadSafeTranspositionTable
-        // uses interior mutability so we can borrow immutably from RefCell,
-        // then call the method which takes &mut self on the inner value
-        // Actually, ThreadSafeTranspositionTable::prefill_from_book takes &mut self, so
-        // we need get_mut()
-        self.get_mut().prefill_from_book(book, depth)
-    }
 }
 
 // Task 3.19: Implement TranspositionTableTrait for MultiLevelTranspositionTable
@@ -268,16 +215,6 @@ impl TranspositionTableTrait
         let stats = table.get_stats();
         // Estimate based on total memory usage (approximately 100 bytes per entry)
         (stats.total_memory_usage / 100) as usize
-    }
-
-    fn prefill_from_book(
-        &mut self,
-        _book: &mut crate::opening_book::OpeningBook,
-        _depth: u8,
-    ) -> usize {
-        // MultiLevelTranspositionTable doesn't support prefill_from_book
-        // Could be implemented in the future if needed
-        0
     }
 }
 
@@ -312,16 +249,6 @@ impl TranspositionTableTrait
         let l1_estimate = 1_000_000; // Default L1 size from config
         l1_estimate + l2_capacity
     }
-
-    fn prefill_from_book(
-        &mut self,
-        _book: &mut crate::opening_book::OpeningBook,
-        _depth: u8,
-    ) -> usize {
-        // HierarchicalTranspositionTable doesn't support prefill_from_book
-        // Could be implemented in the future if needed
-        0
-    }
 }
 
 // Task 3.20: Implement TranspositionTableTrait for CompressedTranspositionTable
@@ -347,15 +274,5 @@ impl TranspositionTableTrait
         let table = self.borrow();
         // Use public config() method to get max_entries
         table.config().max_entries
-    }
-
-    fn prefill_from_book(
-        &mut self,
-        _book: &mut crate::opening_book::OpeningBook,
-        _depth: u8,
-    ) -> usize {
-        // CompressedTranspositionTable doesn't support prefill_from_book
-        // Could be implemented in the future if needed
-        0
     }
 }

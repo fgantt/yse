@@ -491,21 +491,6 @@ fn test_parallel_search_tablebase_result_sharing() {
 }
 
 #[test]
-fn test_parallel_search_with_opening_book() {
-    // Test 4.17, 4.25: Opening book lookup with parallel search
-    // Note: Opening book is typically checked before parallel search starts
-    // This test verifies the integration doesn't break opening book functionality
-    let config = ParallelSearchConfig::new(2);
-    let stop_flag = Arc::new(AtomicBool::new(false));
-    let engine_result = ParallelSearchEngine::new_with_stop_flag(config, Some(stop_flag));
-    assert!(engine_result.is_ok());
-
-    // Opening book is usually checked at a higher level (in lib.rs),
-    // so this test just verifies parallel search doesn't interfere
-    assert!(engine_result.is_ok(), "Opening book integration should remain functional");
-}
-
-#[test]
 fn test_parallel_search_no_race_conditions_tablebase() {
     // Test 4.18: No race conditions in tablebase/opening book access
     let config = ParallelSearchConfig::new(4);

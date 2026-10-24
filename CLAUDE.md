@@ -76,7 +76,7 @@ Default: `["hierarchical-tt", "simd"]` (`Cargo.toml`).
 ### Engine core
 
 `ShogiEngine` (`src/lib.rs`) is the top-level struct owning `BitboardBoard`, `CapturedPieces`,
-`OpeningBook`, `MicroTablebase`, and an `Arc<Mutex<SearchEngine>>`. USI I/O lives in `src/usi.rs`
+`MicroTablebase`, and an `Arc<Mutex<SearchEngine>>`. USI I/O lives in `src/usi.rs`
 (protocol parsing) with handlers back in `src/lib.rs` (`handle_setoption`, position/go handling).
 `src/main.rs` is the `usi-engine` binary entry point and installs custom panic hooks/signal handlers
 so the engine reports errors robustly instead of silently dying mid-search.
@@ -169,7 +169,6 @@ Two coexisting evaluation strategies, selected/blended via `PositionEvaluator`:
   (`bitboards/magic/`, generated via `generate_magic_tables` / tuned via `optimize_magic_numbers`,
   tables cached in `resources/magic_tables/`), SIMD-accelerated ops.
 - `src/tablebase/` — micro-tablebase for endgame positions.
-- `src/opening_book.rs` + `src/ai/openingBook.json` — embedded opening book data.
 - `src/tuning/` — parameter tuning infra used by the `tuner` binary (Adam/LBFGS/Genetic methods).
 - `src/types/` — core domain types (pieces, players, moves, positions).
 

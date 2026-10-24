@@ -14,8 +14,6 @@ pub mod error;
 pub mod evaluation;
 pub mod kif_parser;
 pub mod moves;
-pub mod opening_book;
-pub mod opening_book_converter;
 pub mod search;
 pub mod tablebase;
 pub mod time_utils;
@@ -48,7 +46,6 @@ pub mod usi_client;
 
 use evaluation::pst_loader::{PieceSquareTableConfig, PieceSquareTablePreset};
 use moves::*;
-use opening_book::OpeningBook;
 use search::search_engine::SearchEngine;
 use search::ParallelSearchConfig;
 use tablebase::MicroTablebase;
@@ -81,8 +78,6 @@ pub struct ShogiEngine {
     board: BitboardBoard,
     captured_pieces: CapturedPieces,
     current_player: Player,
-    opening_book: OpeningBook,
-    opening_book_prefilled: bool,
     tablebase: MicroTablebase,
     stop_flag: Arc<AtomicBool>,
     search_engine: Arc<Mutex<SearchEngine>>,
@@ -98,7 +93,9 @@ pub struct ShogiEngine {
     pst_config: PieceSquareTableConfig,
     /// USI `UseNNUE`.
     use_nnue: bool,
-    /// USI `USI_OwnBook`: play opening-book moves.
+    /// USI `USI_OwnBook`: play opening-book moves. There is no book yet, so
+    /// this is stored only.
+    #[allow(dead_code)]
     use_book: bool,
     /// Milliseconds subtracted from every clock-based time allocation, for GUI
     /// and communication delay (USI option `MoveOverhead`).
@@ -167,8 +164,6 @@ impl ShogiEngine {
             board: BitboardBoard::new(),
             captured_pieces: CapturedPieces::new(),
             current_player: Player::Black,
-            opening_book: OpeningBook::new(),
-            opening_book_prefilled: false,
             tablebase: MicroTablebase::new(),
             stop_flag: stop_flag.clone(),
             search_engine: Arc::new(Mutex::new(SearchEngine::new(
@@ -197,8 +192,6 @@ impl ShogiEngine {
 
         // Try to load persisted preferences (thread count)
         engine.load_prefs();
-        // Try to load default opening book if available
-        engine.load_default_opening_book();
         engine.apply_nnue_config();
 
         if let Err(err) = engine.apply_pst_config() {
@@ -257,22 +250,6 @@ impl ShogiEngine {
         }
     }
 
-    /// Load default opening book from embedded data
-    fn load_default_opening_book(&mut self) {
-        // Try to load from embedded JSON data first
-        let json_data = include_str!("ai/openingBook.json");
-        if self.load_opening_book_from_json(json_data).is_ok() {
-            crate::utils::telemetry::debug_log("Loaded default opening book from JSON");
-            self.opening_book_prefilled = false;
-            self.maybe_prefill_opening_book();
-            return;
-        }
-
-        // If JSON loading fails, try to load from binary if available
-        // This would be implemented when binary opening books are generated
-        crate::utils::telemetry::debug_log("No default opening book available");
-    }
-
     /// Load (or unload) NNUE per the `UseNNUE` / `NNUEFile` options.
     ///
     /// NNUE scores every node the search evaluates, and a network is only
@@ -329,164 +306,6 @@ impl ShogiEngine {
             search_engine_guard.get_evaluator().is_nnue_enabled()
         } else {
             false
-        }
-    }
-
-    fn maybe_prefill_opening_book(&mut self) {
-        if self.opening_book_prefilled || !self.opening_book.is_loaded() {
-            return;
-        }
-
-        if let Ok(mut search_engine_guard) = self.search_engine.lock() {
-            if !search_engine_guard.opening_book_prefill_enabled() {
-                return;
-            }
-
-            let depth = search_engine_guard.opening_book_prefill_depth().max(1);
-            let inserted =
-                search_engine_guard.prefill_tt_from_opening_book(&mut self.opening_book, depth);
-
-            self.opening_book_prefilled = true;
-
-            crate::debug_log_fast!(&format!(
-                "Opening book prefill inserted {} entries at depth {}",
-                inserted, depth
-            ));
-        }
-    }
-
-    /// Load opening book from binary data
-    pub fn load_opening_book_from_binary(&mut self, data: &[u8]) -> Result<(), String> {
-        self.opening_book
-            .load_from_binary(data)
-            .map_err(|e| format!("Failed to load opening book: {:?}", e))?;
-        self.opening_book_prefilled = false;
-        self.maybe_prefill_opening_book();
-        Ok(())
-    }
-
-    /// Load opening book from JSON data
-    pub fn load_opening_book_from_json(&mut self, json_data: &str) -> Result<(), String> {
-        self.opening_book
-            .load_from_json(json_data)
-            .map_err(|e| format!("Failed to load opening book: {:?}", e))?;
-        self.opening_book_prefilled = false;
-        self.maybe_prefill_opening_book();
-        Ok(())
-    }
-
-    /// Check if opening book is loaded
-    pub fn is_opening_book_loaded(&self) -> bool {
-        self.opening_book.is_loaded()
-    }
-
-    /// Get opening book statistics
-    pub fn get_opening_book_stats(&self) -> String {
-        let stats = self.opening_book.get_stats();
-        format!(
-            "Positions: {}, Moves: {}, Version: {}, Loaded: {}",
-            stats.position_count,
-            stats.move_count,
-            stats.version,
-            self.opening_book.is_loaded()
-        )
-    }
-
-    /// Get detailed opening book information
-    pub fn get_opening_book_info(&mut self) -> String {
-        if !self.opening_book.is_loaded() {
-            return "Opening book not loaded".to_string();
-        }
-
-        let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
-        let available_moves = self.opening_book.get_moves(&fen);
-        let stats = self.opening_book.get_stats();
-
-        let mut info = format!(
-            "Opening Book Info:\n- Positions: {}\n- Total Moves: {}\n- Version: {}\n- Current \
-             Position: {}\n",
-            stats.position_count, stats.move_count, stats.version, fen
-        );
-
-        if let Some(moves) = available_moves {
-            info.push_str(&format!("- Available Moves: {}\n", moves.len()));
-            for (i, book_move) in moves.iter().enumerate().take(3) {
-                info.push_str(&format!(
-                    "  {}. {} (weight: {}, eval: {})\n",
-                    i + 1,
-                    book_move.move_notation.as_ref().unwrap_or(&"N/A".to_string()),
-                    book_move.weight,
-                    book_move.evaluation
-                ));
-            }
-            if moves.len() > 3 {
-                info.push_str(&format!("  ... and {} more moves\n", moves.len() - 3));
-            }
-        } else {
-            info.push_str("- No moves available in opening book\n");
-        }
-
-        info
-    }
-
-    /// Get opening book move for current position with detailed info
-    pub fn get_opening_book_move_info(&mut self) -> Option<String> {
-        if !self.opening_book.is_loaded() {
-            return None;
-        }
-
-        let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
-        if let Some(book_moves) = self.opening_book.get_moves(&fen) {
-            if let Some(best_book_move) = book_moves.iter().max_by(|a, b| a.weight.cmp(&b.weight)) {
-                Some(format!(
-                    "Opening book move: {} (weight: {}, eval: {}, opening: {})",
-                    best_book_move.move_notation.as_ref().unwrap_or(&"N/A".to_string()),
-                    best_book_move.weight,
-                    best_book_move.evaluation,
-                    best_book_move.opening_name.as_ref().unwrap_or(&"Unknown".to_string())
-                ))
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    /// Get a random opening book move for variety
-    pub fn get_random_opening_book_move(&mut self) -> Option<Move> {
-        if !self.opening_book.is_loaded() {
-            return None;
-        }
-
-        let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
-        self.opening_book.get_random_move(&fen)
-    }
-
-    /// Get all available opening book moves for current position
-    pub fn get_all_opening_book_moves(&mut self) -> Vec<String> {
-        if !self.opening_book.is_loaded() {
-            return vec!["Opening book not loaded".to_string()];
-        }
-
-        let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
-        if let Some(moves) = self.opening_book.get_moves(&fen) {
-            moves
-                .iter()
-                .enumerate()
-                .map(|(i, book_move)| {
-                    format!(
-                        "{}. {} (weight: {}, eval: {}, opening: {})",
-                        i + 1,
-                        book_move.move_notation.as_ref().unwrap_or(&"N/A".to_string()),
-                        book_move.weight,
-                        book_move.evaluation,
-                        book_move.opening_name.as_ref().unwrap_or(&"Unknown".to_string())
-                    )
-                })
-                .collect()
-        } else {
-            vec!["No moves available in opening book".to_string()]
         }
     }
 
@@ -634,19 +453,6 @@ impl ShogiEngine {
             }
         } else {
             crate::debug_utils::end_timing("tablebase_check", "GET_BEST_MOVE");
-        }
-
-        // Check opening book second
-        crate::debug_utils::start_timing("opening_book_check");
-        if self.use_book && self.opening_book.is_loaded() {
-            if let Some(book_move) = self.opening_book.get_best_move(&fen) {
-                crate::debug_log_fast!(&format!(
-                    "Found opening book move: {}",
-                    book_move.to_usi_string()
-                ));
-
-                return Some(book_move);
-            }
         }
 
         // Check for legal moves BEFORE starting search to avoid panics
@@ -1157,8 +963,6 @@ impl ShogiEngine {
                             search_engine_guard.set_parallel_options(self.parallel_options.clone());
                             output.push(format!("info string Set USI_Hash to {} MB", size));
                         }
-                        self.opening_book_prefilled = false;
-                        self.maybe_prefill_opening_book();
                         // The rebuilt engine has a fresh evaluator: reload the network.
                         self.apply_nnue_config();
                         output.push(format!("info string {}", self.nnue_status));
@@ -1256,61 +1060,6 @@ impl ShogiEngine {
                                 ));
                             }
                         }
-                    }
-                }
-                "PrefillOpeningBook" => {
-                    if let Ok(enabled) = parts[3].parse::<bool>() {
-                        if let Ok(mut search_engine_guard) = self.search_engine.lock() {
-                            let mut config = search_engine_guard.get_engine_config();
-                            config.prefill_opening_book = enabled;
-                            match search_engine_guard.update_engine_config(config) {
-                                Ok(()) => {
-                                    output.push(format!(
-                                        "info string {} opening book prefill",
-                                        if enabled { "Enabled" } else { "Disabled" }
-                                    ));
-                                }
-                                Err(e) => {
-                                    output.push(format!(
-                                        "info string error Failed to update config: {}",
-                                        e
-                                    ));
-                                }
-                            }
-                        }
-
-                        if enabled {
-                            self.opening_book_prefilled = false;
-                            self.maybe_prefill_opening_book();
-                        }
-                    }
-                }
-                "OpeningBookPrefillDepth" => {
-                    if let Ok(depth) = parts[3].parse::<u8>() {
-                        if depth == 0 {
-                            output.push(
-                                "info string error OpeningBookPrefillDepth must be >= 1"
-                                    .to_string(),
-                            );
-                        } else if let Ok(mut search_engine_guard) = self.search_engine.lock() {
-                            let mut config = search_engine_guard.get_engine_config();
-                            config.opening_book_prefill_depth = depth;
-                            match search_engine_guard.update_engine_config(config) {
-                                Ok(()) => {
-                                    output.push(format!(
-                                        "info string Set opening book prefill depth to {}",
-                                        depth
-                                    ));
-                                    self.opening_book_prefilled = false;
-                                }
-                                Err(e) => output.push(format!(
-                                    "info string error Failed to update config: {}",
-                                    e
-                                )),
-                            }
-                        }
-
-                        self.maybe_prefill_opening_book();
                     }
                 }
                 "MaxDepth" | "depth" => {

@@ -7441,56 +7441,6 @@ impl MoveOrdering {
 
     // ==================== Advanced Integration ====================
 
-    /// Integrate with opening book for enhanced move ordering
-    ///
-    /// Uses opening book data to prioritize theoretically strong moves.
-    pub fn integrate_with_opening_book(
-        &mut self,
-        book_moves: &[crate::opening_book::BookMove],
-        board: &crate::bitboards::BitboardBoard,
-        captured_pieces: &CapturedPieces,
-        player: Player,
-        depth: u8,
-    ) -> MoveOrderingResult<()> {
-        if book_moves.is_empty() {
-            return Ok(());
-        }
-
-        // Get the best book move by weight and evaluation
-        if let Some(best_book_move) =
-            book_moves.iter().max_by(|a, b| match a.weight.cmp(&b.weight) {
-                std::cmp::Ordering::Equal => a.evaluation.cmp(&b.evaluation),
-                other => other,
-            })
-        {
-            // Convert book move to regular move and set as PV
-            let pv_move = best_book_move.to_engine_move(player);
-            self.update_pv_move(
-                board,
-                captured_pieces,
-                player,
-                depth,
-                pv_move,
-                best_book_move.evaluation,
-            );
-
-            // Update history for all book moves based on their weights
-            for book_move in book_moves {
-                let move_ = book_move.to_engine_move(player);
-                let bonus = (book_move.weight / 100) as i32; // Convert weight to history bonus
-                if let (Some(from), Some(to)) = (move_.from, Some(move_.to)) {
-                    let from_idx = from.row as usize;
-                    let to_idx = to.row as usize;
-                    self.simple_history_table[from_idx][to_idx] += bonus;
-                }
-            }
-
-            self.stats.opening_book_integrations += 1;
-        }
-
-        Ok(())
-    }
-
     /// Integrate with endgame tablebase for enhanced move ordering
     ///
     /// Uses tablebase data to prioritize moves leading to winning positions.
@@ -7724,7 +7674,6 @@ impl MoveOrdering {
     /// Get statistics for advanced integrations
     pub fn get_advanced_integration_stats(&self) -> AdvancedIntegrationStats {
         AdvancedIntegrationStats {
-            opening_book_integrations: self.stats.opening_book_integrations,
             tablebase_integrations: self.stats.tablebase_integrations,
             analysis_orderings: self.stats.analysis_orderings,
             phase_specific_orderings: self.stats.phase_specific_orderings,
@@ -14185,42 +14134,6 @@ mod tests {
     }
 
     // ==================== Advanced Integration Tests ====================
-
-    #[test]
-    fn test_opening_book_integration() {
-        let mut orderer = MoveOrdering::new();
-        let board = crate::bitboards::BitboardBoard::new();
-        let captured_pieces = crate::CapturedPieces::new();
-        let player = Player::Black;
-        let depth = 1;
-
-        // Create mock book moves
-        let book_moves = vec![crate::opening_book::BookMove {
-            from: Some(Position::new(6, 4)),
-            to: Position::new(5, 4),
-            piece_type: PieceType::Pawn,
-            is_drop: false,
-            is_promotion: false,
-            weight: 800,
-            evaluation: 50,
-            opening_name: Some("Standard Opening".to_string()),
-            move_notation: Some("P-76".to_string()),
-        }];
-
-        // Integrate with opening book
-        let result = orderer.integrate_with_opening_book(
-            &book_moves,
-            &board,
-            &captured_pieces,
-            player,
-            depth,
-        );
-        assert!(result.is_ok());
-
-        // Verify statistics
-        let adv_stats = orderer.get_advanced_integration_stats();
-        assert_eq!(adv_stats.opening_book_integrations, 1);
-    }
 
     #[test]
     fn test_tablebase_integration_advanced() {

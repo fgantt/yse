@@ -6168,10 +6168,6 @@ pub struct EngineConfig {
     pub time_management: TimeManagementConfig,
     /// Number of threads for parallel search (USI_Threads)
     pub thread_count: usize,
-    /// Whether to prefill the transposition table from the opening book
-    pub prefill_opening_book: bool,
-    /// Depth to assign to prefilled opening book entries
-    pub opening_book_prefill_depth: u8,
     /// Parallel search options
     pub parallel: ParallelOptions,
     /// Enable automatic profiling for hot paths (Task 26.0 - Task 3.0)
@@ -6198,8 +6194,6 @@ impl Default for EngineConfig {
             max_depth: 20,
             time_management: TimeManagementConfig::default(),
             thread_count: num_cpus::get(),
-            prefill_opening_book: true,
-            opening_book_prefill_depth: 8,
             parallel: ParallelOptions::default(),
             auto_profiling_enabled: false,
             auto_profiling_sample_rate: 100,
@@ -6239,8 +6233,6 @@ impl EngineConfig {
             max_depth,
             time_management,
             thread_count: num_cpus::get(),
-            prefill_opening_book: true,
-            opening_book_prefill_depth: 8,
             parallel,
             auto_profiling_enabled: false,
             auto_profiling_sample_rate: 100,
@@ -6267,12 +6259,6 @@ impl EngineConfig {
 
         if self.max_depth == 0 || self.max_depth > 50 {
             return Err("Max depth must be between 1 and 50".to_string());
-        }
-
-        if self.prefill_opening_book && self.opening_book_prefill_depth == 0 {
-            return Err(
-                "OpeningBookPrefillDepth must be at least 1 when prefill is enabled".to_string()
-            );
         }
 
         Ok(())
@@ -6407,8 +6393,6 @@ impl EngineConfig {
                 max_depth: 25,
                 time_management: TimeManagementConfig::default(),
                 thread_count: num_cpus::get(),
-                prefill_opening_book: true,
-                opening_book_prefill_depth: 8,
                 parallel: ParallelOptions::default(),
                 telemetry_export_enabled: false,
                 telemetry_export_path: "telemetry".to_string(),
@@ -6540,8 +6524,6 @@ impl EngineConfig {
                 max_depth: 30,
                 time_management: TimeManagementConfig::default(),
                 thread_count: num_cpus::get(),
-                prefill_opening_book: true,
-                opening_book_prefill_depth: 8,
                 parallel: ParallelOptions::default(),
             },
             EnginePreset::Balanced => Self {
@@ -6559,8 +6541,6 @@ impl EngineConfig {
                 max_depth: 25,
                 time_management: TimeManagementConfig::default(),
                 thread_count: num_cpus::get(),
-                prefill_opening_book: true,
-                opening_book_prefill_depth: 8,
                 parallel: ParallelOptions::default(),
             },
         }
@@ -6792,8 +6772,6 @@ impl ConfigMigration {
             max_depth: 20,
             time_management: TimeManagementConfig::default(),
             thread_count: num_cpus::get(),
-            prefill_opening_book: true,
-            opening_book_prefill_depth: 8,
             parallel: ParallelOptions::default(),
             telemetry_export_enabled: false,
             telemetry_export_path: "telemetry".to_string(),

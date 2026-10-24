@@ -131,8 +131,6 @@ pub struct OrderingStats {
     pub history_updates_from_tt: u64,
     /// Number of cutoff history updates
     pub cutoff_history_updates: u64,
-    /// Number of opening book integrations
-    pub opening_book_integrations: u64,
     /// Number of tablebase integrations
     pub tablebase_integrations: u64,
     /// Number of analysis mode orderings
@@ -540,8 +538,6 @@ pub enum TrendDirection {
 /// Statistics for advanced integrations
 #[derive(Debug, Clone, Default)]
 pub struct AdvancedIntegrationStats {
-    /// Number of opening book integrations
-    pub opening_book_integrations: u64,
     /// Number of tablebase integrations
     pub tablebase_integrations: u64,
     /// Number of analysis mode orderings

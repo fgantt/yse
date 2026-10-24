@@ -109,37 +109,6 @@ fn test_probe_with_prefetch() {
 }
 
 #[test]
-fn test_prefill_from_book() {
-    // Test that prefill_from_book works (if supported by implementation)
-    let config = TranspositionConfig { table_size: 1024, ..TranspositionConfig::default() };
-
-    let table_config = TranspositionTableConfig::ThreadSafe { config };
-    let mut table = create_transposition_table(table_config);
-
-    // Create a minimal opening book for testing
-    use shogi_engine::opening_book::{BookMove, OpeningBookBuilder};
-    let fen = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
-    let book_move = BookMove::new(
-        Some(shogi_engine::types::core::Position::new(6, 4)),
-        shogi_engine::types::core::Position::new(5, 4),
-        shogi_engine::types::core::PieceType::Pawn,
-        false,
-        false,
-        1000,
-        60,
-    );
-
-    let mut book = OpeningBookBuilder::new()
-        .add_position(fen.to_string(), vec![book_move])
-        .mark_loaded()
-        .build();
-
-    // Test prefill_from_book
-    let inserted = table.prefill_from_book(&mut book, 4);
-    assert!(inserted > 0, "Should insert entries from opening book");
-}
-
-#[test]
 fn test_trait_polymorphism() {
     // Test that we can use different table types polymorphically via the trait
     let test_configs = vec![

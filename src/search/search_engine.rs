@@ -2,7 +2,6 @@ use crate::bitboards::*;
 use crate::evaluation::pst_loader::{PieceSquareTableConfig, PieceSquareTablePreset};
 use crate::evaluation::*;
 use crate::moves::*;
-use crate::opening_book::OpeningBook;
 use crate::search::iterative_deepening::IterativeDeepeningHelper;
 use crate::search::move_ordering::MoveOrdering;
 use crate::search::null_move::NullMoveHelper;
@@ -528,10 +527,6 @@ pub struct SearchEngine {
     iid_overhead_history: Vec<f64>,
     previous_scores: Vec<i32>,
     parallel_options: ParallelOptions,
-    /// Whether to prefill the TT from the opening book at startup
-    prefill_opening_book: bool,
-    /// Depth assigned to opening book prefill entries
-    opening_book_prefill_depth: u8,
     /// Time pressure thresholds for algorithm coordination (Task 7.0.2.3)
     time_pressure_thresholds: crate::types::TimePressureThresholds,
     /// Whether verbose debug logging is enabled
@@ -1876,8 +1871,6 @@ impl SearchEngine {
             iid_overhead_history: Vec::new(), // Task 8.6: Initialize overhead history
             previous_scores: Vec::new(),
             parallel_options: ParallelOptions::default(),
-            prefill_opening_book: true,
-            opening_book_prefill_depth: 8,
             time_pressure_thresholds: crate::types::TimePressureThresholds::default(),
             debug_logging: false,
             auto_profiling_enabled: false,
@@ -2445,8 +2438,6 @@ impl SearchEngine {
             iid_overhead_history: Vec::new(), // Task 8.6: Initialize overhead history
             previous_scores: Vec::new(),
             parallel_options: config.parallel.clone(),
-            prefill_opening_book: config.prefill_opening_book,
-            opening_book_prefill_depth: config.opening_book_prefill_depth,
             time_pressure_thresholds: crate::types::TimePressureThresholds::default(),
             debug_logging: config.debug_logging,
             auto_profiling_enabled: config.auto_profiling_enabled,
@@ -2532,8 +2523,6 @@ impl SearchEngine {
         self.iid_config = convert_iid_config(&config.iid);
         self.time_management_config = convert_time_management_config(&config.time_management);
         self.parallel_options = config.parallel.clone();
-        self.prefill_opening_book = config.prefill_opening_book;
-        self.opening_book_prefill_depth = config.opening_book_prefill_depth;
 
         // Synchronize helper modules with new configuration (Task 1.8)
         self.quiescence_helper =
@@ -2603,32 +2592,12 @@ impl SearchEngine {
             max_depth: 20, // This would need to be tracked separately
             time_management: convert_time_management_config_back(&self.time_management_config),
             thread_count: num_cpus::get(),
-            prefill_opening_book: self.prefill_opening_book,
-            opening_book_prefill_depth: self.opening_book_prefill_depth,
             parallel: self.parallel_options.clone(),
             auto_profiling_enabled: self.auto_profiling_enabled,
             auto_profiling_sample_rate: self.auto_profiling_sample_rate,
             telemetry_export_enabled: false, // TODO: Add field to SearchEngine if needed
             telemetry_export_path: "telemetry".to_string(),
         }
-    }
-
-    /// Prefill the transposition table with entries derived from an opening
-    /// book. Returns the number of entries inserted.
-    pub fn prefill_tt_from_opening_book(&mut self, book: &mut OpeningBook, depth: u8) -> usize {
-        // Helper threads hold the table only during a search.
-        Arc::get_mut(&mut self.transposition_table)
-            .map_or(0, |tt| tt.prefill_from_book(book, depth))
-    }
-
-    /// Check if opening book prefill is enabled in the current configuration.
-    pub fn opening_book_prefill_enabled(&self) -> bool {
-        self.prefill_opening_book
-    }
-
-    /// Get the configured depth for opening book prefill entries.
-    pub fn opening_book_prefill_depth(&self) -> u8 {
-        self.opening_book_prefill_depth
     }
 
     /// Apply a configuration preset
