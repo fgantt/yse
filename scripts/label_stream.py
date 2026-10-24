@@ -72,7 +72,9 @@ if __name__ == "__main__":
     total = (len(games) + BATCH - 1) // BATCH
     print(f"{len(games)} games, {total} batches, {total - len(tasks)} already done", flush=True)
     n = 0
-    with Pool(workers, initializer=init) as p:
+    # A fresh worker (and engine) per batch: long-lived ones slowed ~4x after a few hours
+    # (Session 37: 19 ms per position against 4.8 ms for a fresh one, same moment).
+    with Pool(workers, initializer=init, maxtasksperchild=1) as p:
         for i, (path, rows) in enumerate(p.imap_unordered(work, tasks), 1):
             n += rows
             print(f"batch {os.path.basename(path)} {rows} positions; {i}/{len(tasks)} this run, "

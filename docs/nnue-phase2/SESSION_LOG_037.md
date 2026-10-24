@@ -38,8 +38,15 @@ moves before we do, is the cause our evaluation or our search?
 >    `SHOGI_RFP_RETURN=1/2` in games (4x 250 ms SPRTs, needs a window the user picks); or look for
 >    the remaining ~430 cp in what YaneuraOu's tree does that ours does not (extensions, mate
 >    search near the king), with the network held fixed.
-> 5. **RUNNING since 2026-10-22 06:55: data batch 4 -> r9 -> SPRT vs q9** (`corpus_s37/pipeline.sh`,
->    progress in `corpus_s37/pipeline.out`). Batch 3's recipe, seeds 390001-14, game ids from
+> 5. **r9 PASSED its SPRT vs q9 (2026-10-24 13:53): +34.6 ± 27.9 Elo, 321-11-262 after 594 games
+>    (297 pairs), LLR +2.95** (`matches/s37/sprt_r9.log`). **Shipped 2026-10-24: `nnue/default.bin` is r9**; q9 is kept
+>    as `nnue/default-q9.bin`.
+>    Pool 249,492,550 positions (batch 4: 66.996M labelled, 62.258M new, 92.9%); r9 = epoch 1
+>    (r_clamp 0.826; epoch 2 0.823). Same held-out games as q9 (`eval_correlation`, ~300k positions
+>    each): old pool q9 0.821 / r9 0.825, batch 4 q9 0.818 / r9 0.822. Data volume pays a fourth
+>    time, with a smaller step than q9's +173: the LLR wandered between +0.2 and +2.7 for 500 games.
+>    Data batch 4 -> r9 -> SPRT vs q9 (`corpus_s37/pipeline.sh`, then `resume.sh`; log
+>    `corpus_s37/pipeline.out`). Batch 3's recipe, seeds 390001-14, game ids from
 >    4,000,000; label depth 8; pooled with `corpus_s36b/pool_d8.jsonl` into `corpus_s37/pool_d8.jsonl`
 >    (~250M expected); `r9` = q9 trained 2 epochs at lr 0.001, seed 51 (`weights/session37/`); SPRT
 >    [0, 40] r9 vs q9, same binary, 1 s, 4 threads each, seed 3701 (`matches/s37/sprt_r9.log`).
@@ -47,6 +54,14 @@ moves before we do, is the cause our evaluation or our search?
 >    The trainer now splits validation in place (`nnue_offline_trainer.rs`): the old `partition` held
 >    two record arrays at once and would need ~75 GB on this 64 GB machine past 268M positions.
 >    Same weights byte for byte as the old trainer on a 200k-position run.
+>    **Long-lived YaneuraOu processes slow down ~4x after 1-4 hours** on an otherwise free machine.
+>    Batch 4 generation took 14 h (batch 3: 6.4 h) and labelling fell from 270 to ~50 batches/h,
+>    in batch 3 too after its first 4 hours. At the same moment a fresh labeller did 4.8 ms per
+>    position and the old workers ~19 ms, both using full cores (14.2 cores busy over 30 s; no swap,
+>    no thermal warning). `scripts/label_stream.py` now starts a fresh worker and engine per batch
+>    (`maxtasksperchild=1`); restarted 2026-10-23 07:46 via `corpus_s37/resume.sh`: 280 batches/h.
+>    Cause not found. `usi_match` generation keeps its engines for all 41,686 games and is likely
+>    hit the same way; restart its engines periodically before the next batch.
 > 6. Earlier handoff options (before the search measurements):
 >    - Search: measure node-efficiency to a verdict on more positions (YaneuraOu nodes vs ours to
 >      reach the same score band), then add per-rule toggles to `lean.rs` (LMR, LMP, futility, SEE

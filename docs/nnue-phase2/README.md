@@ -48,3 +48,4 @@ original conclusions, and several were later corrected (later logs say so).
 | [34](SESSION_LOG_034.md) | 2026-10-08 | Exact Speed-ups (single-threaded +51%) |
 | [35](SESSION_LOG_035.md) | 2026-10-14 | Speed work, and our node counts were wrong |
 | [36](SESSION_LOG_036.md) | 2026-10-17 | Twice, then three times the even-game data: p9 (+100), then q9 (+173 vs p9) shipped |
+| [37](SESSION_LOG_037.md) | 2026-10-22 | Search check (evaluation ~half the gap, no single pruning rule); data batch 4: r9 (+35 vs q9) shipped |
