@@ -1099,6 +1099,33 @@ impl ShogiEngine {
         output
     }
 
+    /// USI `go mate`: `checkmate <moves>` for a forced mate of the side not to
+    /// move, `checkmate nomate` when there is proved to be none, and
+    /// `checkmate timeout` when neither is settled within `time_limit_ms` (less
+    /// the move overhead) or before `stop`. `None` searches until `stop`.
+    pub fn handle_go_mate(&mut self, time_limit_ms: Option<u64>) -> String {
+        use crate::search::mate_search::{MateOutcome, MateSearch};
+        let deadline = time_limit_ms.map(|ms| {
+            let ms = ms.saturating_sub(u64::from(self.move_overhead_ms)).max(1);
+            std::time::Instant::now() + std::time::Duration::from_millis(ms)
+        });
+        let mut solver = MateSearch::new(u64::MAX);
+        match solver.solve_until(
+            &self.board,
+            &self.captured_pieces,
+            self.current_player,
+            deadline,
+            Some(self.stop_flag.clone()),
+        ) {
+            MateOutcome::Mate(line) => format!(
+                "checkmate {}",
+                line.iter().map(Move::to_usi_string).collect::<Vec<_>>().join(" ")
+            ),
+            MateOutcome::NoMate => "checkmate nomate".to_string(),
+            MateOutcome::Unknown => "checkmate timeout".to_string(),
+        }
+    }
+
     pub fn handle_stop(&mut self) -> Vec<String> {
         self.stop_flag.store(true, Ordering::Relaxed);
         Vec::new()

@@ -41,6 +41,9 @@ impl UsiHandler {
     fn handle_go(&mut self, parts: &[&str]) -> Vec<String> {
         crate::debug_utils::set_search_start_time();
         let limits = GoLimits::parse(parts);
+        if limits.mate {
+            return vec![self.engine.handle_go_mate(limits.mate_ms)];
+        }
         let black_to_move = self.engine.current_player == crate::types::Player::Black;
         let time_to_use = limits.allocate_ms(black_to_move, self.engine.move_overhead_ms);
         let depth = limits.depth.unwrap_or(self.engine.depth);
@@ -172,6 +175,10 @@ pub struct GoLimits {
     pub nodes: Option<u64>,
     /// `infinite` or `ponder`: search until `stop`.
     pub infinite: bool,
+    /// `mate`: a mate search, answered with `checkmate ...`, not `bestmove`.
+    pub mate: bool,
+    /// The `mate` time limit in ms; `None` for `mate infinite` (until `stop`).
+    pub mate_ms: Option<u64>,
 }
 
 impl GoLimits {
@@ -190,6 +197,11 @@ impl GoLimits {
                 "movetime" => g.movetime = next(),
                 "depth" => g.depth = next().map(|d| d.clamp(1, 99) as u8),
                 "nodes" => g.nodes = next(),
+                "mate" => {
+                    g.mate = true;
+                    g.mate_ms = next();
+                    takes_value = g.mate_ms.is_some() || parts.get(i + 1) == Some(&"infinite");
+                }
                 "infinite" | "ponder" => {
                     g.infinite = true;
                     takes_value = false;
@@ -312,6 +324,11 @@ mod go_limits_tests {
         assert_eq!((g.depth, g.nodes), (Some(7), Some(12345)));
         assert!(go("infinite").infinite && go("ponder btime 1 wtime 1").infinite);
         assert_eq!(go("movetime 750").movetime, Some(750));
+        let m = go("mate 3000");
+        assert_eq!((m.mate, m.mate_ms, m.infinite), (true, Some(3000), false));
+        let m = go("mate infinite");
+        assert_eq!((m.mate, m.mate_ms, m.infinite), (true, None, false));
+        assert_eq!((go("mate").mate, go("mate").mate_ms), (true, None));
     }
 
     #[test]
@@ -373,5 +390,49 @@ mod setoption_tests {
         // A check option without a value is ignored, not read as false.
         assert!(usi.handle_command("setoption name UseNNUE").is_empty());
         assert!(usi.engine.use_nnue);
+    }
+}
+
+#[cfg(test)]
+mod go_mate_tests {
+    use super::UsiHandler;
+
+    fn mate(sfen: &str, limit: &str) -> Vec<String> {
+        let mut usi = UsiHandler::new();
+        usi.handle_command(&format!("position sfen {sfen}"));
+        usi.handle_command(&format!("go mate {limit}"))
+    }
+
+    /// A tsume problem: no attacking king, the defender holds the rest.
+    #[test]
+    fn answers_checkmate_with_the_line() {
+        // G*5b, protected by the pawn on 5c, mates the king on 5a.
+        let out = mate("4k4/9/4P4/9/9/9/9/9/9 b G2r2b3g4s4n4l17p 1", "5000");
+        assert_eq!(out, ["checkmate G*5b"]);
+        // A mate in three: the line has all three moves.
+        let out = mate("3sks3/9/4S4/9/9/9/9/9/9 b 2G2r2b2g1s4n4l18p 1", "infinite");
+        assert_eq!(out.len(), 1);
+        assert!(out[0].starts_with("checkmate "), "{out:?}");
+        assert_eq!(out[0].split_whitespace().count() % 2, 0, "odd-length line plus the word: {out:?}");
+    }
+
+    #[test]
+    fn answers_nomate_and_timeout() {
+        // Only a pawn check, which the king takes.
+        let out = mate("4k4/9/4P4/9/9/9/9/9/9 b 2r2b4g4s4n4l17p 1", "5000");
+        assert_eq!(out, ["checkmate nomate"]);
+        // The start position: no check at all, so no mate.
+        let start = "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1";
+        assert_eq!(mate(start, "1000"), ["checkmate nomate"]);
+        // A bare king in the open, with drops to interpose: unsettled in 300 ms.
+        let open = "9/9/9/9/4k4/9/9/9/9 b RGSNLPr2b3g3s3n3l17p 1";
+        let t = std::time::Instant::now();
+        assert_eq!(mate(open, "300"), ["checkmate timeout"]);
+        assert!(t.elapsed().as_millis() < 2_000);
+        // `mate infinite` runs until `stop`.
+        let mut usi = UsiHandler::new();
+        usi.handle_command(&format!("position sfen {open}"));
+        usi.engine.stop_flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(usi.handle_command("go mate infinite"), ["checkmate timeout"]);
     }
 }

@@ -27,6 +27,9 @@ use crate::search::shogi_hash::ShogiHashHandler;
 use crate::types::board::CapturedPieces;
 use crate::types::core::{Move, Player};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Instant;
 
 const INF: u32 = u32::MAX / 4;
 
@@ -45,6 +48,22 @@ pub struct MateSearch {
     node_limit: u64,
     tt_limit: usize,
     path: Vec<u64>,
+    /// `solve_until`: give up at this time or when this flag is set.
+    deadline: Option<Instant>,
+    stop: Option<Arc<AtomicBool>>,
+    /// Latched once the deadline or stop flag ended the search.
+    aborted: bool,
+}
+
+/// The result of [`MateSearch::solve_until`].
+#[derive(Debug, Clone, PartialEq)]
+pub enum MateOutcome {
+    /// A forced mate: the line, as [`MateSearch::solve`] returns it.
+    Mate(Vec<Move>),
+    /// Proved: no checking sequence mates.
+    NoMate,
+    /// Neither, within the node budget, time or before `stop`.
+    Unknown,
 }
 
 /// Line-extraction state: finished lengths, and the positions on the line
@@ -74,6 +93,9 @@ impl MateSearch {
             node_limit,
             tt_limit: 4_000_000,
             path: Vec::new(),
+            deadline: None,
+            stop: None,
+            aborted: false,
         }
     }
 
@@ -91,22 +113,58 @@ impl MateSearch {
         captured: &CapturedPieces,
         attacker: Player,
     ) -> Option<Vec<Move>> {
+        match self.solve_until(board, captured, attacker, None, None) {
+            MateOutcome::Mate(line) => Some(line),
+            MateOutcome::NoMate | MateOutcome::Unknown => None,
+        }
+    }
+
+    /// [`Self::solve`], also ending at `deadline` or when `stop` is set, and
+    /// telling a disproof (no mate) from running out of budget (USI `go mate`).
+    pub fn solve_until(
+        &mut self,
+        board: &BitboardBoard,
+        captured: &CapturedPieces,
+        attacker: Player,
+        deadline: Option<Instant>,
+        stop: Option<Arc<AtomicBool>>,
+    ) -> MateOutcome {
         self.tt.clear();
         self.nodes = 0;
         self.path.clear();
+        self.deadline = deadline;
+        self.stop = stop;
+        self.aborted = false;
         let root_hash = self.hasher.get_position_hash(board, attacker, captured);
-        let (pn, _) = self.mid(board, captured, attacker, true, root_hash, INF, INF);
+        let (pn, dn) = self.mid(board, captured, attacker, true, root_hash, INF, INF);
+        if dn == 0 {
+            return MateOutcome::NoMate;
+        }
         if pn != 0 {
-            return None;
+            return MateOutcome::Unknown;
         }
         let mut memo = Memo::default();
         let mut line = Vec::new();
         self.extract(board, captured, attacker, true, &mut memo, &mut line, 0);
         if line.is_empty() {
-            None
+            MateOutcome::Unknown
         } else {
-            Some(line)
+            MateOutcome::Mate(line)
         }
+    }
+
+    /// Whether the deadline has passed or `stop` is set (checked every 256
+    /// nodes, then latched). Always false for [`Self::solve`].
+    fn out_of_time(&mut self) -> bool {
+        if self.aborted {
+            return true;
+        }
+        if (self.deadline.is_none() && self.stop.is_none()) || self.nodes % 256 != 0 {
+            return false;
+        }
+        self.aborted = self.deadline.is_some_and(|d| Instant::now() >= d)
+            || self.stop.as_ref().is_some_and(|s| s.load(Ordering::Relaxed));
+        self.aborted
     }
 
     fn lookup(&self, hash: u64) -> Entry {
@@ -223,7 +281,7 @@ impl MateSearch {
                 }
             }
             let (pn, dn) = if or_node { (min_pn, sum_dn) } else { (sum_pn, min_dn) };
-            if pn >= thpn || dn >= thdn || self.nodes >= self.node_limit {
+            if pn >= thpn || dn >= thdn || self.nodes >= self.node_limit || self.out_of_time() {
                 self.store(hash, Entry { pn, dn });
                 break (pn, dn);
             }
