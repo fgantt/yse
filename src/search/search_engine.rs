@@ -147,6 +147,70 @@ mod search_tests {
     use super::*;
     use crate::types::{Move, Piece, PieceType, Player, Position};
 
+    /// A search position that repeats one played earlier in the game is a
+    /// repetition: `position ... moves` used to keep only the final board, so
+    /// the search could not see sennichite against the moves already played.
+    #[test]
+    fn game_positions_count_as_repetitions() {
+        // Black has only pawns and the king; White holds everything else in
+        // hand, so every Black move loses -- except returning to a position
+        // already played, which repeats.
+        let mut engine = crate::ShogiEngine::new();
+        engine.handle_position(&[
+            "sfen", "4k3l/9/9/9/9/9/PPPPPPPPP/9/4K4", "b", "2r2b4g4s4n3l9p", "1",
+            "moves", "5i4h", "5a4b", "4h5i", "4b5a",
+        ]);
+        // The four positions before the current one, which is the first again.
+        assert_eq!(engine.game_path.len(), 4);
+        let root = game_path_entry(&engine.board, engine.current_player, &engine.captured_pieces);
+        assert!(same_position(engine.game_path[0], root));
+        assert!(!engine.game_path[1..].iter().any(|e| same_position(*e, root)));
+
+        let search = |game_path: &[u64]| {
+            let mut search = SearchEngine::new(None, 16);
+            search.set_game_path(game_path);
+            let mut board = engine.board.clone();
+            search
+                .search_at_depth(
+                    &mut board,
+                    &engine.captured_pieces,
+                    engine.current_player,
+                    3,
+                    60_000,
+                    MIN_SCORE,
+                    MAX_SCORE,
+                )
+                .expect("a move")
+        };
+        let (_, alone) = search(&[]);
+        assert!(alone < -500, "Black should be lost without the game: {alone}");
+        let (mv, score) = search(&engine.game_path);
+        assert_eq!((mv.to_usi_string().as_str(), score), ("5i4h", 0));
+    }
+
+    /// Perpetual check loses for the side giving it, also when the cycle
+    /// began before the root.
+    #[test]
+    fn perpetual_check_spans_the_root() {
+        let (x0, x1, r) = (1u64 << 60, 2u64 << 60, 3u64 << 60);
+        let mut engine = SearchEngine::new(None, 16);
+        // X1 (Black to move) -> Black checks -> R (White to move, in check) ->
+        // White steps away -> X1 again, now on the search path below R.
+        engine.set_game_path(&[path_entry(x0, true), path_entry(x1, false)]);
+        engine.root_entry = path_entry(r, true);
+        engine.root_path_len = 1;
+        let path = [engine.root_entry];
+        assert_eq!(engine.path_repetition(&path, x1, false), Some(MATED_SCORE + 1));
+        // Without the check at R it is an ordinary repetition.
+        engine.root_entry = path_entry(r, false);
+        assert_eq!(engine.path_repetition(&[engine.root_entry], x1, false), Some(0));
+        // A path that does not start at the root (a search from an inner node)
+        // does not continue the game.
+        assert_eq!(engine.path_repetition(&[path_entry(4u64 << 60, false)], x1, false), None);
+        // Positions that were never played are not repetitions.
+        assert_eq!(engine.path_repetition(&[engine.root_entry], 5u64 << 60, false), None);
+    }
+
     /// USI wants `score mate <plies>`; every mate used to go out as
     /// `score cp 100000`, which a GUI reads as a centipawn value.
     #[test]
@@ -427,6 +491,14 @@ pub struct SearchEngine {
     hand_path: Vec<HandPathEntry>,
     /// Positions above the root, set by the parallel root split for workers.
     hand_path_prefix: Vec<HandPathEntry>,
+    /// The game's positions before the root, oldest first, as path entries
+    /// (see `game_path_entry`): repetition (sennichite) and perpetual check
+    /// count against moves already played, not only the search path.
+    game_path: Vec<u64>,
+    /// A 4,096-bit filter over `game_path`, so most nodes skip scanning it.
+    game_path_filter: [u64; 64],
+    /// This search's root path entry: a path starting with it continues the game.
+    root_entry: u64,
     /// Latched by `should_stop`: the search in progress has been told to stop,
     /// so the scores now coming back up the tree are placeholders (a partial
     /// best, a static eval). Nothing may be stored from them: the table used
@@ -739,6 +811,45 @@ const HAND_REPETITION_SCORE: i32 = 30_000;
 #[inline]
 fn path_entry(hash: u64, in_check: bool) -> u64 {
     (hash & !1) | u64::from(in_check)
+}
+
+/// The path entry for a game position (see `SearchEngine::set_game_path`).
+pub fn game_path_entry(
+    board: &BitboardBoard,
+    player: Player,
+    captured_pieces: &CapturedPieces,
+) -> u64 {
+    let hasher = crate::search::ShogiHashHandler::new(0);
+    path_entry(
+        hasher.get_position_hash(board, player, captured_pieces),
+        board.is_king_in_check(player, captured_pieces),
+    )
+}
+
+/// The `game_path_filter` bit for a path entry (high bits; the low bit is the check flag).
+#[inline]
+fn game_filter_bit(entry: u64) -> (usize, u64) {
+    let b = (entry >> 52) as usize;
+    (b >> 6, 1u64 << (b & 63))
+}
+
+/// The score of the repetition that closes `cycle` (its first position is the one
+/// repeated, the current position follows its last), `ply` plies from the root.
+fn cycle_score(cycle: &[u64], in_check_here: bool, ply: i32) -> i32 {
+    let n = cycle.len();
+    let checked = |i: usize| cycle[i] & 1 == 1;
+    // Positions in the cycle with this side to move: 0, 2, ..., and here.
+    let we_were_checked = in_check_here && (0..n).filter(|i| (n - i) % 2 == 0).all(checked);
+    // Positions with the opponent to move: 1, 3, ...
+    let mut theirs = (0..n).filter(|i| (n - i) % 2 == 1).peekable();
+    let they_were_checked = theirs.peek().is_some() && theirs.all(checked);
+    if we_were_checked {
+        -(MATED_SCORE + ply) // the opponent checked perpetually: we win
+    } else if they_were_checked {
+        MATED_SCORE + ply // we checked perpetually: we lose
+    } else {
+        0
+    }
 }
 
 /// Whether a path entry is the position `hash` (the check bit ignored).
@@ -1744,6 +1855,9 @@ impl SearchEngine {
             tactical_threats_memo: std::cell::RefCell::new(None),
             hand_path: Vec::new(),
             hand_path_prefix: Vec::new(),
+            game_path: Vec::new(),
+            game_path_filter: [0; 64],
+            root_entry: 0,
             search_aborted: false,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
@@ -1911,22 +2025,49 @@ impl SearchEngine {
     /// on every move of the cycle; that side loses (perpetual check). Scored
     /// like a mate at this ply, so the search prefers the shortest such win.
     fn repetition_score(&self, path: &[u64], j: usize, in_check_here: bool) -> i32 {
-        let n = path.len(); // this node's index on the path
-        let ply = (n + 1).saturating_sub(self.root_path_len.max(1)) as i32;
-        let checked = |i: usize| path[i] & 1 == 1;
-        // Positions in the cycle with this side to move: j, j+2, ..., and here.
-        let we_were_checked = in_check_here && (j..n).filter(|i| (n - i) % 2 == 0).all(checked);
-        // Positions with the opponent to move: j+1, j+3, ...
-        let mut theirs = (j..n).filter(|i| (n - i) % 2 == 1).peekable();
-        let they_were_checked = theirs.peek().is_some() && theirs.all(checked);
-        if we_were_checked {
-            -(MATED_SCORE + ply) // the opponent checked perpetually: we win
-        } else if they_were_checked {
-            MATED_SCORE + ply // we checked perpetually: we lose
-        } else {
-            0
+        let ply = (path.len() + 1).saturating_sub(self.root_path_len.max(1)) as i32;
+        cycle_score(&path[j..], in_check_here, ply)
+    }
+
+    /// The game's positions before the root (oldest first, `game_path_entry`
+    /// each): a search position that repeats one of them is a repetition too,
+    /// scored as one on the search path is. Empty for a search without a game.
+    pub fn set_game_path(&mut self, path: &[u64]) {
+        self.game_path.clear();
+        self.game_path.extend_from_slice(path);
+        self.game_path_filter = [0; 64];
+        for e in path {
+            let (w, bit) = game_filter_bit(*e);
+            self.game_path_filter[w] |= bit;
         }
     }
+
+    /// The game positions before the root (see `set_game_path`).
+    pub(crate) fn game_path(&self) -> &[u64] {
+        &self.game_path
+    }
+
+    /// The score of a repetition of the position `hash` (the current node,
+    /// `path` the entries above it), if it repeats one on the path or, when the
+    /// path starts at this search's root, one played earlier in the game.
+    #[inline]
+    fn path_repetition(&self, path: &[u64], hash: u64, in_check_here: bool) -> Option<i32> {
+        if let Some(j) = path.iter().rposition(|h| same_position(*h, hash)) {
+            return Some(self.repetition_score(path, j, in_check_here));
+        }
+        if self.game_path.is_empty() || path.first() != Some(&self.root_entry) {
+            return None;
+        }
+        let (w, bit) = game_filter_bit(path_entry(hash, false));
+        if self.game_path_filter[w] & bit == 0 {
+            return None;
+        }
+        let k = self.game_path.iter().rposition(|h| same_position(*h, hash))?;
+        let cycle: Vec<u64> = self.game_path[k..].iter().chain(path).copied().collect();
+        let ply = (path.len() + 1).saturating_sub(self.root_path_len.max(1)) as i32;
+        Some(cycle_score(&cycle, in_check_here, ply))
+    }
+
 
     /// Whether the last `search_at_depth` was cut short (see the field).
     pub fn last_search_interrupted(&self) -> bool {
@@ -2282,6 +2423,9 @@ impl SearchEngine {
             tactical_threats_memo: std::cell::RefCell::new(None),
             hand_path: Vec::new(),
             hand_path_prefix: Vec::new(),
+            game_path: Vec::new(),
+            game_path_filter: [0; 64],
+            root_entry: 0,
             search_aborted: false,
             search_statistics: SearchStatistics::new(),
             // Legacy config fields (synchronized with helper modules)
@@ -6319,6 +6463,7 @@ impl SearchEngine {
         )];
         // Anchor the ply count for mate scores at this search's root.
         self.root_path_len = hash_history.len();
+        self.root_entry = hash_history[0];
 
         for (move_index, move_) in sorted_moves.iter().enumerate() {
             if self.should_stop(&start_time, time_limit_ms) {
@@ -6974,7 +7119,10 @@ impl SearchEngine {
         // add_position_to_history For search context, we track hashes locally
         // in hash_history
         // Repetition along the current search path scores as a draw (the usual
-        // engine convention: a cycle within the search gains nothing).
+        // engine convention: a cycle within the search gains nothing), and so
+        // does returning to a position played earlier in the game
+        // (`set_game_path`): sennichite needs four occurrences, but a side that
+        // repeats gains nothing by it either.
         //
         // This used to consult a game-wide history to which *every searched
         // node* was added and never removed, keeping the last 1,000 visits: any
@@ -6989,8 +7137,8 @@ impl SearchEngine {
         // move's in-check flag in its low bit (see `path_entry`).
         let in_check_here = board.is_king_in_check(player, captured_pieces);
         if !is_root {
-            if let Some(j) = hash_history.iter().rposition(|h| same_position(*h, position_hash)) {
-                return self.repetition_score(hash_history, j, in_check_here);
+            if let Some(score) = self.path_repetition(hash_history, position_hash, in_check_here) {
+                return score;
             }
         }
 

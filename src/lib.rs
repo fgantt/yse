@@ -86,6 +86,10 @@ pub struct ShogiEngine {
     tablebase: MicroTablebase,
     stop_flag: Arc<AtomicBool>,
     search_engine: Arc<Mutex<SearchEngine>>,
+    /// The positions of the game before the current one, oldest first, from
+    /// `position ... moves` (`search_engine::game_path_entry` each), for
+    /// repetition and perpetual check against moves already played.
+    game_path: Vec<u64>,
     debug_mode: bool,
     pondering: bool,
     depth: u8,
@@ -154,6 +158,7 @@ impl ShogiEngine {
                 Some(stop_flag),
                 DEFAULT_HASH_MB,
             ))),
+            game_path: Vec::new(),
             debug_mode: false,
             pondering: false,
             depth: 0, // Default to 0 (unlimited/adaptive), like YaneuraOu
@@ -680,6 +685,7 @@ impl ShogiEngine {
         let search_result = self.search_engine.lock().map(|mut search_engine_guard| {
             crate::utils::telemetry::debug_log("Got search engine lock, starting search");
             search_engine_guard.set_node_limit(node_limit);
+            search_engine_guard.set_game_path(&self.game_path);
             searcher.search(
                 &mut search_engine_guard,
                 &self.board,
@@ -1047,10 +1053,16 @@ impl ShogiEngine {
             }
         }
 
+        self.game_path.clear();
         if let Some(start_index) = moves_start_index {
             for move_str in &parts[start_index..] {
                 match Move::from_usi_string(move_str, self.current_player, &self.board) {
                     Ok(mv) => {
+                        self.game_path.push(search::search_engine::game_path_entry(
+                            &self.board,
+                            self.current_player,
+                            &self.captured_pieces,
+                        ));
                         self.board.make_move_with_hand(&mv, &mut self.captured_pieces);
                         self.current_player = self.current_player.opposite();
                     }

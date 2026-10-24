@@ -90,6 +90,7 @@ impl LazyHelpers {
                 let nnue = main.evaluator.nnue_worker_copy();
                 let board = board.clone();
                 let captured = captured_pieces.clone();
+                let game_path = main.game_path().to_vec();
                 let stop = stop.clone();
                 let best = best.clone();
                 std::thread::Builder::new()
@@ -97,7 +98,8 @@ impl LazyHelpers {
                     .stack_size(64 * 1024 * 1024)
                     .spawn(move || {
                         helper_search(
-                            id, tt, nnue, board, captured, player, stop, best, max_depth,
+                            id, tt, nnue, board, captured, player, &game_path, stop, best,
+                            max_depth,
                         );
                     })
                     .ok()
@@ -137,6 +139,7 @@ fn helper_search(
     mut board: BitboardBoard,
     captured: CapturedPieces,
     player: Player,
+    game_path: &[u64],
     stop: Arc<AtomicBool>,
     best: Arc<std::sync::Mutex<Option<HelperResult>>>,
     max_depth: u8,
@@ -144,6 +147,7 @@ fn helper_search(
     // The engine's own table is replaced by the shared one, so keep it small.
     let mut engine = SearchEngine::new(Some(stop.clone()), 1);
     engine.transposition_table = tt;
+    engine.set_game_path(game_path);
     engine.evaluator.install_nnue(nnue);
     engine.time_manager.begin_search(None);
     engine.evaluator.nnue_refresh(&board, player, &captured);

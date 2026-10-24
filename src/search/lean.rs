@@ -221,9 +221,10 @@ impl SearchEngine {
         let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
         let in_check = board.is_king_in_check(player, captured_pieces);
 
-        // Repetition on the search path (perpetual check loses), as in negamax.
-        if let Some(j) = hash_history.iter().rposition(|h| same_position(*h, position_hash)) {
-            return self.repetition_score(hash_history, j, in_check);
+        // Repetition on the search path or of a game position (perpetual check
+        // loses), as in negamax.
+        if let Some(score) = self.path_repetition(hash_history, position_hash, in_check) {
+            return score;
         }
         hash_history.push(path_entry(position_hash, in_check));
         let ply = (hash_history.len().saturating_sub(self.root_path_len.max(1))) as i32;
