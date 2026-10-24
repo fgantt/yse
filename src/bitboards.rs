@@ -1381,10 +1381,11 @@ impl BitboardBoard {
 
         // 3. Parse pieces in hand
         if parts[2] != "-" {
-            let mut count = 1;
+            // Counts can have two digits (up to 18 pawns): "10P".
+            let mut count: Option<u32> = None;
             for ch in parts[2].chars() {
                 if let Some(digit) = ch.to_digit(10) {
-                    count = digit;
+                    count = Some(count.unwrap_or(0) * 10 + digit);
                 } else {
                     let hand_player = if ch.is_uppercase() { Player::Black } else { Player::White };
                     let piece_type = match ch.to_ascii_lowercase() {
@@ -1397,10 +1398,9 @@ impl BitboardBoard {
                         'r' => PieceType::Rook,
                         _ => return Err("Invalid FEN: unknown piece in hand"),
                     };
-                    for _ in 0..count {
+                    for _ in 0..count.take().unwrap_or(1) {
                         captured_pieces.add_piece(piece_type, hand_player);
                     }
-                    count = 1;
                 }
             }
         }
@@ -1966,6 +1966,16 @@ mod tests {
         let black_pawn = board.get_piece(Position::new(6, 4)).unwrap();
         assert_eq!(black_pawn.piece_type, PieceType::Pawn);
         assert_eq!(black_pawn.player, Player::Black);
+    }
+
+    #[test]
+    fn test_from_fen_two_digit_hand_count() {
+        let (_, _, captured) =
+            BitboardBoard::from_fen("4k4/9/9/9/9/9/9/9/4K4 b 2G10Pr2p 1").unwrap();
+        let pawns = captured.black.iter().filter(|&&p| p == PieceType::Pawn).count();
+        assert_eq!(pawns, 10);
+        assert_eq!(captured.black.iter().filter(|&&p| p == PieceType::Gold).count(), 2);
+        assert_eq!(captured.white.len(), 3);
     }
 
     #[test]
