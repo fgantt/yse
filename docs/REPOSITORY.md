@@ -37,6 +37,7 @@ clone at `shogi-game/yse` has `legacy-main` checked out.
 | `engines/` | no (ignored) | Local builds kept for matches; `engines/usi-engine-stable` is what the GUI runs. Rebuild from a commit; binaries are machine-specific. |
 | `matches/*` other than the above | no (ignored) | Match logs and CSVs. Commit the few a session log cites. |
 | `resources/magic_tables/magic_table.bin` | no (ignored) | Generated (86 MB). |
+| `book/user_book1.db` | no (ignored) | Opening book (USI `BookFile book/user_book1.db`; off by default). YaneuraOu team's New Peta-shock book, 2.25M positions, 493 MB, MIT: `new_petabook_20250505c.7z` from github.com/yaneurao/YaneuraOu/releases/tag/new_petabook233, extracted with `7zz x`. |
 
 Ignored files are still deleted by `git clean -x`. Never run `git clean -fdx` in a working copy
 that holds corpora or weights.

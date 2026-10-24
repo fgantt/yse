@@ -8,6 +8,7 @@ use std::sync::{
 };
 
 pub mod bitboards;
+pub mod book;
 pub mod config;
 pub mod debug_utils;
 pub mod error;
@@ -93,10 +94,22 @@ pub struct ShogiEngine {
     pst_config: PieceSquareTableConfig,
     /// USI `UseNNUE`.
     use_nnue: bool,
-    /// USI `USI_OwnBook`: play opening-book moves. There is no book yet, so
-    /// this is stored only.
-    #[allow(dead_code)]
+    /// USI `USI_OwnBook`: play opening-book moves.
     use_book: bool,
+    /// USI `BookFile`: a YaneuraOu-format `.db` book, or `no_book`.
+    book_file: String,
+    book: Option<book::Book>,
+    /// Result of the last book configuration, reported on `isready`.
+    book_status: String,
+    /// USI `BookEvalDiff`: play any book move within this many centipawns of
+    /// the best one (0 = best only).
+    book_eval_diff: i32,
+    /// USI `BookMaxPly`: consult the book only up to this game ply.
+    book_max_ply: u32,
+    book_rng: StdRng,
+    /// The game began at the even start position (`position startpos`, or its
+    /// SFEN). The book is for even games only, never handicap or set-up positions.
+    game_from_startpos: bool,
     /// Milliseconds subtracted from every clock-based time allocation, for GUI
     /// and communication delay (USI option `MoveOverhead`).
     pub move_overhead_ms: u32,
@@ -108,6 +121,10 @@ pub struct ShogiEngine {
 
 /// Default network location. Not matched by the `nnue_weights_*` gitignore rule.
 pub const DEFAULT_NNUE_FILE: &str = "nnue/default.bin";
+
+/// Default `BookFile`: no book. A book changes play, so it ships only after
+/// passing the SPRT gate.
+pub const DEFAULT_BOOK_FILE: &str = "no_book";
 
 /// The id and value of `setoption name <id> [value <x>]` (`parts` after
 /// `setoption`). Both may contain spaces; the value is empty when absent.
@@ -179,6 +196,13 @@ impl ShogiEngine {
             pst_config: PieceSquareTableConfig::default(),
             use_nnue: true,
             use_book: true,
+            book_file: DEFAULT_BOOK_FILE.to_string(),
+            book: None,
+            book_status: String::new(),
+            book_eval_diff: 0,
+            book_max_ply: 999,
+            book_rng: StdRng::from_entropy(),
+            game_from_startpos: true,
             move_overhead_ms: 100,
             nnue_file: DEFAULT_NNUE_FILE.to_string(),
             nnue_status: String::new(),
@@ -193,6 +217,7 @@ impl ShogiEngine {
         // Try to load persisted preferences (thread count)
         engine.load_prefs();
         engine.apply_nnue_config();
+        engine.apply_book_config();
 
         if let Err(err) = engine.apply_pst_config() {
             crate::debug_log_fast!(&format!(
@@ -298,6 +323,53 @@ impl ShogiEngine {
     /// Human-readable NNUE status, reported on `isready`.
     pub fn nnue_status(&self) -> &str {
         &self.nnue_status
+    }
+
+    /// Open (or close) the book per `BookFile`. Paths resolve like `NNUEFile`.
+    fn apply_book_config(&mut self) {
+        let name = self.book_file.trim();
+        if name.is_empty() || name.eq_ignore_ascii_case("no_book") {
+            self.book = None;
+            self.book_status = String::new();
+            return;
+        }
+        let path = resolve_nnue_path(name);
+        match book::Book::open(&path) {
+            Ok(b) => {
+                self.book_status = format!("Book: {}", b.path().display());
+                self.book = Some(b);
+            }
+            Err(e) => {
+                self.book = None;
+                self.book_status = format!("Book not loaded ({})", e);
+            }
+        }
+    }
+
+    /// Human-readable book status, reported on `isready` (empty with no book).
+    pub fn book_status(&self) -> &str {
+        &self.book_status
+    }
+
+    /// A book move for the current position, if the book applies: `USI_OwnBook`
+    /// on, a book open, an even game from the start position, and within
+    /// `BookMaxPly`. Every book move is checked against the legal moves.
+    pub fn probe_book(&mut self) -> Option<book::BookHit> {
+        if !self.use_book || !self.game_from_startpos {
+            return None;
+        }
+        let ply = self.game_path.len() as u32 + 1;
+        if ply > self.book_max_ply {
+            return None;
+        }
+        let b = self.book.as_ref()?;
+        b.probe(
+            &self.board,
+            self.current_player,
+            &self.captured_pieces,
+            self.book_eval_diff,
+            &mut self.book_rng,
+        )
     }
 
     /// Check if NNUE evaluation is enabled
@@ -813,6 +885,7 @@ impl ShogiEngine {
             return output;
         }
 
+        self.game_from_startpos = parts[0] == "startpos";
         if parts[0] == "startpos" {
             sfen_str =
                 "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1".to_string();
@@ -829,6 +902,8 @@ impl ShogiEngine {
                 current_index += 1;
             }
             sfen_str = sfen_parts.join(" ");
+            self.game_from_startpos = sfen_parts.len() >= 3
+                && sfen_parts[..3] == ["lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL", "b", "-"];
             crate::debug_log_fast!(&format!("Parsed SFEN: '{}'", sfen_str));
             if current_index < parts.len() && parts[current_index] == "moves" {
                 moves_start_index = Some(current_index + 1);
@@ -986,6 +1061,23 @@ impl ShogiEngine {
                     self.nnue_file = parts[3].trim().to_string();
                     self.apply_nnue_config();
                     output.push(format!("info string {}", self.nnue_status));
+                }
+                "BookFile" => {
+                    self.book_file = parts[3].trim().to_string();
+                    self.apply_book_config();
+                    if !self.book_status.is_empty() {
+                        output.push(format!("info string {}", self.book_status));
+                    }
+                }
+                "BookEvalDiff" => {
+                    if let Ok(v) = parts[3].parse::<i32>() {
+                        self.book_eval_diff = v.clamp(0, 10_000);
+                    }
+                }
+                "BookMaxPly" => {
+                    if let Ok(v) = parts[3].parse::<u32>() {
+                        self.book_max_ply = v;
+                    }
                 }
                 "PSTPreset" => {
                     let value = parts[3..].join(" ");

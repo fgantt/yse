@@ -52,3 +52,4 @@ nnue_corpus_*.jsonl
 /usi_match.csv
 /.claude/scheduled_tasks.lock
 /.claude/settings.local.json
+/book/*.db

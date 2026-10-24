@@ -59,8 +59,10 @@ same-kind moves tried before it. First-move cutoffs rose from 79% to 88% (Sessio
 
 ## Other
 
-- No opening book. The old embedded book never loaded (wrong JSON layout) and was removed in
-  October 2026; `USI_OwnBook` is accepted but has no effect until a new book exists.
+- Opening book (`src/book.rs`): YaneuraOu text `.db` format, binary-searched on disk, White's
+  positions looked up flipped; every book move checked against our legal moves. Off by default
+  (`BookFile no_book`); `BookEvalDiff`, `BookMaxPly`, `USI_OwnBook`. Used only in games from the
+  even start position and not for `go infinite`. See `docs/REPOSITORY.md` for the Peta-shock book.
 - Micro endgame tablebase (`src/tablebase/`).
 - Magic bitboards for sliding pieces (`resources/magic_tables/`; a binary that cannot find
   them falls back to ray casting, which chokes multi-threaded search).
@@ -94,6 +96,6 @@ value. Details in `SESSION_LOG_034.md`.
 | Null move | Sound (`search-diag` printed the wrong counter, fixed) |
 | History heuristic | Sound: decays every 1,000 updates |
 | Repetition | Sound; minor: repetitions across a null move are still detected |
-| Opening book | None (the old one never loaded; removed) |
+| Opening book | Off by default; not yet SPRT-tested. Even games from `startpos` only |
 | Mate search | Sound: ~10 nodes/ms budget, our checking mates only |
 | Lazy SMP | Fixed earlier this session (table size); result selection (deeper and higher-scoring helper) reviewed, sound |

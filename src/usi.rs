@@ -44,6 +44,17 @@ impl UsiHandler {
         if limits.mate {
             return vec![self.engine.handle_go_mate(limits.mate_ms)];
         }
+        // `go infinite` / `go ponder` must search until `stop`, so no book there.
+        if !limits.infinite {
+            if let Some(hit) = self.engine.probe_book() {
+                let usi = hit.mv.to_usi_string();
+                return vec![
+                    format!("info string book {} value {} of {} candidates", usi, hit.value, hit.candidates),
+                    format!("info depth 1 score cp {} pv {}", hit.value, usi),
+                    format!("bestmove {}", usi),
+                ];
+            }
+        }
         let black_to_move = self.engine.current_player == crate::types::Player::Black;
         let time_to_use = limits.allocate_ms(black_to_move, self.engine.move_overhead_ms);
         let depth = limits.depth.unwrap_or(self.engine.depth);
@@ -78,6 +89,9 @@ impl UsiHandler {
             "option name UseNNUE type check default true".to_string(),
             "option name MoveOverhead type spin default 100 min 0 max 10000".to_string(),
             format!("option name NNUEFile type string default {}", crate::DEFAULT_NNUE_FILE),
+            format!("option name BookFile type string default {}", crate::DEFAULT_BOOK_FILE),
+            "option name BookEvalDiff type spin default 0 min 0 max 10000".to_string(),
+            "option name BookMaxPly type spin default 999 min 0 max 9999".to_string(),
             format!(
                 "option name ParallelEnable type check default {}",
                 if parallel_options.enable_parallel { "true" } else { "false" }
@@ -155,6 +169,10 @@ impl UsiHandler {
         let status = self.engine.nnue_status();
         if !status.is_empty() {
             response.push(format!("info string {}", status));
+        }
+        let book = self.engine.book_status();
+        if !book.is_empty() {
+            response.push(format!("info string {}", book));
         }
         
         response.push("readyok".to_string());
