@@ -16779,17 +16779,12 @@ impl IterativeDeepening {
                         "Skipping info message: score is 0 and PV is empty",
                     );
                 } else {
-                    // Add NNUE indicator to first depth output (subtle but visible)
-                    let nnue_indicator = if depth == 1 && search_engine.evaluator.is_nnue_enabled() {
-                        " [NNUE]"
-                    } else {
-                        ""
-                    };
-                    
+                    // Nothing may follow the pv: a GUI reads every token there as a
+                    // move (the NNUE status goes out as an `info string` at isready).
                     let info_string = format!(
                         "info depth {} seldepth {} multipv 1 score {} time {} nodes {} nps {} \
-                         pv {}{}",
-                        depth, seldepth, usi_score_field(score), time_searched, nodes_for_info, nps, pv_string, nnue_indicator
+                         pv {}",
+                        depth, seldepth, usi_score_field(score), time_searched, nodes_for_info, nps, pv_string
                     );
 
                     // Print the info message to stdout for USI protocol (skip during silent

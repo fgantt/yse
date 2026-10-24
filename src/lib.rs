@@ -98,6 +98,8 @@ pub struct ShogiEngine {
     pst_config: PieceSquareTableConfig,
     /// USI `UseNNUE`.
     use_nnue: bool,
+    /// USI `USI_OwnBook`: play opening-book moves.
+    use_book: bool,
     /// Milliseconds subtracted from every clock-based time allocation, for GUI
     /// and communication delay (USI option `MoveOverhead`).
     pub move_overhead_ms: u32,
@@ -109,6 +111,21 @@ pub struct ShogiEngine {
 
 /// Default network location. Not matched by the `nnue_weights_*` gitignore rule.
 pub const DEFAULT_NNUE_FILE: &str = "nnue/default.bin";
+
+/// The id and value of `setoption name <id> [value <x>]` (`parts` after
+/// `setoption`). Both may contain spaces; the value is empty when absent.
+pub fn parse_setoption(parts: &[&str]) -> Option<(String, String)> {
+    if parts.first() != Some(&"name") {
+        return None;
+    }
+    let rest = &parts[1..];
+    let v = rest.iter().position(|p| *p == "value").unwrap_or(rest.len());
+    if v == 0 {
+        return None;
+    }
+    let value = rest.get(v + 1..).map_or(String::new(), |r| r.join(" "));
+    Some((rest[..v].join(" "), value))
+}
 
 /// Where to read a network file from. A relative path is tried against the
 /// working directory first, then against the executable's directory and its
@@ -166,6 +183,7 @@ impl ShogiEngine {
             parallel_options: ParallelOptions::default(),
             pst_config: PieceSquareTableConfig::default(),
             use_nnue: true,
+            use_book: true,
             move_overhead_ms: 100,
             nnue_file: DEFAULT_NNUE_FILE.to_string(),
             nnue_status: String::new(),
@@ -620,7 +638,7 @@ impl ShogiEngine {
 
         // Check opening book second
         crate::debug_utils::start_timing("opening_book_check");
-        if self.opening_book.is_loaded() {
+        if self.use_book && self.opening_book.is_loaded() {
             if let Some(book_move) = self.opening_book.get_best_move(&fen) {
                 crate::debug_log_fast!(&format!(
                     "Found opening book move: {}",
@@ -1088,7 +1106,19 @@ impl ShogiEngine {
 
     pub fn handle_setoption(&mut self, parts: &[&str]) -> Vec<String> {
         let mut output = Vec::new();
-        if parts.len() >= 4 && parts[0] == "name" && parts[2] == "value" {
+        // `setoption name <id> [value <x>]`: the name and the value may both
+        // contain spaces, and the value may be empty or absent (a button, or
+        // clearing a path). Normalise to [name, <id>, value, <x>].
+        let Some((name, value)) = parse_setoption(parts) else {
+            return vec!["info string error Invalid setoption command".to_string()];
+        };
+        // An empty value only clears a path; anywhere else it is a malformed
+        // command, ignored as it always was.
+        if value.is_empty() && name != "PSTPath" {
+            return output;
+        }
+        let parts: [&str; 4] = ["name", &name, "value", &value];
+        if parts[0] == "name" && parts[2] == "value" {
             match parts[1] {
                 "USI_Hash" => {
                     if let Ok(size) = parts[3].parse::<usize>() {
@@ -1112,13 +1142,17 @@ impl ShogiEngine {
                         self.move_overhead_ms = v.min(10_000);
                     }
                 }
+                // GUIs send these to every engine. We never ponder (`go ponder`
+                // searches until `stop`), so USI_Ponder changes nothing.
+                "USI_Ponder" => {}
+                "USI_OwnBook" => self.use_book = parts[3].eq_ignore_ascii_case("true"),
                 "UseNNUE" => {
                     self.use_nnue = parts[3].eq_ignore_ascii_case("true");
                     self.apply_nnue_config();
                     output.push(format!("info string {}", self.nnue_status));
                 }
                 "NNUEFile" => {
-                    self.nnue_file = parts[3..].join(" ").trim().to_string();
+                    self.nnue_file = parts[3].trim().to_string();
                     self.apply_nnue_config();
                     output.push(format!("info string {}", self.nnue_status));
                 }
@@ -1160,8 +1194,7 @@ impl ShogiEngine {
                     }
                 }
                 "PSTPath" => {
-                    let value = parts[3..].join(" ");
-                    let trimmed = value.trim();
+                    let trimmed = parts[3].trim();
                     let previous_config = self.pst_config.clone();
 
                     if trimmed.is_empty() {

@@ -70,6 +70,8 @@ impl UsiHandler {
                 "option name USI_Hash type spin default {} min 1 max 1024",
                 crate::DEFAULT_HASH_MB
             ),
+            "option name USI_Ponder type check default false".to_string(),
+            "option name USI_OwnBook type check default true".to_string(),
             "option name UseNNUE type check default true".to_string(),
             "option name MoveOverhead type spin default 100 min 0 max 10000".to_string(),
             format!("option name NNUEFile type string default {}", crate::DEFAULT_NNUE_FILE),
@@ -329,5 +331,47 @@ mod go_limits_tests {
         assert!(go("nodes 1000").allocate_ms(true, 100) > 1_000_000);
         assert!(go("infinite").allocate_ms(true, 100) > 1_000_000);
         assert_eq!(go("").allocate_ms(true, 100), 5000);
+    }
+}
+
+#[cfg(test)]
+mod setoption_tests {
+    use super::UsiHandler;
+    use crate::parse_setoption;
+
+    fn split(s: &str) -> Vec<&str> {
+        s.split_whitespace().collect()
+    }
+
+    #[test]
+    fn parses_names_and_values_with_spaces() {
+        let p = |s: &str| parse_setoption(&split(s));
+        assert_eq!(p("name USI_Hash value 256"), Some(("USI_Hash".into(), "256".into())));
+        assert_eq!(
+            p("name Book File value /a b/c.db"),
+            Some(("Book File".into(), "/a b/c.db".into()))
+        );
+        assert_eq!(p("name PSTPath value"), Some(("PSTPath".into(), String::new())));
+        assert_eq!(p("name Clear Hash"), Some(("Clear Hash".into(), String::new())));
+        assert_eq!(p("name value 3"), None);
+        assert_eq!(p("USI_Hash value 3"), None);
+    }
+
+    #[test]
+    fn handles_the_standard_options() {
+        let mut usi = UsiHandler::new();
+        let out = usi.handle_command("usi");
+        for opt in ["USI_Ponder type check", "USI_OwnBook type check default true"] {
+            assert!(out.iter().any(|l| l.contains(opt)), "missing {opt}");
+        }
+        assert!(usi.handle_command("setoption name USI_Ponder value true").is_empty());
+        assert!(usi.engine.use_book);
+        assert!(usi.handle_command("setoption name USI_OwnBook value false").is_empty());
+        assert!(!usi.engine.use_book);
+        let out = usi.handle_command("setoption name No Such Option value x y");
+        assert_eq!(out, ["info string Unknown option: No Such Option"]);
+        // A check option without a value is ignored, not read as false.
+        assert!(usi.handle_command("setoption name UseNNUE").is_empty());
+        assert!(usi.engine.use_nnue);
     }
 }
