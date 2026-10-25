@@ -732,9 +732,26 @@ fn parse_jsonl_line(line: &str) -> Option<CorpusRecord> {
     Some(CorpusRecord { sfen, player, eval_cp, outcome, game_id, ply, random_move, noisy: false })
 }
 
+/// Number of lines in a file, read in large blocks.
+fn count_lines(path: &Path) -> std::io::Result<usize> {
+    use std::io::Read;
+    let mut f = File::open(path)?;
+    let mut buf = vec![0u8; 1 << 22];
+    let mut n = 0;
+    loop {
+        let k = f.read(&mut buf)?;
+        if k == 0 {
+            return Ok(n);
+        }
+        n += buf[..k].iter().filter(|&&b| b == b'\n').count();
+    }
+}
+
 fn load_corpus(path: &Path, skip_null_eval: bool) -> std::io::Result<Vec<CorpusRecord>> {
+    // Sized once: growing by doubling past 2^28 records held the old and the new
+    // array at once (~39 GB of the two at 311M records, beside ~25 GB of SFENs).
+    let mut out = Vec::with_capacity(count_lines(path)?);
     let f = File::open(path)?;
-    let mut out = Vec::new();
     let mut skipped_parse = 0_usize;
     let mut skipped_null = 0_usize;
     for line in BufReader::new(f).lines() {

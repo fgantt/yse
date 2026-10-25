@@ -6483,6 +6483,10 @@ impl SearchEngine {
                 }
             }
 
+            let root_line_mv = lean::lean_enabled() && lean::trace_move(0, move_);
+            if root_line_mv {
+                lean::trace_set(1);
+            }
             let score = if lean::lean_enabled() {
                 // Principal variation search at the root: the first move with
                 // the full window, the rest with a null window, re-searched
@@ -6542,6 +6546,10 @@ impl SearchEngine {
                     true,
                 )
             };
+            if root_line_mv {
+                lean::trace_set(0);
+                eprintln!("TRACE root depth={depth} line move {} #{} -> {score}", move_.to_usi_string(), move_index + 1);
+            }
             // Each child pushes its own position onto the path and leaves it to
             // its parent to pop. The root loop never did, so the path grew by
             // one per root move: in a 50-move game the last root move searched

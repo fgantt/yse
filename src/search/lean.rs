@@ -57,6 +57,44 @@ pub fn lean_enabled() -> bool {
 
 const INF: i32 = 1_000_000;
 
+/// Diagnostic: `SHOGI_TRACE_LINE="m1 m2 ..."` (USI moves from the root) prints to stderr what the
+/// search does at each node along that line: table cutoffs, node-level pruning, where the line's
+/// move sits in the move order, whether it is pruned or reduced, and its score. Single thread
+/// only (the matched prefix is per thread, but the output would interleave). Session 37 asked why
+/// YaneuraOu sees a drop attack in 0.5M nodes that we miss at 32M.
+fn trace_line() -> Option<&'static [String]> {
+    static LINE: std::sync::OnceLock<Option<Vec<String>>> = std::sync::OnceLock::new();
+    LINE.get_or_init(|| {
+        std::env::var("SHOGI_TRACE_LINE")
+            .ok()
+            .map(|v| v.split_whitespace().map(String::from).collect())
+    })
+    .as_deref()
+}
+
+thread_local! {
+    /// How many leading moves of the current path follow the traced line.
+    static TRACE_MATCHED: std::cell::Cell<i32> = const { std::cell::Cell::new(0) };
+}
+
+/// Whether the node at `ply` lies on the traced line.
+fn trace_node(ply: i32) -> bool {
+    trace_line().is_some() && TRACE_MATCHED.with(std::cell::Cell::get) == ply
+}
+
+/// Whether `mv`, at the node at `ply`, is the traced line's next move.
+pub(super) fn trace_move(ply: i32, mv: &Move) -> bool {
+    trace_node(ply)
+        && trace_line()
+            .and_then(|l| l.get(usize::try_from(ply).ok()?))
+            .is_some_and(|m| *m == mv.to_usi_string())
+}
+
+/// Marks the path as following the line through `ply` moves (around a line move's search).
+pub(super) fn trace_set(ply: i32) {
+    TRACE_MATCHED.with(|m| m.set(ply));
+}
+
 /// What reverse futility returns (`SHOGI_RFP_RETURN`): 0 (default) the static
 /// evaluation, 1 beta, 2 halfway between them. Session 37 found the static
 /// evaluation, often far above beta, surfacing as root fail-highs that the
@@ -233,7 +271,7 @@ impl SearchEngine {
         let excluded = excluded_at(ply);
 
         if depth <= 0 {
-            return self.lean_q_entry(
+            let q = self.lean_q_entry(
                 board,
                 captured_pieces,
                 player,
@@ -242,6 +280,10 @@ impl SearchEngine {
                 start_time,
                 time_limit_ms,
             );
+            if trace_node(ply) {
+                eprintln!("TRACE ply={ply} [{alpha},{beta}] quiescence -> {q}");
+            }
+            return q;
         }
 
         let hist = super::lean_hist::hist_uses();
@@ -282,6 +324,13 @@ impl SearchEngine {
                     TranspositionFlag::UpperBound => s <= alpha,
                 };
                 if usable {
+                    if trace_node(ply) {
+                        eprintln!(
+                            "TRACE ply={ply} d={depth} [{alpha},{beta}] table cutoff {s} \
+                             (entry depth {}, {:?})",
+                            e.depth, e.flag
+                        );
+                    }
                     return s;
                 }
             }
@@ -294,6 +343,14 @@ impl SearchEngine {
         let uses = improving_uses();
         let improving = uses == 0 || record_and_test_improving(ply, static_eval);
         let improving_for = |bit: u8| uses & bit == 0 || improving;
+        let traced = trace_node(ply);
+        if traced {
+            eprintln!(
+                "TRACE ply={ply} d={depth} [{alpha},{beta}] {} eval={static_eval} tt={}",
+                if pv_node { "pv" } else if cut_node { "cut" } else { "all" },
+                tt_move.as_ref().map_or_else(|| "-".to_string(), Move::to_usi_string)
+            );
+        }
 
         // Reverse futility: far enough above beta that a quiet move will not
         // bring it back down within a few plies.
@@ -303,6 +360,9 @@ impl SearchEngine {
             && static_eval - 120 * (depth - i32::from(uses & 1 != 0 && improving)) >= beta
             && static_eval < MATE_THRESHOLD
         {
+            if traced {
+                eprintln!("TRACE ply={ply} d={depth} reverse futility (eval {static_eval} vs beta {beta})");
+            }
             return match rfp_return() {
                 1 => beta,
                 2 => (static_eval + beta) / 2,
@@ -322,6 +382,9 @@ impl SearchEngine {
                 time_limit_ms,
             );
             if q < alpha {
+                if traced {
+                    eprintln!("TRACE ply={ply} d={depth} razored -> {q}");
+                }
                 return q;
             }
         }
@@ -355,6 +418,9 @@ impl SearchEngine {
             hash_history.truncate(path_len);
             if s >= beta {
                 self.null_move_stats.cutoffs += 1;
+                if traced {
+                    eprintln!("TRACE ply={ply} d={depth} null-move cutoff {s} (r={r})");
+                }
                 return if s >= MATE_THRESHOLD { beta } else { s };
             }
         }
@@ -548,6 +614,7 @@ impl SearchEngine {
                 continue;
             }
             move_count += 1;
+            let line_mv = traced && trace_move(ply, mv);
             let quiet = !mv.is_capture && !mv.is_promotion;
             let is_tt = tt_move.as_ref().is_some_and(|t| self.moves_equal(mv, t));
             // A check that loses material: not extended, and prunable like any
@@ -578,15 +645,24 @@ impl SearchEngine {
                         && depth <= 3
                         && super::lean_hist::with(|h| h.quiet_score(mv, ply)) < -4000 * depth
                     {
+                        if line_mv {
+                            eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: history", mv.to_usi_string(), moves.len());
+                        }
                         continue;
                     }
                     // Late move pruning.
                     let lmp_count = (3 + (depth * depth) as usize) / (1 + usize::from(!improving_for(2)));
                     if !pv_node && !lean_off(off::LMP) && depth <= 8 && move_count > lmp_count {
+                        if line_mv {
+                            eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: late-move (limit {lmp_count})", mv.to_usi_string(), moves.len());
+                        }
                         continue;
                     }
                     // Futility.
                     if !pv_node && !lean_off(off::FUT) && depth <= 6 && static_eval + 100 + 150 * depth <= alpha {
+                        if line_mv {
+                            eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: futility (eval {static_eval}, alpha {alpha})", mv.to_usi_string(), moves.len());
+                        }
                         continue;
                     }
                     // Quiet moves and drops that lose material.
@@ -595,6 +671,9 @@ impl SearchEngine {
                         && crate::search::move_ordering::see_calculation::see_quiet(mv, board)
                             < -80 * depth
                     {
+                        if line_mv {
+                            eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: losing quiet/drop (SEE)", mv.to_usi_string(), moves.len());
+                        }
                         continue;
                     }
                 } else if depth <= 6
@@ -603,6 +682,9 @@ impl SearchEngine {
                         mv, board,
                     ) < -150 * depth
                 {
+                    if line_mv {
+                        eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: losing capture (SEE)", mv.to_usi_string(), moves.len());
+                    }
                     continue;
                 }
             }
@@ -628,6 +710,10 @@ impl SearchEngine {
             }
             self.check_extensions_on_path += ext as u32;
             let path_len = hash_history.len();
+            if line_mv {
+                trace_set(ply + 1);
+            }
+            let mut traced_r = 0;
 
             let mut score;
             if move_count == 1 {
@@ -677,6 +763,7 @@ impl SearchEngine {
                     }
                     r = r.clamp(0, new_depth - 1);
                 }
+                traced_r = r;
                 if diag() {
                     DIAG_REDUCTION[(depth as usize).min(15)].fetch_add(r as u64, Ordering::Relaxed);
                 }
@@ -730,6 +817,15 @@ impl SearchEngine {
                 }
             }
             hash_history.truncate(path_len);
+            if line_mv {
+                trace_set(ply);
+                eprintln!(
+                    "TRACE ply={ply} d={depth} [{alpha},{beta}] line move {} #{move_count}/{} \
+                     r={traced_r} ext={ext} -> {score} (best before {best_score})",
+                    mv.to_usi_string(),
+                    moves.len()
+                );
+            }
             self.check_extensions_on_path -= ext as u32;
             self.nnue_unmake_move();
             board.unmake_move(&move_info);
@@ -751,6 +847,13 @@ impl SearchEngine {
                     best_move = Some(mv.clone());
                     alpha = score;
                     if alpha >= beta {
+                        if traced && !line_mv {
+                            eprintln!(
+                                "TRACE ply={ply} d={depth} cut by {} #{move_count}/{} -> {score}",
+                                mv.to_usi_string(),
+                                moves.len()
+                            );
+                        }
                         if diag() {
                             DIAG_CUTS[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
                             DIAG_CUT_INDEX[cut_index_bucket(move_count - 1)]

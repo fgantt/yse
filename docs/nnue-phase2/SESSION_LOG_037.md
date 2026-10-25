@@ -62,7 +62,17 @@ moves before we do, is the cause our evaluation or our search?
 >    (`maxtasksperchild=1`); restarted 2026-10-23 07:46 via `corpus_s37/resume.sh`: 280 batches/h.
 >    Cause not found. `usi_match` generation keeps its engines for all 41,686 games and is likely
 >    hit the same way; restart its engines periodically before the next batch.
-> 6. Earlier handoff options (before the search measurements):
+> 6. **RUNNING since 2026-10-24 19:43: data batch 5 -> s9 -> SPRT vs r9** (`corpus_s37b/pipeline.sh`,
+>    log `corpus_s37b/pipeline.out`, `corpus_s37b/progress.sh` for a status line). Generation now
+>    runs 14 slots x 14 runs of 3,000 games with fresh engines (seeds 410000 + 100*slot + run):
+>    fresh engines measured 107 games/min per slot, batch 4's single long runs averaged ~50.
+>    Labels from game id 5,000,000; pool with `corpus_s37/pool_d8.jsonl` (~311M expected); s9 = r9
+>    trained **1 epoch** (q9 and r9 both kept epoch 1), seed 52; SPRT seed 3702
+>    (`matches/s37/sprt_s9.log`). The trainer now sizes its record array from a line count: past
+>    2^28 records the doubling step would briefly hold ~39 GB of arrays beside ~25 GB of SFENs.
+>    Training also picks up `2c04777` (two-digit hand counts such as 10P now parse; 111 of the first
+>    200k pool positions have one, so q9 and r9 trained on a sliver of misparsed hands).
+> 7. Earlier handoff options (before the search measurements):
 >    - Search: measure node-efficiency to a verdict on more positions (YaneuraOu nodes vs ours to
 >      reach the same score band), then add per-rule toggles to `lean.rs` (LMR, LMP, futility, SEE
 >      pruning of quiet moves and drops) and find which one costs the most here.
@@ -118,3 +128,33 @@ Test set: the two two-piece losses at their collapse, p9 game moves 41-45 and q9
   traces the root windows.
 
 Files: `matches/s37/off/`, `yo/`, `yo_off/`, `rfp/`.
+
+## The search side, continued (2026-10-25): cold references and a line tracer
+
+**The YaneuraOu reference was warm.** `scripts/session36/yane_scores.py` searches consecutive
+positions in one process, so each starts with the previous move's hash table, as in a game. With a
+fresh process per position (`scripts/session37/yane_cold.py`, `matches/s37/yane_cold.jsonl`) its
+verdicts are less pessimistic: mean over the 10 positions -301 at 2M nodes (warm: -539), -427 at 8M
+(move 47: +43 cold vs -493 warm). Against the cold 8M reference at equal reported nodes, our search
+with YaneuraOu's network is ~+320 cp too optimistic (not 430), with our network ~+860. Our node
+counts exclude quiescence (~3/4 of our tree) and YaneuraOu's do not, so at equal total work the
+search gap is larger than that.
+
+**Line tracer** (`SHOGI_TRACE_LINE="m1 m2 ..."`, stderr, one thread; `src/search/lean.rs` and the
+root loop): at each node along a given line it prints table cutoffs, reverse futility, razoring,
+null move, the line move's place in the order, its pruning rule or reduction, extension and score,
+and cutoffs by other moves. Off, it costs one check per node.
+
+Traces at q9 game move 49 (YaneuraOu's network, 1 thread, 2M nodes, `matches/s37/trace_k49*.txt`):
+- This build (with `31f00ed`) finds P*4h within 2M nodes, from depth 12; until then it sat at #53 of
+  the root order (searched at full depth, null window).
+- YaneuraOu's refutation of 4g4f: our defensive moves along it are late in our order and reduced
+  (6h5i #26/135 r=2; P*5h #12-#54/140, pruned by late-move pruning at depth 3 in one iteration;
+  6i5h #44/73 r=3), and the attacker, already winning by its evaluation, stops at reverse futility.
+- Our preferred defence 6c7d+ (YaneuraOu: +3258 for the attacker): we follow the attack (R*9i,
+  B*8g first in order and check-extended); the attacker's first move clears beta at ply 7 and the
+  search stops, as alpha-beta should. The root's -943 there is an aspiration bound.
+- No rule prunes the attacker's key moves wrongly in these lines. The shortfall is depth per node.
+
+Next on this side: compare tree shape per ply with YaneuraOu's at equal total nodes (where our
+nodes go: quiescence share, defensive quiet moves, checking drops), not single rules.
