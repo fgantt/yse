@@ -96,6 +96,6 @@ value. Details in `SESSION_LOG_034.md`.
 | Null move | Sound (`search-diag` printed the wrong counter, fixed) |
 | History heuristic | Sound: decays every 1,000 updates |
 | Repetition | Sound; minor: repetitions across a null move are still detected |
-| Opening book | Off by default; not yet SPRT-tested. Even games from `startpos` only |
+| Opening book | Off by default. Peta-shock book vs no book, 4-thread 250 ms self-play from startpos (2026-10-24): +3.8 Elo, 95% [-12, +20] over 1,738 games; screen FAIL, so the 1 s SPRT was not run. Games stay in book a median 12-16 plies |
 | Mate search | Sound: ~10 nodes/ms budget, our checking mates only |
 | Lazy SMP | Fixed earlier this session (table size); result selection (deeper and higher-scoring helper) reviewed, sound |
