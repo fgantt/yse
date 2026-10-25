@@ -62,7 +62,15 @@ moves before we do, is the cause our evaluation or our search?
 >    (`maxtasksperchild=1`); restarted 2026-10-23 07:46 via `corpus_s37/resume.sh`: 280 batches/h.
 >    Cause not found. `usi_match` generation keeps its engines for all 41,686 games and is likely
 >    hit the same way; restart its engines periodically before the next batch.
-> 6. **RUNNING since 2026-10-24 19:43: data batch 5 -> s9 -> SPRT vs r9** (`corpus_s37b/pipeline.sh`,
+> 6. **s9 PASSED its SPRT vs r9 (2026-10-25): +79.5 ± 58.1 Elo, 72-3-45 after 120 games
+>    (60 pairs), LLR +3.05** (`matches/s37/sprt_s9.log`). **Shipped 2026-10-25: `nnue/default.bin` is s9**; r9 is
+>    kept as `nnue/default-r9.bin`.
+>    Pool 312,188,512 (batch 5: 67.51M labelled, 62.70M new); one epoch, 8.5 h, r_clamp 0.818 on
+>    its own split. On the same held-out games s9 leads r9 by only 0.001 pearson (old pool
+>    0.825 / 0.826, batch 4 0.822 / 0.823, batch 5 0.824 / 0.825), yet +80 Elo in games: held-out
+>    correlation is a poor proxy at this level. Stage times: generation 6.4 h (chunked runs),
+>    labelling 4.5 h, pool 5 min, training 8.5 h, SPRT 3 h.
+>    Data batch 5 -> s9 -> SPRT vs r9 (`corpus_s37b/pipeline.sh`,
 >    log `corpus_s37b/pipeline.out`, `corpus_s37b/progress.sh` for a status line). Generation now
 >    runs 14 slots x 14 runs of 3,000 games with fresh engines (seeds 410000 + 100*slot + run):
 >    fresh engines measured 107 games/min per slot, batch 4's single long runs averaged ~50.

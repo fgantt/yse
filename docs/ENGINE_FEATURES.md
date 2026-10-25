@@ -54,7 +54,7 @@ same-kind moves tried before it. First-move cutoffs rose from 79% to 88% (Sessio
 
 | Feature | What it does | Where |
 |---|---|---|
-| NNUE | 256 -> 32 -> 1 network; king-relative features with 9 king buckets, piece-in-hand and side-to-move features; incremental accumulator; exact integer SIMD forward pass. Trained on 249M YaneuraOu self-play positions labelled at depth 8 | `src/evaluation/nnue.rs`, weights `nnue/default.bin` (Git LFS) |
+| NNUE | 256 -> 32 -> 1 network; king-relative features with 9 king buckets, piece-in-hand and side-to-move features; incremental accumulator; exact integer SIMD forward pass. Trained on 312M YaneuraOu self-play positions labelled at depth 8 | `src/evaluation/nnue.rs`, weights `nnue/default.bin` (Git LFS) |
 | Classical fallback | Piece-square tables, tapered opening/endgame, king safety, castle recognition | `src/evaluation/` |
 
 ## Other
@@ -80,7 +80,7 @@ same-kind moves tried before it. First-move cutoffs rose from 79% to 88% (Sessio
 | Singular extensions | Extends a table move that is much better than all alternatives | Implemented, off (`SHOGI_LEAN_SE_DEPTH`); screens showed no gain |
 | ProbCut | Prunes when a shallow search already beats beta by a margin | Implemented, off (`SHOGI_LEAN_PROBCUT=1`); no gain |
 | Continuation history | History keyed by the previous moves | Yes, since 2026-10-16 (`lean_hist.rs`) |
-| Larger, better-trained network | Trained on billions of positions | 249M positions; still misjudges drop attacks on our king in handicap games |
+| Larger, better-trained network | Trained on billions of positions | 312M positions; still misjudges drop attacks on our king in handicap games |
 
 ## Feature audit (2026-10-13)
 
