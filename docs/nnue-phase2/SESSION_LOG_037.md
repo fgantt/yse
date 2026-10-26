@@ -179,3 +179,19 @@ which YaneuraOu sees 2-3 moves before we do (move 56: ours +382, YaneuraOu -198;
 -857; 58: -227 vs -2,000; the same with a cold table). At move 57 our search finds YaneuraOu's
 2e1c+ only at depth 15 (10 s, 4 threads) or 18 (60 s), and still scores it -250 to -280 against
 YaneuraOu's -875: depth per node and evaluation, as in the Session 37 search check.
+
+## The user's second s9 loss (2026-10-26, two-piece handicap, vs YaneuraOu halfkpvm)
+
+`matches/user_games/2026-10-26_2mai_loss143.txt` (+ `_analysis.jsonl`). The opponent is known: the
+GUI's engine "YaneuraOu NNUE V9.00Git 64APPLEM1 TOURNAMENT" is the halfkpvm build (the Suisho5 copy
+reports the same USI id but is a separate GUI entry, "YaneuraOu-Suisho5"); default options, 4
+threads. On this known game `which_engine.py` leans the right way only weakly (7 / 5 at 4M nodes,
+6 / 6 at 1M): the GUI opponent searches with 4 threads on a clock, so asking the user is better.
+
+A different shape from the earlier losses: a few real mistakes early (moves 11, 20, 22: -345, -293,
+-573), 4d4e at move 34 (-865; YaneuraOu +317 after it, ours +1,222), then **20 moves of steady
+optimism**, 800-1,300 cp above YaneuraOu (move 45: +647 vs -214; 55: -158 vs -1,505), and 6g7f at
+move 56 (-2,301). Re-searched (4 threads): at move 34 we now pick YaneuraOu's 4d4c at 1/10/60 s (the
+game move was search noise), still scoring +1,050 to +1,310 against YaneuraOu's +832 (cold). At
+move 56 we pick YaneuraOu's P*7d at 1 s but switch to the losing 6g7f at 10 and 60 s, scoring it
+-321 to -443 against -1,720: more search makes it worse, so this one is the evaluation.
