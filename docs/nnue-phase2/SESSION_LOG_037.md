@@ -166,3 +166,16 @@ Traces at q9 game move 49 (YaneuraOu's network, 1 thread, 2M nodes, `matches/s37
 
 Next on this side: compare tree shape per ply with YaneuraOu's at equal total nodes (where our
 nodes go: quiescence share, defensive quiet moves, checking drops), not single rules.
+
+## The user's s9 loss (2026-10-25, two-piece handicap)
+
+`matches/user_games/2026-10-25_2mai_loss151.txt` (+ `_analysis.jsonl`, ours 1 s / YaneuraOu 1M):
+opponent most likely the halfkpvm YaneuraOu, not Suisho5 (`scripts/session37/which_engine.py`: on the
+19 White moves where the two disagree, the game followed halfkpvm 8, Suisho5 5 at 4M nodes; the
+control game `2026-10-24_2mai_win140`, played against Suisho5, comes out 5 / 17). The same shape as
+the two Session 36 losses: YaneuraOu +2,500 early, a slow leak to +1,500 by move 48 with no single
+mistake over 150 cp, then 1g1f (move 49, -317) and 7b7a+ (54, -793), and the turn at moves 55-57,
+which YaneuraOu sees 2-3 moves before we do (move 56: ours +382, YaneuraOu -198; 57 7f8e: +140 vs
+-857; 58: -227 vs -2,000; the same with a cold table). At move 57 our search finds YaneuraOu's
+2e1c+ only at depth 15 (10 s, 4 threads) or 18 (60 s), and still scores it -250 to -280 against
+YaneuraOu's -875: depth per node and evaluation, as in the Session 37 search check.
