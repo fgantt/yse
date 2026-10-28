@@ -10,7 +10,7 @@ $GID_START, default 1000000). Positions within
 the opening's random plies (`--random-plies`, read from RANDOM_PLIES, default 8) are kept
 and marked `from_random_opening`.
 """
-import csv, json, os, sys
+import csv, json, os, queue, sys
 from multiprocessing import Pool
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -32,7 +32,15 @@ def work(task):
     for gid, moves, outcome, start in games:
         for ply in range(len(moves) + 1):
             pos = "sfen " + start + (" moves " + " ".join(moves[:ply]) if ply else "")
-            sfen, sc, best = _y.label(pos, depth)
+            try:
+                sfen, sc, best = _y.label(pos, depth)
+            except queue.Empty:
+                # The engine stopped answering (2026-10-27: one position, depth 10, no move in
+                # 600 s; depth 8 was fine). Drop the rest of this game, go on with a fresh engine.
+                _y.p.kill()
+                init()
+                print(f"timeout: game {gid} ply {ply + 1}, rest of game dropped", file=sys.stderr, flush=True)
+                break
             if sc is None or best in ("resign", "win"):
                 break
             stm = sfen.split()[1]
