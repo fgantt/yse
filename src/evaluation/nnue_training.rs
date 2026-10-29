@@ -669,6 +669,11 @@ pub struct RankMetrics {
 impl NNUETrainer {
     /// Create a new trainer with given weights and configuration
     pub fn new(weights: NNUEWeights, config: NNUETrainingConfig) -> Self {
+        // This trainer's forward pass divides by 64 at layers 2 and 3.
+        assert!(
+            weights.l2_shift == 6 && weights.l3_shift == 6,
+            "networks with layer shifts other than 6 (GPU trainer, v5) cannot be trained here"
+        );
         let shadow = ShadowWeights::from_weights(&weights);
         let adam = if config.use_adam {
             Some(AdamState::from_shadow(&shadow))

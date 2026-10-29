@@ -112,13 +112,15 @@ Two coexisting evaluation strategies, selected/blended via `PositionEvaluator`:
     (`NUM_HAND_FEATURES`, 76 dims total, NOT king-conditioned even under HalfKP).
 - `NNUEAccumulator` supports incremental (make/unmake-move) updates for search-speed; `NNUEEvaluator`
   wraps weights + accumulator and exposes the toggles above.
-- **Two trainers exist** — know which one you mean:
+- **Three trainers exist** — know which one you mean:
+  - **`trainer/` (PyTorch, GPU) — the one in active use since Session 38** (`trainer/README.md`).
+    Data comes from `nnue_pack` (`src/bin/nnue_pack.rs`); networks export as engine JSON and
+    convert with `nnue-convert-weights`, usually to v5 `.bin` (per-layer shifts). It trains in
+    float; the Rust trainer's integer-rounded input layer was what held networks back.
+  - `nnue-offline-trainer` (`src/bin/nnue_offline_trainer.rs`, explicit `[[bin]]`) — the Rust,
+    single-core trainer used through Session 37. Cannot train v5 networks.
   - `nnue_trainer` (auto-discovered binary from `src/bin/nnue_trainer.rs`) — the original *online*
-    self-play + TD(λ) trainer described in `docs/archive/NNUE_TRAINING_GUIDE.md`. Largely superseded.
-  - `nnue-offline-trainer` (`src/bin/nnue_offline_trainer.rs`, explicit `[[bin]]`) — trains from a
-    static corpus (`nnue_corpus_yaneura_d10.jsonl`, ~67K YaneuraOu depth-10 positions) and is the
-    trainer used by every session in `docs/nnue-phase2/SESSION_LOG_*.md`. **This is the one in active
-    use**; default output is the `.bin` (bincode) format, not JSON.
+    self-play + TD(λ) trainer described in `docs/archive/NNUE_TRAINING_GUIDE.md`. Superseded.
 - Weight files: the engine loads `nnue/default.bin` (USI `NNUEFile`; Git LFS). Without it, it falls
   back to classical evaluation. The trainer writes checkpoints to the repo root by default
   (`nnue_weights_*.{json,bin}`, gitignored); redirect `--output-weights` into `weights/<session>/`
@@ -126,7 +128,7 @@ Two coexisting evaluation strategies, selected/blended via `PositionEvaluator`:
 - Strength measurement tool: `elo-tester` (`src/bin/elo_tester.rs`) plays head-to-head bake-offs
   between two configs (e.g. NNUE vs PST, or two NNUE variants via `--nnue-weights`/
   `--nnue-weights-b`) and reports win/draw/loss + ELO with a 95% CI.
-- **Read `docs/nnue-phase2/SESSION_LOG_037.md` (or the latest `SESSION_LOG_*.md`) before starting new
+- **Read `docs/nnue-phase2/SESSION_LOG_038.md` (or the latest `SESSION_LOG_*.md`) before starting new
   work** -- its READ THIS FIRST block is the current state. Standing findings as of Session 32:
   - **Search had real bugs; check correctness before tuning.** Session 32 found the parallel
     search running on one thread, LMR and null-move verification re-searches scoring fake 0

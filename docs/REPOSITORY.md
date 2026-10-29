@@ -25,7 +25,8 @@ clone at `shogi-game/yse` has `legacy-main` checked out.
 |---|---|---|
 | source, tests, docs, `scripts/` | yes | |
 | `nnue/default.bin` (shipped network, ~100 MB) | **Git LFS** | Loaded by the engine by default (USI `NNUEFile`, `src/lib.rs` `DEFAULT_NNUE_FILE`). Without it the engine falls back to the much weaker classical evaluation and says so on `isready`. |
-| `nnue/default-r9.bin` | Git LFS | The previous default network (Session 37 r9, 249M positions), for comparisons. |
+| `nnue/default-s9.bin` | Git LFS | The previous default network (Session 37 s9, 312M positions), for comparisons. v4; `nnue/default.bin` (Session 38 g5) is a v5 file older engines cannot load. |
+| `nnue/default-r9.bin` | Git LFS | An older default network (Session 37 r9, 249M positions), for comparisons. |
 | `nnue/default-q9.bin` | Git LFS | An older default network (Session 36 q9, 187M positions), for comparisons. |
 | `nnue/default-p9.bin` | Git LFS | An older default network (Session 36 p9, 125M positions), for comparisons. |
 | `nnue/default-k81.bin` | Git LFS | An older default network (Session 35, 81 king buckets), for comparisons. |
@@ -33,8 +34,8 @@ clone at `shogi-game/yse` has `legacy-main` checked out.
 | `matches/user_games/`, `matches/s35/losses/` | yes | The user's GUI games and the test set built from them (`scripts/loss_set.py`). |
 | `eval_gap/` | yes | Eval-gap positions and results (`scripts/eval_gap.py`). |
 | `weights/archive/` | yes | Old weight snapshots. |
-| `corpus_*/` | no (ignored) | Training corpora, ~40 GB. `corpus_s37b/pool_d8.jsonl` (72 GB, 312M positions labelled by YaneuraOu; `corpus_s37/pool_d8.jsonl` plus `corpus_s37b/gen_d8`) is what the current network was trained on; each ~62M-position batch costs ~11 h of generation and labelling to rebuild. **Lives only on the development machine for now.** |
-| `weights/session*/` | no (ignored) | Training runs and checkpoints. `weights/session37b/s9.bin` is the current network. |
+| `corpus_*/` | no (ignored) | Training corpora, ~40 GB. `corpus_s37c/pool_d8.jsonl` (375M positions labelled by YaneuraOu at depth 8; batches 1-6), packed for the GPU trainer as `corpus_s38/packed_d8` (35.5 GB, `nnue_pack`), is what the current network was trained on; each ~62M-position batch costs ~11 h of generation and labelling to rebuild. **Lives only on the development machine for now.** |
+| `weights/session*/` | no (ignored) | Training runs and checkpoints. `weights/session38/gpu/scratch1_e005.bin` is the current network (g5); GPU runs are in `trainer/runs/` (ignored). |
 | `engines/` | no (ignored) | Local builds kept for matches; `engines/usi-engine-stable` is what the GUI runs. Rebuild from a commit; binaries are machine-specific. |
 | `matches/*` other than the above | no (ignored) | Match logs and CSVs. Commit the few a session log cites. |
 | `resources/magic_tables/magic_table.bin` | no (ignored) | Generated (86 MB). |

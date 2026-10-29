@@ -4,8 +4,8 @@ A shogi (Japanese chess) engine in Rust. It speaks the USI protocol, so any USI 
 Its evaluation is an NNUE network, and its search is an alpha-beta search with Lazy SMP threads.
 
 - **Evaluation:** a 256 -> 32 -> 1 NNUE with king-relative features (9 king buckets),
-  pieces-in-hand and side-to-move inputs, updated incrementally. Trained on 312M positions from
-  YaneuraOu self-play, each labelled at depth 8. A classical evaluation (piece-square tables,
+  pieces-in-hand and side-to-move inputs, updated incrementally. Trained on 375M positions from
+  YaneuraOu self-play, each labelled at depth 8, by a PyTorch GPU trainer (`trainer/`). A classical evaluation (piece-square tables,
   king safety, castles) remains as a fallback.
 - **Search:** iterative deepening, principal variation search, aspiration windows, null move,
   late move reductions and pruning, futility and SEE pruning, check extensions, quiescence

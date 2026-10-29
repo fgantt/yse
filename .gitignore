@@ -53,3 +53,8 @@ nnue_corpus_*.jsonl
 /.claude/scheduled_tasks.lock
 /.claude/settings.local.json
 /book/*.db
+
+# PyTorch trainer (Session 38): environment and run outputs
+/trainer/.venv/
+/trainer/runs/
+__pycache__/

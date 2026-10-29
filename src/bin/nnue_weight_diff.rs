@@ -113,6 +113,36 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     stats_i16("output_weights", &a.output_weights, &b.output_weights);
     stats_i32("output_bias", &[a.output_bias], &[b.output_bias]);
 
+    // Training clamps the input layer to +-127 (`quantize_into`): how much of it
+    // sits at the bound, or within a rounding step or two of zero? (Session 38)
+    println!();
+    println!("Input-layer saturation (B; nonzero weights only):");
+    let nonzero: Vec<i16> = flat_b.iter().copied().filter(|&w| w != 0).collect();
+    let n = nonzero.len().max(1) as f64;
+    let share = |f: &dyn Fn(i32) -> bool| {
+        100.0 * nonzero.iter().filter(|&&w| f(i32::from(w).abs())).count() as f64 / n
+    };
+    println!(
+        "  nonzero {} of {}  |w|>=127 {:.3}%  >=100 {:.2}%  >=64 {:.2}%  <=2 {:.1}%",
+        nonzero.len(),
+        flat_b.len(),
+        share(&|w| w >= 127),
+        share(&|w| w >= 100),
+        share(&|w| w >= 64),
+        share(&|w| w <= 2)
+    );
+    let mut mags: Vec<i32> = nonzero.iter().map(|&w| i32::from(w).abs()).collect();
+    mags.sort_unstable();
+    let pct = |p: f64| mags.get(((mags.len() as f64 - 1.0) * p) as usize).copied().unwrap_or(0);
+    println!(
+        "  |w| percentiles: p50 {}  p90 {}  p99 {}  p99.9 {}  max {}",
+        pct(0.5),
+        pct(0.9),
+        pct(0.99),
+        pct(0.999),
+        pct(1.0)
+    );
+
     println!();
     println!("Sample position evaluations (cp):");
     let fens = [
