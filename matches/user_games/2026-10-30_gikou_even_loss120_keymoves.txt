@@ -1,0 +1,11 @@
+# YaneuraOu (mac halfkpvm build, 8 threads, 10M nodes per search) on our moves 16-24 of 2026-10-30_gikou_even_loss120.txt.
+# Scores are from our (Black's) side. "played" = YaneuraOu's score with searchmoves <our move>.
+ply 31 move 16: played 3f3e -> cp 100 (3f3e P*2e 2f5f 7d2d) | best 3f3e -> cp 100 (3f3e P*2e 2f5f 7d2d)
+ply 33 move 17: played 7i8h -> cp 68 (7i8h 2c2d 8h7g P*2e) | best 7i8h -> cp 68 (7i8h 2c2d 8h7g P*2e)
+ply 35 move 18: played 8i7g -> cp 98 (8i7g 7d5d 2i3g 2a3c) | best 8i7g -> cp 98 (8i7g 7d5d 2i3g 2a3c)
+ply 37 move 19: played 5h6h -> cp -115 (5h6h 2d3e 2f2e B*4d) | best 7f7e -> cp 56 (7f7e 7d8d 3e3d 8d3d)
+ply 39 move 20: played 2f2e -> cp -144 (2f2e B*4d B*1g P*3d) | best 2f2e -> cp -144 (2f2e B*4d B*1g P*3d)
+ply 41 move 21: played B*8b -> cp -106 (B*1g P*3d 2e2h 7d7f) | best B*1g -> cp -143 (B*1g P*3d 2e2h 4d5e)
+ply 43 move 22: played 2e2h -> cp -358 (2e2h 4d5e P*3g P*3f) | best 2e2h -> cp -358 (2e2h 4d5e P*3g P*3f)
+ply 45 move 23: played 2h1h -> cp -375 (2h1h 9a9c 5g5f 5e4d) | best 2h1h -> cp -375 (2h1h 9a9c 5g5f 5e4d)
+ply 47 move 24: played 3h2g -> cp -426 (3h2g 7d2d P*2h 9a9c) | best 3h2g -> cp -426 (3h2g 7d2d P*2h 9a9c)
