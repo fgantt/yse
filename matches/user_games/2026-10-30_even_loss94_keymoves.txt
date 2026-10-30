@@ -1,0 +1,16 @@
+# YaneuraOu (mac halfkpvm build, 8 threads, 10M nodes per search) on our moves 21-40 of 2026-10-30_even_loss94.txt.
+# Scores are from our (Black's) side. "played" = YaneuraOu's score with searchmoves <our move>.
+ply 41 move 21: played P*8g -> cp -202 | best P*8g -> cp -202
+ply 49 move 25: played 6g6f -> cp -116 | best 6g6f -> cp -116
+ply 53 move 27: played 6f6e -> cp -78 | best 6f6e -> cp -78
+ply 55 move 28: played 5h4g -> cp 2 | best 5h4g -> cp 2
+ply 57 move 29: played R*8a -> cp 81 | best N*5f -> cp 82
+ply 59 move 30: played S*4a -> cp 374 | best S*4a -> cp 374
+ply 61 move 31: played 8a5a+ -> cp -252 | best 8a5a+ -> cp -252
+ply 63 move 32: played 4a5b+ -> cp -764 | best 4a5b -> cp -628
+ply 65 move 33: played G*6b -> cp -767 | best G*6b -> cp -767
+ply 67 move 34: played 6b5b -> cp -1523 | best 6e6d -> cp -953
+ply 69 move 35: played S*4b -> cp -2143 | best S*6b -> cp -2196
+ply 71 move 36: played 6e6d -> cp -2990 | best 5a9a -> cp -2742
+ply 73 move 37: played 5a5b -> mate -22 | best P*6e -> cp -3261
+ply 75 move 38: played 6h5h -> mate -20 | best 6h5h -> mate -20
