@@ -44,7 +44,8 @@ def main():
     diff = got - want
     print(f"integer emulation vs engine: {np.count_nonzero(diff)} of {len(rows)} differ, "
           f"max |diff| {np.abs(diff).max()}")
-    net = Net(feats.rows, feats.stride, psqt=torch.tensor(q["psqt"]))
+    hm = q["mid"][0][0].shape[1] if q["mid"] else 0
+    net = Net(feats.rows, feats.stride, hm=hm, psqt=torch.tensor(q["psqt"]))
     from_engine(q, net)
     with torch.no_grad():
         f = net(s_idx, s_sh, n_idx, n_sh).numpy()

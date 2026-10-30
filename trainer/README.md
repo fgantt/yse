@@ -47,5 +47,8 @@ cargo run --release --bin nnue_pack -- check --corpus <jsonl> --n 2000 --weights
 .venv/bin/python verify.py --check check.jsonl --tables tables_k9.json --weights runs/x/epoch_005.json
 ```
 
+`--mid 32` adds a middle layer (`256x2 -> 32 -> 32 -> 1`, v6 files); in Session 38 it did
+not beat the network without one.
+
 `--init net.json` starts from an engine network (convert a `.bin` to `.json` first) instead of
 from scratch; `--resume` continues from `runs/x/last.pt`.

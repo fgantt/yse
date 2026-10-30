@@ -3,6 +3,7 @@
 Engine arithmetic (`src/evaluation/nnue.rs`, `forward_from_activations`):
     a1  = max(0, b1 + sum W1[f])                    per perspective, i16 weights, i32 sums
     h2  = (concat(a1_stm, a1_nstm) @ W2) >> s2 + b2;  a2 = max(0, h2)
+    hm  = (a2 @ Wm) >> sm + bm;  a2 = max(0, hm)    only with a middle layer (v6)
     out = b3 + (a2 @ W3) >> s3                       (s2 = s3 = 6 before v5 files)
     cp  = out * 400 / 4080 (truncating) + (psqt_stm - psqt_nstm) / 2 (truncating)
 
@@ -22,15 +23,21 @@ OUT_PER_CP = 4080.0 / 400.0  # engine output units per centipawn
 
 
 class Net(torch.nn.Module):
-    def __init__(self, rows, stride, h1=256, h2=32, psqt=None):
+    def __init__(self, rows, stride, h1=256, h2=32, hm=0, psqt=None):
+        """`hm` > 0 adds a middle layer of that width between layer 2 and the output."""
         super().__init__()
+        self.hm = hm
         self.rows, self.stride = rows, stride
         self.w1 = torch.nn.Parameter(torch.randn(rows + 1, h1) * 0.01)
         self.shared = torch.nn.Parameter(torch.zeros(stride + 1, h1))   # king factoriser
         self.b1 = torch.nn.Parameter(torch.zeros(h1))
         self.w2 = torch.nn.Parameter(torch.randn(2 * h1, h2) / np.sqrt(2 * h1))
         self.b2 = torch.nn.Parameter(torch.zeros(h2))
-        self.w3 = torch.nn.Parameter(torch.randn(h2) / np.sqrt(h2))
+        if hm:
+            self.wm = torch.nn.Parameter(torch.randn(h2, hm) / np.sqrt(h2))
+            self.bm = torch.nn.Parameter(torch.zeros(hm))
+        h_last = hm or h2
+        self.w3 = torch.nn.Parameter(torch.randn(h_last) / np.sqrt(h_last))
         self.b3 = torch.nn.Parameter(torch.zeros(()))
         self.register_buffer("psqt", torch.zeros(rows + 1) if psqt is None
                              else torch.cat([psqt.float(), torch.zeros(1)]))
@@ -47,6 +54,8 @@ class Net(torch.nn.Module):
         """Centipawns from the side to move's view."""
         a1 = torch.cat([self.first_layer(s_idx, s_sh), self.first_layer(n_idx, n_sh)], 1).relu()
         a2 = (a1 @ self.w2 + self.b2).relu()
+        if self.hm:
+            a2 = (a2 @ self.wm + self.bm).relu()
         out = a2 @ self.w3 + self.b3
         psqt = (self.psqt[s_idx].sum(1) - self.psqt[n_idx].sum(1)) / 2
         return out * CP_SCALE + psqt
@@ -77,6 +86,8 @@ def load_engine_json(path):
         "feature_set": j["feature_set"],
         "s2": (j.get("shifts") or [6, 6])[0],
         "s3": (j.get("shifts") or [6, 6])[1],
+        "mid": [(np.array(m["weights"], dtype=np.int64), np.array(m["biases"], dtype=np.int64),
+                 int(m["shift"])) for m in j.get("mid_layers", [])],
     }
 
 
@@ -93,8 +104,11 @@ def save_engine_json(q, path):
         },
         "psqt": q["psqt"].tolist(),
     }
-    if (q["s2"], q["s3"]) != (6, 6):
+    if (q["s2"], q["s3"]) != (6, 6) or q.get("mid"):
         out["shifts"] = [q["s2"], q["s3"]]
+    if q.get("mid"):
+        out["mid_layers"] = [{"weights": w.tolist(), "biases": b.tolist(), "shift": s}
+                             for w, b, s in q["mid"]]
     json.dump(out, open(path, "w"))
 
 
@@ -114,13 +128,16 @@ def engine_eval(q, s_idx, n_idx):
     a1 = np.concatenate([np.maximum(w1[s_idx].sum(1) + q["b1"], 0),
                          np.maximum(w1[n_idx].sum(1) + q["b1"], 0)], 1)
     a2 = np.maximum(((a1 @ q["w2"]) >> q["s2"]) + q["b2"], 0)
+    for w, b, s in q.get("mid", []):
+        a2 = np.maximum(((a2 @ w) >> s) + b, 0)
     out = q["b3"] + ((a2 @ q["w3"]) >> q["s3"])
     return _trunc_div(out * 400, 4080) + _trunc_div(psqt[s_idx].sum(1) - psqt[n_idx].sum(1), 2)
 
 
 def from_engine(q, net, alpha=64.0, beta=64.0):
     """Load integer weights into the float model. `alpha`, `beta`: integer units
-    per float unit of the first and second hidden layers."""
+    per float unit of the first and second hidden layers (and of the middle one)."""
+    assert len(q.get("mid", [])) == (1 if net.hm else 0), "middle layers do not match the model"
     o = OUT_PER_CP * CP_SCALE                 # engine output units per float output unit
     t = lambda a: torch.tensor(np.asarray(a, dtype=np.float64), dtype=torch.float32)
     with torch.no_grad():
@@ -130,15 +147,18 @@ def from_engine(q, net, alpha=64.0, beta=64.0):
         net.b1.copy_(t(q["b1"]) / alpha)
         net.w2.copy_(t(q["w2"]) * alpha / (2 ** q["s2"] * beta))
         net.b2.copy_(t(q["b2"]) / beta)
+        for w, b, s in q.get("mid", []):
+            net.wm.copy_(t(w) / 2 ** s)
+            net.bm.copy_(t(b) / beta)
         net.w3.copy_(t(q["w3"]) * beta / (2 ** q["s3"] * o))
         net.b3.copy_(torch.tensor(q["b3"] / o))
         if len(q["psqt"]):
             net.psqt[:net.rows] = t(q["psqt"])
 
 
-def to_engine(net, alpha, beta, s2=6, s3=6):
+def to_engine(net, alpha, beta, s2=6, s3=6, sm=6):
     """Round the float model onto the integers at layer scales `alpha`, `beta`
-    and layer shifts `s2`, `s3`."""
+    (`beta` for the middle layer too) and layer shifts `s2`, `s3`, `sm`."""
     o = OUT_PER_CP * CP_SCALE
     c = lambda x, lo, hi: np.clip(np.rint(x.detach().cpu().double().numpy()), lo, hi).astype(np.int64)
     i16, i32 = (-32767, 32767), (-(2 ** 31) + 1, 2 ** 31 - 1)
@@ -152,6 +172,7 @@ def to_engine(net, alpha, beta, s2=6, s3=6):
         "psqt": np.rint(net.psqt[:net.rows].cpu().numpy()).astype(np.int64),
         "s2": s2,
         "s3": s3,
+        "mid": [(c(net.wm * 2 ** sm, *i16), c(net.bm * beta, *i32), sm)] if net.hm else [],
     }
 
 

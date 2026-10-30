@@ -321,7 +321,23 @@ pub struct NNUEWeights {
     /// layer 2. Stored only in v5 files.
     pub l2_shift: u32,
     pub l3_shift: u32,
+    /// Extra hidden layers between layer 2 and the output, in order (v6 files,
+    /// Session 38: `256x2 -> 32 -> 32 -> 1`). Empty for every earlier network.
+    /// `output_weights` has one entry per output of the last of them.
+    pub mid_layers: Vec<MidLayer>,
 }
+
+/// An extra hidden layer: `a' = max(0, (a . weights) >> shift + biases)`, with
+/// `weights` laid out `[inputs][outputs]` like `input_weights_2`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MidLayer {
+    pub weights: Vec<Vec<i16>>,
+    pub biases: Vec<i32>,
+    pub shift: u32,
+}
+
+/// Widest layer after layer 1 the forward pass keeps on the stack.
+const MAX_HIDDEN_2: usize = 32;
 
 /// Centipawn material values for the PSQT initialisation, indexed by
 /// `PieceType::as_index()`. The teacher corpus is YaneuraOu's, so these are
@@ -524,6 +540,7 @@ impl NNUEWeights {
             psqt: Vec::new(),
             l2_shift: DEFAULT_SHIFT,
             l3_shift: DEFAULT_SHIFT,
+            mid_layers: Vec::new(),
         };
         built.rebuild_flat_weights_2();
         built
@@ -557,7 +574,15 @@ impl NNUEWeights {
             .unwrap_or(false);
         let (file_data, features): (NNUEWeightFile, Option<NNUEFeatureSet>) = if is_bin {
             let bytes = std::fs::read(path)?;
-            if let Some(rest) = bytes.strip_prefix(NNUE_BIN_MAGIC_V5) {
+            if let Some(rest) = bytes.strip_prefix(NNUE_BIN_MAGIC_V6) {
+                type V6 = (NNUEFeatureSet, NNUEWeightFile, Vec<i32>, (u8, u8), Vec<MidLayer>);
+                let (fs, w, psqt, (l2, l3), mid): V6 = bincode::deserialize(rest)?;
+                let mut weights = Self::from_file_data(w);
+                weights.psqt = psqt;
+                weights.set_shifts(u32::from(l2), u32::from(l3))?;
+                weights.set_mid_layers(mid)?;
+                return Ok((weights, Some(fs)));
+            } else if let Some(rest) = bytes.strip_prefix(NNUE_BIN_MAGIC_V5) {
                 let (fs, w, psqt, (l2, l3)): (NNUEFeatureSet, NNUEWeightFile, Vec<i32>, (u8, u8)) =
                     bincode::deserialize(rest)?;
                 let mut weights = Self::from_file_data(w);
@@ -591,6 +616,7 @@ impl NNUEWeights {
                 if let Some((l2, l3)) = v2.shifts {
                     weights.set_shifts(l2, l3)?;
                 }
+                weights.set_mid_layers(v2.mid_layers)?;
                 return Ok((weights, Some(v2.feature_set)));
             } else {
                 (serde_json::from_value(value)?, None)
@@ -621,6 +647,7 @@ impl NNUEWeights {
             psqt: Vec::new(),
             l2_shift: DEFAULT_SHIFT,
             l3_shift: DEFAULT_SHIFT,
+            mid_layers: Vec::new(),
         };
         built.rebuild_flat_weights_2();
         built
@@ -709,7 +736,12 @@ impl NNUEWeights {
         let default_shifts = self.l2_shift == DEFAULT_SHIFT && self.l3_shift == DEFAULT_SHIFT;
         if is_bin {
             use std::io::Write;
-            if default_shifts {
+            if !self.mid_layers.is_empty() {
+                writer.write_all(NNUE_BIN_MAGIC_V6)?;
+                let shifts = (self.l2_shift as u8, self.l3_shift as u8);
+                let v6 = (features, file_data, &self.psqt, shifts, &self.mid_layers);
+                bincode::serialize_into(writer, &v6)?;
+            } else if default_shifts {
                 writer.write_all(NNUE_BIN_MAGIC_V4)?;
                 bincode::serialize_into(writer, &(features, file_data, &self.psqt))?;
             } else {
@@ -722,7 +754,9 @@ impl NNUEWeights {
                 feature_set: features,
                 weights: file_data,
                 psqt: self.psqt.clone(),
-                shifts: (!default_shifts).then_some((self.l2_shift, self.l3_shift)),
+                shifts: (!default_shifts || !self.mid_layers.is_empty())
+                    .then_some((self.l2_shift, self.l3_shift)),
+                mid_layers: self.mid_layers.clone(),
             };
             serde_json::to_writer_pretty(writer, &v2)?;
         }
@@ -815,6 +849,32 @@ impl NNUEWeights {
         }
         self.l2_shift = l2;
         self.l3_shift = l3;
+        Ok(())
+    }
+
+    /// Set the extra hidden layers, refusing any that do not chain from layer
+    /// 2 to the output weights or are wider than the forward pass's buffers.
+    pub fn set_mid_layers(&mut self, mid: Vec<MidLayer>) -> Result<(), NNUEError> {
+        let mut width = self.hidden_biases_2.as_ref().map_or(0, Vec::len);
+        if !mid.is_empty() && width == 0 {
+            return Err(NNUEError::InvalidFormat);
+        }
+        for m in &mid {
+            let out = m.biases.len();
+            if m.shift > 30
+                || out == 0
+                || out > MAX_HIDDEN_2
+                || m.weights.len() != width
+                || m.weights.iter().any(|r| r.len() != out)
+            {
+                return Err(NNUEError::InvalidFormat);
+            }
+            width = out;
+        }
+        if !mid.is_empty() && self.output_weights.len() != width {
+            return Err(NNUEError::InvalidFormat);
+        }
+        self.mid_layers = mid;
         Ok(())
     }
 
@@ -930,6 +990,11 @@ const NNUE_BIN_MAGIC_V4: &[u8] = b"SHOGINNUE4";
 /// when a shift is not [`DEFAULT_SHIFT`], so other networks stay v4.
 const NNUE_BIN_MAGIC_V5: &[u8] = b"SHOGINNUE5";
 
+/// Magic prefix of v6 binary weight files: v5 plus the extra hidden layers,
+/// `(NNUEFeatureSet, NNUEWeightFile, Vec<i32> psqt, (u8, u8), Vec<MidLayer>)`.
+/// Written only for networks that have one, so other networks stay v4/v5.
+const NNUE_BIN_MAGIC_V6: &[u8] = b"SHOGINNUE6";
+
 /// The layer-2 and layer-3 shift of every network before v5.
 pub const DEFAULT_SHIFT: u32 = 6;
 
@@ -943,6 +1008,9 @@ struct NNUEWeightFileV2Json {
     /// `(l2_shift, l3_shift)` when not the default 6.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     shifts: Option<(u32, u32)>,
+    /// Extra hidden layers (see [`NNUEWeights::mid_layers`]).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    mid_layers: Vec<MidLayer>,
 }
 
 /// Serializable weight file format
@@ -1610,10 +1678,36 @@ fn forward_from_activations(activated_1: &[i32], weights: &NNUEWeights) -> i32 {
         // `output_bias` is in post-shift units (the trainer adds it without
         // dividing), so it is added after the shift, not before.
         let mut dot: i64 = 0;
-        for j in 0..hidden_size_2 {
-            let h2_activated =
-                ((h2_values[j] >> weights.l2_shift) as i32 + biases_2[j]).max(0) as i64;
-            dot += h2_activated * weights.output_weights[j] as i64;
+        if weights.mid_layers.is_empty() {
+            for j in 0..hidden_size_2 {
+                let h2_activated =
+                    ((h2_values[j] >> weights.l2_shift) as i32 + biases_2[j]).max(0) as i64;
+                dot += h2_activated * weights.output_weights[j] as i64;
+            }
+        } else {
+            let mut act = [0i64; MAX_HIDDEN_2];
+            for j in 0..hidden_size_2 {
+                act[j] = ((h2_values[j] >> weights.l2_shift) as i32 + biases_2[j]).max(0) as i64;
+            }
+            let mut width = hidden_size_2;
+            for m in &weights.mid_layers {
+                let mut next = [0i64; MAX_HIDDEN_2];
+                for (&a, row) in act[..width].iter().zip(&m.weights) {
+                    if a != 0 {
+                        for (n, &w) in next.iter_mut().zip(row) {
+                            *n += a * w as i64;
+                        }
+                    }
+                }
+                width = m.biases.len();
+                for (n, &b) in next[..width].iter_mut().zip(&m.biases) {
+                    *n = ((*n >> m.shift) + b as i64).max(0);
+                }
+                act = next;
+            }
+            for (&a, &w) in act[..width].iter().zip(&weights.output_weights) {
+                dot += a * w as i64;
+            }
         }
         let output = weights.output_bias + (dot >> weights.l3_shift) as i32;
         (output * SCALE_FACTOR) / OUTPUT_DIVISOR

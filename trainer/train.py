@@ -55,7 +55,8 @@ def export(net, feats, sample, path):
             # Each layer's weights as large as i16 allows (half of it for layer 3).
             s2 = largest_shift(net.w2, beta / alpha)
             s3 = largest_shift(net.w3, o / beta, limit=16383)
-            q = to_engine(net, alpha, beta, s2, s3)
+            sm = largest_shift(net.wm, 1.0) if net.hm else 6
+            q = to_engine(net, alpha, beta, s2, s3, sm)
             w1 = np.vstack([q["w1"], np.zeros((1, q["w1"].shape[1]), np.int64)])
             acc = w1[np.minimum(s_np, len(q["w1"]))].sum(1) + q["b1"]
             # The engine's fast 16-bit layer-2 path needs activations <= 32767;
@@ -67,7 +68,8 @@ def export(net, feats, sample, path):
                 best = (err, alpha, beta, q)
     err, alpha, beta, q = best
     save_engine_json(q, path)
-    return (f"export alpha {alpha:g} beta {beta:g} shifts {q['s2']},{q['s3']}: "
+    mid = f" mid {q['mid'][0][2]}" if q["mid"] else ""
+    return (f"export alpha {alpha:g} beta {beta:g} shifts {q['s2']},{q['s3']}{mid}: "
             f"|int - float| {err:.2f} cp")
 
 
@@ -89,6 +91,7 @@ def main():
     ap.add_argument("--sigmoid-scale", type=float, default=410.0)
     ap.add_argument("--val-n", type=int, default=1_000_000)
     ap.add_argument("--seed", type=int, default=38)
+    ap.add_argument("--mid", type=int, default=0, help="width of a middle layer (0 = none)")
     a = ap.parse_args()
 
     os.makedirs(a.out, exist_ok=True)
@@ -104,7 +107,7 @@ def main():
     feats = Features(a.tables, dev)
     train = open_records(os.path.join(a.data, "train.bin"))
     val = open_records(os.path.join(a.data, "val.bin"))[:a.val_n]
-    net = Net(feats.rows, feats.stride, psqt=feats.material_psqt.cpu())
+    net = Net(feats.rows, feats.stride, hm=a.mid, psqt=feats.material_psqt.cpu())
     if a.init:
         q = load_engine_json(a.init)
         from_engine(q, net)

@@ -33,7 +33,13 @@ chosen was to rule out the trainer before buying more data.
 >    it beat g5 (screens pooled PASS, ~+24 in the two full runs; SPRT +56) and shipped as h4. More data, now cheap to train on (an epoch
 >    of 100M positions takes ~5 min), is the obvious next lever, together with longer games and
 >    more varied openings.
-> 5. **Other directions from the survey, still open:** mate-threat search near the king,
+> 5. **Recipe and shape are exhausted on this data (2026-10-30).** Outcome weight 0.5 (-86, FAIL)
+>    and 0.0 (+12 ± 26, 600 cap), lr x0.5 per epoch (-11, FAIL), and a deeper network
+>    `256x2 -> 32 -> 32 -> 1` (deep1 -13 pooled over three FAILs; deep2, deep with outcome 0,
+>    +16 ± 26, 600 cap) all land within ~±15 of h4. Weight 0 may be worth ~+10-15 (two networks
+>    agree, neither resolves). Three even-game losses (two vs YaneuraOu, one vs Gikou 2) show h4
+>    scoring mutual attacks 300-900 cp too well. Next: more and more varied data.
+> 6. **Other directions from the survey, still open:** mate-threat search near the king,
 >    correction history, time management, SPSA tuning. The Windows PC (RTX 4070 Ti SUPER) is not
 >    needed yet; the Mac GPU trains a network in ~1.5 h.
 
@@ -53,6 +59,11 @@ chosen was to rule out the trainer before buying more data.
   Default (6, 6) networks still save as v4. `nnue-offline-trainer` refuses networks with other
   shifts.
 - **`nnue-weight-diff`**: input-layer saturation and |w| percentiles.
+- **Middle layers** (2026-10-30): `NNUEWeights::mid_layers`, extra ReLU layers between layer 2
+  and the output, each `(weights, biases, shift)`; v6 `.bin` (`SHOGINNUE6`) and JSON
+  `mid_layers`, written only for networks that have one. `train.py --mid 32` adds one. The
+  engine equals the trainer's integer emulation on 2,000 positions (0 differ); h4 unchanged.
+  Cost ~5% nps (scalar loop, not vectorised).
 
 Checks: features 0 mismatches over 2,000 positions; the integer emulation equals the engine's
 evaluation on all 2,000, for t8 (v4) and a v5 GPU network; NNUE unit tests and
@@ -70,6 +81,18 @@ evaluation on all 2,000, for t8 (v4) and a v5 GPU network; NNUE unit tests and
 | scratch1 e12 | same (stopped) | 0.8099 / 0.03645 | overfitting |
 | **scratch2 e4 = h4** | scratch, lr 1e-3 x0.7 | 0.8214 / 0.03562 | vs g5: +24.9 ± 28.8, +23.8 ± 26.6 (600 cap), +124.5 ± 84.3 (PASS, 64 games); pooled PASS LLR +3.97. **vs g5: +56.1 ± 44.7 (PASS)** |
 
+Recipe sweep and deeper network, 2026-10-30 (all from scratch on the same data, lr 1e-3, lowest
+held-out loss epoch, screened vs h4; `matches/s38/sweep.sh`, `deep.sh`). Loss is not comparable
+across outcome weights.
+
+| Network | Change from h4's recipe | Epoch / val loss | vs h4 |
+|---|---|---|---|
+| sw_w50 | outcome weight 0.5 | e4 | -86.5 ± 80.8 (FAIL) |
+| sw_w00 | outcome weight 0.0 | e8 / 0.02429 | +12.2 ± 25.6 (600 cap, LLR -1.82) |
+| sw_g50 | lr x0.5 per epoch | e7 / 0.03535 | -11.0 ± 40.4 (FAIL) |
+| deep1 | + middle layer 32 | e6 / 0.03555 | -7.7 ± 36.8, -9.7 ± 39.6, -70.4 ± 66.0 (FAIL x3; pooled 286-2-308) |
+| deep2 | + middle layer 32, outcome 0.0 | e8 / 0.02401 | +16.2 ± 26.4 (600 cap, LLR -0.82) |
+
 Screens: 4 threads each, 250 ms, SPRT [0, 40], three at a time (`matches/s38/screen*.sh`).
 Ship gate: 1 s, 4 threads each, SPRT [0, 40], the same new binary on both sides (stable could not
 read v5), `matches/s38/sprt_B5.sh`.
@@ -78,6 +101,11 @@ User games with g5 on the Windows PC vs YaneuraOu halfkpvm (2026-10-29): a two-p
 win (`matches/user_games/2026-10-29_2mai_win102.txt`; s9 had lost the last two) and an even-game
 loss (`2026-10-29_even_loss134*`): YaneuraOu had g5 at -200 to -530 from moves 16-22, after the
 early bishop trade and the corner-lance plan, while g5 still scored itself about even.
+
+User game with h4 vs Gikou 2 v2.0.2 (2026-10-30, `2026-10-30_gikou_even_loss120*`): level
+(+98) after move 18; 19. 5h6h (-115, best 7f7e +56) let 2d3e and B*4d in, 21. B*8b (best B*1g)
+left -358 by move 22; h4 scored itself +180 to +430 from move 19 to 35 while YaneuraOu had it
+-115 to -770.
 
 Speed: one 3 s search, 1 thread: t8 536k nps, ft_t8 e10 485k nps. One sample each; the fast
 16-bit layer-2 path applies only when the accumulators stay <= 32767, and the exporter keeps the
