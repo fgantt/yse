@@ -9,7 +9,9 @@ chosen was to rule out the trainer before buying more data.
 
 > **READ THIS FIRST** (state at the end of this session, 2026-10-29).
 >
-> 0. **Shipped network: `nnue/default.bin` is g5** (2026-10-29): trained **from scratch** by the
+> 0. **Shipped network: `nnue/default.bin` is h4** (2026-10-30): scratch2 epoch 4, the same recipe
+>    as g5 with the rate decaying faster (x0.7 per epoch); **SPRT vs g5: PASS, +56.1 ± 44.7**
+>    (115-2-83). g5 kept as `nnue/default-g5.bin`. Before it, **g5** (2026-10-29): trained **from scratch** by the
 >    new GPU trainer (`trainer/`, PyTorch) on the same 375M depth-8 pool as t8
 >    (`corpus_s37c/pool_d8.jsonl`, packed as `corpus_s38/packed_d8`), epoch 5 of
 >    `trainer/runs/scratch1`. **SPRT vs s9: PASS, +93.3 ± 65.2** (76-2-44, 1 s, 4 threads each).
@@ -28,7 +30,7 @@ chosen was to rule out the trainer before buying more data.
 >    either. The loss includes the 0.3 outcome term; pearson against the teacher alone misleads.
 > 4. **It overfits after ~3 passes** of 355M positions (positions within a game are near
 >    duplicates). scratch2 (lr 1e-3, x0.7 per epoch) reached a lower loss, 0.03562 at epoch 4;
->    its screen against g5 is the next measurement. More data, now cheap to train on (an epoch
+>    it beat g5 (screens pooled PASS, ~+24 in the two full runs; SPRT +56) and shipped as h4. More data, now cheap to train on (an epoch
 >    of 100M positions takes ~5 min), is the obvious next lever, together with longer games and
 >    more varied openings.
 > 5. **Other directions from the survey, still open:** mate-threat search near the king,
@@ -66,11 +68,16 @@ evaluation on all 2,000, for t8 (v4) and a v5 GPU network; NNUE unit tests and
 | scratch1 e3 | scratch, lr 1e-3 x0.95 | 0.8183 / 0.03620 | vs t8: -34.4 ± 52.8 (FAIL) |
 | **scratch1 e5 = g5** | same, epoch 5 | 0.8161 / 0.03598 | vs t8: +30.8 ± 27.5 (600 cap), +41.8 ± 33.2 (PASS); pooled PASS LLR +5.25. **vs s9: +93.3 ± 65.2 (PASS)** |
 | scratch1 e12 | same (stopped) | 0.8099 / 0.03645 | overfitting |
-| scratch2 e4 | scratch, lr 1e-3 x0.7 | 0.8214 / 0.03562 | pending |
+| **scratch2 e4 = h4** | scratch, lr 1e-3 x0.7 | 0.8214 / 0.03562 | vs g5: +24.9 ± 28.8, +23.8 ± 26.6 (600 cap), +124.5 ± 84.3 (PASS, 64 games); pooled PASS LLR +3.97. **vs g5: +56.1 ± 44.7 (PASS)** |
 
 Screens: 4 threads each, 250 ms, SPRT [0, 40], three at a time (`matches/s38/screen*.sh`).
 Ship gate: 1 s, 4 threads each, SPRT [0, 40], the same new binary on both sides (stable could not
 read v5), `matches/s38/sprt_B5.sh`.
+
+User games with g5 on the Windows PC vs YaneuraOu halfkpvm (2026-10-29): a two-piece handicap
+win (`matches/user_games/2026-10-29_2mai_win102.txt`; s9 had lost the last two) and an even-game
+loss (`2026-10-29_even_loss134*`): YaneuraOu had g5 at -200 to -530 from moves 16-22, after the
+early bishop trade and the corner-lance plan, while g5 still scored itself about even.
 
 Speed: one 3 s search, 1 thread: t8 536k nps, ft_t8 e10 485k nps. One sample each; the fast
 16-bit layer-2 path applies only when the accumulators stay <= 32767, and the exporter keeps the

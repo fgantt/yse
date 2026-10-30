@@ -49,4 +49,4 @@ original conclusions, and several were later corrected (later logs say so).
 | [35](SESSION_LOG_035.md) | 2026-10-14 | Speed work, and our node counts were wrong |
 | [36](SESSION_LOG_036.md) | 2026-10-17 | Twice, then three times the even-game data: p9 (+100), then q9 (+173 vs p9) shipped |
 | [37](SESSION_LOG_037.md) | 2026-10-22 | Search check (evaluation ~half the gap, no single pruning rule); data batches 4 and 5: r9 (+35 vs q9), then s9 (+80 vs r9) shipped; batch 6 +28 (inconclusive) and depth-10 labels no better than depth 8; next: research before choosing |
-| [38](SESSION_LOG_038.md) | 2026-10-28 | A PyTorch GPU trainer: the old trainer's integer-rounded input layer was the limit; g5, trained from scratch on the same 375M positions, shipped (+93 vs s9) |
+| [38](SESSION_LOG_038.md) | 2026-10-28 | A PyTorch GPU trainer: the old trainer's integer-rounded input layer was the limit; g5, trained from scratch on the same 375M positions, shipped (+93 vs s9), then h4, a faster-decaying run (+56 vs g5) |
