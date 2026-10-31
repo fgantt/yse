@@ -25,6 +25,17 @@ cargo run --release --bin nnue_pack -- pack --corpus corpus_s37c/pool_d8.jsonl -
 cargo run --release --bin nnue_pack -- tables --king-buckets 9 --out trainer/tables_k9.json
 ```
 
+`pack --quiet` skips positions in check or where the next move captures (Session 39: +64 at the
+ship gate on the same pool). `pack-psv` reads YaneuraOu-format PackedSfenValue files (the
+published nodchip sets; the last input file is held out), with `--quiet` using the stored best
+move; `psv-check` decodes a sample and checks every stored move is legal. `mix.py` interleaves
+packed directories at random in proportion to their sizes, keeping them shuffled, with
+`--max-eval` to drop lopsided positions:
+
+```bash
+python mix.py --inputs ../corpus_s38/packed_quiet ../corpus_hao/packed_s50q --out ../corpus_s39/mix_q
+```
+
 ## Train, export, check
 
 ```bash
