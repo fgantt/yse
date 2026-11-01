@@ -1,0 +1,9 @@
+# YaneuraOu (mac halfkpvm build, 8 threads, 10M nodes per search) on key moves of 2026-10-31_even_loss142.txt.
+# Scores are from our (Black's) side. "played" = YaneuraOu's score with searchmoves <our move>.
+ply 37 move 19: played 6f6e -> cp -51 (6f6e 7c6e 7g6f 6c6d) | best 6f6e -> cp -51 (6f6e 7c6e 7g6f 6c6d)
+ply 39 move 20: played 7f7e -> cp -25 (7f7e 7c6e 7g6f 6c6d) | best 3f3e -> cp -20 (3f3e 7c6e 7g6f 8e8f)
+ply 55 move 28: played P*5c -> cp -36 (8i7g 6e7g+ 6g7g P*4d) | best 8i7g -> cp -82 (2e2d 2c2d P*2c 3b2c)
+ply 59 move 30: played 7e7d -> cp -337 (7e7d P*4d 7d7c+ 6d7c) | best 6h4f -> cp -156 (6h4f 8b8f P*8g 8f8d)
+ply 67 move 34: played 8h7g -> cp -395 (8h7g 5e5f P*6f P*7f) | best 6h7g -> cp -382 (6h7g 8b8c P*2e 2d2e)
+ply 91 move 46: played 4c4b -> cp -1772 (4c4b 3b4b G*4c 8d3d) | best 4c4b+ -> cp -1585 (4c4b+ 3b4b 5b5a 4b3b)
+ply 123 move 62: played 7h6g -> cp -35281 (7h6g 6f6g+ R*3b G*2b) | best R*3b -> cp -35281 (R*3b G*2b 3b2b+ 2c2b)

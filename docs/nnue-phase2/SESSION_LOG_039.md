@@ -2,14 +2,21 @@
 
 ## Session 39: Quiet positions and published data
 
-**Date**: 2026-10-30 to 2026-10-31
+**Date**: 2026-10-30 to 2026-11-01
 **Phase**: Phase 2w
 **Objective**: Phase 0 of the training-data plan (`DATA_PLAN_S39.md`): cheap checks of volume,
 a quiet-position filter, and a published teacher, before any multi-day data run.
 
-> **READ THIS FIRST** (state at the end of this session, 2026-10-31).
+> **READ THIS FIRST** (state at the end of this session, 2026-11-01).
 >
-> 0. **Shipped network: `nnue/default.bin` is m8** (2026-10-31): our quiet-filtered pool mixed
+> 00. **Shipped network: `nnue/default.bin` is a1** (2026-11-01, Phase 1 Stage A): our quiet
+>    pool plus all 200 quiet Hao files fetched so far (1.14B positions; 2 passes in 8 epochs,
+>    best at epoch 8, still falling), epoch 8 of `p1_a1`, trained on the PC. **SPRT vs m8: PASS,
+>    +110.9 ± 76.1** (44-1-23, 1 s, 4 threads), stopped at 68 games, so high; screens vs m8 +89
+>    and +54. Read it as roughly +60. m8 kept as `nnue/default-m8.bin`. A2 (Hao cut to 2:1,
+>    668M) screened +64 and +61 vs m8, and A1 led A2 by ~+27 over 744 games (not resolved): the
+>    extra Hao still pays, but less than the first part.
+> 0. **Previous network m8** (2026-10-31): our quiet-filtered pool mixed
 >    with a quiet-filtered 50-file sample of nodchip's `shogi_hao_depth9` set, 452M positions,
 >    h4's recipe, epoch 8 of `p1_mix_q`. **SPRT vs h4: PASS, +240.8 ± 131.7** (32-0-8, 1 s,
 >    4 threads), stopped at 40 games, so the estimate is high; screens put it ~+50 over the quiet
@@ -73,8 +80,11 @@ All screens 250 ms, 4 threads each, SPRT [0, 40]; ship gates 1 s. Logs in `match
 | p0_hao_q3000 | Hao, quiet, \|score\| ≤ 3000 (206M) | 4 | p0_quiet | -147, -82 (FAIL x2) |
 | **p1_mix_q (m8)** | ours quiet + Hao quiet (452M) | 8 (last) | p0_quiet | +151, +49 (PASS x2); **ship SPRT vs h4 +240.8 ± 131.7 PASS** |
 | p1_mix_q16 | the same, 16 epochs, x0.85 | 16 | m8 | +3 (FAIL), +57 (PASS); ~+19 pooled |
+| p1_a2 | ours quiet + 200 Hao files quiet, Hao cut to 2:1 (668M) | 8 (last) | m8 | +64, +61 (PASS x2) |
+| **p1_a1 (a1)** | ours quiet + 200 Hao files quiet (1.14B) | 8 (last) | m8 | +89, +54 (PASS x2); vs p1_a2 +81 (PASS), +15 (cap); **ship SPRT vs m8 +110.9 ± 76.1 PASS** |
 
-Held-out losses are not comparable across rows: each data set has its own validation games.
+Held-out losses are not comparable across rows: each data set has its own validation games
+(p1_a1 0.02997 and p1_a2 0.03047 share one, so those two are).
 
 ## Mistakes
 
@@ -82,3 +92,16 @@ Held-out losses are not comparable across rows: each data set has its own valida
   gone; a sequential version with an engine restart on failure finished in minutes.
 - A PC run's end sends no notification; the capped-Hao screens started 45 minutes late.
   Every PC job now has a Mac-side watcher.
+- `trainer/mix.py` drew each block with numpy's exact multivariate hypergeometric, which refuses
+  more than 1e9 records in total; A1's first mix crashed and its training never started. Blocks
+  are now a multinomial in proportion to what remains, clipped to it.
+
+## Phase 1 Stage B (in progress)
+
+- Mac batch 1: 504k YaneuraOu self-play games (4k vs 6k nodes) plus 36k m8 (3k nodes) vs
+  YaneuraOu (6k), labelled at depth 8: 62M positions in ~6.5 h generation + ~5 h labelling. m8
+  won only ~5% of its games at those node counts (-516 paired Elo); worth raising its nodes or
+  dropping B2.
+- The PC's YaneuraOu runs Suisho5 only, so the PC generates Suisho5 self-play (two batches of
+  504k games, ~7 h each) and the Mac labels them with halfkpvm at depth 8, keeping one teacher.
+  The Mac's labelling (~14M positions/h) is the bottleneck.

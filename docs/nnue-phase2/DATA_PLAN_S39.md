@@ -1,8 +1,9 @@
 # Training-data plan (Session 39 proposal, revised 2026-10-30)
 
 **Status: Phase 0 done 2026-10-31 (`SESSION_LOG_039.md`).** Quiet filtering and mixing a Hao
-sample into our pool shipped m8; Hao alone was weaker. Phase 1 below predates those results and
-will be re-sized from them, with approval for each download.
+sample into our pool shipped m8; Hao alone was weaker. Phase 1 below was rewritten from those
+results on 2026-10-31 and approved (Stages A and B) the same day. Stage A shipped a1
+(2026-11-01, +~60 vs m8); Stage B is generating.
 
 Approved 2026-10-30. The user had no revisions beyond the two below and said to use the
 Windows PC however makes sense.
@@ -107,46 +108,71 @@ against h4. They run one at a time on the GPU, with screens overlapping the next
 
 Gate: report the three results. The mix and size for Phase 1 follow from them.
 
-### Phase 1: 1.5–2B positions (bigger, needs approval for each download)
+### Phase 1 (revised 2026-10-31 from Phase 0's results; approved)
 
-1. **Published data, about 1–1.5B positions.**
-   - Up to 200 Hao files (about 60 GB) if Phase 0's Hao check passes.
-   - Also Suisho5 (185 GB as a whole) if the Hao check shows the stronger teacher is what
-     matters.
-   - Decode and quiet-filter, then pack: about 100 GB per 1B positions packed.
-   - Disk: up to ~185 GB of archives plus ~200 GB packed, about 400 GB of the 839 GB free.
-     Archives are deleted once packed, if the user agrees.
-2. **Our own data: positions h4 steers into, about 150–200M.**
-   - h4 against YaneuraOu at low node counts, from the start position and from published-set
-     positions.
-   - Neither teacher's self-play reaches the positions our engine chooses, and those are where it
-     misjudges. Training on the positions the learner actually visits is the standard fix when a
-     learner only sees its teacher's states.
-   - **Labels:** depth 9 from Suisho5, which is already in `../shogi-engines`. That matches the
-     published sets, if Phase 0 shows the stronger teacher helps. Otherwise YaneuraOu at depth 8,
-     as now.
-3. **Windows PC, from the start.** It generates and labels part of item 2 while the Mac decodes,
-   packs and trains.
-   - I'll prepare a self-contained package for you to unpack and run there (it can't be
-     reached from here):
-     - a Windows build of `usi-engine` with h4, and of `usi_match`;
-     - the generation and labelling scripts, with their settings in one file;
-     - a README.
-   - It uses the PC's own YaneuraOu (the AVX512VNNI build). I'd need the PC's core count to set
-     the number of parallel slots.
-   - Output is JSONL batches. You copy them back, and I check and pool them.
-   - The Mac does the same work at ~6M positions/hour. If the PC matches that, 200M takes about
-     a day with both running.
-4. **Train and gate.**
-   - Train from scratch on the full mix, choosing the epoch by held-out loss. The held-out set
-     must include games from each source.
-   - Screen against h4, then the ship SPRT: 1 s, 4 threads, [0, 40].
-   - Also check the YaneuraOu ladder rung and the eval-gap set from your games
-     (`scripts/eval_gap.py`). These are diagnostics only, not targets.
+What Phase 0 showed (`SESSION_LOG_039.md`):
+- Volume pays: half the pool lost 90–170 Elo.
+- Quiet positions only: +64 at the ship gate.
+- Hao alone lost ~100 to our data. Mixed half and half with ours, it shipped as m8, so variety
+  pays.
+- 16 passes instead of 8 over the same 452M gained ~nothing. The next gain has to come from new
+  positions.
 
-Gate: ship if it passes, then weigh the next step: the rest of the Hao set, or more h4-steered
-data. If 1.5–2B positions do not beat h4, data is not the limit either, and the next suspects are
-the network's input features or search.
+So Phase 1 grows both sources, quiet-filters everything, and judges each step by mixing it into
+the current pool. All gates are against m8.
+
+**Stage A: more Hao (first; cheap, about one day).**
+- **Download:** 150 more `shogi_hao_depth9` files, about 44 GB (~1.1B positions, ~690M after
+  the quiet filter), spread over the set's 8 generation runs like the first 50. The PC fetched
+  15 GB in 17 minutes, so about an hour, checked against each file's sha256.
+- **Pack** on the PC with `pack-psv --quiet`: about 69 GB.
+- **Train two mixes**, each with h4's recipe, the epoch chosen by held-out loss and the
+  validation set drawn from both sources:
+  - A1: our quiet pool (223M) + all 200 Hao files quiet (~920M), about 1.14B. 2 passes is about
+    23 epochs: ~3.5 h on the PC, ~2 h on the Mac.
+  - A2: the same, with Hao subsampled to 2:1 (about 670M).
+
+  If A1 beats A2, more Hao is still paying and the rest of the set is worth fetching later.
+- **Screens** vs m8, then the ship SPRT for the winner.
+- **CPU:** screens only. Downloading, packing and training run on the PC.
+
+**Stage B: double our own data (the long part, about 2–3 days with both machines).**
+- **Target:** ~375M new raw positions, ~235M after the quiet filter, which doubles the quiet
+  pool.
+- **Two kinds of games**, so the new data adds variety rather than repeats:
+  - B1, about two-thirds: YaneuraOu self-play with the batch 3–6 recipe (4k vs 6k nodes, 8
+    random plies), new seeds.
+  - B2, about one-third: m8 against YaneuraOu, so the data covers the positions our engine
+    steers into. Its cost per game is unmeasured: a 3,000-game test chunk first, then sized.
+- **Labels:** YaneuraOu (halfkpvm) at depth 8, as for the existing pool, so the two pools stay
+  one teacher. The PC's YaneuraOu runs Suisho5; it would get a copy of the halfkpvm network for
+  labelling. That counts as using YaneuraOu as a labeller, which is allowed; nothing goes into
+  our code or networks.
+- **Cost:**
+  - Mac: ~5.5M positions/hour with all 14 slots (batches 5–6: ~11 h per 62M). That's about
+    68 h alone.
+  - PC: ~8 cores, est. ~2.5–3M/hour, unmeasured until a first batch.
+  - Together: about 45 h for B1 + B2, in 62M-position batches with fresh engines per chunk, as
+    before.
+- **The cost to you:** the Mac's cores are busy for about two days, and GUI games would compete
+  with it. It runs in windows you choose; it can pause between batches, which are ~11 h each.
+- **Disk:** ~85 GB of labelled JSONL plus ~24 GB packed on the Mac (749 GB free).
+
+**Stage C: the full mix (after A and B).**
+- Our quiet pool, about 460M, plus Hao quiet, about 920M (or Stage A's better ratio): ~1.4B
+  positions, ~140 GB packed.
+- 2 passes is about 28 epochs: ~2.5 h on the Mac, ~4 h on the PC.
+- Screens and the ship SPRT vs the Stage A winner.
+- Also the YaneuraOu ladder rung and the eval-gap set from your games, as diagnostics only.
+
+**Order:** Stage A starts right away and finishes within a day. Stage B's first batch can run
+alongside it, so its speed on each machine is measured early. The rest of Stage B runs in
+windows you choose.
+
+**Not in Phase 1:**
+- The Suisho5 depth-9 set (185 GB, one multi-volume archive). Only if Stage A shows more
+  published data keeps paying.
+- Depth-9 relabelling of our pool. Session 37's depth-10 labels gained nothing.
 
 ### Operations (from earlier sessions)
 
@@ -172,12 +198,9 @@ the network's input features or search.
 - **Self-play Elo overstates real gains.** Watch the YaneuraOu ladder rung and your games, not
   only the SPRT.
 
-## Decisions needed from the user
+## Decisions needed from the user (Phase 1)
 
-1. **Approve Phase 0**, including the download of 50 files (about 15 GB) of `shogi_hao_depth9`
-   from huggingface.co/datasets/nodchip/shogi_hao_depth9 (MIT licence). It runs on the Mac
-   only, for about 1.5 days.
-2. **The Windows PC's CPU and core count**, so the package can be sized. I'll prepare the
-   package while Phase 0 runs.
-3. **Later, after Phase 0:** approve the Phase 1 downloads (up to 200 more Hao files, about
-   60 GB, and possibly Suisho5 at 185 GB) and the multi-day run.
+1. **Stage A download:** 150 more files (about 44 GB) of `shogi_hao_depth9` from
+   huggingface.co/datasets/nodchip/shogi_hao_depth9 (MIT licence), to the PC.
+2. **Stage B generation:** about two days of the Mac's cores (plus the PC's), in windows you
+   choose, and putting the halfkpvm network on the PC for labelling.
