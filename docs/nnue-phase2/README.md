@@ -4,6 +4,8 @@ One log per working session, from the first NNUE experiments to the current engi
 with the latest log's READ THIS FIRST block**; it states what is current. Older logs keep their
 original conclusions, and several were later corrected (later logs say so).
 
+- `DATA_LINEAGE.md`: where every network's training data came from (corpora, packed sets,
+  mixes, networks); keep it current.
 - `FEATURE_SPEC_AND_AUDIT.md`: feature encoding specification and audit (2026-09-17).
 - `SESSION_LOG_TEMPLATE.md`: template for a new log.
 - `run.sh`, `patches/`: scripts and patches cited by individual sessions.

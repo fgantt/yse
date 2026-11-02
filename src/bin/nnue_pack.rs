@@ -83,6 +83,9 @@ enum Cmd {
         /// move in the game (read from the next record) captured a piece.
         #[arg(long)]
         quiet: bool,
+        /// Where the corpus came from, for `lineage.json` (e.g. "Mac batch 2 + PC batch 3").
+        #[arg(long, default_value = "")]
+        note: String,
     },
     /// Write the feature lookup tables as JSON.
     Tables {
@@ -104,6 +107,9 @@ enum Cmd {
         /// Skip positions in check or whose stored best move captures.
         #[arg(long)]
         quiet: bool,
+        /// Where the inputs came from, for `lineage.json`.
+        #[arg(long, default_value = "")]
+        note: String,
     },
     /// Decode PackedSfenValue records and check them: every position legal and
     /// parsable, the stored move legal in it; prints statistics and, with
@@ -237,6 +243,7 @@ fn pack(
     nbuckets: usize,
     seed: u64,
     filter: Filter,
+    note: &str,
 ) -> std::io::Result<()> {
     std::fs::create_dir_all(out_dir)?;
     let bucket_path = |b: usize| out_dir.join(format!("bucket_{b:03}.tmp"));
@@ -309,7 +316,8 @@ fn pack(
     }
     train.flush()?;
     println!("train {n_train}  val {n_val}  skipped {skipped}");
-    Ok(())
+    let opts = serde_json::json!({"quiet": filter.quiet, "half": filter.half, "seed": seed});
+    write_lineage(out_dir, "pack", &[corpus.to_path_buf()], &opts, note, [n_train, n_val, skipped])
 }
 
 // --- PackedSfenValue (YaneuraOu-family training data) -------------------------
@@ -535,6 +543,7 @@ fn pack_psv(
     nbuckets: usize,
     seed: u64,
     quiet: bool,
+    note: &str,
 ) -> std::io::Result<()> {
     std::fs::create_dir_all(out_dir)?;
     let bucket_path = |b: usize| out_dir.join(format!("bucket_{b:03}.tmp"));
@@ -608,7 +617,48 @@ fn pack_psv(
     }
     train.flush()?;
     println!("train {n_train}  val {n_val}  skipped {skipped}");
-    Ok(())
+    let opts = serde_json::json!({"quiet": quiet, "seed": seed, "held_out": inputs.last()});
+    write_lineage(out_dir, "pack-psv", inputs, &opts, note, [n_train, n_val, skipped])
+}
+
+/// `lineage.json` beside `train.bin`: what was packed, how, and what came out, so mixes
+/// (`trainer/mix.py`) and runs can trace their data (see `docs/nnue-phase2/DATA_LINEAGE.md`).
+fn write_lineage(
+    out_dir: &Path,
+    cmd: &str,
+    inputs: &[PathBuf],
+    options: &serde_json::Value,
+    note: &str,
+    [train, val, skipped]: [u64; 3],
+) -> std::io::Result<()> {
+    let inputs: Vec<_> = inputs
+        .iter()
+        .map(|p| {
+            let abs = std::fs::canonicalize(p).unwrap_or_else(|_| p.clone());
+            let bytes = std::fs::metadata(p).map(|m| m.len()).ok();
+            serde_json::json!({"path": abs, "bytes": bytes})
+        })
+        .collect();
+    let json = serde_json::json!({
+        "kind": "packed",
+        "tool": format!("nnue_pack {cmd}"),
+        "argv": std::env::args().collect::<Vec<_>>(),
+        "date": chrono::Local::now().to_rfc3339(),
+        "host": std::process::Command::new("hostname")
+            .output()
+            .ok()
+            .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string()),
+        "note": note,
+        "inputs": inputs,
+        "options": options,
+        "train": train,
+        "val": val,
+        "skipped": skipped,
+    });
+    let mut f = BufWriter::new(File::create(out_dir.join("lineage.json"))?);
+    serde_json::to_writer_pretty(&mut f, &json)?;
+    f.write_all(b"\n")?;
+    f.flush()
 }
 
 /// Feature lookup tables (`-1` = no feature). Indices are rows of the
@@ -689,12 +739,12 @@ fn check(corpus: &Path, n: usize, nbuckets: usize, weights: Option<&Path>) -> st
 
 fn main() -> std::io::Result<()> {
     match Cli::parse().cmd {
-        Cmd::Pack { corpus, out_dir, buckets, seed, half, quiet } => {
-            pack(&corpus, &out_dir, buckets, seed, Filter { half, quiet })
+        Cmd::Pack { corpus, out_dir, buckets, seed, half, quiet, note } => {
+            pack(&corpus, &out_dir, buckets, seed, Filter { half, quiet }, &note)
         }
         Cmd::Tables { king_buckets, out } => tables(king_buckets, &out),
-        Cmd::PackPsv { inputs, out_dir, buckets, seed, quiet } => {
-            pack_psv(&inputs, &out_dir, buckets, seed, quiet)
+        Cmd::PackPsv { inputs, out_dir, buckets, seed, quiet, note } => {
+            pack_psv(&inputs, &out_dir, buckets, seed, quiet, &note)
         }
         Cmd::PsvCheck { input, n, jsonl } => psv_check(&input, n, jsonl.as_deref()),
         Cmd::Check { corpus, n, king_buckets, weights } => {

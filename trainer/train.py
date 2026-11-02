@@ -4,13 +4,15 @@
         [--init net.json] [--epochs 100 --epoch-size 100000000 --lr 1e-3 --gamma 0.97]
 
 Writes `runs/x/epoch_NNN.json` (engine v2 JSON; `nnue-convert-weights` makes the
-`.bin`), `runs/x/last.pt` (resume with `--resume`) and `runs/x/log.txt`.
+`.bin`), `runs/x/last.pt` (resume with `--resume`), `runs/x/log.txt` and, when the data has
+one, `runs/x/data_lineage.json`.
 Target and loss follow the offline trainer's Session 35 recipe: target =
 (1 - w) * sigmoid(clamp(eval, 2000) / 410) + w * outcome, prediction =
 sigmoid(cp / 410), mean squared error.
 """
 import argparse
 import os
+import shutil
 import time
 
 import numpy as np
@@ -96,6 +98,9 @@ def main():
 
     os.makedirs(a.out, exist_ok=True)
     log = open(os.path.join(a.out, "log.txt"), "a")
+    # The data's ancestry travels with the run (docs/nnue-phase2/DATA_LINEAGE.md).
+    if os.path.exists(os.path.join(a.data, "lineage.json")):
+        shutil.copy(os.path.join(a.data, "lineage.json"), os.path.join(a.out, "data_lineage.json"))
 
     def say(msg):
         print(msg, flush=True)

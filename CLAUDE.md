@@ -121,6 +121,10 @@ Two coexisting evaluation strategies, selected/blended via `PositionEvaluator`:
     single-core trainer used through Session 37. Cannot train v5 networks.
   - `nnue_trainer` (auto-discovered binary from `src/bin/nnue_trainer.rs`) — the original *online*
     self-play + TD(λ) trainer described in `docs/archive/NNUE_TRAINING_GUIDE.md`. Superseded.
+- **Training data lineage: `docs/nnue-phase2/DATA_LINEAGE.md`** (games → corpus → packed set → mix
+  → network). `nnue_pack` and `trainer/mix.py` write `lineage.json` beside their output (pass
+  `--note`), and `train.py` copies it into the run; add a row to the document for every new set,
+  mix or network.
 - Weight files: the engine loads `nnue/default.bin` (USI `NNUEFile`; Git LFS). Without it, it falls
   back to classical evaluation. The trainer writes checkpoints to the repo root by default
   (`nnue_weights_*.{json,bin}`, gitignored); redirect `--output-weights` into `weights/<session>/`
