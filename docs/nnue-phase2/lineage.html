@@ -1,0 +1,464 @@
+<title>Training Data Lineage</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+Condensed:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a swimlane timeline. Columns are sessions (left = older), rows are pipeline stages
+   (games -> pools -> packed sets -> mixes -> networks), with the ship line as the bottom axis. */
+:root {
+  --bg: #F2F4F3; --panel: #FFFFFF; --ink: #18211E; --muted: #56625D; --line: #CBD3CF;
+  --band: #E7ECE9;
+  --ours: #2B5C9E; --ours-tint: #E2EAF5;
+  --hao: #7444A6; --hao-tint: #EEE5F6;
+  --mix-tint: #FFFFFF;
+  --ship: #0E6A5A; --ship-ink: #FFFFFF;
+  --good: #0E6A5A; --bad: #AE332D; --pending: #85681A;
+  --edge: #A3AEA9; --edge-hi: #18211E;
+  --f-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+  --f-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #111715; --panel: #19211E; --ink: #E4EBE8; --muted: #9BA8A2; --line: #33403B;
+  --band: #16201C;
+  --ours: #84AAE2; --ours-tint: #1B2940;
+  --hao: #BC97E3; --hao-tint: #2A2039;
+  --mix-tint: #19211E;
+  --ship: #45B89E; --ship-ink: #0A1511;
+  --good: #52C5A9; --bad: #EE7D74; --pending: #D8B75C;
+  --edge: #4C5A54; --edge-hi: #E4EBE8; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #111715; --panel: #19211E; --ink: #E4EBE8; --muted: #9BA8A2; --line: #33403B;
+  --band: #16201C;
+  --ours: #84AAE2; --ours-tint: #1B2940;
+  --hao: #BC97E3; --hao-tint: #2A2039;
+  --mix-tint: #19211E;
+  --ship: #45B89E; --ship-ink: #0A1511;
+  --good: #52C5A9; --bad: #EE7D74; --pending: #D8B75C;
+  --edge: #4C5A54; --edge-hi: #E4EBE8; color-scheme: dark }
+
+body { background: var(--bg); color: var(--ink); font-family: var(--f-body); font-size: 15px; line-height: 1.5; }
+.page { max-width: 1320px; margin: 0 auto; padding-block: 32px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 20px; }
+header { display: grid; gap: 8px; }
+.eyebrow { font-family: var(--f-mono); font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+h1 { margin: 0; font-family: var(--f-display); font-weight: 600; font-size: clamp(28px, 4vw, 40px); line-height: 1.1; text-wrap: balance; }
+.dek { margin: 0; max-width: 68ch; color: var(--muted); }
+.dek code, .foot code { font-family: var(--f-mono); font-size: .9em; }
+
+.toolbar { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: center; justify-content: space-between; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 18px; height: 12px; border-radius: 2px; border: 1.5px solid; display: inline-block; }
+.sw.ours { background: var(--ours-tint); border-color: var(--ours); }
+.sw.hao { background: var(--hao-tint); border-color: var(--hao); }
+.sw.ship { background: var(--ship); border-color: var(--ship); }
+.sw.exp { background: var(--panel); border-color: var(--muted); }
+.ln { width: 26px; height: 0; border-top: 1.5px solid var(--muted); display: inline-block; }
+.ln.dash { border-top-style: dashed; } .ln.dot { border-top-style: dotted; border-top-width: 2px; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.controls button { font: 500 13px/1 var(--f-body); color: var(--ink); background: var(--panel);
+  border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; min-height: 34px; cursor: pointer; }
+.controls button:hover { border-color: var(--muted); }
+.controls button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.controls .sep { width: 1px; align-self: stretch; background: var(--line); margin: 0 4px; }
+button:focus-visible, .node:focus-visible { outline: 2px solid var(--ship); outline-offset: 2px; }
+
+.wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.wrap svg { display: block; }
+.wrap.fit svg { width: 100%; height: auto; }
+
+svg text { font-family: var(--f-body); fill: var(--ink); }
+.colband { fill: var(--band); }
+.colhead { font-family: var(--f-display); font-weight: 600; font-size: 14px; }
+.colsub { font-family: var(--f-mono); font-size: 10.5px; fill: var(--muted); }
+.lanesep { stroke: var(--line); stroke-width: 1; stroke-dasharray: 2 4; }
+.lanebg { fill: var(--panel); }
+.lanerule { stroke: var(--line); }
+.lanename { font-family: var(--f-display); font-weight: 600; font-size: 13px; }
+.lanecap { font-size: 10.5px; fill: var(--muted); }
+
+.edge { fill: none; stroke: var(--edge); stroke-width: 1.25; transition: opacity .15s; }
+.edge.r { stroke-dasharray: 5 3; }
+.edge.i { stroke-dasharray: 1.5 3; stroke-width: 1.8; stroke-linecap: round; }
+.edge.c { stroke-dasharray: 8 3 2 3; }
+.edge.hi { stroke: var(--edge-hi); stroke-width: 1.6; }
+.edge.i.hi { stroke-width: 2.2; }
+.edge.dim { opacity: .12; }
+.ah { fill: var(--edge); } .ah.hi { fill: var(--edge-hi); }
+
+.node { cursor: pointer; transition: opacity .15s; }
+.node rect { stroke-width: 1.4; }
+.node .nm { font-family: var(--f-mono); font-weight: 600; font-size: 11px; }
+.node .sb { font-family: var(--f-mono); font-size: 10px; fill: var(--muted); }
+.node.ours rect { fill: var(--ours-tint); stroke: var(--ours); }
+.node.hao rect { fill: var(--hao-tint); stroke: var(--hao); }
+.node.mix rect { fill: var(--mix-tint); stroke: var(--ink); }
+.node.ship rect { fill: var(--ship); stroke: var(--ship); }
+.node.ship .nm, .node.ship .sb { fill: var(--ship-ink); }
+.node.exp rect { fill: var(--panel); stroke: var(--muted); }
+.node.exp.pending rect { stroke-dasharray: 4 3; }
+.node .sb.good { fill: var(--good); } .node .sb.bad { fill: var(--bad); } .node .sb.pending { fill: var(--pending); }
+.node.dim { opacity: .2; }
+.node.sel rect { stroke-width: 3; }
+.node.ship.sel rect { stroke: var(--ink); }
+.node:hover rect { stroke-width: 2.4; }
+
+.spine { stroke: var(--ink); stroke-width: 1.5; }
+.dot { fill: var(--ship); stroke: var(--panel); stroke-width: 2; }
+.elo { font-family: var(--f-mono); font-size: 11px; font-weight: 600; fill: var(--good); text-anchor: middle; }
+.date { font-family: var(--f-mono); font-size: 10.5px; fill: var(--muted); text-anchor: middle; }
+
+.detail { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 20px;
+  display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; }
+@media (max-width: 760px) { .detail { grid-template-columns: minmax(0, 1fr); } }
+.detail h2 { margin: 0 0 4px; font-family: var(--f-mono); font-size: 20px; font-weight: 600; overflow-wrap: anywhere; }
+.kind { font-family: var(--f-mono); font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.facts { margin: 12px 0 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.facts li { padding-left: 14px; position: relative; overflow-wrap: anywhere; }
+.facts li::before { content: ""; position: absolute; left: 0; top: .7em; width: 6px; height: 1.5px; background: var(--muted); }
+.facts code { font-family: var(--f-mono); font-size: .88em; }
+.rel { display: grid; gap: 14px; align-content: start; }
+.rel h3 { margin: 0 0 6px; font-family: var(--f-display); font-size: 13px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font: 600 12px/1 var(--f-mono); padding: 7px 8px; min-height: 30px; border-radius: 3px; border: 1.4px solid; cursor: pointer; color: var(--ink); background: var(--panel); }
+.chip.ours { background: var(--ours-tint); border-color: var(--ours); }
+.chip.hao { background: var(--hao-tint); border-color: var(--hao); }
+.chip.mix, .chip.exp { border-color: var(--muted); }
+.chip.ship { background: var(--ship); border-color: var(--ship); color: var(--ship-ink); }
+.none { color: var(--muted); font-size: 14px; }
+.foot { font-size: 13px; color: var(--muted); max-width: 90ch; margin: 0; }
+@media (prefers-reduced-motion: reduce) { .edge, .node { transition: none; } }
+</style>
+
+<div class="page">
+  <header>
+    <div class="eyebrow">Yggdrasil Shogi Engine · NNUE · Sessions 35–39</div>
+    <h1>Training data lineage</h1>
+    <p class="dek">Every network from Session 35 on and the data under it. Self-play games are labelled by the
+      YaneuraOu teacher, deduplicated into pools, packed into training sets by <code>nnue_pack</code>, mixed,
+      and trained. Select any box to trace what fed it and what it fed.</p>
+  </header>
+
+  <div class="toolbar">
+    <div class="legend" aria-label="Legend">
+      <span><i class="sw ours"></i>Our games</span>
+      <span><i class="sw hao"></i>Hao (published, depth 9)</span>
+      <span><i class="sw ship"></i>Shipped network</span>
+      <span><i class="sw exp"></i>Experiment</span>
+      <span><i class="ln"></i>data</span>
+      <span><i class="ln dash"></i>same games, relabelled</span>
+      <span><i class="ln dot"></i>initialised from</span>
+    </div>
+    <div class="controls">
+      <span id="jumps" class="controls"></span>
+      <span class="sep" aria-hidden="true"></span>
+      <button type="button" id="fitBtn" aria-pressed="false">Fit to width</button>
+      <button type="button" id="clearBtn">Show all</button>
+    </div>
+  </div>
+
+  <div class="wrap" id="wrap"><svg id="dia" role="img" aria-label="Lineage diagram from labelled games to networks"></svg></div>
+
+  <section class="detail" id="detail" aria-live="polite"></section>
+
+  <p class="foot">Source: <code>docs/nnue-phase2/DATA_LINEAGE.md</code> as of 2026-11-02. Counts are positions.
+    Elo on the ship line is the SPRT result against the previous shipped network (self-play, 1 s/move);
+    the two numbers on experiments are screens. Session 39 batches were concatenated, not deduplicated.
+    Facts the document marks unknown are left out here too.</p>
+</div>
+
+<script>
+const GUT = 132, NW = 88, NH = 46;
+const LANES = { g: 100, p: 200, k: 300, m: 400, e: 500, s: 600 };
+const LANE_INFO = [
+  ['g', 'Labelled games', 'teacher depth 8'],
+  ['p', 'Pools', 'deduplicated, cumulative'],
+  ['k', 'Packed sets', 'nnue_pack, train / val'],
+  ['m', 'Mixes', 'trainer/mix.py'],
+  ['e', 'Experiments', 'trained, not shipped'],
+  ['s', 'Shipped', 'nnue/default.bin'],
+];
+const SPINE_Y = 674;
+const COLS = [
+  { id: 's26', label: 'S26', sub: 'and earlier', x0: 0, x1: 120 },
+  { id: 's35', label: 'S35', sub: 'Rust trainer', x0: 120, x1: 240 },
+  { id: 's36', label: 'S36', sub: '', x0: 240, x1: 460 },
+  { id: 's37', label: 'S37', sub: '', x0: 460, x1: 880 },
+  { id: 's38', label: 'S38', sub: 'GPU trainer', x0: 880, x1: 1200 },
+  { id: 's39', label: 'S39', sub: 'quiet filter, Hao, PC games', x0: 1200, x1: 2540 },
+];
+const W = GUT + 2540, H = 712;
+
+// kind: ours | hao | mix | ship | exp.  st: good | bad | pending (experiments)
+const N = [
+  // labelled games
+  { id: 'b1', lane: 'g', x: 180, nm: 'batch 1', sb: '62.6M', kind: 'ours', k: 'Labelled corpus', f: ['<code>corpus_s35/gen_d8</code>', '583,687 games, ids 1,000,000+', 'YaneuraOu self-play, 4k vs 6k nodes, 8 random opening plies', '67.0M positions; 62.6M after dedupe'] },
+  { id: 'b2', lane: 'g', x: 300, nm: 'batch 2', sb: '62.4M', kind: 'ours', k: 'Labelled corpus', f: ['<code>corpus_s36/gen_d8</code>', '583,604 games (14 × 41,686), ids 2,000,000+', '67.0M positions; 62.4M kept after dedupe'] },
+  { id: 'b3', lane: 'g', x: 400, nm: 'batch 3', sb: '62.3M', kind: 'ours', k: 'Labelled corpus', f: ['<code>corpus_s36b/gen_d8</code>', '583,604 games, ids 3,000,000+', '67.0M positions; 62.3M kept'] },
+  { id: 'b4', lane: 'g', x: 520, nm: 'batch 4', sb: '62.3M', kind: 'ours', k: 'Labelled corpus', f: ['<code>corpus_s37/gen_d8</code>', '583,604 games, ids 4,000,000+', '67.0M positions; 62.3M kept'] },
+  { id: 'b5', lane: 'g', x: 620, nm: 'batch 5', sb: '62.7M', kind: 'ours', k: 'Labelled corpus', f: ['<code>corpus_s37b/gen_d8</code>', '588,000 games, ids 5,000,000+', '14 slots × 14 runs × 3,000, fresh engines; seeds 410000+', '67.5M positions; 62.7M kept'] },
+  { id: 'b6', lane: 'g', x: 720, nm: 'batch 6', sb: '62.6M', kind: 'ours', k: 'Labelled corpus', f: ['<code>corpus_s37c/gen_d8</code>', '588,000 games, ids 6,000,000+; seeds 420000+', '67.5M positions; 62.6M kept'] },
+  { id: 'b6d10', lane: 'g', x: 820, nm: 'batch 6 d10', sb: 'depth 10', kind: 'ours', k: 'Labelled corpus (experiment)', f: ['<code>corpus_s37c/gen_d10</code>', 'Batch 6’s games relabelled at depth 10 for the t10 experiment', '62.6M kept'] },
+  { id: 'hao50', lane: 'g', x: 1510, nm: 'Hao 50', sb: '397.5M', kind: 'hao', k: 'Published data', f: ['nodchip <code>shogi_hao_depth9</code> (Hugging Face, MIT), depth-9 labels by its publisher', '50 files spread over the set’s 8 generation runs (<code>hao/sample50.txt</code>)', 'Raw files on the Mac: <code>corpus_hao/raw/</code>'] },
+  { id: 'hao150', lane: 'g', x: 1760, nm: 'Hao 150', sb: '1,166M', kind: 'hao', k: 'Published data', f: ['The other 150 files of the same set (<code>hao/sample150.txt</code>)', 'Raw files on the PC: <code>/mnt/c/Users/fgant/hao/raw/</code> (all 200)'] },
+  { id: 'mb1', lane: 'g', x: 1960, nm: 'Mac b1', sb: '61.3M', kind: 'ours', k: 'Labelled corpus', f: ['<code>corpus_s39/b1_d8</code>', '540,000 games, ids 7,000,000–7,539,999; seeds 510000+', '504k YaneuraOu self-play (B1) + 36k m8 at 3k nodes vs YaneuraOu 6k (B2)', 'Not deduplicated'] },
+  { id: 'pc1', lane: 'g', x: 2060, nm: 'PC b1', sb: 'PC · 58.7M', kind: 'ours', k: 'Labelled corpus', f: ['<code>corpus_s39/pc1_d8</code>', '504,000 games, ids 20,000,000+; seeds 610000+', 'Generated on the PC, whose YaneuraOu uses the Suisho5 network; B1 recipe, 12 × 14 × 3,000', 'Labelled on the Mac'] },
+  { id: 'pc2', lane: 'g', x: 2160, nm: 'PC b2', sb: 'PC · 58.7M', kind: 'ours', k: 'Labelled corpus', f: ['<code>corpus_s39/pc2_d8</code>', '504,000 games, ids 21,000,000+; seeds 620000+', 'As PC batch 1'] },
+  { id: 'mb2', lane: 'g', x: 2260, nm: 'Mac b2', sb: '59.8M', kind: 'ours', k: 'Labelled corpus', f: ['<code>corpus_s39/b2_d8</code>', '522,000 games, ids 8,000,000–8,521,999; seeds 520000+', '504k B1 + 18k a1 at 10k nodes vs YaneuraOu 6k (B2)'] },
+  { id: 'pc3', lane: 'g', x: 2360, nm: 'PC b3', sb: 'PC · 58.7M', kind: 'ours', k: 'Labelled corpus', f: ['<code>corpus_s39/pc3_d8</code>', '504,000 games, ids 22,000,000+; seeds 630000+', 'As PC batch 1'] },
+  { id: 'pc4', lane: 'g', x: 2460, nm: 'PC b4', sb: 'PC · 58.7M', kind: 'ours', k: 'Labelled corpus', f: ['<code>corpus_s39/pc4_d8</code>', '504,000 games, ids 23,000,000+; seeds 640000+', 'As PC batch 1'] },
+  // pools
+  { id: 'p12', lane: 'p', x: 300, nm: 'pool 1-2', sb: '125.0M', kind: 'ours', k: 'Deduplicated pool', f: ['<code>corpus_s36/pool_d8.jsonl</code>', 'Batches 1–2; first record of a repeated position kept (<code>dedupe_pool.py</code>)'] },
+  { id: 'p13', lane: 'p', x: 400, nm: 'pool 1-3', sb: '187.2M', kind: 'ours', k: 'Deduplicated pool', f: ['<code>corpus_s36b/pool_d8.jsonl</code>', 'Batches 1–3'] },
+  { id: 'p14', lane: 'p', x: 520, nm: 'pool 1-4', sb: '249.5M', kind: 'ours', k: 'Deduplicated pool', f: ['<code>corpus_s37/pool_d8.jsonl</code>', 'Batches 1–4'] },
+  { id: 'p15', lane: 'p', x: 620, nm: 'pool 1-5', sb: '312.2M', kind: 'ours', k: 'Deduplicated pool', f: ['<code>corpus_s37b/pool_d8.jsonl</code>', 'Batches 1–5'] },
+  { id: 'p16', lane: 'p', x: 720, nm: 'pool 1-6', sb: '374.8M', kind: 'ours', k: 'Deduplicated pool', f: ['<code>corpus_s37c/pool_d8.jsonl</code>', 'Batches 1–6: 374,835,085 positions', 'Source of every packed set of our own games until S39’s new batches'] },
+  { id: 'pd10', lane: 'p', x: 820, nm: 'pool d10', sb: '1-5 + b6 d10', kind: 'ours', k: 'Deduplicated pool (experiment)', f: ['<code>pool_d10.jsonl</code>', 'Batches 1–5 at depth 8 plus batch 6 at depth 10'] },
+  // packed sets
+  { id: 'kd8', lane: 'k', x: 990, nm: 'packed_d8', sb: '355.5M', kind: 'ours', k: 'Packed set', f: ['Mac <code>corpus_s38/</code>', 'From pool 1-6, no filter', 'Train 355,549,320 · val 19,285,765'] },
+  { id: 'khalf', lane: 'k', x: 1260, nm: 'packed_half', sb: '177.7M', kind: 'ours', k: 'Packed set', f: ['Mac <code>corpus_s38/</code>', 'From pool 1-6 with <code>--half</code>: half the training games, val kept', 'Train 177,739,896 · val 19,285,765'] },
+  { id: 'kq', lane: 'k', x: 1360, nm: 'packed_quiet', sb: '222.6M', kind: 'ours', k: 'Packed set', f: ['Mac <code>corpus_s38/</code> = PC <code>~/data/ours_quiet</code>', 'From pool 1-6 with <code>--quiet</code>: drops positions in check or whose game move captures', 'Train 222,630,232 · val 12,201,870', 'In every mix'] },
+  { id: 'ks50', lane: 'k', x: 1460, nm: 'packed_s50', sb: '389.0M', kind: 'hao', k: 'Packed set', f: ['Mac <code>corpus_hao/</code>, PC <code>hao/</code>', 'Hao sample 50, no filter', 'Train 388,975,767 · val 8,560,167'] },
+  { id: 'ks50q', lane: 'k', x: 1560, nm: 'packed_s50q', sb: '229.8M', kind: 'hao', k: 'Packed set', f: ['PC <code>/mnt/c/Users/fgant/hao/</code>', 'Hao sample 50 with <code>--quiet</code> (stored best move captures → dropped)', 'Train 229,751,145 · val 5,075,521'] },
+  { id: 'kq3k', lane: 'k', x: 1660, nm: 'hao_q3000', sb: '206.2M', kind: 'hao', k: 'Packed set', f: ['PC <code>~/data/</code>', 'packed_s50q through <code>mix.py --max-eval 3000</code>: |score| ≤ 3000', 'Train 206,150,012 · val 4,559,648'] },
+  { id: 'ks150q', lane: 'k', x: 1760, nm: 'packed_s150q', sb: '683.8M', kind: 'hao', k: 'Packed set', f: ['PC <code>/mnt/c/Users/fgant/hao/</code>', 'Hao sample 150 with <code>--quiet</code>; held out: <code>thread_index=120</code>', 'Train 683,784,419 · val 4,134,127'] },
+  { id: 'kb1q', lane: 'k', x: 2060, nm: 'packed_b1q', sb: '109.7M', kind: 'ours', k: 'Packed set', f: ['Mac <code>corpus_s39/</code> = PC <code>~/data/ours_b1q</code>', 'Mac batch 1 + PC batches 1–2 (178,755,714), <code>--quiet</code>', 'Train 109,731,122 · val 5,822,174'] },
+  { id: 'kb2q', lane: 'k', x: 2310, nm: 'packed_b2q', sb: '72.9M', kind: 'ours', k: 'Packed set', f: ['Mac <code>corpus_s39/</code> = PC <code>~/data/ours_b2q</code>', 'Mac batch 2 + PC batch 3 (118,473,086), <code>--quiet</code>', 'Train 72,852,017 · val 3,863,057'] },
+  { id: 'kb4q', lane: 'k', x: 2460, nm: 'packed_b4q', sb: '35.9M', kind: 'ours', k: 'Packed set', f: ['Mac <code>corpus_s39/</code> = PC <code>~/data/ours_b4q</code>', 'PC batch 4 (58,669,741), <code>--quiet</code>', 'Train 35,864,254 · val 1,906,803'] },
+  // mixes
+  { id: 'mq', lane: 'm', x: 1810, nm: 'mix_q', sb: '452.4M', kind: 'mix', k: 'Mix', f: ['PC <code>~/data/</code>', 'ours_quiet 222.6M + s50q 229.8M', 'Train 452,381,377 · val 17,277,391'] },
+  { id: 'ma2', lane: 'm', x: 1960, nm: 'mix_a2', sb: '667.9M', kind: 'mix', k: 'Mix', f: ['ours_quiet + s50q + s150q <b>capped</b> at 215.5M (Hao 2:1 to ours)', 'Train 667,881,377 · val 21,411,518'] },
+  { id: 'ma1', lane: 'm', x: 2060, nm: 'mix_a1', sb: '1,136M', kind: 'mix', k: 'Mix', f: ['ours_quiet + s50q + s150q 683.8M (all 200 quiet Hao files)', 'Train 1,136,165,796 · val 21,411,518'] },
+  { id: 'mc1', lane: 'm', x: 2210, nm: 'mix_c1', sb: '1,246M', kind: 'mix', k: 'Mix', f: ['ours_quiet + ours_b1q 109.7M + s50q + s150q', 'Train 1,245,896,918 · val 27,233,692'] },
+  { id: 'mc2', lane: 'm', x: 2410, nm: 'mix_c2', sb: '1,355M', kind: 'mix', k: 'Mix', f: ['ours_quiet + b1q + b2q 72.9M + b4q 35.9M + s50q + s150q', 'Train 1,354,613,189 · val 33,003,552'] },
+  // shipped networks
+  { id: 's26', lane: 's', x: 60, nm: 's26', sb: 'Rust', kind: 'ship', k: 'Shipped network · S26', f: ['<code>default-s26.bin</code>, sha256 af092f17d77c', '14.0M positions from corpora <code>corpus_s23</code>…<code>corpus_s28</code>, <code>corpus_self</code>, <code>corpus_hc</code>, <code>corpus_rank</code> (see those session logs)'] },
+  { id: 'k81', lane: 's', x: 180, nm: 'k81', sb: 'Rust · 81 kb', kind: 'ship', k: 'Shipped network · S35', f: ['<code>default-k81.bin</code>, sha256 4128b0956faf', 'Batch 1 (62.6M), 2 epochs from the then-default network, 81 king buckets', 'Pearson 0.813', 'Shipped 2026-10-17'] },
+  { id: 'p9', lane: 's', x: 300, nm: 'p9', sb: 'Rust · 9 kb', kind: 'ship', k: 'Shipped network · S36', f: ['<code>default-p9.bin</code>, sha256 13d614617263', 'Pool 1-2 (125.0M), 9 king buckets', 'SPRT vs k81 +100 ± 68'] },
+  { id: 'q9', lane: 's', x: 400, nm: 'q9', sb: 'Rust', kind: 'ship', k: 'Shipped network · S36', f: ['<code>default-q9.bin</code>, sha256 fe14c8fe2e33', 'Pool 1-3 (187.2M), epoch 1 of 2 from p9', 'SPRT vs p9 +173 ± 112', 'Shipped 2026-10-21'] },
+  { id: 'r9', lane: 's', x: 520, nm: 'r9', sb: 'Rust', kind: 'ship', k: 'Shipped network · S37', f: ['<code>default-r9.bin</code>, sha256 bf77c37a9650', 'Pool 1-4 (249.5M), from q9', 'Pearson ~0.826', 'SPRT vs q9 +34.6 ± 27.9', 'Shipped 2026-10-24'] },
+  { id: 's9', lane: 's', x: 620, nm: 's9', sb: 'Rust', kind: 'ship', k: 'Shipped network · S37', f: ['<code>default-s9.bin</code>, sha256 779d2f7dce36', 'Pool 1-5 (312.2M), 1 epoch from r9', 'Pearson ~0.826', 'SPRT vs r9 +80', 'Shipped 2026-10-25'] },
+  { id: 'g5', lane: 's', x: 940, nm: 'g5', sb: 'GPU', kind: 'ship', k: 'Shipped network · S38', f: ['<code>default-g5.bin</code>, sha256 7949e4f1fb72', 'packed_d8, GPU trainer from scratch: lr 1e-3 ×0.95, 60 epochs of 100M', 'Best epoch 5, val loss 0.03598', 'SPRT vs s9 +93.3 ± 65.2', 'Shipped 2026-10-29'] },
+  { id: 'h4', lane: 's', x: 1040, nm: 'h4', sb: 'GPU', kind: 'ship', k: 'Shipped network · S38', f: ['<code>default-h4.bin</code>, sha256 0a9f9dbe2627', 'packed_d8, h4 recipe (lr 1e-3, ×0.7 per epoch, outcome weight 0.3), 8 epochs of 100M', 'Best epoch 4, val loss 0.03562', 'SPRT vs g5 +56.1 ± 44.7', 'Shipped 2026-10-30'] },
+  { id: 'm8', lane: 's', x: 1760, nm: 'm8', sb: 'GPU', kind: 'ship', k: 'Shipped network · S39', f: ['<code>default-m8.bin</code>, sha256 af9e6b5a1dbb (run p1_mix_q)', 'mix_q, h4 recipe, 8 × 100M', 'Best epoch 8, val loss 0.02988', 'SPRT vs h4 +240.8 ± 131.7', 'Shipped 2026-10-31'] },
+  { id: 'a1', lane: 's', x: 2060, nm: 'a1', sb: 'GPU · current', kind: 'ship', k: 'Shipped network · S39 · current default', f: ['<code>nnue/default.bin</code>, sha256 e842ac27800d (run p1_a1)', 'mix_a1, h4 recipe, 2 passes', 'Best epoch 8, val loss 0.02997', 'SPRT vs m8 +110.9 ± 76.1 (44-1-23)', 'Shipped 2026-11-01'] },
+  // experiments
+  { id: 't8', lane: 'e', x: 720, nm: 't8', sb: '+27.9 cap', st: 'good', kind: 'exp', k: 'Experiment · S37', f: ['Pool 1-6 (375M), Rust, 1 epoch from s9', 'Pearson 0.8267, loss 0.03737', 'vs s9 +27.9 ± 25.8, stopped at the cap; not shipped'] },
+  { id: 't10', lane: 'e', x: 820, nm: 't10', sb: 'FAIL', st: 'bad', kind: 'exp', k: 'Experiment · S37', f: ['Pool 1-5 + batch 6 at depth 10, Rust, 1 epoch from s9', 'vs t8 −18.8, FAIL: depth-10 labels no better'] },
+  { id: 'var', lane: 'e', x: 1140, nm: '6 variants', sb: '±15 or FAIL', st: 'bad', kind: 'exp', k: 'Experiments · S38', f: ['sw_w50, sw_w00, sw_g50, deep1, deep2, ft_t8 on packed_d8', 'Outcome weight 0.5 / 0, decay ×0.5, <code>--mid 32</code>, fine-tune of t8', 'All within ~±15 of h4, or FAIL'] },
+  { id: 'e_half', lane: 'e', x: 1260, nm: 'p0_half', sb: '−89, −168', st: 'bad', kind: 'exp', k: 'Experiment · S39', f: ['packed_half, h4 recipe, 8 × 100M', 'Best epoch 2, val loss 0.03839', 'Screens vs h4: −89, −168. Halving the data costs a lot.'] },
+  { id: 'e_quiet', lane: 'e', x: 1360, nm: 'p0_quiet', sb: '+63.5 PASS', st: 'good', kind: 'exp', k: 'Experiment · S39', f: ['packed_quiet, h4 recipe, 8 × 100M', 'Best epoch 5, val loss 0.02873', 'SPRT vs h4 +63.5 ± 49.1, PASS; not shipped because m8 followed'] },
+  { id: 'e_hao', lane: 'e', x: 1460, nm: 'p0_hao', sb: '−125, −147', st: 'bad', kind: 'exp', k: 'Experiment · S39', f: ['packed_s50, h4 recipe, 8 × 100M', 'Best epoch 4, val loss 0.04581', 'Screens vs h4: −125, −147'] },
+  { id: 'e_haoq', lane: 'e', x: 1560, nm: 'p0_hao_quiet', sb: '−135, −89', st: 'bad', kind: 'exp', k: 'Experiment · S39', f: ['packed_s50q, h4 recipe, 8 × 100M', 'Best epoch 4, val loss 0.03662', 'Screens vs p0_quiet: −135, −89'] },
+  { id: 'e_q3k', lane: 'e', x: 1660, nm: 'p0_hao_q3000', sb: '−147, −82', st: 'bad', kind: 'exp', k: 'Experiment · S39', f: ['hao_q3000, h4 recipe, 8 × 100M', 'Best epoch 4, val loss 0.03854', 'Screens vs p0_quiet: −147, −82'] },
+  { id: 'e_q16', lane: 'e', x: 1860, nm: 'p1_mix_q16', sb: '+3, +57', st: 'good', kind: 'exp', k: 'Experiment · S39', f: ['mix_q, 16 × 100M, decay ×0.85', 'Best epoch 16, val loss 0.02985', 'Screens vs m8: +3, +57'] },
+  { id: 'e_a2', lane: 'e', x: 1960, nm: 'p1_a2', sb: '+64, +61', st: 'good', kind: 'exp', k: 'Experiment · S39', f: ['mix_a2, h4 recipe, 2 passes', 'Best epoch 8, val loss 0.03047', 'Screens vs m8: +64, +61; a1 (uncapped Hao) shipped instead'] },
+  { id: 'e_c1', lane: 'e', x: 2160, nm: 'p1_c1', sb: '+17, −13', st: 'bad', kind: 'exp', k: 'Experiment · S39', f: ['mix_c1, h4 recipe, 2 passes', 'Best epoch 8, val loss 0.02897', 'Screens vs a1: +17 (cap), −13 (FAIL)'] },
+  { id: 'e_c1m', lane: 'e', x: 2260, nm: 'p1_c1m', sb: '−7, +20', st: 'bad', kind: 'exp', k: 'Experiment · S39', f: ['mix_c1, h4 recipe, <code>--mid 32</code> (v6 file)', 'Best epoch 8, val loss 0.02900', 'Screens vs a1: −7 (FAIL), +20 (cap)'] },
+  { id: 'e_c2', lane: 'e', x: 2360, nm: 'p1_c2', sb: 'training', st: 'pending', kind: 'exp pending', k: 'Experiment · S39 · in progress', f: ['mix_c2, h4 recipe, 2 passes', 'Training; screens vs a1 queued'] },
+  { id: 'e_c2m', lane: 'e', x: 2460, nm: 'p1_c2m', sb: 'queued', st: 'pending', kind: 'exp pending', k: 'Experiment · S39 · queued', f: ['mix_c2, <code>--mid 32</code>', 'Queued after p1_c2'] },
+];
+
+// d data, r relabelled, i initialised from, c capped input
+const E = [
+  ['b1', 'p12'], ['b2', 'p12'], ['p12', 'p13'], ['b3', 'p13'], ['p13', 'p14'], ['b4', 'p14'],
+  ['p14', 'p15'], ['b5', 'p15'], ['p15', 'p16'], ['b6', 'p16'], ['b6', 'b6d10', 'r'],
+  ['p15', 'pd10'], ['b6d10', 'pd10'],
+  ['b1', 'k81'], ['p12', 'p9'], ['p13', 'q9'], ['p14', 'r9'], ['p15', 's9'], ['p16', 't8'], ['pd10', 't10'],
+  ['p9', 'q9', 'i'], ['q9', 'r9', 'i'], ['r9', 's9', 'i'], ['s9', 't8', 'i'], ['s9', 't10', 'i'],
+  ['p16', 'kd8'], ['p16', 'khalf'], ['p16', 'kq'],
+  ['kd8', 'g5'], ['kd8', 'h4'], ['kd8', 'var'],
+  ['hao50', 'ks50'], ['hao50', 'ks50q'], ['ks50q', 'kq3k'], ['hao150', 'ks150q'],
+  ['mb1', 'kb1q'], ['pc1', 'kb1q'], ['pc2', 'kb1q'], ['mb2', 'kb2q'], ['pc3', 'kb2q'], ['pc4', 'kb4q'],
+  ['khalf', 'e_half'], ['kq', 'e_quiet'], ['ks50', 'e_hao'], ['ks50q', 'e_haoq'], ['kq3k', 'e_q3k'],
+  ['kq', 'mq'], ['ks50q', 'mq'],
+  ['kq', 'ma2'], ['ks50q', 'ma2'], ['ks150q', 'ma2', 'c'],
+  ['kq', 'ma1'], ['ks50q', 'ma1'], ['ks150q', 'ma1'],
+  ['kq', 'mc1'], ['kb1q', 'mc1'], ['ks50q', 'mc1'], ['ks150q', 'mc1'],
+  ['kq', 'mc2'], ['kb1q', 'mc2'], ['kb2q', 'mc2'], ['kb4q', 'mc2'], ['ks50q', 'mc2'], ['ks150q', 'mc2'],
+  ['mq', 'm8'], ['mq', 'e_q16'], ['ma2', 'e_a2'], ['ma1', 'a1'],
+  ['mc1', 'e_c1'], ['mc1', 'e_c1m'], ['mc2', 'e_c2'], ['mc2', 'e_c2m'],
+].map(([a, b, t]) => ({ a, b, t: t || 'd' }));
+
+const SPINE = [
+  ['s26', '', 'S26'], ['k81', '', 'Oct 17'], ['p9', '+100', 'S36'], ['q9', '+173', 'Oct 21'],
+  ['r9', '+34.6', 'Oct 24'], ['s9', '+80', 'Oct 25'], ['g5', '+93.3', 'Oct 29'], ['h4', '+56.1', 'Oct 30'],
+  ['m8', '+240.8', 'Oct 31'], ['a1', '+110.9', 'Nov 1'],
+];
+
+const byId = Object.fromEntries(N.map(n => [n.id, n]));
+const parents = {}, children = {};
+N.forEach(n => { parents[n.id] = []; children[n.id] = []; });
+E.forEach(e => { parents[e.b].push(e.a); children[e.a].push(e.b); });
+
+function closure(id, rel) {
+  const out = new Set(), st = [id];
+  while (st.length) for (const x of rel[st.pop()]) if (!out.has(x)) { out.add(x); st.push(x); }
+  return out;
+}
+
+const X = n => GUT + n.x, Y = n => LANES[n.lane];
+function between(a, b) {
+  const lo = Math.min(a.x, b.x), hi = Math.max(a.x, b.x);
+  return N.some(n => n.lane === a.lane && n.x > lo && n.x < hi);
+}
+function edgePath(e) {
+  const a = byId[e.a], b = byId[e.b], ax = X(a), bx = X(b), ay = Y(a), by = Y(b);
+  if (ay === by) {
+    if (a.lane === 's') { const y = ay + NH / 2; return `M${ax},${y} C${ax},${y + 24} ${bx},${y + 24} ${bx},${y + 3}`; }
+    if (!between(a, b)) return `M${ax + NW / 2},${ay} L${bx - NW / 2 - 2},${by}`;
+    const y = ay - NH / 2; return `M${ax},${y} C${ax},${y - 28} ${bx},${y - 28} ${bx},${y - 3}`;
+  }
+  if (by < ay) { const y1 = ay - NH / 2, y2 = by + NH / 2 + 3, m = (y1 + y2) / 2; return `M${ax},${y1} C${ax},${m} ${bx},${m} ${bx},${y2}`; }
+  const y1 = ay + NH / 2, y2 = by - NH / 2 - 3, m = (y1 + y2) / 2;
+  return `M${ax},${y1} C${ax},${m} ${bx},${m} ${bx},${y2}`;
+}
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+
+function render() {
+  const s = [];
+  s.push(`<defs>
+    <marker id="ah" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ah" d="M0,0 L8,4 L0,8 z"/></marker>
+    <marker id="ahh" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto"><path class="ah hi" d="M0,0 L8,4 L0,8 z"/></marker>
+  </defs>`);
+  s.push(`<rect x="0" y="0" width="${W}" height="${H}" class="lanebg"/>`);
+  COLS.forEach((c, i) => {
+    if (i % 2 === 1) s.push(`<rect class="colband" x="${GUT + c.x0}" y="0" width="${c.x1 - c.x0}" height="${H}"/>`);
+    s.push(`<text class="colhead" x="${GUT + c.x0 + 12}" y="26">${c.label}</text>`);
+    if (c.sub) s.push(`<text class="colsub" x="${GUT + c.x0 + 12}" y="42">${c.sub}</text>`);
+  });
+  Object.values(LANES).forEach((y, i) => { if (i) s.push(`<line class="lanesep" x1="${GUT}" x2="${W}" y1="${y - 50}" y2="${y - 50}"/>`); });
+  s.push(`<line class="lanesep" x1="${GUT}" x2="${W}" y1="${SPINE_Y - 24}" y2="${SPINE_Y - 24}"/>`);
+
+  E.forEach((e, i) => s.push(`<path class="edge ${e.t}" data-i="${i}" d="${edgePath(e)}" marker-end="url(#ah)"/>`));
+
+  // ship line
+  const sp = SPINE.map(([id, elo, date]) => ({ n: byId[id], elo, date }));
+  s.push(`<line class="spine" x1="${X(sp[0].n)}" x2="${X(sp.at(-1).n)}" y1="${SPINE_Y}" y2="${SPINE_Y}"/>`);
+  sp.forEach((p, i) => {
+    const x = X(p.n);
+    s.push(`<circle class="dot" cx="${x}" cy="${SPINE_Y}" r="5"/>`);
+    s.push(`<text class="date" x="${x}" y="${SPINE_Y + 22}">${p.date}</text>`);
+    if (p.elo) { const px = X(sp[i - 1].n); s.push(`<text class="elo" x="${(px + x) / 2}" y="${SPINE_Y - 7}">${p.elo}</text>`); }
+  });
+
+  N.forEach(n => {
+    const x = X(n) - NW / 2, y = Y(n) - NH / 2;
+    s.push(`<g class="node ${n.kind}" data-id="${n.id}" tabindex="0" role="button" aria-label="${esc(n.nm)}, ${esc(n.sb)}">
+      <rect x="${x}" y="${y}" width="${NW}" height="${NH}" rx="3"/>
+      <text class="nm" x="${x + 8}" y="${y + 19}">${esc(n.nm)}</text>
+      <text class="sb ${n.st || ''}" x="${x + 8}" y="${y + 35}">${esc(n.sb)}</text></g>`);
+  });
+
+  s.push(`<g id="lanes"><rect class="lanebg" x="0" y="0" width="${GUT}" height="${H}"/>
+    <line class="lanerule" x1="${GUT}" x2="${GUT}" y1="0" y2="${H}"/>`);
+  LANE_INFO.forEach(([k, name, cap]) => {
+    s.push(`<text class="lanename" x="14" y="${LANES[k] - 2}">${name}</text><text class="lanecap" x="14" y="${LANES[k] + 14}">${cap}</text>`);
+  });
+  s.push(`<text class="lanename" x="14" y="${SPINE_Y - 2}">Ship line</text><text class="lanecap" x="14" y="${SPINE_Y + 14}">SPRT vs previous</text></g>`);
+
+  const svg = document.getElementById('dia');
+  svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  svg.setAttribute('width', W); svg.setAttribute('height', H);
+  svg.innerHTML = s.join('');
+}
+
+let selected = null;
+function select(id, scroll) {
+  selected = id;
+  const svg = document.getElementById('dia');
+  const nodes = svg.querySelectorAll('.node'), edges = svg.querySelectorAll('.edge');
+  if (!id) {
+    nodes.forEach(g => g.classList.remove('dim', 'sel'));
+    edges.forEach(p => { p.classList.remove('dim', 'hi'); p.setAttribute('marker-end', 'url(#ah)'); });
+    showDetail(null); return;
+  }
+  const anc = closure(id, parents), desc = closure(id, children);
+  const on = new Set([id, ...anc, ...desc]);
+  nodes.forEach(g => { const k = g.dataset.id; g.classList.toggle('dim', !on.has(k)); g.classList.toggle('sel', k === id); });
+  edges.forEach(p => {
+    const e = E[+p.dataset.i];
+    const lit = ((e.b === id || anc.has(e.b)) && anc.has(e.a)) || ((e.a === id || desc.has(e.a)) && desc.has(e.b));
+    p.classList.toggle('hi', lit); p.classList.toggle('dim', !lit);
+    p.setAttribute('marker-end', lit ? 'url(#ahh)' : 'url(#ah)');
+    if (lit) p.parentNode.insertBefore(p, svg.querySelector('.spine'));
+  });
+  showDetail(id);
+  if (scroll) scrollToNode(byId[id]);
+}
+
+function chip(id) { const n = byId[id]; return `<button type="button" class="chip ${n.kind.split(' ')[0]}" data-go="${id}">${esc(n.nm)}</button>`; }
+function chips(ids) { return ids.length ? `<div class="chips">${ids.map(chip).join('')}</div>` : `<div class="none">None</div>`; }
+
+function showDetail(id) {
+  const d = document.getElementById('detail');
+  if (!id) {
+    d.innerHTML = `<div><div class="kind">Overview</div><h2>${N.length} artifacts, ${E.length} links</h2>
+      <ul class="facts"><li>Sessions 35–37: each new batch was deduplicated into a growing pool, and the Rust trainer continued the previous network on it.</li>
+      <li>Session 38: the GPU trainer started from scratch on the whole pool, packed once as packed_d8.</li>
+      <li>Session 39: the quiet filter, the published Hao set and mixing of the two; new batches were concatenated, not deduplicated.</li></ul></div>
+      <div class="rel"><div><h3>Shipped</h3>${chips(SPINE.map(s => s[0]))}</div></div>`;
+    return;
+  }
+  const n = byId[id];
+  const roots = [...closure(id, parents)].filter(x => byId[x].lane === 'g').sort((a, b) => byId[a].x - byId[b].x);
+  const nets = [...closure(id, children)].filter(x => ['s', 'e'].includes(byId[x].lane)).sort((a, b) => byId[a].x - byId[b].x);
+  const isNet = ['s', 'e'].includes(n.lane);
+  d.innerHTML = `<div><div class="kind">${esc(n.k)}</div><h2>${esc(n.nm)}</h2>
+      <ul class="facts">${n.f.map(x => `<li>${x}</li>`).join('')}</ul></div>
+    <div class="rel">
+      <div><h3>Fed by</h3>${chips(parents[id])}</div>
+      <div><h3>Feeds</h3>${chips(children[id])}</div>
+      ${isNet ? `<div><h3>All the games under it</h3>${chips(roots)}</div>`
+              : `<div><h3>Networks trained on it</h3>${chips(nets)}</div>`}
+    </div>`;
+}
+
+const wrap = document.getElementById('wrap');
+function syncLanes() {
+  const g = document.getElementById('lanes');
+  if (g) g.setAttribute('transform', wrap.classList.contains('fit') ? '' : `translate(${wrap.scrollLeft},0)`);
+}
+function scrollToNode(n) {
+  if (wrap.classList.contains('fit')) return;
+  const x = X(n), view = wrap.clientWidth;
+  if (x - NW < wrap.scrollLeft + GUT || x + NW > wrap.scrollLeft + view)
+    wrap.scrollTo({ left: Math.max(0, x - GUT - (view - GUT) / 2), behavior: 'smooth' });
+}
+
+render();
+const jumps = document.getElementById('jumps');
+jumps.innerHTML = COLS.slice(1).map(c => `<button type="button" data-col="${c.id}">${c.label}</button>`).join('');
+jumps.addEventListener('click', ev => {
+  const b = ev.target.closest('[data-col]'); if (!b) return;
+  const c = COLS.find(c => c.id === b.dataset.col);
+  wrap.scrollTo({ left: c.x0, behavior: 'smooth' });
+});
+wrap.addEventListener('scroll', syncLanes, { passive: true });
+
+const svg = document.getElementById('dia');
+svg.addEventListener('click', ev => {
+  const g = ev.target.closest('.node');
+  if (g) select(selected === g.dataset.id ? null : g.dataset.id);
+});
+svg.addEventListener('keydown', ev => {
+  const g = ev.target.closest('.node');
+  if (g && (ev.key === 'Enter' || ev.key === ' ')) { ev.preventDefault(); select(g.dataset.id); }
+});
+document.getElementById('detail').addEventListener('click', ev => {
+  const b = ev.target.closest('[data-go]'); if (b) select(b.dataset.go, true);
+});
+document.getElementById('clearBtn').addEventListener('click', () => select(null));
+const fitBtn = document.getElementById('fitBtn');
+fitBtn.addEventListener('click', () => {
+  const fit = wrap.classList.toggle('fit');
+  fitBtn.setAttribute('aria-pressed', fit);
+  jumps.hidden = fit;
+  syncLanes();
+});
+
+select('a1');
+requestAnimationFrame(() => { wrap.scrollLeft = wrap.scrollWidth; syncLanes(); });
+</script>

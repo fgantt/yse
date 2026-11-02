@@ -8,6 +8,11 @@ scripts, pipeline logs and training logs on both machines. Anything not verified
 **Keep it current.** Add a row whenever a corpus is labelled, a set packed, a mix built or a
 network trained; the `lineage.json` files below hold the facts to copy.
 
+**Diagram:** `lineage.html` (beside this file; published at
+https://claude.ai/artifact/PRSNaaj9JAUzvfmfSJbiZA) draws these tables as a swimlane timeline. Its
+data is the `N` (nodes) and `E` (edges) arrays at the top of its script: add a node and its edges
+there when you add a row here.
+
 ## Lineage files (since 2026-11-02)
 
 - `nnue_pack pack` / `pack-psv` write `lineage.json` beside `train.bin`: inputs (absolute path,
