@@ -9,6 +9,10 @@ a quiet-position filter, and a published teacher, before any multi-day data run.
 
 > **READ THIS FIRST** (state at the end of this session, 2026-11-01).
 >
+> **Superseded 2026-11-05: start from `HANDOFF_S40.md`** (Stage B, the Suisho5 teacher test and
+> h2 did not ship; Session 40 steps back to research). Results after 2026-11-01 are in
+> `DATA_LINEAGE.md`.
+>
 > 00. **Shipped network: `nnue/default.bin` is a1** (2026-11-01, Phase 1 Stage A): our quiet
 >    pool plus all 200 quiet Hao files fetched so far (1.14B positions; 2 passes in 8 epochs,
 >    best at epoch 8, still falling), epoch 8 of `p1_a1`, trained on the PC. **SPRT vs m8: PASS,

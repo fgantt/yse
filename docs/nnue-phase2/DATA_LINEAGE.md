@@ -57,6 +57,7 @@ To trace a network: `runs/<run>/data_lineage.json`, else `args {...}` in `runs/<
 | `corpus_s39/b2_d8` (Mac batch 2) | S39 | 522,000; 8,000,000-8,521,999 | 504k B1 + 18k a1 at 10k nodes vs YaneuraOu 6k (B2); seeds 520000+ | 59.8M |
 | `corpus_s39/pc3_d8` (PC batch 3) | S39 | 504,000; 22,000,000+ | as PC batch 1; seeds 630000+ | 58.7M |
 | `corpus_s39/pc4_d8` (PC batch 4) | S39 | 504,000; 23,000,000+ | as PC batch 1; seeds 640000+ | 58.7M |
+| `corpus_s39/b1_s5`, `pc1_s5`, `pc2_s5` | S39 | the games of Mac batch 1, PC batches 1-2, same ids | **relabelled by Suisho5** at depth 8 (`FV_SCALE` 24; `LABEL_OPTIONS`, `YSE_YANE`); pc1 on the PC (`~/relabel/`), the others on the Mac | in progress (2026-11-02) |
 
 Batches 1-6 were deduplicated as they were pooled (first record of a repeated position kept,
 `corpus_s36/dedupe_pool.py`), into cumulative pools: `corpus_s36/pool_d8.jsonl` (1-2, 125.0M),
@@ -64,6 +65,20 @@ Batches 1-6 were deduplicated as they were pooled (first record of a repeated po
 `corpus_s37b/pool_d8.jsonl` (1-5, 312.2M), `corpus_s37c/pool_d8.jsonl` (1-6, 374,835,085) and
 `pool_d10.jsonl` (1-5 at depth 8 + batch 6 at depth 10). **Stage B (S39) batches were not
 deduplicated**, only concatenated. PC games are generated on the PC and labelled on the Mac.
+
+Stage B measured against batches 1-6 (2026-11-02, samples of 15-30k games per source): game
+length (~115 plies), colour balance, score spread, the share of positions whose depth-8 score
+agrees with the result, and opening variety (distinct positions at ply 16) are the same for
+Mac B1, the PC's Suisho5 games and batches 1 and 6; the m8/a1-vs-YaneuraOu games differ only
+slightly. About 6% of each batch repeats within it and a few percent repeat earlier batches,
+mostly opening positions; because Stage B was not deduplicated, its packed sets keep them
+(median |score| 526 quiet, against 703 for the deduplicated pool). Stage B is the same
+distribution and the same teacher as batches 1-6, whose last batch already added little (t8).
+
+**Suisho5 labels' scale.** On 858k positions of Mac batch 1, Suisho5 at depth 8 (FV_SCALE 24)
+correlates 0.97 with halfkpvm but its scores are 0.78 as large (median |score| ratio 0.78;
+the logistic scale that best predicts the game result is 560 against halfkpvm's 720). Hao's
+scores match halfkpvm's, so Suisho5 labels are packed with `--eval-scale 1.29`.
 
 Before Session 35: corpora `corpus_s23` … `corpus_s28`, `corpus_self`, `corpus_hc`,
 `corpus_rank` fed networks up to s26 (14.0M positions, Session 26); see those session logs.
@@ -74,8 +89,9 @@ Before Session 35: corpora `corpus_s23` … `corpus_s28`, `corpus_self`, `corpus
 |---|---|---|---|
 | Hao sample 50 | nodchip `shogi_hao_depth9` (Hugging Face, MIT), depth-9 labels by its publisher | `docs/nnue-phase2/hao/sample50.txt` (name, size, sha256; spread over the set's 8 generation runs) | 397.5M |
 | Hao sample 150 | same set | `docs/nnue-phase2/hao/sample150.txt` (all 150 packed; 2 were already on disk) | 1,166M |
+| Hao sample 200b | same set | `docs/nnue-phase2/hao/sample200b.txt` (25 per generation run, none in samples 50/150; 62.7 GB, fetched 2026-11-03) | 1,567M |
 
-Raw files: Mac `corpus_hao/raw/` (sample 50), PC `/mnt/c/Users/fgant/hao/raw/` (all 200).
+Raw files: Mac `corpus_hao/raw/` (sample 50), PC `/mnt/c/Users/fgant/hao/raw/` (samples 50, 150, 200b).
 
 ## 3. Packed sets (`nnue_pack`, 100-byte records)
 
@@ -88,9 +104,11 @@ Raw files: Mac `corpus_hao/raw/` (sample 50), PC `/mnt/c/Users/fgant/hao/raw/` (
 | `packed_s50q` | PC `/mnt/c/Users/fgant/hao/` | Hao sample 50 | `--quiet` | 229,751,145 | 5,075,521 |
 | `hao_q3000` | PC `~/data/` | `packed_s50q` via `mix.py --max-eval 3000` | \|score\| ≤ 3000 | 206,150,012 | 4,559,648 |
 | `packed_s150q` | PC `/mnt/c/Users/fgant/hao/` | Hao sample 150 (held out: `thread_index=120`) | `--quiet` | 683,784,419 | 4,134,127 |
+| `packed_s200bq` | PC `/mnt/c/Users/fgant/hao/` | Hao sample 200b (held out: its last file) | `--quiet` | 920,303,519 | 4,297,099 |
 | `packed_b1q` = PC `~/data/ours_b1q` | Mac `corpus_s39/` | Mac batch 1 + PC batches 1-2 (178,755,714) | `--quiet` | 109,731,122 | 5,822,174 |
 | `packed_b2q` = PC `~/data/ours_b2q` | Mac `corpus_s39/` | Mac batch 2 + PC batch 3 (118,473,086) | `--quiet` | 72,852,017 | 3,863,057 |
 | `packed_b4q` = PC `~/data/ours_b4q` | Mac `corpus_s39/` | PC batch 4 (58,669,741) | `--quiet` | 35,864,254 | 1,906,803 |
+| `packed_b1s5q` = PC `~/data/ours_b1s5q` | Mac `corpus_s39/` | `b1_s5` + `pc1_s5` + `pc2_s5` | `--quiet --eval-scale 1.29` | 109,731,122 | 5,822,174 |
 
 ## 4. Mixes (`trainer/mix.py`, on the PC in `~/data/`)
 
@@ -101,6 +119,8 @@ Raw files: Mac `corpus_hao/raw/` (sample 50), PC `/mnt/c/Users/fgant/hao/raw/` (
 | `mix_a1` | ours_quiet + s50q + s150q 683.8M | 1,136,165,796 | 21,411,518 |
 | `mix_c1` | ours_quiet + ours_b1q 109.7M + s50q + s150q | 1,245,896,918 | 27,233,692 |
 | `mix_c2` | ours_quiet + ours_b1q + ours_b2q 72.9M + ours_b4q 35.9M + s50q + s150q | 1,354,613,189 | 33,003,552 |
+| `mix_c1s` | as `mix_c1` with ours_b1s5q in place of ours_b1q (teacher test) | 1,245,896,918 | 27,233,692 |
+| `mix_h2` | ours_quiet + s50q + s150q + s200bq (more Hao) | 2,056,469,315 | 25,708,617 |
 
 ## 5. Networks
 
@@ -133,8 +153,18 @@ bold, with the first 12 hex digits of the committed file's sha256.
 | **a1** (`default.bin`, e842ac27800d) | 39 | `mix_a1` | G, h4 recipe, 2 passes (p1_a1) | 8, 0.02997 | SPRT vs m8 +110.9 ± 76.1, shipped 2026-11-01 |
 | p1_c1 | 39 | `mix_c1` | G, h4 recipe, 2 passes | 8, 0.02897 | vs a1 +17 (cap), −13 (FAIL) |
 | p1_c1m | 39 | `mix_c1` | same, `--mid 32` (v6) | 8, 0.02900 | vs a1 −7 (FAIL), +20 (cap) |
-| p1_c2 | 39 | `mix_c2` | G, h4 recipe, 2 passes | training | screens vs a1 queued |
-| p1_c2m | 39 | `mix_c2` | same, `--mid 32` | queued after c2 | |
+| p1_c2 | 39 | `mix_c2` | G, h4 recipe, 2 passes | 8, 0.02866 | vs a1 −33 ± 54 (FAIL), −91 ± 83 (FAIL); not shipped |
+| p1_c2m | 39 | `mix_c2` | same, `--mid 32` (v6) | 8, 0.02856 | vs a1 0 ± 32 over 452 games (FAIL), −74 ± 75 (FAIL); not shipped |
+| p1_c1s | 39 | `mix_c1s` | as p1_c1 | 8, 0.02913 | vs p1_c1 −28 ± 51 (FAIL), −14 ± 43 (FAIL); vs a1 +3 ± 30 over 514 games (FAIL), −56 ± 64 (FAIL); not shipped |
+| p1_h2 | 39 | `mix_h2` | as p1_a1 | 8, 0.02992 | vs a1 +25 ± 27 (cap, 600 games), +35 ± 27 (PASS); ship SPRT vs a1 at 1 s +20.9 ± 25.4 over 600 games (310-16-274), INCONCLUSIVE at the cap (LLR +0.22); not shipped |
+
+Stage B outcome (2026-11-02): adding the S39 batches (`ours_b1q`, `ours_b2q`, `ours_b4q`) to a1's
+data lowered held-out loss on each mix's own validation set but did not win games: c1/c1m about
++7/+11 pooled, c2/c2m below a1. The middle layer made no measurable difference.
+
+Teacher test (2026-11-03): relabelling c1's Stage B positions with Suisho5 at depth 8 (p1_c1s)
+did not beat the halfkpvm labels (vs c1 −28 and −14, both FAIL) or a1. At depth 8 on our own
+self-play positions the choice between these two teachers is not the lever.
 
 Weights: Mac `weights/session3x/` (engine `.bin`), run directories in `trainer/runs/` on the
 machine that trained them (S39 `p1_*` and `p0_hao*` on the PC, `~/yse/trainer/runs/`).

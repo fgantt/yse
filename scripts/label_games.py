@@ -5,6 +5,8 @@ engine actually reaches against YaneuraOu, which teacher self-play never visits.
     python3 scripts/label_games.py OUT.jsonl DEPTH WORKERS BOARD csv [csv ...]
 BOARD is the start position's board field (GID_START sets the first game id); the side to move is read off each game's first
 move (a piece leaving ranks a-c is White's).
+The teacher is $YSE_YANE (see `scripts/paths.py`); LABEL_OPTIONS adds USI options to it, e.g.
+`FV_SCALE=24` for the Suisho5 network (`name=value` pairs separated by `;`).
 """
 import csv, json, os, subprocess, sys, threading, queue
 from paths import require_yane
@@ -19,7 +21,9 @@ class Y:
         self.q = queue.Queue()
         threading.Thread(target=lambda: [self.q.put(l) for l in self.p.stdout], daemon=True).start()
         for c in ["usi", "setoption name USI_OwnBook value false", "setoption name BookFile value no_book",
-                  "setoption name Threads value 1", "setoption name USI_Hash value 256", "isready"]:
+                  "setoption name Threads value 1", "setoption name USI_Hash value 256"] + [
+                  "setoption name %s value %s" % tuple(o.split("=", 1))
+                  for o in os.environ.get("LABEL_OPTIONS", "").split(";") if o] + ["isready"]:
             self.send(c)
         self.until("readyok"); self.send("usinewgame")
     def send(self, c): self.p.stdin.write(c + "\n"); self.p.stdin.flush()

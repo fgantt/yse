@@ -83,6 +83,10 @@ enum Cmd {
         /// move in the game (read from the next record) captured a piece.
         #[arg(long)]
         quiet: bool,
+        /// Multiply teacher scores below 20000 (not mate scores) by this, to bring a teacher
+        /// onto the scale of the others (Suisho5 at FV_SCALE 24: 1.29 to match halfkpvm).
+        #[arg(long, default_value_t = 1.0)]
+        eval_scale: f64,
         /// Where the corpus came from, for `lineage.json` (e.g. "Mac batch 2 + PC batch 3").
         #[arg(long, default_value = "")]
         note: String,
@@ -149,6 +153,7 @@ struct Rec {
 struct Filter {
     half: bool,
     quiet: bool,
+    eval_scale: f64,
 }
 
 /// The value after `"key":` up to the next `,` or `}` (strings keep their quotes).
@@ -215,8 +220,11 @@ fn hand_total(captured: &CapturedPieces, player: Player) -> usize {
 /// `next` is the following line of the corpus, which `--quiet` reads to see
 /// whether this position's move captured.
 fn pack_line(line: &str, next: Option<&str>, filter: Filter) -> Option<(bool, [u8; RECORD])> {
-    let rec = parse(line)?;
-    rec.eval_cp?;
+    let mut rec = parse(line)?;
+    let eval = rec.eval_cp?;
+    if filter.eval_scale != 1.0 && eval.abs() < 20000 {
+        rec.eval_cp = Some((f64::from(eval) * filter.eval_scale).round() as i32);
+    }
     let held_out = rec.game_id % VAL_STRIDE == 0;
     if filter.half && !held_out && (rec.game_id / VAL_STRIDE) % 2 != 0 {
         return None;
@@ -316,7 +324,8 @@ fn pack(
     }
     train.flush()?;
     println!("train {n_train}  val {n_val}  skipped {skipped}");
-    let opts = serde_json::json!({"quiet": filter.quiet, "half": filter.half, "seed": seed});
+    let opts = serde_json::json!({"quiet": filter.quiet, "half": filter.half, "seed": seed,
+        "eval_scale": filter.eval_scale});
     write_lineage(out_dir, "pack", &[corpus.to_path_buf()], &opts, note, [n_train, n_val, skipped])
 }
 
@@ -739,8 +748,8 @@ fn check(corpus: &Path, n: usize, nbuckets: usize, weights: Option<&Path>) -> st
 
 fn main() -> std::io::Result<()> {
     match Cli::parse().cmd {
-        Cmd::Pack { corpus, out_dir, buckets, seed, half, quiet, note } => {
-            pack(&corpus, &out_dir, buckets, seed, Filter { half, quiet }, &note)
+        Cmd::Pack { corpus, out_dir, buckets, seed, half, quiet, eval_scale, note } => {
+            pack(&corpus, &out_dir, buckets, seed, Filter { half, quiet, eval_scale }, &note)
         }
         Cmd::Tables { king_buckets, out } => tables(king_buckets, &out),
         Cmd::PackPsv { inputs, out_dir, buckets, seed, quiet, note } => {
