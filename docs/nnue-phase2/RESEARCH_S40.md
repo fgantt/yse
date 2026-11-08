@@ -353,3 +353,65 @@ plus correction on (`tuned_fix`), against stable, 1 s, 4 threads, two seeds unde
 s1 60-2-37, s2 52-3-39; pooled 112-5-76 over 193 games, LLR +2.97 PASS. The raw score is about +65.
 An SPRT that stops at the boundary overstates the effect, and the parts' estimates (+19, +23) put
 the true value nearer +40.
+
+## 5. Rethink after the S40 gates (2026-11-08)
+
+**What went wrong in this session's method.** After step A, the plan's order (B, then C) was kept
+although A said the gap is per node and large. Changes worth about +20 were then put through a
+gate that passes a true +20 about half the time. Screens ran at about 150 ms of search
+(MoveOverhead 100) and SPSA at about 80 ms on one thread, while the gate runs 1 s on 4 threads;
+search changes that won there were even at 1 s, twice. The 4-thread cold-table bug was in the
+code all along and took minutes to confirm once looked for. It also means **every 4-thread
+measurement of history-ordering changes since S35, including S35's own testbed, ran with three
+of four threads' history reset each move.** Standing rule from now on (memory
+`check_before_long_runs`): before any run of hours, write down the expected effect against what the
+gate resolves, the state-lifetime/correctness check, whether the test conditions match the gate,
+and whether the change addresses the measured gap, and state the odds of a pass.
+
+**What the evidence says the gap is.** S35's testbed (`yo_nnue.rs`, YaneuraOu's network inside our
+search, diagnostic only) held the evaluation equal and found our 4 threads x 500 ms (~1M nodes)
+playing like YaneuraOu at ~7,000 nodes, and **~5x the nodes to reach depth 13** (median 580k vs
+110k). S40's A/A2 agree: no parity even at 16x reported nodes. Evaluation also matters (42.5%
+→ 95% at 3k nodes with their network), but the larger, measured gap is **how many nodes a depth
+costs us at equal evaluation**. Everything this session shipped (+~40) is small against that.
+
+**The levers, checked.**
+
+| Lever | Size, by evidence | Can we measure it cheaply and in gate conditions? | Verdict |
+|---|---|---|---|
+| Audit 4-thread game path for more state/lifetime bugs (TT generation per move, helper accumulators, game history for repetition in helpers, eval caches, time use with 4 threads) | unknown; past finds +202 (hash) and today's | yes: code reading + logging builds, minutes each | **do first** |
+| Re-run S35 testbed with the fix (our search + their network vs YaneuraOu, 10k nodes, 120 games) | resets the baseline for every search measurement | yes; large effects (S35 rows span 3-95%) resolve in 120 games | **do second** |
+| Nodes-to-depth at equal evaluation (5x) | the largest measured gap | yes, offline: `search-diag` per-ply ratios and cutoff index vs YaneuraOu's own depth/node counts on fixed positions, minutes | **primary target**; each change also checked for accuracy (neutral-set move loss) before any games |
+| D. Speed per thread (2.3x) | ~+50-80 by the doubling rule | yes: fingerprint-identical changes need no games at all; nps is measured in minutes | **run alongside**, stack, gate once |
+| G. SFNN-style network rebuild | +R100 claimed (unisolated), weeks | only by games after weeks of work | after the search gap is down, or if the testbed says otherwise |
+| E. Width/tail, F. more data | +10-30 and ~+20 per 1B | no: below the gate's resolution, days to weeks | **park** |
+| More SPSA | small at short TC; tuning must run near gate conditions | no at current cost | **park** until search structure changes |
+
+**Proposed order.** (1) Audit the 4-thread game path, offline. (2) Re-baseline the S35 testbed with
+the shipped engine (one 120-game run at the 10k rung, ~1-2 h). (3) Work on nodes-to-depth at equal
+evaluation using `search-diag` against YaneuraOu on fixed positions, with speed work (D) stacked
+alongside; no games until a stack shows a large offline change. (4) Gate the stack once, pooled,
+with the pass odds stated first.
+
+### 5a. Audit of the 4-thread game path (2026-11-08)
+
+Checked by reading the per-move path (`get_best_move_with_limits` → `IterativeDeepening::search`
+→ `LazyHelpers`) and measuring with logging builds and the shipped engine (4 threads, 1 s byoyomi,
+MoveOverhead 100, 40 positions from a gate game; `$SP/timeuse.py`).
+
+| Item | Finding |
+|---|---|
+| TT aging | Sound: `new_search()` once per move, before the helpers start |
+| Helper setup per move | Sound and cheap: network copies and engines take 3-7 ms on the main thread, 0.2-0.8 ms per helper |
+| Helper game history (repetition) | Sound: helpers get the main engine's `game_path`, set every move |
+| History/correction across moves | Fixed and shipped in `8934982` |
+| **Partial iterations** | **Broken for the default search.** `partial_iter` (S32: +42.8 ± 35.0, SPRT pass) only applies when the root/PV *split* produced the result (`partial_usable` needs `parallel_result`). Lazy SMP became the default afterwards (`56ce0aa`), and since then a cut-off iteration is always discarded, on one thread or many |
+| **Time actually used** | Moves end at a mean of 793 ms of the 1,000 ms byoyomi. The move played comes from the last *completed* iteration, which ends at a mean of **562 ms**. On average 231 ms (median 281, max 716) go to an iteration whose result is thrown away, and 24 of 40 moves waste more than 200 ms. The playing strength is that of a ~560 ms search |
+
+**Consequence.** The engine plays as if it had about 56% of its byoyomi. Making a cut-off main-thread
+iteration usable (previous best searched first; adopt the best root move that finished inside
+the window, as `partial_iter` did for the split), and then letting iterations run to the limit,
+would turn most of the ~340 ms per move into searched time: roughly 1.6x the effective time.
+The S32 measurement of the same mechanism, +42.8 ± 35, is the best prior for its value. The
+offline check, effective time at the last usable result from `timeuse.py`, takes a minute and
+verifies the implementation before any games.
