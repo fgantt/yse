@@ -859,6 +859,16 @@ mod lazy_smp;
 mod lean;
 #[path = "lean_hist.rs"]
 mod lean_hist;
+#[path = "lean_corr.rs"]
+mod lean_corr;
+#[path = "lean_params.rs"]
+pub mod lean_params;
+
+/// Clears every search thread's lean history and correction tables (on their
+/// next use): `usinewgame`.
+pub fn lean_new_game() {
+    lean_hist::new_game();
+}
 pub use lazy_smp::{lazy_smp_enabled, set_lazy_smp};
 pub use lean::{lean_enabled, set_lean_search, SE_EXT, SE_MULTICUT, SE_TESTS};
 

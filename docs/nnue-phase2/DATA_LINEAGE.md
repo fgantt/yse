@@ -121,6 +121,7 @@ Raw files: Mac `corpus_hao/raw/` (sample 50), PC `/mnt/c/Users/fgant/hao/raw/` (
 | `mix_c2` | ours_quiet + ours_b1q + ours_b2q 72.9M + ours_b4q 35.9M + s50q + s150q | 1,354,613,189 | 33,003,552 |
 | `mix_c1s` | as `mix_c1` with ours_b1s5q in place of ours_b1q (teacher test) | 1,245,896,918 | 27,233,692 |
 | `mix_h2` | ours_quiet + s50q + s150q + s200bq (more Hao) | 2,056,469,315 | 25,708,617 |
+| `mix_h3` | as `mix_h2` with ours_quiet listed **twice** (ours ≈ 19.5%, a1's share); val holds ours' val twice (S40) | 2,279,099,547 | 37,910,487 |
 
 ## 5. Networks
 
@@ -157,6 +158,7 @@ bold, with the first 12 hex digits of the committed file's sha256.
 | p1_c2m | 39 | `mix_c2` | same, `--mid 32` (v6) | 8, 0.02856 | vs a1 0 ± 32 over 452 games (FAIL), −74 ± 75 (FAIL); not shipped |
 | p1_c1s | 39 | `mix_c1s` | as p1_c1 | 8, 0.02913 | vs p1_c1 −28 ± 51 (FAIL), −14 ± 43 (FAIL); vs a1 +3 ± 30 over 514 games (FAIL), −56 ± 64 (FAIL); not shipped |
 | p1_h2 | 39 | `mix_h2` | as p1_a1 | 8, 0.02992 | vs a1 +25 ± 27 (cap, 600 games), +35 ± 27 (PASS); ship SPRT vs a1 at 1 s +20.9 ± 25.4 over 600 games (310-16-274), INCONCLUSIVE at the cap (LLR +0.22); not shipped |
+| p1_h3 | 40 | `mix_h3` | as p1_a1 (`938ebeb573e1`) | 8, 0.02890 | vs a1 +40.8 ± 33.4 (PASS), +53.4 ± 42.8 (PASS); vs p1_h2 −137.0 ± 107.9 (FAIL, 40 games), +9.8 ± 27.1 (600, inconclusive); pooled 317-8-315, LLR −4.21 FAIL: no better than h2, not shipped |
 
 Stage B outcome (2026-11-02): adding the S39 batches (`ours_b1q`, `ours_b2q`, `ours_b4q`) to a1's
 data lowered held-out loss on each mix's own validation set but did not win games: c1/c1m about

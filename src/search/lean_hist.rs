@@ -57,24 +57,68 @@ pub(super) struct LeanHist {
     path: [u16; MAX_PLY],
 }
 
-thread_local! {
-    static HIST: std::cell::RefCell<Option<Box<LeanHist>>> = const { std::cell::RefCell::new(None) };
+/// Bumped by `usinewgame` (`new_game`): every thread's lean tables (these and
+/// `lean_corr`'s) are rebuilt empty on their next use after a bump. Within a
+/// game they persist across moves; the parallel search reuses one thread pool
+/// (`parallel_search::shared_pool`) so that its helpers keep theirs too
+/// (Session 40: a new pool per move gave three of four threads empty tables on
+/// every move).
+pub(super) static GAME_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Starts a new game for every thread's lean tables.
+pub(super) fn new_game() {
+    GAME_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 }
 
-/// Runs `f` on this thread's tables, creating them on first use.
+pub(super) fn game_epoch() -> u64 {
+    GAME_EPOCH.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+thread_local! {
+    static HIST: std::cell::RefCell<Option<(u64, Box<LeanHist>)>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Tables of the Lazy SMP helpers between moves, by helper id. Helpers are new
+/// threads on every move (`lazy_smp`), so their thread-local tables would start
+/// empty each time (Session 40); a helper takes its tables from here when it
+/// starts (`unpark`) and leaves them here when it ends (`park`).
+static PARKED: std::sync::Mutex<Vec<Option<(u64, Box<LeanHist>)>>> = std::sync::Mutex::new(Vec::new());
+
+/// Gives this thread helper `slot`'s tables (an older game's are dropped on use).
+pub(super) fn unpark(slot: usize) {
+    let t = PARKED.lock().ok().and_then(|mut v| v.get_mut(slot).and_then(Option::take));
+    HIST.with(|c| *c.borrow_mut() = t);
+}
+
+/// Leaves this thread's tables for the next helper `slot`.
+pub(super) fn park(slot: usize) {
+    let t = HIST.with(|c| c.borrow_mut().take());
+    if let Ok(mut v) = PARKED.lock() {
+        if v.len() <= slot {
+            v.resize_with(slot + 1, || None);
+        }
+        v[slot] = t;
+    }
+}
+
+/// Runs `f` on this thread's tables, creating them on first use in a game.
 pub(super) fn with<R>(f: impl FnOnce(&mut LeanHist) -> R) -> R {
     HIST.with(|h| {
         let mut h = h.borrow_mut();
-        f(h.get_or_insert_with(|| {
-            Box::new(LeanHist {
+        let epoch = game_epoch();
+        if h.as_ref().is_some_and(|(e, _)| *e != epoch) {
+            *h = None;
+        }
+        f(&mut h.get_or_insert_with(|| {
+            (epoch, Box::new(LeanHist {
                 quiet: vec![0; 2 * ORIGINS * 81],
                 cont: [vec![0; PT * PT], vec![0; PT * PT]],
                 capture: vec![0; PT * PieceType::COUNT],
                 killers: std::array::from_fn(|_| [None, None]),
                 counter: vec![None; PT],
                 path: [NO_KEY; MAX_PLY],
-            })
-        }))
+            }))
+        }).1)
     })
 }
 
@@ -136,6 +180,11 @@ impl LeanHist {
             usize::try_from(ply - back).ok().filter(|&p| p < MAX_PLY && ply - back >= 1).map_or(NO_KEY, |p| self.path[p])
         };
         [get(0), get(1)]
+    }
+
+    /// Key of the move that led to the node at `ply` (`NO_KEY` for none).
+    pub(super) fn prev_key(&self, ply: i32) -> u16 {
+        self.prev_keys(ply)[0]
     }
 
     /// History score of a quiet move at `ply` (quiet + both continuations).

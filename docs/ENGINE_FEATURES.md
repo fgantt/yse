@@ -16,13 +16,16 @@ Classic selects the older `negamax` in `search_engine.rs`).
 | Principal variation search | First move full window, the rest with a null window and re-search on fail-high | `lean_node` | |
 | Aspiration windows | Each depth starts with a window around the previous score | `IterativeDeepening::search` | USI `EnableAspirationWindows`, `AspirationWindowSize` |
 | Lazy SMP | Helper threads search the same root and share the hash table; Stockfish 9 skip schedule; a deeper, higher-scoring helper result is played | `src/search/lazy_smp.rs` | Default since `56ce0aa`; USI `ThreadAlgorithm` Lazy/Split; `USI_Threads` (16) |
+| Correction history | Static eval corrected by learned per-thread tables (pawn structure, pieces in hand, opponent's last move), before it drives pruning | `src/search/lean_corr.rs` | Default since Session 40; `SHOGI_LEAN_CORR=0` off; weights `SHOGI_LEAN_CORR_W` |
+| Per-game search tables | History and correction tables persist across a game's moves on every thread (Lazy SMP helpers park theirs by id) and clear on `usinewgame` | `lean_hist.rs` (`park`/`unpark`, `GAME_EPOCH`) | Session 40; before it, 3 of 4 threads started each move empty |
+| Tunable search constants | Pruning margins and LMR divisors, defaults from SPSA run v1 | `src/search/lean_params.rs`, `scripts/spsa.py` | `SHOGI_LEAN_PARAMS=name=v,...` |
 | Root/PV split (alternative) | YBWC split at the root and first PV plies, workers with own tables | `parallel_search.rs` | `ThreadAlgorithm` Split |
 | Transposition table | Shared, lock-free stores; key stored as `hash ^ data` so torn reads miss; a generation per search, fresh entries replace stale ones, else depth/bound | `thread_safe_table.rs`, `replacement_policies.rs` | `USI_Hash` default 256 MB (was 16 MB, which starved Lazy SMP) |
 | Null-move pruning | Pass the move; if still >= beta at reduced depth, prune | `lean_node` | R = 3 + depth/3 + margin term; not in check, depth >= 3 |
 | Reverse futility / razoring | Static-evaluation cut-offs near the leaves | `lean_node` | Razoring drops to quiescence |
 | Late move pruning | Skip late quiet moves at depth <= 8 on non-PV nodes | `lean_node` move loop | Threshold 3 + depth^2 |
 | Futility pruning | Skip quiet moves when static eval + margin <= alpha | `lean_node` move loop | depth <= 6 |
-| SEE pruning | Skip quiet moves, drops and captures that lose material | `lean_node` move loop | depth <= 6; -80*depth quiet, -150*depth captures |
+| SEE pruning | Skip quiet moves, drops and captures that lose material | `lean_node` move loop | depth <= 6; -86*depth quiet, -171*depth captures (Session 40 SPSA; was 80/150) |
 | Late move reductions | Late quiet moves searched shallower, re-searched if they fail high | `lean_node`, `lmr_table` | Log-log table; less at PV, more at cut nodes |
 | Check extension | Checking moves searched a ply deeper (bounded per path) | `lean_node` | Since `3bd5228` not for checks with negative SEE, which are also prunable |
 | Internal iterative deepening | Shallow search for a move at PV nodes with no table move | `lean_node` | depth >= 5 |

@@ -144,6 +144,9 @@ fn helper_search(
     best: Arc<std::sync::Mutex<Option<HelperResult>>>,
     max_depth: u8,
 ) {
+    // Keep this helper's history and correction tables from its previous move.
+    lean_hist::unpark(id);
+    lean_corr::unpark(id);
     // The engine's own table is replaced by the shared one, so keep it small.
     let mut engine = SearchEngine::new(Some(stop.clone()), 1);
     engine.transposition_table = tt;
@@ -170,4 +173,6 @@ fn helper_search(
             }
         }
     }
+    lean_hist::park(id);
+    lean_corr::park(id);
 }

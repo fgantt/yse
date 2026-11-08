@@ -20,14 +20,16 @@
 
 use super::*;
 
-/// Reductions by depth and move number, from `ln(depth) * ln(move) / 2.25`.
+/// Reductions by depth and move number, from `ln(depth) * ln(move) / 2.25`
+/// (`lmr_div`).
 fn lmr_table() -> &'static [[u8; 64]; 64] {
     static T: std::sync::OnceLock<[[u8; 64]; 64]> = std::sync::OnceLock::new();
     T.get_or_init(|| {
+        let div = f64::from(super::lean_params::lean_params().lmr_div) / 100.0;
         let mut t = [[0u8; 64]; 64];
         for (d, row) in t.iter_mut().enumerate().skip(1) {
             for (m, r) in row.iter_mut().enumerate().skip(1) {
-                *r = (0.5 + (d as f64).ln() * (m as f64).ln() / 2.25) as u8;
+                *r = (0.5 + (d as f64).ln() * (m as f64).ln() / div) as u8;
             }
         }
         t
@@ -256,6 +258,7 @@ impl SearchEngine {
         prev_move: Option<&Move>,
     ) -> i32 {
         let pv_node = beta - alpha > 1;
+        let lp = super::lean_params::lean_params();
         let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
         let in_check = board.is_king_in_check(player, captured_pieces);
 
@@ -336,8 +339,28 @@ impl SearchEngine {
             }
         }
 
-        let static_eval =
-            if in_check { -INF } else { self.evaluate_position(board, player, captured_pieces) };
+        // Correction history (`lean_corr`): the evaluation adjusted by what
+        // searches of positions with the same pawns, hand or previous move found.
+        let corr_keys = (super::lean_corr::corr_enabled() && !in_check && excluded.is_none())
+            .then(|| {
+                let prev = if hist != 0 {
+                    super::lean_hist::with(|h| h.prev_key(ply))
+                } else {
+                    super::lean_hist::NO_KEY
+                };
+                super::lean_corr::keys(board, captured_pieces, player, prev)
+            });
+        let static_eval = if in_check {
+            -INF
+        } else {
+            let raw = self.evaluate_position(board, player, captured_pieces);
+            match &corr_keys {
+                Some(k) if raw.abs() < MATE_THRESHOLD => (raw
+                    + super::lean_corr::with(|c| c.correction(k)))
+                .clamp(-MATE_THRESHOLD + 1, MATE_THRESHOLD - 1),
+                _ => raw,
+            }
+        };
         let prunable =
             !pv_node && !in_check && excluded.is_none() && !search_toggles().no_pruning;
         let uses = improving_uses();
@@ -356,8 +379,8 @@ impl SearchEngine {
         // bring it back down within a few plies.
         if prunable
             && !lean_off(off::RFP)
-            && depth <= 6
-            && static_eval - 120 * (depth - i32::from(uses & 1 != 0 && improving)) >= beta
+            && depth <= lp.rfp_depth
+            && static_eval - lp.rfp_margin * (depth - i32::from(uses & 1 != 0 && improving)) >= beta
             && static_eval < MATE_THRESHOLD
         {
             if traced {
@@ -371,7 +394,7 @@ impl SearchEngine {
         }
 
         // Razoring: hopeless at the frontier, let quiescence decide.
-        if prunable && !lean_off(off::RAZOR) && depth <= 2 && static_eval + 250 * depth < alpha {
+        if prunable && !lean_off(off::RAZOR) && depth <= lp.razor_depth && static_eval + lp.razor_margin * depth < alpha {
             let q = self.lean_q_entry(
                 board,
                 captured_pieces,
@@ -392,13 +415,15 @@ impl SearchEngine {
         // Null move: pass; if the opponent still cannot reach beta, prune.
         if prunable
             && null_ok
-            && depth >= 3
+            && depth >= lp.null_depth
             && static_eval >= beta
             && !search_toggles().no_null_move
             && !lean_off(off::NULL)
             && beta > -MATE_THRESHOLD
         {
-            let r = 3 + depth / 3 + ((static_eval - beta) / 200).min(3);
+            let r = lp.null_base
+                + depth / lp.null_depth_div
+                + ((static_eval - beta) / lp.null_eval_div).min(lp.null_eval_max);
             self.null_move_stats.attempts += 1;
             let path_len = hash_history.len();
             let s = -self.lean_node(
@@ -427,8 +452,8 @@ impl SearchEngine {
 
         // ProbCut: a capture whose reduced search clears beta by a margin
         // would almost surely clear beta at full depth.
-        if prunable && lean_probcut() && depth >= 5 && beta.abs() < MATE_THRESHOLD {
-            let pc_beta = beta + 200;
+        if prunable && lean_probcut() && depth >= lp.probcut_depth && beta.abs() < MATE_THRESHOLD {
+            let pc_beta = beta + lp.probcut_margin;
             let tt_says_below = tt_entry.as_ref().is_some_and(|e| {
                 e.depth as i32 >= depth - 3
                     && e.flag != TranspositionFlag::LowerBound
@@ -642,8 +667,8 @@ impl SearchEngine {
                     if hist & 4 != 0
                         && !lean_off(off::HIST)
                         && !pv_node
-                        && depth <= 3
-                        && super::lean_hist::with(|h| h.quiet_score(mv, ply)) < -4000 * depth
+                        && depth <= lp.hist_prune_depth
+                        && super::lean_hist::with(|h| h.quiet_score(mv, ply)) < -lp.hist_prune_mul * depth
                     {
                         if line_mv {
                             eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: history", mv.to_usi_string(), moves.len());
@@ -651,36 +676,36 @@ impl SearchEngine {
                         continue;
                     }
                     // Late move pruning.
-                    let lmp_count = (3 + (depth * depth) as usize) / (1 + usize::from(!improving_for(2)));
-                    if !pv_node && !lean_off(off::LMP) && depth <= 8 && move_count > lmp_count {
+                    let lmp_count = (lp.lmp_base.max(0) as usize + (depth * depth) as usize) / (1 + usize::from(!improving_for(2)));
+                    if !pv_node && !lean_off(off::LMP) && depth <= lp.lmp_depth && move_count > lmp_count {
                         if line_mv {
                             eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: late-move (limit {lmp_count})", mv.to_usi_string(), moves.len());
                         }
                         continue;
                     }
                     // Futility.
-                    if !pv_node && !lean_off(off::FUT) && depth <= 6 && static_eval + 100 + 150 * depth <= alpha {
+                    if !pv_node && !lean_off(off::FUT) && depth <= lp.fut_depth && static_eval + lp.fut_base + lp.fut_mul * depth <= alpha {
                         if line_mv {
                             eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: futility (eval {static_eval}, alpha {alpha})", mv.to_usi_string(), moves.len());
                         }
                         continue;
                     }
                     // Quiet moves and drops that lose material.
-                    if depth <= 6
+                    if depth <= lp.see_quiet_depth
                         && !lean_off(off::SEE_QUIET)
                         && crate::search::move_ordering::see_calculation::see_quiet(mv, board)
-                            < -80 * depth
+                            < -lp.see_quiet_mul * depth
                     {
                         if line_mv {
                             eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: losing quiet/drop (SEE)", mv.to_usi_string(), moves.len());
                         }
                         continue;
                     }
-                } else if depth <= 6
+                } else if depth <= lp.see_cap_depth
                     && !lean_off(off::SEE_CAPTURE)
                     && crate::search::move_ordering::see_calculation::calculate_see_internal(
                         mv, board,
-                    ) < -150 * depth
+                    ) < -lp.see_cap_mul * depth
                 {
                     if line_mv {
                         eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: losing capture (SEE)", mv.to_usi_string(), moves.len());
@@ -759,7 +784,7 @@ impl SearchEngine {
                         r -= 1;
                     }
                     if hist & 2 != 0 {
-                        r -= super::lean_hist::with(|h| h.quiet_score(mv, ply)) / 8000;
+                        r -= super::lean_hist::with(|h| h.quiet_score(mv, ply)) / lp.lmr_hist_div;
                     }
                     r = r.clamp(0, new_depth - 1);
                 }
@@ -896,6 +921,19 @@ impl SearchEngine {
         } else {
             TranspositionFlag::UpperBound
         };
+        // Correction history learns from results consistent with their bound,
+        // where the best move is quiet (a capture's gain is not the evaluation's
+        // error).
+        if let Some(k) = &corr_keys {
+            if !self.search_aborted
+                && best_move.as_ref().is_none_or(|m| !m.is_capture)
+                && best_score.abs() < MATE_THRESHOLD
+                && !(flag == TranspositionFlag::LowerBound && best_score <= static_eval)
+                && !(flag == TranspositionFlag::UpperBound && best_score >= static_eval)
+            {
+                super::lean_corr::with(|c| c.update(k, best_score - static_eval, depth));
+            }
+        }
         // The table keeps non-exact entries at shallow depth only with a move
         // (see `maybe_buffer_tt_store`); a fail-low node offers its first move,
         // as negamax does.

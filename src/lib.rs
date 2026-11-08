@@ -1558,6 +1558,7 @@ impl ShogiEngine {
     }
 
     pub fn handle_usinewgame(&mut self) -> Vec<String> {
+        search::search_engine::lean_new_game();
         if let Ok(mut search_engine_guard) = self.search_engine.lock() {
             search_engine_guard.clear();
         }
