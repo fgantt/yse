@@ -17,10 +17,10 @@ OPEN), our engine (engines/usi-engine-stable, 1 thread, no book) and YaneuraOu e
 move at go nodes 25k, 100k, 400k, 1.6M, 6.4M; the judge scores each choice. A move whose loss
 falls under 30 cp at some rung is "found at N nodes"; never found by our engine at 6.4M is
 an evaluation-side miss (our net, or our search's shape, keeps preferring it). Node counts are
-as each engine reports them; ours exclude quiescence (memory: node_counts_exclude_quiescence),
-so equal numbers are not equal work.
+as each engine reports them; both count quiescence (ours since 849b44a), so equal numbers are
+roughly equal work.
 """
-import json, os, subprocess, sys
+import json, os, subprocess, sys, tempfile
 from multiprocessing import Pool
 from paths import require_yane
 
@@ -65,7 +65,11 @@ OURS = os.path.join(REPO, "engines/usi-engine-stable")
 JUDGE_NODES = int(os.environ.get("JUDGE_NODES", 3_000_000))
 LADDER = [25_000, 100_000, 400_000, 1_600_000, 6_400_000]
 LADDER_MIN, OPEN, FOUND = 40, 1500, 30
-PREFS = os.environ.get("SHOGI_PREFS_DIR")
+# Our engine persists `setoption USI_Threads` to its prefs file. Without SHOGI_PREFS_DIR that is
+# the shared ~/Library/Application Support/shogi-vibe/engine_prefs.json, which the GUI reads too:
+# on 2026-11-08 this script's `USI_Threads value 1` left every later GUI game on one thread.
+# So the engine always gets a private prefs directory here.
+PREFS = os.environ.get("SHOGI_PREFS_DIR") or os.path.join(tempfile.gettempdir(), "yse-game-gap-prefs")
 YANE_OPTS = ["setoption name USI_OwnBook value false", "setoption name BookFile value no_book",
              "setoption name Threads value 1", "setoption name USI_Hash value 256"]
 OUR_OPTS = ["setoption name USI_OwnBook value false", "setoption name USI_Threads value 1",
@@ -131,7 +135,7 @@ def phase_ladder(game):
     rows = [json.loads(l) for l in open(os.path.join(GAMES, game + "_gap.jsonl"))]
     pick = [r for r in rows if r["loss"] >= LADDER_MIN and abs(r["best_cp"]) < OPEN]
     j = judge_engine()
-    env_prefs = {"SHOGI_PREFS_DIR": PREFS} if PREFS else {}
+    env_prefs = {"SHOGI_PREFS_DIR": PREFS}
     os.environ.update(env_prefs)
     ours = Eng(OURS, cwd=REPO, options=OUR_OPTS)
     yane = Eng(YANE, cwd=YANE.rsplit("/", 1)[0], options=YANE_OPTS)
