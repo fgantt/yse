@@ -56,6 +56,12 @@ Rows: `matches/user_games/*_gap.jsonl`, `*_ladder.jsonl`.
 | 10-30 vs Gikou 2 (h4) | 45 | 1092 / 31 | 4 / 3 | 54% |
 | 10-31 vs YaneuraOu (m8) | 61 | 461 / 10 | 3 / 1 | 52% |
 | 11-01 vs YaneuraOu (a1) | 67 | 684 / 13 | 7 / 2 | 65% |
+| 11-08 vs YaneuraOu (8934982, after this session's ship) | 53 | 1569 / 40 | 10 / 6 | 44% |
+
+The 11-08 game was lost in a bishop manoeuvre over plies 43-53 (7g6h, 6h3e, 6f7g, 3e4f: judge
+-47 to -524). Ladder at 1 thread: ply 43 found by us only at 6.4M (YaneuraOu 400k); plies 51,
+63 and 77 our engine still plays the game move at 6.4M (an evaluation-side preference); plies
+59 and 73 never found. One game, noisy judge: a pointer, not a verdict.
 
 What the ladder shows (26 positions):
 - **Our current engine avoids most of the older networks' costly moves** even at 25k nodes, at
@@ -415,3 +421,379 @@ would turn most of the ~340 ms per move into searched time: roughly 1.6x the eff
 The S32 measurement of the same mechanism, +42.8 ± 35, is the best prior for its value. The
 offline check, effective time at the last usable result from `timeuse.py`, takes a minute and
 verifies the implementation before any games.
+
+### 5b. Partial iterations for the main thread (2026-11-08, uncommitted)
+
+`search_at_depth` records the root moves that finished (`last_root_completed`). When the clock
+cuts an iteration of the main thread's own search (Lazy SMP or one thread), the iterative
+deepening loop now keeps its best finished move if the previous best is among the finished moves
+and the score is inside the window. These are the conditions `partial_iter` already used for the
+split. The fixed-depth `search_bench` fingerprint is byte-identical to `8934982`.
+
+Offline, with the same 40 positions, 4 threads, 1 s byoyomi and a logging build (`$SP/timeuse2.py`):
+
+| Build | Iterations cut off | Partial adopted | Effective time (mean / median) |
+|---|---|---|---|
+| shipped `8934982` | (all discarded) | 0 | 562 ms / — |
+| partial, start fraction 0.7 (default) | 16 | 8 | **680 / 688 ms** |
+| partial, start fraction 0.85 | 34 | 15 | 685 / 740 ms |
+| partial, start fraction 1.0 | 38 | 16 | 726 / 802 ms |
+
+Expected value: +21% effective time (0.7), roughly +20-30 by self-play time scaling, plus the
+better moves found late in an iteration. S32's +42.8 ± 35 for the same rule is the upper prior.
+The start fraction stays 0.7: under a main-time clock a later start spends banked time, and at
+byoyomi it adds only 46 ms more.
+
+**Gate odds** (`scripts/sprt.py plan 0 40`, simulated): a true +20 passes 39% of the time (median 510
+games), a true +40 passes 90% (median 306). My earlier statement that a +40 change passes only
+about half the time was wrong; the 50% point is about +25.
+
+**Gate result: FAIL.** Pooled two-seed SPRT [0, 40] at 1 s byoyomi, 4 threads each, partial vs
+`8934982` (seeds 4071/4072): 179-13-180 after 372 games, about 0 Elo, LLR -3.12. The extra
+~120 ms of effective search per move bought nothing measurable; not shipped. Time-to-strength
+scaling at this budget is flatter than assumed, which also argues against more time-use work.
+The 11-08 user game (§1) points at evaluation instead.
+
+## 6. Plan: the network (2026-11-08, needs approval)
+
+### Why the network, and a correction
+
+- **The 11-08 user game** (§1): on the costly moves our engine keeps the game move at 6.4M nodes
+  (plies 51, 63, 77) or never finds the judge's move (59, 73). More search does not change its
+  mind; its evaluation prefers those moves.
+- **A2** (§4): YaneuraOu's own search is worth ~110-200 more with Suisho5's network than with
+  halfkpvm. A network of our size class carries a gap of that order.
+- **S35** (§5): YaneuraOu's network inside our search took our score vs YaneuraOu-3k from 42.5% to
+  95%. That was with the S26 network, which is much weaker than a1; the number is stale.
+- **Correction.** I said after the partial-iterations gate that extra time is "worth little". The
+  gate cannot show that: +21% effective time should be worth about +20, and the result,
+  about 0 ± 30, does not rule that out. What it shows is that time use is not where large gains are.
+
+### What we do not know, and the cheapest way to find out
+
+Two questions decide which network work pays:
+1. **Does a1 reach the quality of its own class?** halfkpvm is the same size (HalfKP 256x2-32-32)
+   and labels our own data. If a1 is clearly worse inside the same search, our *training or
+   features* lose strength and can be fixed cheaply. If a1 is equal, the next gain needs a
+   *better teacher or more data*, which is costly.
+2. **Does a better network fix the mistakes that lose games?** The 11-08 positions can answer
+   that in minutes.
+
+### Steps
+
+**N1. Offline checks (Mac, under 1 h, no games, no window needed).**
+- Static accuracy: a1 and halfkpvm (through `yo_nnue.rs`) on S35's balanced even-game
+  positions (`corpus_s35/even/even_d14.jsonl`, |d14| < 1000), Pearson vs the depth-14 score at
+  depth 1 and depth 8 of our search. S35 had s26 at 0.29 / 0.49 vs YaneuraOu depth 1 at 0.67.
+- The 11-08 ladder positions (plies 43-77) with halfkpvm inside our search: does it avoid the
+  game's moves where a1 does not?
+
+**N2. Same search, two networks (Mac, ~1-2 h, a window you choose).** Our engine with a1 vs our
+engine with halfkpvm (`SHOGI_YO_NNUE`), 1 thread each, fixed nodes (e.g. 200k reported), 120
+games from the usual openings. Fixed nodes is the right test: the search is identical, and
+`yo_nnue.rs` evaluates from scratch, so it would lose on time for reasons that don't concern
+the question. Large differences (≥100) resolve in 120 games; if it lands within ±60, extend to 300
+rather than read it. Same window, optional: the §5 testbed re-baseline (our search + halfkpvm
+vs YaneuraOu + halfkpvm, 10k nodes) since the cold-table fix changed every search measurement.
+
+**Decision after N2:**
+
+| N2 result (a1 vs halfkpvm, same search) | Meaning | Next |
+|---|---|---|
+| a1 ≥80 below | our training/features lose strength at equal size and data class | **N3** (features) |
+| within ±60 | a1 matches its class; the gap is the teacher/data | **N4** (teacher), costed first |
+| a1 above | halfkpvm is not the target; Suisho5's margin is teacher/data | N4 |
+
+**N3. Full king squares (HalfKP proper).** Our features condition on 9 king buckets; halfkpvm (45
+mirrored squares), Suisho5 and Suisho10 all use the king's square. 81 buckets were tested only
+with the old Rust trainer and small data: S24 (6.8M) −78; S35 (62.6M) k81 ≈ k9 (78% vs 80% at
+3k, 27.5% vs 20% at 10k). They have never been tried with the GPU trainer and 2B positions,
+which is the premise S24 left open. The GPU trainer already has the king factoriser; tables come
+from `nnue_pack tables --king-buckets 81`.
+- Prerequisites, each minutes and checked before training:
+  1. **Share the network weights between threads.** Helpers now clone the weights every move
+     (`clone_for_worker`, 10.8 MB x 3 helpers); at 81 buckets that is ~97 MB x 3 per move, and
+     four copies also crowd the caches. Sharing by `Arc` keeps `search_bench --fingerprint`
+     identical, so it ships with no games and helps today's network slightly.
+  2. nps with an 81-bucket network (random weights do for speed): every king move refreshes the
+     accumulator. If nps drops more than ~15%, add a refresh cache before training.
+  3. Training time: a 1M-batch timing run on the PC; the estimate is 1.5-2x a1's 6.5 h.
+- Train on `mix_h2` (h2 recipe), screen on the PC against a1/h2, gate on the Mac.
+- **Odds, honestly:** no source isolates king resolution for shogi at our data size. The S35
+  pair says it was neutral at 62.6M; the field's choice says it matters at billions. I'd put a
+  pass of the [0, 40] gate at about 1 in 3. The cost is about a day of PC time, a few hours of
+  my work and one gate.
+
+**N4. Better teacher or more data.** Costed only if N2 points here. Candidates: relabelling a
+large share (not c1s's 110M of 1.2B) with Suisho5, or more Hao files toward tanuki-'s 8B. Both
+take days of PC time, and h2's +21 for +1B sets low expectations. Suisho5 labels were used
+in S39, but check their license before using them at scale.
+
+**Not in this plan:** width or tail changes (E: +10-30, below the gate), SFNN (G: weeks;
+only if N3 works and the network stays the limit), more SPSA or time use.
+
+**Before any gate in this plan** the four `check_before_long_runs` answers are written down, with
+the pass odds.
+
+### N1 results (2026-11-08)
+
+Testbed build: `8934982` with `--features yo-diagnostic` (the `SHOGI_YO_NNUE` hook is compiled
+out of normal builds; without the feature the variable is silently ignored). Start position
+75 cp, as in S35. Scripts: `$SP/n1/acc.py`, `$SP/n1/ladder_yo.py`.
+
+**Accuracy**: 3,000 balanced positions (|d14| < 1000) from S35's even-game set, Pearson vs
+YaneuraOu depth 14. The judge runs halfkpvm, which flatters halfkpvm.
+
+| | depth 1 | depth 8 | mean abs. error, d1 / d8 |
+|---|---|---|---|
+| YaneuraOu depth 1 (its own search) | 0.663 | | |
+| our search + a1 | 0.682 | **0.841** | 200 / 162 cp |
+| our search + halfkpvm | 0.726 | 0.827 | 186 / 149 cp |
+| a1 − halfkpvm (paired bootstrap, 95%) | −0.042 [−0.065, −0.023] | +0.013 [−0.000, +0.029] | |
+
+S35 had the S26 network at 0.293 / 0.491 on the same kind of positions: **a1 is now in
+halfkpvm's class.** It is slightly worse statically and equal or slightly better after 8 plies,
+even with a judge that shares halfkpvm.
+
+**The 11-08 positions with halfkpvm in our search** (same ladder): it makes the same mistakes.
+It plays 6f7g (ply 51), 1f1e (63), 6f6d (73) and 6d6f (77) at the deep rungs, as a1 does. It
+avoids 7g6h at ply 43, where a1 needs 6.4M nodes, and is worse than a1 at 61 and 67. YaneuraOu's
+own search with the same network found 59, 73 and 77 at 25k-400k nodes. That judge is the
+same engine at 3M nodes, so that agreement is biased in its favour; but on this game, with the
+network held equal, **the difference is our search, not the network.** My reading after the
+ladder ("evaluation") was wrong: it did not separate the network from the search.
+
+**Decision (by the §6 table):** a1 ≈ halfkpvm, so N3 (king squares, to close a gap to our own
+class) is not indicated. N2 is unlikely to change that. The remaining levers are a better
+teacher than halfkpvm (A2: Suisho5 is worth ~110-200 to YaneuraOu) and the per-node search gap,
+which this game shows again.
+
+### N4, costed: a stronger teacher (2026-11-08, needs approval)
+
+**Who teaches a1 now.** a1's data is 80% Hao (nodchip `shogi_hao_depth9`, Hao network at depth
+9) and 20% our own games labelled by halfkpvm at depth 8. So "a better teacher than halfkpvm"
+means, in practice, a better one than Hao. How Hao compares with Suisho5 is not measured
+anywhere I found. A2 measured only Suisho5 vs halfkpvm inside YaneuraOu (Suisho5 ~110-200
+stronger).
+
+**Candidates (all published under MIT, which fits the licensed-data exception):**
+
+| Set (Hugging Face, nodchip) | Teacher | Size | Notes |
+|---|---|---|---|
+| `shogi_suisho5_depth9` | Suisho5, depth 9 | 185 GB as 8 split 7z volumes, ~5B positions (YaneuraOu wiki), plus `shuffled.bin` 290 MB validation | shuffled; positions already replaced by the quiescence leaf (so already "quiet") |
+| `tanuki-.nnue-pytorch-2024-07-30.1` | tanuki-'s 2024 network, depth 9 | 320 GB, 5 split 7z volumes | not shuffled, not quiet; teacher's strength unknown to us |
+| `shogi_suisho5_depth9_entering_king` | Suisho5, entering-king openings | not checked | niche |
+
+The Suisho5 network file's own licence is unclear (GPL v3 is listed for Suisho as a whole), so
+relabelling with it at scale (as c1s did for 110M positions) is not the route. The published
+data set avoids the question.
+
+**Evidence for and against.** For: A2 (Suisho5 is much the stronger network in YaneuraOu), and
+the field trains on billions of positions from strong teachers. Against: c1s, Suisho5 labels at
+depth 8 on 9% of the mix (our own positions), gave no gain (−28, −14 vs c1). That is a weak test
+(small share, our games' positions), but it is the only one.
+
+**Steps.**
+1. **Validation file only** (290 MB, minutes): `nnue_pack psv-check` for format and legal
+   moves; label scale against outcome (the logistic scale, as for the S39 Suisho5 labels:
+   560 vs halfkpvm 720, so `--eval-scale` ≈ 1.29 may apply); how it compares with Hao on the
+   same measures. Stop here if the format or scale is wrong.
+2. **Full download to the PC** (185 GB, ~1.5-2 h at the 30 MB/s of the Hao downloads). 7z keeps
+   its index at the end, so a single volume cannot be extracted. C: has 291 GB free. 7z must be
+   installed in WSL (`p7zip-full`).
+3. **Extract ~0.92B positions** (37 GB) as a stream, pack with `pack-psv` (~35 min per billion),
+   and mix with `ours_quiet` exactly as `mix_a1` (ours 222.6M + 913.6M Suisho5 in place of
+   913.6M Hao). The PC's home disk has 108 GB free; the packed set (~92 GB) and the mix (~114 GB)
+   need about 200 GB. **Deleting `mix_c1` (119 GB), `mix_a2` (65 GB) and `mix_h3` (216 GB) frees it;
+   all are reproducible from packed sets. That needs your OK.**
+4. **Train `p1_s5`** with a1's recipe and size (~5 h on the PC). A clean A/B: same size, same
+   recipe, same own-game share; only Hao → Suisho5 changes.
+5. **Screen on the PC** vs a1 (`pc_screen.sh`, two seeds). Mac gate only on a clear screen.
+
+**Odds and what each outcome means.** If Suisho5's labels carry even a third of its network's
+margin over halfkpvm-class play, that is +35-70, which the gate resolves (+40: 90% pass). c1s
+argues it may carry little. I put the PC screen showing a clear gain at about 40%, and a ship at
+about 30%. Cost if it fails: about a day of the PC, no Mac time. If it wins, the next steps are
+(a) the h2-size version (Suisho5 + Hao + ours), and (b) the tanuki- 2024 set, tested the same way.
+
+**Step 1 result (2026-11-08).** `shuffled.bin` (289,626,920 bytes, 7,240,673 records, fetched to
+Mac `corpus_suisho5/val/`, ignored) decodes completely. Compared with a Hao file of the same size
+(`thread_index=000`), first 400k records each, outcome turned to the side to move:
+
+| | Suisho5 `shuffled.bin` | Hao `thread_index=000` |
+|---|---|---|
+| Stored move | none (`1a1a` in every record) | legal in all |
+| In check | 22 (0.006%) | 54,706 (14%); 34% captures |
+| \|score\| median / 90th pct | 626 / 3994 | 612 / 3688 |
+| Ply median (10th-90th) | 78 (29-139) | 78 (29-140) |
+| Win rate at +100-300 / +300-600 / +600-1000 / +1000-1500 | 0.576 / 0.669 / 0.767 / 0.849 | 0.573 / 0.673 / 0.778 / 0.854 |
+| Best logistic scale (\|s\| < 1500) | 630 | 590 |
+
+- Same generation pipeline (identical ply and score spread), already quiet. **Pack it without
+  `--quiet`**: that filter needs the stored move and would drop every record. `pack-psv` on the
+  file kept all 7.24M (9 s).
+- **No `--eval-scale`**: the scales differ by 7% (630 vs 590), within what the S39 measurement
+  of the same kind moved by. The S39 factor 1.29 came from Suisho5 run by us on our positions
+  against halfkpvm, and does not apply to this set.
+- The win-rate columns do not rank the teachers: these are different games, and both were
+  played by the labelling engine itself. Only the trained network can tell them apart.
+- Since nothing is filtered, the ~0.92B positions needed for the a1-shaped mix are ~18% of the
+  set; 7z still needs every volume downloaded first.
+
+## Council (2026-11-08, direction: the next lever while N4 trains)
+
+Members: Claude Opus 5.5 (claudeAgent), GPT-6.1 Sol (codex), Gemini 4 Argon (cursor), all at
+high effort, read-only, one shared brief. Muse Wonder 1.0 failed twice (plan mode not supported,
+then API billing 402) and gave no view. Claims below marked *checked* were verified in the code
+by the lead.
+
+**Correction to §4 A/A2 (checked).** Since `849b44a` (2026-10-14) `lean_qsearch` feeds
+`GLOBAL_SEARCH_NODES` (`src/search/statistics.rs:174`), so USI nodes and `go nodes` count
+quiescence, as YaneuraOu does. `node_eq.sh` assumed otherwise. **16x reported was about 16x
+YaneuraOu's work, not 30-60x.** The gap per unit of work is smaller than §4 A said; vs halfkpvm
+we are at −56 with 16x the nodes. Also, under `go nodes` our cut-off last iteration is
+discarded (§5b not shipped), so our effective budget there is below nominal.
+
+**Adopted as candidates (all checked in code):**
+- **The root search is the old `search_at_depth`, not the lean search.** Root moves after the
+  first get full-depth null-window searches with no LMR or pruning
+  (`search_engine.rs:6519-6545`), and are ordered by `order_moves_for_negamax` (`:6411`), not
+  `lean_hist`. Raised by Claude and Gemini independently. It could raise nodes-to-depth (the S35
+  ~5x) without changing the per-ply branching measured in §4 A.
+- Helpers search every depth with a full window (`lazy_smp.rs:165`).
+- Root TT entry is always stored as an upper bound, and the root is fail-hard: `best_score`
+  starts at `alpha` and moves with it, so `best_score <= alpha` always holds at the store
+  (`search_engine.rs:6351`, `:6649`, `:6789`).
+- **SPSA v1 tuned five inert parameters** (`hist_prune_depth`, `hist_prune_mul`, `lmr_hist_div`,
+  `probcut_depth`, `probcut_margin`): `SHOGI_LEAN_HIST` defaults to 1 and ProbCut to off
+  (`lean_hist.rs:33`, `lean.rs:1009`). "hist_prune_mul moved most" (§4 C) was a random walk.
+  Claude: measured in `c_end` steps, only `see_cap_mul` moved clearly beyond the dead ones, so
+  "the small moves seem to matter" is not supported.
+- Quiescence stand-pat uses the uncorrected evaluation (`lean.rs:1192`); interior nodes use the
+  corrected one (`:353-363`).
+- `QTABLE` (`lean.rs:1065`) is thread-local and not parked, so helpers start each move with an
+  empty quiescence cache (lead's finding while checking GPT's claims; likely small).
+- LMR excludes all checks, including losing ones that pruning already treats as quiet
+  (`lean.rs:766` vs `:661`) (Gemini; small).
+
+**Rejected or downgraded:**
+- GPT: quiescence lacks repetition, and check chains bypass the 8-ply limit. Mostly does not hold:
+  quiet checks are generated only at `qply == 0`, and after that the checking side plays only
+  captures and promotions, which are irreversible. So quiescence terminates and cannot cycle
+  internally. QTABLE reusing a with-checks entry for a no-checks probe is a documented design
+  choice, not a proven bug.
+- Gemini: "remaining depth 9 = 41-97 nodes shows root inflation of 2.5-4x". Those counts are just
+  the number of root moves. The kill check should count all nodes under root moves by index
+  (Claude's L1 check). Gemini's 65-95% pass odds for the root work are not supported; the lead
+  puts a root-search stack at ~35-45%.
+- Gemini: "the legacy orderer's history tables are empty all game". Plausible, not checked.
+
+**Disagreements, open:** Claude thinks "speed is not the lever" (§0) is the belief most likely
+wrong (§4 A's own table gives ~+80 per doubling); test: stable at 1.6 s vs 1.0 s, 4 threads,
+~300 games, after N4 on the PC. GPT thinks "tree width is not the problem" is the weakest belief;
+test: root-decision quality against total work at equal evaluation. N1's "the difference is our
+search" leans on YaneuraOu agreeing with itself; Claude suggests a judge from another family.
+
+**Next (lead's decision, offline first):** (1) logging build: all nodes under root move 1, 2-3,
+4+ at depth 10-12 on the four §4 A middlegames (kill the root lever if 4+ is under 25%);
+(2) `search_bench` profile for move generation and legality (Claude L2, fingerprint-identical
+speed); (3) if (1) survives, one stack: lean root search (LMR, `lean_hist` ordering, fail-soft,
+correct TT flag), helper aspiration windows, corrected stand-pat, parked QTABLE. Gate it once.
+Switched-off features (singular extension, ProbCut, IIR, history LMR/pruning) wait for a
+fixed-node screen calibrated on known results. Thread links: in the session transcript.
+
+### Council follow-up: steps 1 and 2 (2026-11-08)
+
+Logging build of `c57f5e4` (source identical to `8934982`) in a scratch worktree, 1 thread,
+`nice`, no games. Counter: all nodes (interior + quiescence) under each root move, by move index.
+Positions: the four §4 A middlegames (11-01 and 10-30, plies 41 and 61), depth 12.
+
+**Step 1: share of all nodes under root moves 4 and later**
+
+| Position | to depth 12, all iterations | depth-12 iteration only | root moves searched per pass |
+|---|---|---|---|
+| 11-01 ply 41 | 43.1% | 25.9% | 39 |
+| 11-01 ply 61 | 84.4% | 87.4% | 76 |
+| 10-30 ply 41 | 51.6% | 37.4% | 46 |
+| 10-30 ply 61 | 70.6% | 69.0% | 80 |
+
+The kill line (under 25%) is not met anywhere. **The root lever survives.** In the widest
+position (11-01 ply 61) the 68 moves after the eighth cost ~4.6k nodes each, against ~30k for
+the first move. They are searched at full depth, so a one-ply reduction would save about half of
+each. Rough potential: 20-45% fewer nodes in these positions if the reductions lose nothing.
+Lead's estimate: +15-40, about a third to pass the gate alone; stack it.
+
+**Step 2: profile** (`search_bench --depth 9 --positions 150 --stride 400`, macOS `sample` for 20 s)
+- **39% of the benchmark's search time is the root mate search** (`search_engine.rs:15677`). This
+  is an artifact of the benchmark: the budget is `time_limit_ms × 10`, clamped to 5k-200k, and
+  search_bench's unlimited clock gives 200k. At 1 s per move it is ~9k nodes, a few ms. **Exclude
+  it when profiling with search_bench.**
+- Excluding it: NNUE evaluation 27.5% (`forward_from_activations` 21%), legal move generation
+  14.1% (legality test 8.3%), quiescence move generation 10.7%, SEE 10.9%, malloc/free/memmove
+  5.6%, NNUE incremental updates 5.0%, make/unmake 4.3%, sorting 3.9%, hashing 2.1%.
+- Main-search move generation plus ordering is ~18%, under Claude's 20% line. Lazy generation and
+  legality checks alone would give ~10% speed (+5-10). **L2 as proposed is dropped.** Speed work,
+  if any, is spread across evaluation, SEE and allocation, with no single large item.
+
+### Council follow-up: the root stack, offline (2026-11-08)
+
+Committed as `4dfe9c4` (built and tested on `c57f5e4` in a scratch worktree).
+Six parts behind `SHOGI_ROOT_STACK` (bit set, default 0): 1 LMR for late quiet root moves
+(move 4 on, depth ≥ 3, the interior table minus one, re-search at full depth if it beats
+alpha), 2 `lean_hist` ordering at the root, 4 root TT flag against the original alpha,
+8 aspiration windows in Lazy SMP helpers (±50, doubling, full after three), 16 correction history
+on the quiescence stand-pat, 32 helpers keep their quiescence table across moves. With the
+variable unset, `search_bench --depth 9` output is identical to the logging build of `8934982`.
+
+**Nodes to depth** (`search-diag`, the four §4 A middlegames, `SHOGI_NO_MATE_SEARCH=1`), geometric
+mean against config 0 at depth 10 / 11 / 12:
+
+| Config | Ratio | depth 12 nodes, 4 positions |
+|---|---|---|
+| 0 (shipped) | 1.00 / 1.00 / 1.00 | 99k, 508k, 123k, 4.86M |
+| 1 (root LMR) | 0.65 / 0.72 / 0.52 | 70k, 94k, 125k, 2.62M |
+| 2 (root ordering) | 1.32 / 0.83 / 0.80 | |
+| 3 (1+2) | 0.71 / 0.54 / 0.51 | |
+| 16 (q correction) | 0.75 / 0.74 / 0.81 | |
+| 23 (1+2+4+16) | 0.65 / 0.45 / 0.57 | 173k, 136k, 78k, 1.72M |
+
+**Accuracy at fixed nodes** (`acc2.py`: 2,000 balanced positions of the S35 even-game set, `go
+nodes 200000`, 1 thread, Pearson vs YaneuraOu depth 14, paired bootstrap 95%):
+
+| Config | Pearson | MAE | mean depth | diff vs 0 |
+|---|---|---|---|---|
+| 0 | 0.8717 | 152.8 | 11.30 | |
+| 1 | 0.8656 | 151.3 | 11.83 | −0.006 [−0.021, +0.006] |
+| 3 | 0.8649 | 151.0 | 11.77 | −0.007 [−0.022, +0.006] |
+| 23 | 0.8699 | 151.0 | 12.05 | −0.002 [−0.016, +0.010] |
+| 0 at 400k (calibration) | 0.8809 | 146.8 | 12.59 | +0.009 [−0.004, +0.022] |
+
+**The metric cannot resolve this.** Twice the nodes (+1.3 plies) is not significant on it either.
+What it does show: no large loss of accuracy from the reductions. By MAE the stack recovers about
+a third of a doubling; by depth at equal nodes (+0.75), about 60%.
+
+**4 threads, 1 s byoyomi** (`tu4.py`: 40 consecutive positions of the 11-08 game in one process,
+so state lives across moves): mean completed depth 13.97 (0) → 14.32 (23) → 14.60 (63, all
+parts). No crash or hang; slowest move 965 ms. The gain shrinks with 4 threads, as expected when
+helpers already cover root moves.
+
+**Before a gate, the four answers.** (1) Effect: estimate +15-40 (≈ a third to a half of a
+doubling); [0, 40] pass odds ~45%. (2) State: helper windows are local to `helper_search`;
+QTABLE is parked per helper slot like `lean_hist`; root ordering uses each thread's own tables;
+checked over 40 consecutive moves at 4 threads. (3) Conditions: the gate is 1 s, 4 threads, and
+the 4-thread check ran in those conditions. (4) Gap: it addresses nodes-to-depth (S35 ~5x),
+cutting it to 0.45-0.65x on these positions. Gate candidate: config 63 vs config 0, same
+binary, pooled two seeds.
+
+**Gate result: PASS.** Pooled two-seed SPRT [0, 40], 1 s byoyomi, 4 threads each, config 63 vs
+config 0 of the same binary (seeds 4081/4082, `matches/s40/gate_root63_*`): **86-8-55 after 149
+games, 60.4%, about +73 (±55), LLR +3.05.** All games ended by mate, move limit or repetition;
+no crashes and no time losses. The offline estimate was +15-40 with ~45% pass odds, so the
+offline metrics understated it. The nodes-to-depth cut (0.45-0.65x) was the better guide; the
+fixed-node accuracy metric could not see even a doubling. Root LMR was the largest part offline;
+the parts were not gated separately.
+
+**Shipped (2026-11-09):** `4dfe9c4`, default `SHOGI_ROOT_STACK=63`. With 0 the `search_bench`
+fingerprint is identical to `8934982`; all 264 `search::` unit tests pass either way. Installed
+as `engines/usi-engine-stable` (previous: `-stable-prev` = `8934982`), `engines/usi-engine-4dfe9c4`
+and `target/release/usi-engine`. `search_bench --depth 9`: all nodes 1.71M → 1.11M.

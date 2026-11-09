@@ -90,8 +90,9 @@ Before Session 35: corpora `corpus_s23` … `corpus_s28`, `corpus_self`, `corpus
 | Hao sample 50 | nodchip `shogi_hao_depth9` (Hugging Face, MIT), depth-9 labels by its publisher | `docs/nnue-phase2/hao/sample50.txt` (name, size, sha256; spread over the set's 8 generation runs) | 397.5M |
 | Hao sample 150 | same set | `docs/nnue-phase2/hao/sample150.txt` (all 150 packed; 2 were already on disk) | 1,166M |
 | Hao sample 200b | same set | `docs/nnue-phase2/hao/sample200b.txt` (25 per generation run, none in samples 50/150; 62.7 GB, fetched 2026-11-03) | 1,567M |
+| Suisho5 depth 9 | nodchip `shogi_suisho5_depth9` (Hugging Face, MIT), depth-9 labels by Suisho5, already shuffled and replaced by quiescence leaves (no stored move) | all 8 volumes `shuffled.7z.001`-`.008` (184.6 GB, sha256 from the Hugging Face listing, fetched 2026-11-08) + `shuffled.bin` (290 MB, 7,240,673, validation; Mac `corpus_suisho5/val/`) | ~5B |
 
-Raw files: Mac `corpus_hao/raw/` (sample 50), PC `/mnt/c/Users/fgant/hao/raw/` (samples 50, 150, 200b).
+Raw files: Mac `corpus_hao/raw/` (sample 50), PC `/mnt/c/Users/fgant/hao/raw/` (samples 50, 150, 200b). Suisho5 volumes: PC `/mnt/c/Users/fgant/suisho5/raw/`.
 
 ## 3. Packed sets (`nnue_pack`, 100-byte records)
 
@@ -109,6 +110,7 @@ Raw files: Mac `corpus_hao/raw/` (sample 50), PC `/mnt/c/Users/fgant/hao/raw/` (
 | `packed_b2q` = PC `~/data/ours_b2q` | Mac `corpus_s39/` | Mac batch 2 + PC batch 3 (118,473,086) | `--quiet` | 72,852,017 | 3,863,057 |
 | `packed_b4q` = PC `~/data/ours_b4q` | Mac `corpus_s39/` | PC batch 4 (58,669,741) | `--quiet` | 35,864,254 | 1,906,803 |
 | `packed_b1s5q` = PC `~/data/ours_b1s5q` | Mac `corpus_s39/` | `b1_s5` + `pc1_s5` + `pc2_s5` | `--quiet --eval-scale 1.29` | 109,731,122 | 5,822,174 |
+| `packed_s5` | PC `/mnt/c/Users/fgant/suisho5/` | first 922.7M records of Suisho5 depth 9 (a1's Hao counts); held out: the last 9,209,648 | none (already quiet; `--quiet` would drop all, no stored move); no `--eval-scale` (logistic scale 630 vs Hao 590) | 913,535,564 | 9,209,648 |
 
 ## 4. Mixes (`trainer/mix.py`, on the PC in `~/data/`)
 
@@ -121,7 +123,8 @@ Raw files: Mac `corpus_hao/raw/` (sample 50), PC `/mnt/c/Users/fgant/hao/raw/` (
 | `mix_c2` | ours_quiet + ours_b1q + ours_b2q 72.9M + ours_b4q 35.9M + s50q + s150q | 1,354,613,189 | 33,003,552 |
 | `mix_c1s` | as `mix_c1` with ours_b1s5q in place of ours_b1q (teacher test) | 1,245,896,918 | 27,233,692 |
 | `mix_h2` | ours_quiet + s50q + s150q + s200bq (more Hao) | 2,056,469,315 | 25,708,617 |
-| `mix_h3` | as `mix_h2` with ours_quiet listed **twice** (ours ≈ 19.5%, a1's share); val holds ours' val twice (S40) | 2,279,099,547 | 37,910,487 |
+| `mix_h3` | as `mix_h2` with ours_quiet listed **twice** (ours ≈ 19.5%, a1's share); val holds ours' val twice (S40). **Deleted 2026-11-08** for disk (rebuild: same `mix.py` inputs; lineage in Mac `weights/session40/lineage/`) | 2,279,099,547 | 37,910,487 |
+| `mix_s5` | ours_quiet + packed_s5 (`mix_a1` with Suisho5 in place of Hao; N4) | 1,136,165,796 | 21,411,518 |
 
 ## 5. Networks
 
