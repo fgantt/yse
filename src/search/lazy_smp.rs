@@ -147,6 +147,7 @@ fn helper_search(
     // Keep this helper's history and correction tables from its previous move.
     lean_hist::unpark(id);
     lean_corr::unpark(id);
+    lean::q_unpark(id);
     // The engine's own table is replaced by the shared one, so keep it small.
     let mut engine = SearchEngine::new(Some(stop.clone()), 1);
     engine.transposition_table = tt;
@@ -154,6 +155,7 @@ fn helper_search(
     engine.evaluator.install_nnue(nnue);
     engine.time_manager.begin_search(None);
     engine.evaluator.nnue_refresh(&board, player, &captured);
+    let mut prev_score: Option<i32> = None;
     for depth in 1..=max_depth {
         if stop.load(Ordering::Relaxed) {
             break;
@@ -162,9 +164,16 @@ fn helper_search(
             continue;
         }
         // An hour: in effect no limit of its own; the main thread's stop ends it.
-        let result = engine.search_at_depth(
-            &mut board, &captured, player, depth, 3_600_000, MIN_SCORE, MAX_SCORE,
-        );
+        let result = if lean::root_stack() & 8 != 0 {
+            helper_aspiration(&mut engine, &mut board, &captured, player, depth, prev_score)
+        } else {
+            engine.search_at_depth(
+                &mut board, &captured, player, depth, 3_600_000, MIN_SCORE, MAX_SCORE,
+            )
+        };
+        if let Some((_, s)) = result.as_ref().filter(|_| !engine.last_search_interrupted()) {
+            prev_score = Some(*s);
+        }
         if let Some((mv, score)) = result.filter(|_| !engine.last_search_interrupted()) {
             if let Ok(mut b) = best.lock() {
                 if b.as_ref().map_or(true, |x| (depth, score) > (x.0, x.1)) {
@@ -175,4 +184,39 @@ fn helper_search(
     }
     lean_hist::park(id);
     lean_corr::park(id);
+    lean::q_park(id);
+}
+
+/// One helper iteration inside an aspiration window around its previous score, widened
+/// (doubling) on a fail and opened fully after three; a result is returned only from a
+/// search that ended inside its window.
+fn helper_aspiration(
+    engine: &mut SearchEngine,
+    board: &mut BitboardBoard,
+    captured: &CapturedPieces,
+    player: Player,
+    depth: u8,
+    prev: Option<i32>,
+) -> Option<(Move, i32)> {
+    let Some(prev) = prev.filter(|p| depth >= 5 && p.abs() < 20_000) else {
+        return engine.search_at_depth(board, captured, player, depth, 3_600_000, MIN_SCORE, MAX_SCORE);
+    };
+    let mut delta = 50;
+    let (mut a, mut b) = (prev - delta, prev + delta);
+    for _ in 0..3 {
+        let r = engine.search_at_depth(board, captured, player, depth, 3_600_000, a, b)?;
+        if engine.last_search_interrupted() {
+            return None;
+        }
+        if r.1 <= a {
+            delta *= 2;
+            a = r.1.saturating_sub(delta);
+        } else if r.1 >= b {
+            delta *= 2;
+            b = r.1.saturating_add(delta);
+        } else {
+            return Some(r);
+        }
+    }
+    engine.search_at_depth(board, captured, player, depth, 3_600_000, MIN_SCORE, MAX_SCORE)
 }

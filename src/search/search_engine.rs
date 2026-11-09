@@ -641,6 +641,13 @@ pub static DIAG_PVS_RESEARCHES: AtomicU64 = AtomicU64::new(0);
 /// Interior (non-quiescence) nodes, and quiescence nodes, since the search
 /// began. Their ratio says how much of the tree is quiescence.
 pub static DIAG_INTERIOR_NODES: AtomicU64 = AtomicU64::new(0);
+/// Council diagnostic: all nodes (interior + quiescence) under root moves by index
+/// bucket (1, 2-3, 4-8, 9+), over every iteration [0..4] and the deepest one only [4..8].
+pub static DIAG_ROOT_NODES: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
+/// Root moves searched per bucket, same layout.
+pub static DIAG_ROOT_MOVES: [AtomicU64; 8] = [const { AtomicU64::new(0) }; 8];
+/// The iteration counted in the second half of the arrays.
+pub static DIAG_ROOT_DEPTH: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 pub static DIAG_QUIESCENCE_NODES: AtomicU64 = AtomicU64::new(0);
 /// Lean quiescence breakdown (diagnostics only): in-check nodes, evasions searched,
 /// of which quiet, of which drops; quiet checks searched at the first ply, of which drops.
@@ -6338,6 +6345,7 @@ impl SearchEngine {
         self.current_depth = depth;
         let start_time = TimeSource::now();
         let mut alpha = alpha;
+        let alpha_orig = alpha;
         self.last_search_interrupted = false;
         self.search_aborted = false;
         self.hand_path.clear();
@@ -6409,17 +6417,24 @@ impl SearchEngine {
         } else {
             None
         };
-        let sorted_moves = self.order_moves_for_negamax(
-            &legal_moves,
-            board,
-            captured_pieces,
-            player,
-            depth,
-            alpha,
-            beta,
-            root_tt_move.as_ref(),
-            None,
-        );
+        let sorted_moves = if lean::lean_enabled()
+            && lean::root_stack() & 2 != 0
+            && lean_hist::hist_uses() & 1 != 0
+        {
+            lean_hist::with(|h| h.order(&legal_moves, board, root_tt_move.as_ref(), 0))
+        } else {
+            self.order_moves_for_negamax(
+                &legal_moves,
+                board,
+                captured_pieces,
+                player,
+                depth,
+                alpha,
+                beta,
+                root_tt_move.as_ref(),
+                None,
+            )
+        };
         crate::debug_utils::end_timing("move_sorting", "SEARCH_AT_DEPTH");
 
         trace_log!("SEARCH_AT_DEPTH", "Starting move evaluation loop");
@@ -6493,6 +6508,11 @@ impl SearchEngine {
                 }
             }
 
+            let diag_n0 = if diag() {
+                DIAG_INTERIOR_NODES.load(Ordering::Relaxed) + DIAG_QUIESCENCE_NODES.load(Ordering::Relaxed)
+            } else {
+                0
+            };
             let root_line_mv = lean::lean_enabled() && lean::trace_move(0, move_);
             if root_line_mv {
                 lean::trace_set(1);
@@ -6521,21 +6541,41 @@ impl SearchEngine {
                 if move_index == 0 {
                     full(self, &mut *board, &mut hash_history, alpha)
                 } else {
-                    let s = -self.lean_node(
-                        &mut *board,
-                        &new_captured,
-                        player.opposite(),
-                        d,
-                        alpha.saturating_neg().saturating_sub(1),
-                        alpha.saturating_neg(),
-                        &start_time,
-                        time_limit_ms,
-                        &mut hash_history,
-                        true,
-                        true,
-                        Some(move_),
-                    );
-                    hash_history.truncate(self.root_path_len);
+                    let scout = |s: &mut Self, b: &mut BitboardBoard, h: &mut Vec<u64>, dd: i32| {
+                        let v = -s.lean_node(
+                            b,
+                            &new_captured,
+                            player.opposite(),
+                            dd,
+                            alpha.saturating_neg().saturating_sub(1),
+                            alpha.saturating_neg(),
+                            &start_time,
+                            time_limit_ms,
+                            h,
+                            true,
+                            true,
+                            Some(move_),
+                        );
+                        h.truncate(s.root_path_len);
+                        v
+                    };
+                    // Late quiet root moves at reduced depth, as everywhere else
+                    // in the tree; one that beats alpha is searched again in full.
+                    let r = if lean::root_stack() & 1 != 0
+                        && depth >= 3
+                        && move_index >= 3
+                        && !move_.is_capture
+                        && !move_.is_promotion
+                        && !move_.gives_check
+                    {
+                        lean::root_reduction(depth, move_index + 1).clamp(0, d - 1)
+                    } else {
+                        0
+                    };
+                    let mut s = scout(self, &mut *board, &mut hash_history, d - r);
+                    if r > 0 && s > alpha && !self.search_aborted {
+                        s = scout(self, &mut *board, &mut hash_history, d);
+                    }
                     if s > alpha && s < beta {
                         full(self, &mut *board, &mut hash_history, alpha)
                     } else {
@@ -6559,6 +6599,18 @@ impl SearchEngine {
             if root_line_mv {
                 lean::trace_set(0);
                 eprintln!("TRACE root depth={depth} line move {} #{} -> {score}", move_.to_usi_string(), move_index + 1);
+            }
+            if diag() {
+                let n = DIAG_INTERIOR_NODES.load(Ordering::Relaxed)
+                    + DIAG_QUIESCENCE_NODES.load(Ordering::Relaxed)
+                    - diag_n0;
+                let bucket = match move_index { 0 => 0, 1..=2 => 1, 3..=7 => 2, _ => 3 };
+                DIAG_ROOT_NODES[bucket].fetch_add(n, Ordering::Relaxed);
+                DIAG_ROOT_MOVES[bucket].fetch_add(1, Ordering::Relaxed);
+                if depth == DIAG_ROOT_DEPTH.load(Ordering::Relaxed) {
+                    DIAG_ROOT_NODES[4 + bucket].fetch_add(n, Ordering::Relaxed);
+                    DIAG_ROOT_MOVES[4 + bucket].fetch_add(1, Ordering::Relaxed);
+                }
             }
             // Each child pushes its own position onto the path and leaves it to
             // its parent to pop. The root loop never did, so the path grew by
@@ -6786,7 +6838,8 @@ impl SearchEngine {
         if let Some(best_move_ref) = best_move.as_ref().filter(|_| !self.last_search_interrupted) {
             let position_hash =
                 self.hash_calculator.get_position_hash(board, player, captured_pieces);
-            let flag = if best_score <= alpha {
+            let lower = if lean::root_stack() & 4 != 0 { alpha_orig } else { alpha };
+            let flag = if best_score <= lower {
                 TranspositionFlag::UpperBound
             } else if best_score >= beta {
                 TranspositionFlag::LowerBound

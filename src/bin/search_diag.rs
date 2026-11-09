@@ -26,6 +26,7 @@ use shogi_engine::search::search_engine::{
     DIAG_PVS_SCOUTS, DIAG_Q, DIAG_QUIESCENCE_NODES, DIAG_LEGAL, DIAG_SEARCHED, DIAG_REDUCTION, DIAG_MOVE_NODES, DIAG_NODES, DIAG_CUTS,
 };
 use shogi_engine::search::statistics::{DIAG_LMR_REJECT, GLOBAL_SEARCH_NODES};
+use shogi_engine::search::search_engine::{DIAG_ROOT_DEPTH, DIAG_ROOT_MOVES, DIAG_ROOT_NODES};
 use std::sync::atomic::Ordering;
 
 #[derive(Parser, Debug)]
@@ -72,6 +73,9 @@ fn reset() {
         c.store(0, Ordering::Relaxed);
     }
     DIAG_PVS_SCOUTS.store(0, Ordering::Relaxed);
+    for c in DIAG_ROOT_NODES.iter().chain(DIAG_ROOT_MOVES.iter()) {
+        c.store(0, Ordering::Relaxed);
+    }
     DIAG_PVS_RESEARCHES.store(0, Ordering::Relaxed);
     for c in DIAG_LMR_REJECT.iter() {
         c.store(0, Ordering::Relaxed);
@@ -106,6 +110,7 @@ fn main() {
                  evaluation and this diagnostic would describe the wrong engine",
                 cli.nnue
             );
+            DIAG_ROOT_DEPTH.store(depth, Ordering::Relaxed);
             let mut id = IterativeDeepening::new(depth, 600_000, None);
             let _ = id.search(&mut engine, &board, &captured, player);
             let nm = engine.get_null_move_stats().clone();
@@ -124,6 +129,21 @@ fn main() {
             );
             prev_nodes = nodes;
 
+            if depth + 2 >= cli.max_depth {
+                let g = |t: &[std::sync::atomic::AtomicU64; 8], i: usize| t[i].load(Ordering::Relaxed);
+                let labels = ["move 1", "moves 2-3", "moves 4-8", "moves 9+"];
+                for (half, what) in [(0usize, "all iterations to this depth"), (4, "last iteration only")] {
+                    let total: u64 = (0..4).map(|i| g(&DIAG_ROOT_NODES, half + i)).sum();
+                    print!("  ROOT d{depth} {what}: total {total}");
+                    for (i, l) in labels.iter().enumerate() {
+                        let n = g(&DIAG_ROOT_NODES, half + i);
+                        let m = g(&DIAG_ROOT_MOVES, half + i);
+                        let pct = if total > 0 { 100.0 * n as f64 / total as f64 } else { 0.0 };
+                        print!(" | {l}: {pct:.1}% ({n} nodes, {m} searches)");
+                    }
+                    println!();
+                }
+            }
             if depth == cli.max_depth {
                 let d: Vec<u64> = DIAG_Q.iter().map(|c| c.load(Ordering::Relaxed)).collect();
                 println!(

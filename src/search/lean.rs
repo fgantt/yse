@@ -36,6 +36,24 @@ fn lmr_table() -> &'static [[u8; 64]; 64] {
     })
 }
 
+/// Council root stack (`SHOGI_ROOT_STACK`, a bit set; 0 = off, the search as in `8934982`):
+/// 1 LMR for late quiet root moves, 2 `lean_hist` ordering at the root, 4 root TT flag
+/// against the original window, 8 aspiration windows in Lazy SMP helpers, 16 correction
+/// history on the quiescence stand-pat, 32 helpers keep their quiescence table across moves.
+/// Default 63 (all): S40 gate vs 0, 1 s, 4 threads, 86-8-55, LLR +3.05 PASS.
+pub(super) fn root_stack() -> u32 {
+    static ON: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("SHOGI_ROOT_STACK").ok().and_then(|v| v.parse().ok()).unwrap_or(63)
+    })
+}
+
+/// Reduction for the `move_number`-th root move (1-based) at `depth`: the interior
+/// table, one less as for any PV node.
+pub(super) fn root_reduction(depth: u8, move_number: usize) -> i32 {
+    i32::from(lmr_table()[(depth as usize).min(63)][move_number.min(63)]) - 1
+}
+
 /// Selected main search: 0 = unset (environment decides), 1 = lean, 2 = classic.
 static SEARCH_MODE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
 
@@ -1067,6 +1085,36 @@ thread_local! {
         std::cell::RefCell::new(vec![QSlot::default(); Q_SLOTS]);
 }
 
+static PARKED_Q: std::sync::Mutex<Vec<Option<Vec<QSlot>>>> = std::sync::Mutex::new(Vec::new());
+
+/// Gives this (helper) thread the quiescence table helper `slot` left last move.
+pub(super) fn q_unpark(slot: usize) {
+    if root_stack() & 32 == 0 {
+        return;
+    }
+    let t = PARKED_Q.lock().ok().and_then(|mut v| v.get_mut(slot).and_then(Option::take));
+    if let Some(t) = t {
+        QTABLE.with(|q| *q.borrow_mut() = t);
+    }
+}
+
+/// Leaves this thread's quiescence table for the next helper `slot`.
+pub(super) fn q_park(slot: usize) {
+    if root_stack() & 32 == 0 {
+        return;
+    }
+    let t = QTABLE.with(|q| std::mem::take(&mut *q.borrow_mut()));
+    if t.len() != Q_SLOTS {
+        return;
+    }
+    if let Ok(mut v) = PARKED_Q.lock() {
+        if v.len() <= slot {
+            v.resize_with(slot + 1, || None);
+        }
+        v[slot] = Some(t);
+    }
+}
+
 /// Whether checks that lose material (negative SEE) lose the check extension
 /// and the exemption from pruning (`SHOGI_LEAN_CHECK_SEE=0` restores both).
 /// With full hands a position has dozens of checking drops, most of which hang
@@ -1190,6 +1238,20 @@ impl SearchEngine {
         let mut stand_pat = -INF;
         if !in_check {
             stand_pat = self.evaluator.evaluate(board, player, captured);
+            if root_stack() & 16 != 0
+                && super::lean_corr::corr_enabled()
+                && stand_pat.abs() < MATE_THRESHOLD
+            {
+                let ply = self.node_ply + qply;
+                let prev = if qply == 0 && super::lean_hist::hist_uses() != 0 {
+                    super::lean_hist::with(|h| h.prev_key(ply))
+                } else {
+                    super::lean_hist::NO_KEY
+                };
+                let k = super::lean_corr::keys(board, captured, player, prev);
+                stand_pat = (stand_pat + super::lean_corr::with(|c| c.correction(&k)))
+                    .clamp(-MATE_THRESHOLD + 1, MATE_THRESHOLD - 1);
+            }
             if stand_pat >= beta {
                 return stand_pat;
             }
