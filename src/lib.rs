@@ -86,6 +86,9 @@ pub struct ShogiEngine {
     /// `position ... moves` (`search_engine::game_path_entry` each), for
     /// repetition and perpetual check against moves already played.
     game_path: Vec<u64>,
+    /// The same positions as superior/inferior-repetition entries (the search
+    /// compares the last [`GAME_HAND_PATH_PLIES`] of them with its own line).
+    game_hand_path: Vec<search::search_engine::HandPathEntry>,
     debug_mode: bool,
     pondering: bool,
     depth: u8,
@@ -120,6 +123,10 @@ pub struct ShogiEngine {
 }
 
 /// Default network location. Not matched by the `nnue_weights_*` gitignore rule.
+/// How many game positions before the root the superior/inferior repetition
+/// test looks back over (each search node scans them linearly).
+const GAME_HAND_PATH_PLIES: usize = 16;
+
 pub const DEFAULT_NNUE_FILE: &str = "nnue/default.bin";
 
 /// Default `BookFile`: no book. A book changes play, so it ships only after
@@ -188,6 +195,7 @@ impl ShogiEngine {
                 DEFAULT_HASH_MB,
             ))),
             game_path: Vec::new(),
+            game_hand_path: Vec::new(),
             debug_mode: false,
             pondering: false,
             depth: 0, // Default to 0 (unlimited/adaptive), like YaneuraOu
@@ -504,11 +512,22 @@ impl ShogiEngine {
         crate::trace_log_fast!("GET_BEST_MOVE", &format!("Position FEN: {}", fen));
 
         // Check tablebase first
-        if let Some(tablebase_result) =
+        let tablebase_hit = if crate::tablebase::game_path_enabled() {
             self.tablebase.probe(&self.board, self.current_player, &self.captured_pieces)
-        {
+        } else {
+            None
+        };
+        if let Some(tablebase_result) = tablebase_hit {
             crate::debug_utils::end_timing("tablebase_check", "GET_BEST_MOVE");
-            if let Some(best_move) = tablebase_result.best_move {
+            // Only a legal move is played (the search's result is checked the
+            // same way further down).
+            let best_move = tablebase_result.best_move.filter(|m| {
+                MoveGenerator::new()
+                    .generate_legal_moves(&self.board, self.current_player, &self.captured_pieces)
+                    .iter()
+                    .any(|l| l.to_usi_string() == m.to_usi_string())
+            });
+            if let Some(best_move) = best_move {
                 crate::debug_utils::log_decision(
                     "GET_BEST_MOVE",
                     "Tablebase hit",
@@ -582,6 +601,11 @@ impl ShogiEngine {
             crate::utils::telemetry::debug_log("Got search engine lock, starting search");
             search_engine_guard.set_node_limit(node_limit);
             search_engine_guard.set_game_path(&self.game_path);
+            // Superior/inferior repetition also against recent game positions
+            // (it used to see only the search's own line; council review,
+            // 2026-11-09).
+            let recent = self.game_hand_path.len().saturating_sub(GAME_HAND_PATH_PLIES);
+            search_engine_guard.set_hand_path_prefix(&self.game_hand_path[recent..]);
             searcher.search(
                 &mut search_engine_guard,
                 &self.board,
@@ -953,11 +977,32 @@ impl ShogiEngine {
         }
 
         self.game_path.clear();
+        self.game_hand_path.clear();
+        let hasher = crate::search::ShogiHashHandler::new(0);
+        let move_generator = MoveGenerator::new();
         if let Some(start_index) = moves_start_index {
             for move_str in &parts[start_index..] {
-                match Move::from_usi_string(move_str, self.current_player, &self.board) {
+                // Only a legal move is played: a parsed but illegal one (a GUI
+                // bug, or a corrupt line) used to be applied as it was, leaving
+                // the search a position the game never had (council review,
+                // 2026-11-09). The generator's own move carries its flags.
+                let parsed =
+                    Move::from_usi_string(move_str, self.current_player, &self.board).and_then(|_| {
+                        move_generator
+                            .generate_legal_moves(&self.board, self.current_player, &self.captured_pieces)
+                            .into_iter()
+                            .find(|m| m.to_usi_string() == *move_str)
+                            .ok_or("illegal move")
+                    });
+                match parsed {
                     Ok(mv) => {
                         self.game_path.push(search::search_engine::game_path_entry(
+                            &self.board,
+                            self.current_player,
+                            &self.captured_pieces,
+                        ));
+                        self.game_hand_path.push(search::search_engine::hand_path_entry_for(
+                            &hasher,
                             &self.board,
                             self.current_player,
                             &self.captured_pieces,
@@ -1048,8 +1093,9 @@ impl ShogiEngine {
                         self.move_overhead_ms = v.min(10_000);
                     }
                 }
-                // GUIs send these to every engine. We never ponder (`go ponder`
-                // searches until `stop`), so USI_Ponder changes nothing.
+                // GUIs send these to every engine. `go ponder` works whatever
+                // USI_Ponder says (see `usi::run_usi_loop_with`), and the engine
+                // names no ponder move itself, so USI_Ponder changes nothing.
                 "USI_Ponder" => {}
                 "USI_OwnBook" => self.use_book = parts[3].eq_ignore_ascii_case("true"),
                 "UseNNUE" => {
@@ -1406,9 +1452,11 @@ impl ShogiEngine {
                 // Tablebase options
                 "EnableTablebase" => {
                     if parts[3] == "true" {
+                        crate::tablebase::set_game_path_enabled(true);
                         self.enable_tablebase();
                         output.push("info string Enabled tablebase".to_string());
                     } else if parts[3] == "false" {
+                        crate::tablebase::set_game_path_enabled(false);
                         self.disable_tablebase();
                         output.push("info string Disabled tablebase".to_string());
                     }
@@ -1600,11 +1648,12 @@ impl ShogiEngine {
         output
     }
 
+    /// `ponderhit` is handled by the command loop (`usi::run_usi_loop_with`):
+    /// it reaches a pondering search while that search runs, which a command
+    /// handled here, after `go` returns, cannot. Nothing is left to do here.
     pub fn handle_ponderhit(&mut self) -> Vec<String> {
         self.pondering = false;
-        // The engine should switch from pondering to normal search.
-        // For now, we just print an info string.
-        vec!["info string ponderhit received".to_string()]
+        Vec::new()
     }
 
     pub fn handle_gameover(&self, parts: &[&str]) -> Vec<String> {
@@ -1613,6 +1662,12 @@ impl ShogiEngine {
         } else {
             vec!["info string game over command received without a result".to_string()]
         }
+    }
+
+    /// The search threads this engine uses (`USI_Threads`, or the saved
+    /// preference, or the CPU count).
+    pub fn thread_count(&self) -> usize {
+        self.thread_count
     }
 
     // Tablebase methods

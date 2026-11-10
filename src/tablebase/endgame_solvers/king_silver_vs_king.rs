@@ -548,13 +548,19 @@ impl EndgameSolver for KingSilverVsKingSolver {
         &self,
         board: &BitboardBoard,
         player: Player,
-        _captured_pieces: &CapturedPieces,
+        captured_pieces: &CapturedPieces,
     ) -> bool {
         if !self.config.enabled {
             return false;
         }
 
-        self.is_king_silver_vs_king(board, player)
+        // The solver assumes a bare enemy king and nothing in hand; it used to
+        // look only at the mover's own board pieces, so it claimed a won ending
+        // against a full army (council review, 2026-11-09).
+        captured_pieces.black.is_empty()
+            && captured_pieces.white.is_empty()
+            && board.player_occupied(player.opposite()).to_u128().count_ones() == 1
+            && self.is_king_silver_vs_king(board, player)
     }
 
     fn solve(
@@ -599,6 +605,22 @@ impl Default for KingSilverVsKingSolver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// K+S solves only against a bare king with nothing in hand (it used to
+    /// look only at the mover's board pieces).
+    #[test]
+    fn silver_solver_needs_a_bare_enemy_king() {
+        use crate::types::{CapturedPieces, Player};
+        let solver = KingSilverVsKingSolver::new();
+        let empty = CapturedPieces::new();
+        let (bare, ..) = BitboardBoard::from_fen("4k4/9/9/9/9/9/9/1S7/4K4 b - 1").expect("sfen");
+        assert!(solver.can_solve(&bare, Player::Black, &empty));
+        let (army, ..) =
+            BitboardBoard::from_fen("lnsgkgsnl/9/ppppppppp/9/9/9/9/1S7/4K4 b - 1").expect("sfen");
+        assert!(!solver.can_solve(&army, Player::Black, &empty));
+        let (_, _, in_hand) = BitboardBoard::from_fen("4k4/9/9/9/9/9/9/1S7/4K4 w P 1").expect("sfen");
+        assert!(!solver.can_solve(&bare, Player::Black, &in_hand));
+    }
     use crate::types::{CapturedPieces, Move, Piece, PieceType, Player, Position};
 
     fn build_board(pieces: &[(Player, PieceType, Position)]) -> BitboardBoard {

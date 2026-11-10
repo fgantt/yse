@@ -1,7 +1,7 @@
 # Yggdrasil Engine Features
 
-What the engine does as shipped (`main`: history move ordering 2026-10-16, network `nnue/default.bin`
-= Session 36 `p9` 2026-10-20), where
+What the engine does as shipped (`main`: search `4dfe9c4` + the 2026-11-09 council-review fixes,
+network `nnue/default.bin` = `a1`, 2026-11-01), where
 each feature lives, and how it compares with YaneuraOu. Session logs
 (`docs/nnue-phase2/SESSION_LOG_*.md`) hold the measurements behind each item.
 
@@ -12,15 +12,16 @@ Classic selects the older `negamax` in `search_engine.rs`).
 
 | Feature | What it does | Where | Notes |
 |---|---|---|---|
-| Iterative deepening | Searches depth 1, 2, 3 ... until time runs out | `IterativeDeepening::search` (`search_engine.rs`) | Partial last iteration can give the move |
+| Iterative deepening | Searches depth 1, 2, 3 ... until time runs out | `IterativeDeepening::search` (`search_engine.rs`) | A cut-off iteration is discarded with Lazy SMP (the split's partial-iteration use does not apply); a fixed 50 ms comes off the move's time on top of `MoveOverhead` |
 | Principal variation search | First move full window, the rest with a null window and re-search on fail-high | `lean_node` | |
-| Aspiration windows | Each depth starts with a window around the previous score | `IterativeDeepening::search` | USI `EnableAspirationWindows`, `AspirationWindowSize` |
+| Aspiration windows | Each depth starts with a window around the previous score; the root is fail-soft, so a fail-low widens from the true bound | `IterativeDeepening::search`, `search_at_depth` | USI `EnableAspirationWindows`; `AspirationWindowSize` does not drive the lean search |
+| Root stack | Root LMR for late quiet moves, `lean_hist` root ordering, root TT flag against the original window, helper aspiration windows, correction history on the quiescence stand-pat, helpers keep their quiescence table | `search_at_depth`, `lean.rs` (`root_stack`) | `SHOGI_ROOT_STACK` bit set, default 63; Session 40 gate +73 |
 | Lazy SMP | Helper threads search the same root and share the hash table; Stockfish 9 skip schedule; a deeper, higher-scoring helper result is played | `src/search/lazy_smp.rs` | Default since `56ce0aa`; USI `ThreadAlgorithm` Lazy/Split; `USI_Threads` (16) |
-| Correction history | Static eval corrected by learned per-thread tables (pawn structure, pieces in hand, opponent's last move), before it drives pruning | `src/search/lean_corr.rs` | Default since Session 40; `SHOGI_LEAN_CORR=0` off; weights `SHOGI_LEAN_CORR_W` |
-| Per-game search tables | History and correction tables persist across a game's moves on every thread (Lazy SMP helpers park theirs by id) and clear on `usinewgame` | `lean_hist.rs` (`park`/`unpark`, `GAME_EPOCH`) | Session 40; before it, 3 of 4 threads started each move empty |
+| Correction history | Static eval corrected by learned per-thread tables (pawn structure, pieces in hand, opponent's last move), before it drives pruning; learns only from quiet best moves and non-mate, non-hand-repetition scores | `src/search/lean_corr.rs`, `corr_learnable` | Default since Session 40; `SHOGI_LEAN_CORR=0` off; weights `SHOGI_LEAN_CORR_W` |
+| Per-game search tables | History, correction and quiescence tables persist across a game's moves on every thread (Lazy SMP helpers park theirs by id) and clear on `usinewgame`; killers at plies 1-2 clear each move | `lean_hist.rs` (`park`/`unpark`, `GAME_EPOCH`, `new_move`), `lean.rs` (`with_qtable`) | Session 40; the quiescence table and root killers since 2026-11-09 |
 | Tunable search constants | Pruning margins and LMR divisors, defaults from SPSA run v1 | `src/search/lean_params.rs`, `scripts/spsa.py` | `SHOGI_LEAN_PARAMS=name=v,...` |
 | Root/PV split (alternative) | YBWC split at the root and first PV plies, workers with own tables | `parallel_search.rs` | `ThreadAlgorithm` Split |
-| Transposition table | Shared, lock-free stores; key stored as `hash ^ data` so torn reads miss; a generation per search, fresh entries replace stale ones, else depth/bound | `thread_safe_table.rs`, `replacement_policies.rs` | `USI_Hash` default 256 MB (was 16 MB, which starved Lazy SMP) |
+| Transposition table | Shared, lock-free stores (since 2026-11-09; the bucket lock before guarded nothing); key stored as `hash ^ data` so torn reads miss; a generation per search, fresh entries replace stale ones, else depth/bound; one entry per slot | `thread_safe_table.rs`, `replacement_policies.rs` | `USI_Hash` default 256 MB is an upper bound: the largest power of two of 24-byte entries that fits (192 MB at 256; before 2026-11-09, 96 MB) |
 | Null-move pruning | Pass the move; if still >= beta at reduced depth, prune | `lean_node` | R = 3 + depth/3 + margin term; not in check, depth >= 3 |
 | Reverse futility / razoring | Static-evaluation cut-offs near the leaves | `lean_node` | Razoring drops to quiescence |
 | Late move pruning | Skip late quiet moves at depth <= 8 on non-PV nodes | `lean_node` move loop | Threshold 3 + depth^2 |
@@ -28,10 +29,10 @@ Classic selects the older `negamax` in `search_engine.rs`).
 | SEE pruning | Skip quiet moves, drops and captures that lose material | `lean_node` move loop | depth <= 6; -86*depth quiet, -171*depth captures (Session 40 SPSA; was 80/150) |
 | Late move reductions | Late quiet moves searched shallower, re-searched if they fail high | `lean_node`, `lmr_table` | Log-log table; less at PV, more at cut nodes |
 | Check extension | Checking moves searched a ply deeper (bounded per path) | `lean_node` | Since `3bd5228` not for checks with negative SEE, which are also prunable |
-| Internal iterative deepening | Shallow search for a move at PV nodes with no table move | `lean_node` | depth >= 5 |
-| Quiescence search | Captures and promotions to 8 plies, quiet checks at the first ply, all evasions in check | `lean_qsearch` | Delta and SEE filters; own direct-mapped table |
-| Mate search | df-pn over checking sequences at the root; a proven mate is played at once | `src/search/mate_search.rs` | Session 30 |
-| Repetition | Sennichite draws; perpetual check lost for the checker; superior/inferior hand repetition | `hand_repetition_score` | Session 32 fixed perpetual check scored as draw |
+| Internal iterative deepening | Shallow search for a move at PV nodes with no table move | `lean_node` | **Off** (`SHOGI_LEAN_IID=1`): until 2026-11-09 it re-entered its own position, hit the repetition test and never searched; fixed but never measured |
+| Quiescence search | Legal captures and promotions to 8 plies, quiet checks at the first ply, all evasions in check; repetition and perpetual check on quiet moves | `lean_qsearch`, `generate_quiescence_moves_bounded` | Delta and SEE filters; own direct-mapped table. Before 2026-11-09 promotions and checks were pseudo-legal (an illegal check could score as mate), a checking capture was searched twice, and no repetition was seen |
+| Mate search | df-pn over checking sequences at the root; a proven mate is played at once | `src/search/mate_search.rs` | Session 30; bounded by nodes, a quarter of the move's time and `stop` |
+| Repetition | Sennichite draws; perpetual check lost for the checker; superior/inferior hand repetition, also against the last 16 game positions | `path_repetition`, `hand_repetition_score` | Session 32 fixed perpetual check scored as draw; hand repetition across the root since 2026-11-09 |
 | Time management | Byoyomi and main time, adaptive allocation, move overhead | `time_management.rs` | USI `MoveOverhead`, `TimeSafetyMargin` |
 
 ## Move ordering
@@ -66,10 +67,14 @@ same-kind moves tried before it. First-move cutoffs rose from 79% to 88% (Sessio
   positions looked up flipped; every book move checked against our legal moves. Off by default
   (`BookFile no_book`); `BookEvalDiff`, `BookMaxPly`, `USI_OwnBook`. Used only in games from the
   even start position and not for `go infinite`. See `docs/REPOSITORY.md` for the Peta-shock book.
-- Micro endgame tablebase (`src/tablebase/`).
+- Micro endgame tablebase (`src/tablebase/`): **off in games** since 2026-11-09 (`EnableTablebase`,
+  default false). A hit plays its move without a search, and the rook and silver solvers claimed
+  wins against a full army; they now require a bare enemy king and empty hands.
 - Magic bitboards for sliding pieces (`resources/magic_tables/`; a binary that cannot find
   them falls back to ray casting, which chokes multi-threaded search).
-- USI protocol with pondering; preferences (thread count) persist in the OS config directory
+- USI protocol with pondering (since 2026-11-09: `ponderhit` gives the search the move's time from
+  then, and a pondering search holds its `bestmove` until `ponderhit` or `stop`; the engine sends no
+  ponder move itself); `position ... moves` stops at an illegal move; preferences (thread count) persist in the OS config directory
   (`~/Library/Application Support/shogi-vibe/engine_prefs.json` on macOS; `SHOGI_PREFS_DIR`
   overrides).
 

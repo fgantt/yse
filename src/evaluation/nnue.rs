@@ -1910,8 +1910,10 @@ pub fn score_pov_scratch(
 /// This reduces per-evaluation cost from ~2.0µs (full refresh + forward pass)
 /// to ~1.4µs (incremental update + forward pass), a ~30% speedup.
 pub struct NNUEEvaluator {
-    /// Network weights
-    weights: NNUEWeights,
+    /// Network weights, shared by `clone_for_worker` copies: the Lazy SMP
+    /// helpers used to copy all 10.8 MB of them on every move (council review,
+    /// 2026-11-09). Training mutates through `get_weights_mut` (copy on write).
+    weights: std::sync::Arc<NNUEWeights>,
     /// Accumulator for the current position
     accumulator: NNUEAccumulator,
     /// Stack of accumulator hidden_1 states for make/unmake during search.
@@ -2013,7 +2015,7 @@ impl NNUEEvaluator {
         let weights = NNUEWeights::new(hidden_size_1, hidden_size_2);
         let accumulator = NNUEAccumulator::new(hidden_size_1, hidden_size_2);
         Self {
-            weights,
+            weights: std::sync::Arc::new(weights),
             accumulator,
             accumulator_stack: SnapshotStack::with_capacity(128), // Typical max search depth
             hand_counts_stack: Vec::with_capacity(128),
@@ -2042,6 +2044,11 @@ impl NNUEEvaluator {
 
     /// Create NNUE evaluator from loaded weights
     pub fn from_weights(weights: NNUEWeights) -> Self {
+        Self::from_shared_weights(std::sync::Arc::new(weights))
+    }
+
+    /// [`Self::from_weights`] on weights another evaluator already holds.
+    fn from_shared_weights(weights: std::sync::Arc<NNUEWeights>) -> Self {
         let (size_1, size_2) = weights.hidden_sizes();
         let accumulator = NNUEAccumulator::new(size_1, size_2);
         Self {
@@ -2248,7 +2255,7 @@ impl NNUEEvaluator {
     /// The first evaluation rebuilds from the worker's board.
     pub fn clone_for_worker(&self) -> Self {
         let (h1, h2) = self.weights.hidden_sizes();
-        let mut c = Self::from_weights(self.weights.clone());
+        let mut c = Self::from_shared_weights(std::sync::Arc::clone(&self.weights));
         c.use_stm_feature = self.use_stm_feature;
         c.use_halfkp = self.use_halfkp;
         c.use_hand_features = self.use_hand_features;
@@ -2368,8 +2375,9 @@ impl NNUEEvaluator {
             .first()
             .map(|r| r.len())
             .unwrap_or(DEFAULT_HIDDEN_SIZE_1);
+        let weights = std::sync::Arc::make_mut(&mut self.weights);
         for _ in current..target {
-            self.weights.input_weights_1.push(vec![0i16; row_len]);
+            weights.input_weights_1.push(vec![0i16; row_len]);
         }
     }
 
@@ -3014,7 +3022,7 @@ impl NNUEEvaluator {
 
     /// Get mutable reference to weights (for training)
     pub fn get_weights_mut(&mut self) -> &mut NNUEWeights {
-        &mut self.weights
+        std::sync::Arc::make_mut(&mut self.weights)
     }
 }
 

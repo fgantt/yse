@@ -275,7 +275,7 @@ impl SearchEngine {
         null_ok: bool,
         prev_move: Option<&Move>,
     ) -> i32 {
-        let pv_node = beta - alpha > 1;
+        let pv_node = is_pv_window(alpha, beta);
         let lp = super::lean_params::lean_params();
         let position_hash = self.hash_calculator.get_position_hash(board, player, captured_pieces);
         let in_check = board.is_king_in_check(player, captured_pieces);
@@ -291,7 +291,15 @@ impl SearchEngine {
         // The table move, while a singular search asks how the others do without it.
         let excluded = excluded_at(ply);
 
+        let hist = super::lean_hist::hist_uses();
         if depth <= 0 {
+            // Quiescence's stand-pat correction reads the continuation key of
+            // the move into this node (`prev_key(ply)`); record it here too, or
+            // it reads whichever sibling last stood at this ply (council review,
+            // 2026-11-09).
+            if hist != 0 {
+                super::lean_hist::with(|h| h.enter(ply, prev_move));
+            }
             let q = self.lean_q_entry(
                 board,
                 captured_pieces,
@@ -300,6 +308,8 @@ impl SearchEngine {
                 beta,
                 start_time,
                 time_limit_ms,
+                hash_history,
+                true,
             );
             if trace_node(ply) {
                 eprintln!("TRACE ply={ply} [{alpha},{beta}] quiescence -> {q}");
@@ -307,7 +317,6 @@ impl SearchEngine {
             return q;
         }
 
-        let hist = super::lean_hist::hist_uses();
         if hist != 0 {
             super::lean_hist::with(|h| {
                 h.enter(ply, prev_move);
@@ -421,6 +430,8 @@ impl SearchEngine {
                 beta,
                 start_time,
                 time_limit_ms,
+                hash_history,
+                true,
             );
             if q < alpha {
                 if traced {
@@ -495,6 +506,14 @@ impl SearchEngine {
                         new_captured.add_piece(c.piece_type, player);
                     }
                     let path_len = hash_history.len();
+                    // The capture child is never entered as a node: give its
+                    // quiescence the child's ply and move, or it reads a
+                    // `node_ply` and continuation key left by whatever node the
+                    // null-move search visited last (council review round 3).
+                    self.node_ply = ply + 1;
+                    if hist != 0 {
+                        super::lean_hist::with(|h| h.enter(ply + 1, Some(mv)));
+                    }
                     let mut v = -self.lean_q_entry(
                         board,
                         &new_captured,
@@ -503,6 +522,8 @@ impl SearchEngine {
                         -pc_beta + 1,
                         start_time,
                         time_limit_ms,
+                        hash_history,
+                        false,
                     );
                     hash_history.truncate(path_len);
                     if v >= pc_beta {
@@ -542,8 +563,15 @@ impl SearchEngine {
         } else {
             depth
         };
-        if !lean_iir() && tt_move.is_none() && pv_node && depth >= 5 {
-            self.lean_node(
+        // Off by default (`SHOGI_LEAN_IID=1`): until 2026-11-09 this re-entered
+        // the node with its own position still on the path, so the repetition
+        // test returned at once and IID never searched anything (council
+        // review). It now steps off the path as the singular search does, but
+        // a working IID has never been measured, so it needs a screen first.
+        if lean_iid() && !lean_iir() && tt_move.is_none() && pv_node && depth >= 5 {
+            hash_history.pop();
+            let base = hash_history.len();
+            self.lean_inner(
                 board,
                 captured_pieces,
                 player,
@@ -557,6 +585,11 @@ impl SearchEngine {
                 null_ok,
                 prev_move,
             );
+            hash_history.truncate(base);
+            hash_history.push(path_entry(position_hash, in_check));
+            if self.search_aborted {
+                return alpha;
+            }
             tt_move = self.tt_probe(position_hash, 0).and_then(|e| e.best_move);
         }
 
@@ -939,13 +972,11 @@ impl SearchEngine {
         } else {
             TranspositionFlag::UpperBound
         };
-        // Correction history learns from results consistent with their bound,
-        // where the best move is quiet (a capture's gain is not the evaluation's
-        // error).
+        // Correction history learns from results consistent with their bound
+        // (see `corr_learnable` for which).
         if let Some(k) = &corr_keys {
             if !self.search_aborted
-                && best_move.as_ref().is_none_or(|m| !m.is_capture)
-                && best_score.abs() < MATE_THRESHOLD
+                && corr_learnable(best_move.as_ref(), best_score)
                 && !(flag == TranspositionFlag::LowerBound && best_score <= static_eval)
                 && !(flag == TranspositionFlag::UpperBound && best_score >= static_eval)
             {
@@ -1018,6 +1049,30 @@ fn set_excluded(ply: i32, mv: Option<Move>) {
 }
 
 /// Whether nodes without a table move are reduced a ply (`SHOGI_LEAN_IIR=1`).
+/// Whether `(alpha, beta)` is wider than a null window, i.e. a PV node. In
+/// i64: a full window (MIN_SCORE, MAX_SCORE) overflowed i32 and, in release
+/// builds, wrapped negative, so it read as a null window and the node was
+/// searched as non-PV (council review, 2026-11-09).
+fn is_pv_window(alpha: i32, beta: i32) -> bool {
+    i64::from(beta) - i64::from(alpha) > 1
+}
+
+/// Whether correction history may learn from a node's result: the best move is
+/// quiet (a capture's or a promotion's gain is not the evaluation's error), and
+/// the score is not one of hand repetition (±30,000) or mate. Promotions and
+/// hand-repetition scores used to be learned (council review, 2026-11-09).
+fn corr_learnable(best_move: Option<&Move>, best_score: i32) -> bool {
+    best_move.is_none_or(|m| !m.is_capture && !m.is_promotion)
+        && best_score.abs() < super::HAND_REPETITION_SCORE
+}
+
+/// Whether PV nodes without a table move run internal iterative deepening
+/// (`SHOGI_LEAN_IID=1`; see the call in `lean_inner`).
+fn lean_iid() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_LEAN_IID", false))
+}
+
 fn lean_iir() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| env_flag("SHOGI_LEAN_IIR", false))
@@ -1076,16 +1131,53 @@ struct QSlot {
     flag: u8,
     /// Whether the search below included checks (it is then usable for either kind).
     checks: bool,
+    /// Quiescence plies the search below had left: `LEAN_Q_MAX_PLY - qply`
+    /// if the ply cap cut it short somewhere, else `LEAN_Q_MAX_PLY` (complete).
+    /// A probe uses the entry only with no more plies left than that: a result
+    /// the cap truncated near the cap saw fewer continuations (council review
+    /// round 2, 2026-11-09: entries used to be used at any ply).
+    left: u8,
 }
 
 const Q_SLOTS: usize = 1 << 18;
 
 thread_local! {
-    static QTABLE: std::cell::RefCell<Vec<QSlot>> =
-        std::cell::RefCell::new(vec![QSlot::default(); Q_SLOTS]);
+    /// Repetitions quiescence has found on this thread. A node whose subtree
+    /// found one depends on the path, so it is not stored (compare before and
+    /// after the subtree).
+    static Q_REPETITIONS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Times quiescence stopped at `LEAN_Q_MAX_PLY` on this thread (see
+    /// `QSlot::left`).
+    static Q_CAP_HITS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
-static PARKED_Q: std::sync::Mutex<Vec<Option<Vec<QSlot>>>> = std::sync::Mutex::new(Vec::new());
+/// A thread's quiescence table and the game (`lean_hist::game_epoch`) it holds
+/// entries from. Entries include the correction-history term, which
+/// `usinewgame` resets, so a new game starts with an empty table (council
+/// review, 2026-11-09: it used to survive every game).
+type QTable = (u64, Vec<QSlot>);
+
+thread_local! {
+    static QTABLE: std::cell::RefCell<QTable> =
+        std::cell::RefCell::new((super::lean_hist::game_epoch(), vec![QSlot::default(); Q_SLOTS]));
+}
+
+static PARKED_Q: std::sync::Mutex<Vec<Option<QTable>>> = std::sync::Mutex::new(Vec::new());
+
+/// Runs `f` on this thread's quiescence table, emptied first if it holds an
+/// earlier game's entries.
+fn with_qtable<R>(f: impl FnOnce(&mut Vec<QSlot>) -> R) -> R {
+    QTABLE.with(|q| {
+        let mut q = q.borrow_mut();
+        let epoch = super::lean_hist::game_epoch();
+        if q.0 != epoch || q.1.len() != Q_SLOTS {
+            q.1.clear();
+            q.1.resize(Q_SLOTS, QSlot::default());
+            q.0 = epoch;
+        }
+        f(&mut q.1)
+    })
+}
 
 /// Gives this (helper) thread the quiescence table helper `slot` left last move.
 pub(super) fn q_unpark(slot: usize) {
@@ -1104,7 +1196,7 @@ pub(super) fn q_park(slot: usize) {
         return;
     }
     let t = QTABLE.with(|q| std::mem::take(&mut *q.borrow_mut()));
-    if t.len() != Q_SLOTS {
+    if t.1.len() != Q_SLOTS {
         return;
     }
     if let Ok(mut v) = PARKED_Q.lock() {
@@ -1173,9 +1265,31 @@ impl SearchEngine {
         beta: i32,
         start_time: &TimeSource,
         time_limit_ms: u32,
+        path: &mut Vec<u64>,
+        root_on_path: bool,
     ) -> i32 {
         if lean_q_enabled() {
-            self.lean_qsearch(board, captured, player, alpha, beta, start_time, time_limit_ms, 0)
+            // Quiescence keeps every node of its line on `path` (the repetition
+            // test reads it as consecutive plies), so a root not already there
+            // (ProbCut's capture) goes on first.
+            let len = path.len();
+            if !root_on_path {
+                let key = self.hash_calculator.get_position_hash(board, player, captured);
+                path.push(path_entry(key, board.is_king_in_check(player, captured)));
+            }
+            let v = self.lean_qsearch(
+                board,
+                captured,
+                player,
+                alpha,
+                beta,
+                start_time,
+                time_limit_ms,
+                0,
+                path,
+            );
+            path.truncate(len);
+            v
         } else {
             self.quiescence_search(
                 board,
@@ -1194,6 +1308,14 @@ impl SearchEngine {
     /// (and checks at the first ply) in most-valuable-victim order, skipping those
     /// that lose material by SEE or cannot reach alpha. In check, every evasion.
     /// Fail-soft; bounds are stored against the original window.
+    ///
+    /// `path` is the search path, the quiescence root on it. Every node below
+    /// the root is tested for repetition and perpetual check, as `lean_node`
+    /// tests its nodes (a quiet check and the king's reply can close a cycle;
+    /// so can a capture undone by a drop), and is on the path while its
+    /// children search, so the path holds consecutive plies. Quiescence used to
+    /// test nothing (council review, 2026-11-09; round 2: only quiet nodes,
+    /// on a path with gaps).
     #[allow(clippy::too_many_arguments)]
     fn lean_qsearch(
         &mut self,
@@ -1205,6 +1327,7 @@ impl SearchEngine {
         start_time: &TimeSource,
         time_limit_ms: u32,
         qply: i32,
+        path: &mut Vec<u64>,
     ) -> i32 {
         self.quiescence_stats.nodes_searched += 1;
         self.search_statistics.increment_quiescence_nodes();
@@ -1215,21 +1338,42 @@ impl SearchEngine {
             return self.evaluator.evaluate(board, player, captured);
         }
         let in_check = board.is_king_in_check(player, captured);
+        let key = self.hash_calculator.get_position_hash(board, player, captured);
+        // Repetition first, also at the ply cap (round 3: a cycle closing at
+        // the cap used to get the static evaluation).
+        if qply > 0 {
+            if let Some(score) = self.path_repetition(path, key, in_check) {
+                Q_REPETITIONS.with(|r| r.set(r.get() + 1));
+                return score;
+            }
+        }
         if qply >= LEAN_Q_MAX_PLY && !in_check {
+            Q_CAP_HITS.with(|c| c.set(c.get() + 1));
             return self.evaluator.evaluate(board, player, captured);
         }
         let with_checks = qply == 0 && lean_q_checks();
-
-        let key = self.hash_calculator.get_position_hash(board, player, captured);
+        let left = u8::try_from((LEAN_Q_MAX_PLY - qply).max(0)).unwrap_or(0);
         let slot = (key as usize) & (Q_SLOTS - 1);
-        let hit = QTABLE.with(|t| t.borrow()[slot]);
-        if hit.flag != 0 && hit.key == key && (hit.checks || !with_checks) {
+        let hit = with_qtable(|t| t[slot]);
+        if hit.flag != 0
+            && hit.key == key
+            && (hit.checks || !with_checks)
+            && hit.left >= left
+        {
             let s = hit.score;
-            match hit.flag {
-                1 => return s,
-                2 if s >= beta => return s,
-                3 if s <= alpha => return s,
-                _ => {}
+            let usable = match hit.flag {
+                1 => true,
+                2 => s >= beta,
+                3 => s <= alpha,
+                _ => false,
+            };
+            if usable {
+                // A result the cap truncated truncates whatever uses it
+                // (round 3: its ancestors used to be stored as complete).
+                if hit.left < LEAN_Q_MAX_PLY as u8 {
+                    Q_CAP_HITS.with(|c| c.set(c.get() + 1));
+                }
+                return s;
             }
         }
 
@@ -1276,6 +1420,13 @@ impl SearchEngine {
             -(m.captured_piece_value() * 16 + promo * 8 - m.piece_value())
         });
 
+        // On the path while the children search (the root already is).
+        let path_len = path.len();
+        if qply > 0 {
+            path.push(path_entry(key, in_check));
+        }
+        let repetitions_before = Q_REPETITIONS.with(std::cell::Cell::get);
+        let cap_hits_before = Q_CAP_HITS.with(std::cell::Cell::get);
         for mv in &moves {
             let see_filtered = if in_check {
                 // A quiet evasion that loses material, once some evasion holds.
@@ -1345,10 +1496,12 @@ impl SearchEngine {
                 start_time,
                 time_limit_ms,
                 qply + 1,
+                path,
             );
             self.nnue_unmake_move();
             board.unmake_move(&move_info);
             if self.search_aborted {
+                path.truncate(path_len);
                 return best.max(score);
             }
 
@@ -1362,12 +1515,15 @@ impl SearchEngine {
                 }
             }
         }
+        path.truncate(path_len);
         // In check with every evasion skipped cannot happen (none are pruned).
         if best == -INF {
             best = alpha_orig;
         }
 
-        if !self.search_aborted && best.abs() < MATE_THRESHOLD {
+        // A result that met a repetition below holds only for this path.
+        let path_free = Q_REPETITIONS.with(std::cell::Cell::get) == repetitions_before;
+        if !self.search_aborted && best.abs() < MATE_THRESHOLD && path_free {
             let flag = if best >= beta {
                 2
             } else if best <= alpha_orig {
@@ -1375,10 +1531,212 @@ impl SearchEngine {
             } else {
                 1
             };
-            QTABLE.with(|t| {
-                t.borrow_mut()[slot] = QSlot { key, score: best, flag, checks: with_checks };
-            });
+            let complete = Q_CAP_HITS.with(std::cell::Cell::get) == cap_hits_before;
+            let left = if complete { LEAN_Q_MAX_PLY as u8 } else { left };
+            with_qtable(|t| t[slot] = QSlot { key, score: best, flag, checks: with_checks, left });
         }
         best
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::moves::MoveGenerator;
+
+    fn startpos_moves() -> Vec<Move> {
+        MoveGenerator::new().generate_legal_moves(
+            &BitboardBoard::new(),
+            Player::Black,
+            &CapturedPieces::new(),
+        )
+    }
+
+    /// The full window is a PV window (it overflowed i32 and read as null).
+    #[test]
+    fn full_window_is_pv() {
+        assert!(is_pv_window(MIN_SCORE, MAX_SCORE));
+        assert!(is_pv_window(MAX_SCORE.saturating_neg(), MIN_SCORE.saturating_neg()));
+        assert!(is_pv_window(-100, 100));
+        assert!(!is_pv_window(99, 100));
+    }
+
+    /// Correction history does not learn from captures, promotions, hand
+    /// repetition or mate scores.
+    #[test]
+    fn correction_learns_only_quiet_evaluation_errors() {
+        let quiet = startpos_moves().into_iter().find(|m| !m.is_capture).expect("a quiet move");
+        let mut promo = quiet.clone();
+        promo.is_promotion = true;
+        let mut capture = quiet.clone();
+        capture.is_capture = true;
+        assert!(corr_learnable(Some(&quiet), 150));
+        assert!(corr_learnable(None, -150));
+        assert!(!corr_learnable(Some(&promo), 150));
+        assert!(!corr_learnable(Some(&capture), 150));
+        assert!(!corr_learnable(Some(&quiet), super::super::HAND_REPETITION_SCORE));
+        assert!(!corr_learnable(Some(&quiet), -super::super::HAND_REPETITION_SCORE));
+        assert!(!corr_learnable(None, MATE_THRESHOLD + 5));
+    }
+
+    /// `usinewgame` empties the quiescence table too (its entries hold the
+    /// correction-history term, which a new game resets).
+    #[test]
+    fn new_game_empties_quiescence_table() {
+        let _epoch = super::super::lean_hist::TEST_EPOCH_LOCK
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        with_qtable(|t| t[7] = QSlot { key: 42, score: 1, flag: 1, checks: false, left: 8 });
+        assert_eq!(with_qtable(|t| t[7].key), 42);
+        super::super::lean_hist::new_game();
+        let slot = with_qtable(|t| t[7]);
+        assert_eq!((slot.key, slot.flag), (0, 0));
+    }
+
+    /// A depth-0 node records the move that reached it before quiescence reads
+    /// its continuation key (it used to read a sibling's).
+    #[test]
+    fn quiescence_entry_records_its_move() {
+        let moves = startpos_moves();
+        let (sibling, mv) = (&moves[0], &moves[1]);
+        assert_ne!(super::super::lean_hist::key(sibling), super::super::lean_hist::key(mv));
+        let mut engine = SearchEngine::new(None, 16);
+        let mut board = BitboardBoard::new();
+        let mut captured = CapturedPieces::new();
+        let root = engine.hash_calculator.get_position_hash(&board, Player::Black, &captured);
+        engine.root_entry = path_entry(root, false);
+        engine.root_path_len = 1;
+        board.make_move_with_hand(mv, &mut captured);
+        super::super::lean_hist::with(|h| h.enter(1, Some(sibling)));
+        let mut path = vec![engine.root_entry];
+        let start = TimeSource::now();
+        engine.lean_node(
+            &mut board,
+            &captured,
+            Player::White,
+            0,
+            -1000,
+            1000,
+            &start,
+            60_000,
+            &mut path,
+            false,
+            true,
+            Some(mv),
+        );
+        let got = super::super::lean_hist::with(|h| h.prev_key(1));
+        assert_eq!(got, super::super::lean_hist::key(mv));
+    }
+
+    /// Quiescence sees a repetition its quiet check and the king's reply close
+    /// with the search path (it used to see none): Black, far behind, draws by
+    /// checking from 5a, since the king's only escape repeats an earlier
+    /// position.
+    #[test]
+    fn quiescence_finds_repetition_with_the_path() {
+        let pos = |sfen: &str| BitboardBoard::from_fen(sfen).expect("sfen");
+        // X: White king 1b, Black rook 5a, Black to move; Y: rook back to 5c,
+        // White to move; Z: king back to 1a, Black to move (the q root).
+        let (x, xp, xc) = pos("4R4/7pk/9/9/9/9/r8/r8/gg6K b - 1");
+        let (y, yp, yc) = pos("9/7pk/4R4/9/9/9/r8/r8/gg6K w - 1");
+        let (mut z, zp, zc) = pos("8k/7p1/4R4/9/9/9/r8/r8/gg6K b - 1");
+        let mut engine = SearchEngine::new(None, 16);
+        let entry = |e: &SearchEngine, b: &BitboardBoard, p: Player, c: &CapturedPieces| {
+            path_entry(e.hash_calculator.get_position_hash(b, p, c), b.is_king_in_check(p, c))
+        };
+        let mut path =
+            vec![entry(&engine, &x, xp, &xc), entry(&engine, &y, yp, &yc), entry(&engine, &z, zp, &zc)];
+        engine.root_entry = path[0];
+        engine.root_path_len = 1;
+        let start = TimeSource::now();
+        let stand_pat = engine.evaluator.evaluate(&z, zp, &zc);
+        assert!(stand_pat < -500, "Black should be far behind: {stand_pat}");
+        let q = engine.lean_q_entry(&mut z, &zc, zp, -30_000, 30_000, &start, 60_000, &mut path, true);
+        assert_eq!(q, 0, "the checking line repeats X");
+        assert_eq!(path.len(), 3);
+        // The draw holds only on this path: Z's result is not cached.
+        let zkey = engine.hash_calculator.get_position_hash(&z, zp, &zc);
+        let slot = with_qtable(|t| t[(zkey as usize) & (Q_SLOTS - 1)]);
+        assert!(slot.flag == 0 || slot.key != zkey, "path-dependent result cached");
+    }
+
+    /// A node that uses a truncated cached result is itself truncated: it is
+    /// stored with its own plies left, not as complete.
+    #[test]
+    fn truncated_cache_hit_truncates_its_parent() {
+        // A: Black's rook on 5h can take the pawn on 5e (its only noisy move),
+        // giving B with White to move.
+        let (mut a, ap, ac) = BitboardBoard::from_fen("8k/9/9/9/4p4/9/9/4R4/K8 b - 1").expect("sfen");
+        let (b, bp, bc) = BitboardBoard::from_fen("8k/9/9/9/4R4/9/9/9/K8 w P 1").expect("sfen");
+        let mut engine = SearchEngine::new(None, 16);
+        let akey = engine.hash_calculator.get_position_hash(&a, ap, &ac);
+        let bkey = engine.hash_calculator.get_position_hash(&b, bp, &bc);
+        let bslot = (bkey as usize) & (Q_SLOTS - 1);
+        let aslot = (akey as usize) & (Q_SLOTS - 1);
+        assert_ne!(aslot, bslot);
+        // B's entry: exact, from one ply before the cap (1 ply left).
+        with_qtable(|t| {
+            t[bslot] = QSlot { key: bkey, score: -77, flag: 1, checks: false, left: 1 };
+            t[aslot] = QSlot::default();
+        });
+        let start = TimeSource::now();
+        let mut path = vec![path_entry(akey ^ 2, false)];
+        let qply = LEAN_Q_MAX_PLY - 2;
+        engine.lean_qsearch(&mut a, &ac, ap, -30_000, 30_000, &start, 60_000, qply, &mut path);
+        let stored = with_qtable(|t| t[aslot]);
+        assert_eq!(stored.key, akey, "A was not stored");
+        assert_eq!(i32::from(stored.left), LEAN_Q_MAX_PLY - qply, "stored as complete");
+    }
+
+    /// A repetition at the ply cap is scored as one, not by the evaluation.
+    #[test]
+    fn repetition_at_the_ply_cap() {
+        let (mut z, zp, zc) = BitboardBoard::from_fen("8k/7p1/4R4/9/9/9/r8/r8/gg6K b - 1").expect("sfen");
+        let mut engine = SearchEngine::new(None, 16);
+        let key = engine.hash_calculator.get_position_hash(&z, zp, &zc);
+        // Z, then an opponent position not in check, then Z again: a plain
+        // repetition (with the opponent in check it would be our perpetual).
+        let mut path = vec![path_entry(key ^ 2, false), path_entry(key, false), path_entry(key ^ 4, false)];
+        let start = TimeSource::now();
+        let eval = engine.evaluator.evaluate(&z, zp, &zc);
+        assert_ne!(eval, 0);
+        let q = engine.lean_qsearch(&mut z, &zc, zp, -30_000, 30_000, &start, 60_000, LEAN_Q_MAX_PLY, &mut path);
+        assert_eq!(q, 0, "the repetition was not seen at the cap");
+        assert_eq!(path.len(), 3);
+    }
+
+    /// A cached quiescence result is used only where it had at least as many
+    /// plies left as the probe needs (an entry from near the ply cap saw fewer
+    /// continuations).
+    #[test]
+    fn quiescence_cache_respects_the_horizon() {
+        let (mut b, p, c) = BitboardBoard::from_fen("4k4/9/9/9/9/9/9/9/4K4 b - 1").expect("sfen");
+        let mut engine = SearchEngine::new(None, 16);
+        let key = engine.hash_calculator.get_position_hash(&b, p, &c);
+        let slot = (key as usize) & (Q_SLOTS - 1);
+        let start = TimeSource::now();
+        let mut path = vec![path_entry(key, false)];
+        let fake = 4_321;
+        with_qtable(|t| t[slot] = QSlot { key, score: fake, flag: 1, checks: true, left: 1 });
+        let q = engine.lean_q_entry(&mut b, &c, p, -30_000, 30_000, &start, 60_000, &mut path, true);
+        assert_ne!(q, fake, "an entry with 1 ply left was used at the root");
+        with_qtable(|t| t[slot] = QSlot { key, score: fake, flag: 1, checks: true, left: 8 });
+        let q = engine.lean_q_entry(&mut b, &c, p, -30_000, 30_000, &start, 60_000, &mut path, true);
+        assert_eq!(q, fake, "a full-horizon entry is used");
+    }
+
+    /// The root search is fail-soft: a fail-low returns the best score found,
+    /// below alpha (it returned alpha itself, so the aspiration loops widened
+    /// from the old bound).
+    #[test]
+    fn root_fail_low_returns_true_bound() {
+        let mut engine = SearchEngine::new(None, 16);
+        let mut board = BitboardBoard::new();
+        let (mv, score) = engine
+            .search_at_depth(&mut board, &CapturedPieces::new(), Player::Black, 2, 60_000, 20_000, 20_001)
+            .expect("a move");
+        assert!(score < 20_000, "fail-low returned {score}");
+        // The move on a fail-low is the first-ordered one, as before.
+        assert!(startpos_moves().iter().any(|m| m.to_usi_string() == mv.to_usi_string()));
     }
 }

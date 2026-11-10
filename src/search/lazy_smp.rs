@@ -91,6 +91,7 @@ impl LazyHelpers {
                 let board = board.clone();
                 let captured = captured_pieces.clone();
                 let game_path = main.game_path().to_vec();
+                let hand_prefix = main.hand_path_prefix().to_vec();
                 let stop = stop.clone();
                 let best = best.clone();
                 std::thread::Builder::new()
@@ -98,8 +99,8 @@ impl LazyHelpers {
                     .stack_size(64 * 1024 * 1024)
                     .spawn(move || {
                         helper_search(
-                            id, tt, nnue, board, captured, player, &game_path, stop, best,
-                            max_depth,
+                            id, tt, nnue, board, captured, player, &game_path, &hand_prefix, stop,
+                            best, max_depth,
                         );
                     })
                     .ok()
@@ -140,6 +141,7 @@ fn helper_search(
     captured: CapturedPieces,
     player: Player,
     game_path: &[u64],
+    hand_prefix: &[crate::search::search_engine::HandPathEntry],
     stop: Arc<AtomicBool>,
     best: Arc<std::sync::Mutex<Option<HelperResult>>>,
     max_depth: u8,
@@ -148,12 +150,16 @@ fn helper_search(
     lean_hist::unpark(id);
     lean_corr::unpark(id);
     lean::q_unpark(id);
+    lean_hist::new_move();
     // The engine's own table is replaced by the shared one, so keep it small.
     let mut engine = SearchEngine::new(Some(stop.clone()), 1);
     engine.transposition_table = tt;
     engine.set_game_path(game_path);
+    engine.set_hand_path_prefix(hand_prefix);
     engine.evaluator.install_nnue(nnue);
-    engine.time_manager.begin_search(None);
+    // No `time_manager.begin_search` here: it zeroes `GLOBAL_SEARCH_NODES`, the
+    // count `info nodes` and `go nodes` use, after the main thread has begun
+    // (council review round 2, 2026-11-09). A new engine has no node limit.
     engine.evaluator.nnue_refresh(&board, player, &captured);
     let mut prev_score: Option<i32> = None;
     for depth in 1..=max_depth {

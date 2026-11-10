@@ -235,8 +235,10 @@ fn test_telemetry_counters_functionality() {
     let _clone1 = board.clone();
     let _clone2 = board.clone();
 
+    // Clones are no longer counted: a counter shared by every search thread
+    // on the search's hottest path (removed 2026-11-09).
     let telemetry = get_board_telemetry();
-    assert!(telemetry.clone_count >= 2, "Clone counter should track operations");
+    assert_eq!(telemetry.clone_count, 0);
 
     // Test magic telemetry
     let (raycast_count, magic_count, unavailable_count) = get_magic_telemetry();

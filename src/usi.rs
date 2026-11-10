@@ -1,5 +1,4 @@
 use crate::ShogiEngine;
-use num_cpus;
 use std::io::{self, BufRead, Write};
 
 pub struct UsiHandler {
@@ -75,7 +74,10 @@ impl UsiHandler {
     }
 
     fn handle_usi(&self) -> Vec<String> {
-        let thread_count = num_cpus::get();
+        // The count this engine will use if the GUI sends none: the saved
+        // preference, else the CPU count. It used to report the CPU count
+        // whatever the preference said (council review, 2026-11-09).
+        let thread_count = self.engine.thread_count();
         let parallel_options = self.engine.parallel_search_options();
         vec![
             "id name Yggdrasil".to_string(),
@@ -141,6 +143,7 @@ impl UsiHandler {
             ),
             // Fixed: MaxDepth now allows 0-100 (0 = unlimited/adaptive), default 0
             "option name MaxDepth type spin default 0 min 0 max 100".to_string(),
+            "option name EnableTablebase type check default false".to_string(),
             format!("option name USI_Threads type spin default {} min 1 max 32", thread_count),
             "option name SearchAlgorithm type combo default Lean var Lean var Classic".to_string(),
             "option name ThreadAlgorithm type combo default Lazy var Lazy var Split".to_string(),
@@ -191,8 +194,11 @@ pub struct GoLimits {
     pub movetime: Option<u64>,
     pub depth: Option<u8>,
     pub nodes: Option<u64>,
-    /// `infinite` or `ponder`: search until `stop`.
+    /// `infinite` or `ponder`: search until `stop` (or, pondering, until
+    /// `ponderhit` starts the clock; see `run_usi_loop_with`).
     pub infinite: bool,
+    /// `ponder`: the search is on the opponent's time.
+    pub ponder: bool,
     /// `mate`: a mate search, answered with `checkmate ...`, not `bestmove`.
     pub mate: bool,
     /// The `mate` time limit in ms; `None` for `mate infinite` (until `stop`).
@@ -220,8 +226,13 @@ impl GoLimits {
                     g.mate_ms = next();
                     takes_value = g.mate_ms.is_some() || parts.get(i + 1) == Some(&"infinite");
                 }
-                "infinite" | "ponder" => {
+                "infinite" => {
                     g.infinite = true;
+                    takes_value = false;
+                }
+                "ponder" => {
+                    g.infinite = true;
+                    g.ponder = true;
                     takes_value = false;
                 }
                 _ => takes_value = false,
@@ -231,9 +242,19 @@ impl GoLimits {
         g
     }
 
+    /// The time a `go ponder` search gets once `ponderhit` arrives: what the
+    /// same limits would give without `ponder`, less the same fixed 50 ms the
+    /// search keeps back from a timed move (`IterativeDeepening::search`). A
+    /// pondering search runs unlimited, so the `ponderhit` timer is its only stop.
+    pub fn ponderhit_ms(&self, black_to_move: bool, overhead_ms: u32) -> u32 {
+        let own = Self { infinite: false, ponder: false, ..self.clone() };
+        own.allocate_ms(black_to_move, overhead_ms).saturating_sub(50).max(1)
+    }
+
     /// Milliseconds to spend on this move.
     ///
-    /// * `infinite` / `ponder`: until `stop`.
+    /// * `infinite` / `ponder`: until `stop` (a pondering search: until the
+    ///   `ponderhit` timer, see [`Self::ponderhit_ms`]).
     /// * `movetime`: that, less the overhead.
     /// * A clock: about 1/30 of the remaining main time, plus the increment,
     ///   plus byoyomi; never more than a quarter of the main time on top of
@@ -265,55 +286,135 @@ impl GoLimits {
 }
 
 pub fn run_usi_loop() {
+    run_usi_loop_with(UsiHandler::new(), io::BufReader::new(io::stdin()), io::stdout());
+}
+
+/// What the input thread and the command loop share about the current search.
+struct SearchControl {
+    /// The number of the `go` being searched (each `go` is numbered as the
+    /// input thread reads it). Held while the stop flag is set or reset, so a
+    /// `ponderhit` timer stops only its own search, never the next one.
+    generation: std::sync::Mutex<u64>,
+    /// The number of a `go ponder` still waiting for `ponderhit` or `stop`
+    /// (0: none). Set and cleared by the input thread in the order commands
+    /// arrive, so a `ponderhit` read before its `go` was dispatched is not lost;
+    /// the command loop holds that search's `bestmove` while it is set.
+    pondering: std::sync::atomic::AtomicU64,
+    /// The time each pondering `go` gets once `ponderhit` arrives, published
+    /// by the command loop as it dispatches the `go`: (`go` number, ms).
+    ponderhit_ms: std::sync::Mutex<(u64, u32)>,
+}
+
+/// [`run_usi_loop`] on any input and output (tests drive it with a pipe).
+///
+/// Pondering (council review, 2026-11-09: `go ponder` used to be an unlimited
+/// search and `ponderhit` only printed a message): `go ponder` searches until
+/// `ponderhit` or `stop`. `ponderhit` gives the search the time the same `go`
+/// would have had without `ponder`, counted from the `ponderhit`; a search that
+/// ends earlier (a proved mate) holds its `bestmove` until `ponderhit` or
+/// `stop`, as the protocol requires.
+pub fn run_usi_loop_with<R, W>(mut handler: UsiHandler, input: R, mut stdout: W)
+where
+    R: BufRead + Send + 'static,
+    W: Write,
+{
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
-
-    let mut handler = UsiHandler::new();
-    let mut stdout = io::stdout();
 
     // Commands are read on their own thread so that `stop` (and `quit`) reach a
     // search in progress: `go` blocks this thread until the search returns, and
     // reading stdin here would only see `stop` after the search had ended, so
     // `go infinite` never returned. Each line carries how many `stop`s had been
     // read before it, so a `stop` read before its `go` was dispatched is not lost
-    // when the loop clears the flag to start the search.
+    // when the loop clears the flag to start the search, and its `go` number.
     let stop_flag = handler.engine.stop_flag.clone();
     let stops_seen = Arc::new(AtomicU64::new(0));
-    let (tx, rx) = std::sync::mpsc::channel::<(String, u64)>();
+    let control = Arc::new(SearchControl {
+        generation: std::sync::Mutex::new(0),
+        pondering: AtomicU64::new(0),
+        ponderhit_ms: std::sync::Mutex::new((0, 0)),
+    });
+    let (tx, rx) = std::sync::mpsc::channel::<(String, u64, u64)>();
     {
         let stop_flag = stop_flag.clone();
         let stops_seen = stops_seen.clone();
+        let control = control.clone();
         std::thread::spawn(move || {
-            for line in io::stdin().lock().lines() {
+            let mut gos_read = 0u64;
+            let stop = |stops_seen: &AtomicU64| {
+                stops_seen.fetch_add(1, Ordering::SeqCst);
+                stop_flag.store(true, Ordering::SeqCst);
+                control.pondering.store(0, Ordering::SeqCst);
+            };
+            for line in input.lines() {
                 let line = line.unwrap_or_default();
                 let seq = stops_seen.load(Ordering::SeqCst);
                 let cmd = line.trim();
-                if cmd == "stop" || cmd == "quit" {
-                    stops_seen.fetch_add(1, Ordering::SeqCst);
-                    stop_flag.store(true, Ordering::SeqCst);
+                let words: Vec<&str> = cmd.split_whitespace().collect();
+                // `gameover` ends a pondering search too (a GUI need not send
+                // `stop` first).
+                if cmd == "stop" || cmd == "quit" || words.first() == Some(&"gameover") {
+                    stop(&stops_seen);
                 }
-                if tx.send((line, seq)).is_err() {
+                if words.first() == Some(&"go") {
+                    gos_read += 1;
+                    if words.contains(&"ponder") {
+                        control.pondering.store(gos_read, Ordering::SeqCst);
+                    }
+                }
+                if cmd == "ponderhit" {
+                    let go = control.pondering.swap(0, Ordering::SeqCst);
+                    if go != 0 {
+                        let hit = std::time::Instant::now();
+                        let (stop_flag, control) = (stop_flag.clone(), control.clone());
+                        std::thread::spawn(move || ponderhit_timer(go, hit, &control, &stop_flag));
+                    }
+                }
+                if tx.send((line, seq, gos_read)).is_err() {
                     return;
                 }
             }
+            // End of input: as `quit`.
+            stop(&stops_seen);
             let seq = stops_seen.load(Ordering::SeqCst);
-            let _ = tx.send(("quit".to_string(), seq));
+            let _ = tx.send(("quit".to_string(), seq, gos_read));
         });
     }
 
-    for (command, seq) in rx {
+    for (command, seq, go_number) in rx {
         let cmd = command.trim();
         if cmd == "quit" {
             break;
         }
-        if cmd.split_whitespace().next() == Some("go") {
+        let parts: Vec<&str> = cmd.split_whitespace().collect();
+        let is_go = parts.first() == Some(&"go");
+        if is_go {
+            let mut g = control.generation.lock().unwrap_or_else(|e| e.into_inner());
+            *g = go_number;
             stop_flag.store(false, Ordering::SeqCst);
             if stops_seen.load(Ordering::SeqCst) > seq {
                 stop_flag.store(true, Ordering::SeqCst);
             }
+            drop(g);
+            let limits = GoLimits::parse(&parts[1..]);
+            if limits.ponder {
+                let black = handler.engine.current_player == crate::types::Player::Black;
+                let ms = limits.ponderhit_ms(black, handler.engine.move_overhead_ms);
+                *control.ponderhit_ms.lock().unwrap_or_else(|e| e.into_inner()) = (go_number, ms);
+            }
+        }
+        // `ponderhit` was handled as it was read (see the input thread).
+        if cmd == "ponderhit" {
+            continue;
         }
 
         let output = handler.handle_command(&command);
+        if is_go {
+            // Hold a pondering search's `bestmove` until `ponderhit` or `stop`.
+            while control.pondering.load(Ordering::SeqCst) == go_number {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
         for out_line in output {
             if let Err(e) = writeln!(stdout, "{}", out_line) {
                 eprintln!("Error writing to stdout: {}", e);
@@ -324,6 +425,35 @@ pub fn run_usi_loop() {
             eprintln!("Error flushing stdout: {}", e);
             return;
         }
+    }
+}
+
+/// After `ponderhit` (read at `hit`) for pondering `go` number `go`: waits for
+/// that `go`'s time to be published (the `ponderhit` may arrive before the `go`
+/// is dispatched), then stops its search that long after `hit`, unless a later
+/// `go` has started.
+fn ponderhit_timer(
+    go: u64,
+    hit: std::time::Instant,
+    control: &SearchControl,
+    stop_flag: &std::sync::atomic::AtomicBool,
+) {
+    use std::sync::atomic::Ordering;
+    let ms = loop {
+        let (n, ms) = *control.ponderhit_ms.lock().unwrap_or_else(|e| e.into_inner());
+        if n == go {
+            break ms;
+        }
+        if *control.generation.lock().unwrap_or_else(|e| e.into_inner()) > go {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    };
+    let deadline = hit + std::time::Duration::from_millis(u64::from(ms));
+    std::thread::sleep(deadline.saturating_duration_since(std::time::Instant::now()));
+    let g = control.generation.lock().unwrap_or_else(|e| e.into_inner());
+    if *g == go {
+        stop_flag.store(true, Ordering::SeqCst);
     }
 }
 
@@ -366,6 +496,16 @@ mod go_limits_tests {
         assert!(go("nodes 1000").allocate_ms(true, 100) > 1_000_000);
         assert!(go("infinite").allocate_ms(true, 100) > 1_000_000);
         assert_eq!(go("").allocate_ms(true, 100), 5000);
+    }
+
+    /// After `ponderhit` a pondering `go` gets what the same limits give
+    /// without `ponder`, less the search's fixed 50 ms.
+    #[test]
+    fn ponderhit_time_is_the_moves_time() {
+        assert!(go("ponder btime 0 wtime 0 byoyomi 1000").allocate_ms(true, 100) > 1_000_000);
+        assert_eq!(go("ponder btime 0 wtime 0 byoyomi 1000").ponderhit_ms(true, 100), 850);
+        assert_eq!(go("ponder btime 60000 wtime 30000 binc 1000").ponderhit_ms(true, 100), 2850);
+        assert_eq!(go("ponder btime 0 wtime 0 byoyomi 120").ponderhit_ms(true, 100), 1);
     }
 }
 
@@ -452,5 +592,143 @@ mod go_mate_tests {
         usi.handle_command(&format!("position sfen {open}"));
         usi.engine.stop_flag.store(true, std::sync::atomic::Ordering::SeqCst);
         assert_eq!(usi.handle_command("go mate infinite"), ["checkmate timeout"]);
+    }
+}
+
+#[cfg(test)]
+mod ponder_tests {
+    use super::{run_usi_loop_with, UsiHandler};
+    use std::io::{BufReader, Read, Write};
+    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::{Arc, Mutex};
+    use std::time::{Duration, Instant};
+
+    /// Input fed line by line from the test.
+    struct Pipe {
+        rx: Receiver<Vec<u8>>,
+        buf: Vec<u8>,
+    }
+
+    impl Read for Pipe {
+        fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
+            if self.buf.is_empty() {
+                match self.rx.recv() {
+                    Ok(b) => self.buf = b,
+                    Err(_) => return Ok(0),
+                }
+            }
+            let n = out.len().min(self.buf.len());
+            out[..n].copy_from_slice(&self.buf[..n]);
+            self.buf.drain(..n);
+            Ok(n)
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct Out(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for Out {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(b);
+            Ok(b.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Out {
+        fn bestmove(&self) -> Option<String> {
+            let text = String::from_utf8_lossy(&self.0.lock().unwrap()).to_string();
+            text.lines().find(|l| l.starts_with("bestmove")).map(str::to_string)
+        }
+        fn wait_bestmove(&self, limit: Duration) -> Option<(String, Instant)> {
+            let start = Instant::now();
+            while start.elapsed() < limit {
+                if let Some(b) = self.bestmove() {
+                    return Some((b, Instant::now()));
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            None
+        }
+    }
+
+    fn start() -> (Sender<Vec<u8>>, Out, std::thread::JoinHandle<()>) {
+        let (tx, rx) = channel();
+        let out = Out::default();
+        let o = out.clone();
+        let h = std::thread::spawn(move || {
+            run_usi_loop_with(UsiHandler::new(), BufReader::new(Pipe { rx, buf: Vec::new() }), o);
+        });
+        (tx, out, h)
+    }
+
+    fn send(tx: &Sender<Vec<u8>>, line: &str) {
+        tx.send(format!("{line}\n").into_bytes()).unwrap();
+    }
+
+    /// `ponderhit` turns the pondering search into one with the move's time
+    /// (it used to keep searching until `stop`).
+    #[test]
+    fn ponderhit_starts_the_clock() {
+        let (tx, out, h) = start();
+        send(&tx, "position startpos moves 7g7f");
+        send(&tx, "go ponder btime 0 wtime 0 byoyomi 500");
+        std::thread::sleep(Duration::from_millis(400));
+        assert_eq!(out.bestmove(), None, "bestmove while pondering");
+        let hit = Instant::now();
+        send(&tx, "ponderhit");
+        let (b, at) = out.wait_bestmove(Duration::from_secs(5)).expect("bestmove after ponderhit");
+        assert!(at.duration_since(hit) >= Duration::from_millis(300), "{b} too early");
+        send(&tx, "quit");
+        h.join().unwrap();
+    }
+
+    /// A `ponderhit` read before its `go ponder` is dispatched still starts the
+    /// clock (it used to be dropped, leaving the search to run until `stop`).
+    #[test]
+    fn early_ponderhit_is_not_lost() {
+        let (tx, out, h) = start();
+        send(&tx, "position startpos moves 7g7f");
+        // One write: the input thread reads both lines before the command
+        // loop dispatches the `go`.
+        tx.send(b"go ponder btime 0 wtime 0 byoyomi 500\nponderhit\n".to_vec()).unwrap();
+        let (b, _) = out.wait_bestmove(Duration::from_secs(5)).expect("bestmove after early ponderhit");
+        assert!(b.starts_with("bestmove "), "{b}");
+        send(&tx, "quit");
+        h.join().unwrap();
+    }
+
+    /// End of input while pondering ends the search and the loop.
+    #[test]
+    fn end_of_input_releases_a_pondering_search() {
+        let (tx, out, h) = start();
+        send(&tx, "position startpos moves 7g7f");
+        send(&tx, "go ponder btime 0 wtime 0 byoyomi 500");
+        std::thread::sleep(Duration::from_millis(200));
+        drop(tx);
+        let (tx2, rx2) = channel();
+        std::thread::spawn(move || {
+            let _ = tx2.send(h.join().is_ok());
+        });
+        assert_eq!(rx2.recv_timeout(Duration::from_secs(5)), Ok(true), "loop still running");
+        assert!(out.bestmove().is_some());
+    }
+
+    /// A pondering search that ends on its own (here a proved mate) holds its
+    /// `bestmove` until `stop` (it used to send it at once).
+    #[test]
+    fn early_result_waits_for_stop() {
+        let (tx, out, h) = start();
+        send(&tx, "position sfen 4k4/9/4P4/9/9/9/9/9/4K4 b G2r2b3g4s4n4l17p 1");
+        send(&tx, "go ponder btime 0 wtime 0 byoyomi 500");
+        std::thread::sleep(Duration::from_millis(400));
+        assert_eq!(out.bestmove(), None, "bestmove while pondering");
+        send(&tx, "stop");
+        let (b, _) = out.wait_bestmove(Duration::from_secs(5)).expect("bestmove after stop");
+        assert_eq!(b, "bestmove G*5b");
+        send(&tx, "quit");
+        h.join().unwrap();
     }
 }

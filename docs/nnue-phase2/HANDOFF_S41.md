@@ -5,6 +5,16 @@ gap measurements, council, every gate). Data and networks: `DATA_LINEAGE.md`.
 
 ## 1. State
 
+- **Update 2026-11-10 (Session 41): shipped the council code-review fixes** (one commit on top of
+  `506a366`, network a1 unchanged): legal-only quiescence moves, the PV-window overflow, quiescence
+  repetition and cache horizon, fail-soft root, correction-history and killer fixes, hand repetition
+  across the root, tablebase off in games, pondering per protocol, `USI_Hash` honoured (192 MB at
+  256), and a fingerprint-identical speed batch. Council (Opus, Sol, Gemini) 8.5 / 8.2 / 9.5 after
+  four rounds; gate SPRT [−20, +10] PASS, 864 games, +7 ± 22 (Mac −5 ± 25, PC +52 ± 50). Detail:
+  `RESEARCH_S40.md`, "Council (2026-11-09, code review ...)" and after. Installed as
+  `engines/usi-engine-stable` (previous: `-stable-prev` = `4dfe9c4`). The rest of this section
+  describes the state before it.
+
 - **Shipped engine: `4dfe9c4`** (root stack, `SHOGI_ROOT_STACK=63` default) with network **a1**
   (`nnue/default.bin`, unchanged since 2026-11-01). Installed as `engines/usi-engine-stable`
   (previous: `-stable-prev` = `8934982`), which the Mac GUI runs.

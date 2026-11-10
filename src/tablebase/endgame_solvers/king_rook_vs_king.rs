@@ -624,13 +624,19 @@ impl EndgameSolver for KingRookVsKingSolver {
         &self,
         board: &BitboardBoard,
         player: Player,
-        _captured_pieces: &CapturedPieces,
+        captured_pieces: &CapturedPieces,
     ) -> bool {
         if !self.config.enabled {
             return false;
         }
 
-        self.is_king_rook_vs_king(board, player)
+        // The solver assumes a bare enemy king and nothing in hand; it used to
+        // look only at the mover's own board pieces, so it claimed a won ending
+        // against a full army (council review, 2026-11-09).
+        captured_pieces.black.is_empty()
+            && captured_pieces.white.is_empty()
+            && board.player_occupied(player.opposite()).to_u128().count_ones() == 1
+            && self.is_king_rook_vs_king(board, player)
     }
 
     fn solve(
@@ -683,6 +689,21 @@ mod tests {
             board.place_piece(Piece { piece_type: *piece_type, player: *player }, *position);
         }
         board
+    }
+
+    /// K+R solves only against a bare king with nothing in hand: it used to
+    /// accept any position where the mover had just K+R on the board.
+    #[test]
+    fn rook_solver_needs_a_bare_enemy_king() {
+        let solver = KingRookVsKingSolver::new();
+        let empty = CapturedPieces::new();
+        let (bare, ..) = BitboardBoard::from_fen("4k4/9/9/9/9/9/9/1R7/4K4 b - 1").expect("sfen");
+        assert!(solver.can_solve(&bare, Player::Black, &empty));
+        let (army, ..) =
+            BitboardBoard::from_fen("lnsgkgsnl/9/ppppppppp/9/9/9/9/1R7/4K4 b - 1").expect("sfen");
+        assert!(!solver.can_solve(&army, Player::Black, &empty));
+        let (_, _, in_hand) = BitboardBoard::from_fen("4k4/9/9/9/9/9/9/1R7/4K4 b g 1").expect("sfen");
+        assert!(!solver.can_solve(&bare, Player::Black, &in_hand));
     }
 
     fn rook_checkmate_position() -> (BitboardBoard, CapturedPieces) {

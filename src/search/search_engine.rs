@@ -187,6 +187,108 @@ mod search_tests {
         assert_eq!((mv.to_usi_string().as_str(), score), ("5i4h", 0));
     }
 
+    /// The PV follows the table through a drop (the dropped piece used to stay
+    /// in hand, so the next position's hash was wrong and the PV stopped).
+    #[test]
+    fn pv_follows_a_drop() {
+        let (mut board, player, captured) =
+            BitboardBoard::from_fen("4k4/9/9/9/9/9/9/9/4K4 b P 1").expect("sfen");
+        let engine = SearchEngine::new(None, 16);
+        let gen = crate::moves::MoveGenerator::new();
+        let drop = gen
+            .generate_legal_moves(&board, player, &captured)
+            .into_iter()
+            .find(|m| m.to_usi_string() == "P*5e")
+            .expect("drop");
+        let hash = |b: &BitboardBoard, p: Player, c: &CapturedPieces| {
+            engine.hash_calculator.get_position_hash(b, p, c)
+        };
+        let root = hash(&board, player, &captured);
+        engine.transposition_table.store(TranspositionEntry::new_with_age(
+            0, 4, TranspositionFlag::Exact, Some(drop.clone()), root,
+        ));
+        let mut after = captured.clone();
+        board.make_move_with_hand(&drop, &mut after);
+        let reply = gen
+            .generate_legal_moves(&board, player.opposite(), &after)
+            .into_iter()
+            .find(|m| m.to_usi_string() == "5a4b")
+            .expect("reply");
+        engine.transposition_table.store(TranspositionEntry::new_with_age(
+            0,
+            3,
+            TranspositionFlag::Exact,
+            Some(reply),
+            hash(&board, player.opposite(), &after),
+        ));
+        let (start, ..) = BitboardBoard::from_fen("4k4/9/9/9/9/9/9/9/4K4 b P 1").expect("sfen");
+        let pv: Vec<String> =
+            engine.get_pv(&start, &captured, player, 4).iter().map(Move::to_usi_string).collect();
+        assert_eq!(pv[..2], ["P*5e".to_string(), "5a4b".to_string()], "{pv:?}");
+    }
+
+    /// The game's recent positions reach the search's superior/inferior
+    /// repetition test through `get_best_move` (main thread and helpers).
+    #[test]
+    fn engine_passes_hand_repetition_history() {
+        let mut engine = crate::ShogiEngine::new();
+        engine.handle_position(&[
+            "sfen", "4k3l/9/9/9/9/9/PPPPPPPPP/9/4K4", "b", "2r2b4g4s4n3l9p", "1",
+            "moves", "5i4h", "G*4i", "4h4i", "5a4b", "4i5i", "4b5a",
+        ]);
+        let mv = engine.get_best_move(2, 60_000, None).expect("a move");
+        assert_eq!(mv.to_usi_string(), "5i4h");
+        let prefix = engine.search_engine.lock().unwrap().hand_path_prefix().len();
+        assert_eq!(prefix, 6);
+    }
+
+    /// `position ... moves` stops at an illegal move (it used to play it).
+    #[test]
+    fn position_rejects_illegal_moves() {
+        let mut engine = crate::ShogiEngine::new();
+        let out = engine.handle_position(&["startpos", "moves", "7g7f", "8c8d", "2h2a"]);
+        assert!(out.iter().any(|l| l.contains("illegal move") || l.contains("2h2a")), "{out:?}");
+        let ok = engine.handle_position(&["startpos", "moves", "7g7f", "8c8d", "2g2f"]);
+        assert!(!ok.iter().any(|l| l.contains("error")), "{ok:?}");
+        assert_eq!(engine.game_path.len(), 3);
+    }
+
+    /// Superior/inferior repetition also counts game positions before the root:
+    /// it used to compare only the search's own line.
+    #[test]
+    fn hand_repetition_spans_the_root() {
+        // White drops a gold, Black's king takes it, and both kings walk back.
+        // At the root Black can return to the board after 5i4h with White a gold
+        // short: White, to move there, is inferior.
+        let mut engine = crate::ShogiEngine::new();
+        engine.handle_position(&[
+            "sfen", "4k3l/9/9/9/9/9/PPPPPPPPP/9/4K4", "b", "2r2b4g4s4n3l9p", "1",
+            "moves", "5i4h", "G*4i", "4h4i", "5a4b", "4i5i", "4b5a",
+        ]);
+        assert_eq!(engine.game_hand_path.len(), 6);
+        let search = |prefix: &[HandPathEntry]| {
+            let mut search = SearchEngine::new(None, 16);
+            search.set_game_path(&engine.game_path);
+            search.set_hand_path_prefix(prefix);
+            let mut board = engine.board.clone();
+            search
+                .search_at_depth(
+                    &mut board,
+                    &engine.captured_pieces,
+                    engine.current_player,
+                    1,
+                    60_000,
+                    MIN_SCORE,
+                    MAX_SCORE,
+                )
+                .expect("a move")
+        };
+        let (_, alone) = search(&[]);
+        assert!(alone < HAND_REPETITION_SCORE, "{alone}");
+        let (mv, score) = search(&engine.game_hand_path);
+        assert_eq!((mv.to_usi_string().as_str(), score), ("5i4h", HAND_REPETITION_SCORE));
+    }
+
     /// Perpetual check loses for the side giving it, also when the cycle
     /// began before the root.
     #[test]
@@ -771,7 +873,7 @@ impl SearchToggles {
 
 /// One position on the search path for the superior/inferior repetition rule.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct HandPathEntry {
+pub struct HandPathEntry {
     /// Position hash without the pieces in hand.
     board_hash: u64,
     player: Player,
@@ -780,7 +882,7 @@ pub(crate) struct HandPathEntry {
 }
 
 /// The superior/inferior repetition entry for a position.
-pub(crate) fn hand_path_entry_for(
+pub fn hand_path_entry_for(
     hasher: &crate::search::shogi_hash::ShogiHashHandler,
     board: &BitboardBoard,
     player: Player,
@@ -1759,16 +1861,10 @@ impl SearchEngine {
                     return;
                 }
             }
-        } else {
-            // MainSearch entry - track if it's preserving a main entry
-            if let Some(existing) =
-                self.tt_probe(entry.hash_key, 0)
-            {
-                if existing.source == crate::types::EntrySource::MainSearch {
-                    self.core_search_metrics.tt_main_entries_preserved += 1;
-                }
-            }
         }
+        // (A main-search store used to probe the table here only to count
+        // `tt_main_entries_preserved`, a whole extra probe per store; the
+        // counter is no longer kept.)
 
         // Gate writes: at shallow depths, only store Exact entries
         // BUT: Always store entries with best_move to enable PV construction
@@ -1824,7 +1920,7 @@ impl SearchEngine {
     ) -> Self {
         let config = crate::search::TranspositionConfig::performance_optimized();
         let config = crate::search::TranspositionConfig {
-            table_size: hash_size_mb * 1024 * 1024 / 100, // Approximate entries
+            table_size: crate::search::thread_safe_table::entries_for_megabytes(hash_size_mb),
             // Statistics make every probe and store take a table-wide mutex to
             // bump a counter; nothing in the search reads them.
             enable_statistics: false,
@@ -2050,6 +2146,12 @@ impl SearchEngine {
             let (w, bit) = game_filter_bit(*e);
             self.game_path_filter[w] |= bit;
         }
+    }
+
+    /// The superior/inferior-repetition positions above the root (see
+    /// `set_hand_path_prefix`).
+    pub(crate) fn hand_path_prefix(&self) -> &[HandPathEntry] {
+        &self.hand_path_prefix
     }
 
     /// The game positions before the root (see `set_game_path`).
@@ -6297,8 +6399,12 @@ impl SearchEngine {
         );
         crate::debug_utils::start_timing(&format!("search_at_depth_{}", depth));
 
-        // Memory tracking at search start (Task 26.0 - Task 4.0)
-        self.memory_tracker.reset_peak();
+        // Memory tracking at search start (Task 26.0 - Task 4.0). Only with the
+        // `statistics` feature: it asks the OS for the process's memory (a
+        // sysinfo refresh behind a mutex) on every iteration of every thread.
+        if cfg!(feature = "statistics") {
+            self.memory_tracker.reset_peak();
+        }
 
         self.tablebase_move_cache.clear();
 
@@ -6309,9 +6415,21 @@ impl SearchEngine {
 
         // Check tablebase first
         crate::debug_utils::start_timing("tablebase_probe");
-        if let Some(tablebase_result) = self.tablebase.probe(board, player, captured_pieces) {
+        let tablebase_hit = if crate::tablebase::game_path_enabled() {
+            self.tablebase.probe(board, player, captured_pieces)
+        } else {
+            None
+        };
+        if let Some(tablebase_result) = tablebase_hit {
             crate::debug_utils::end_timing("tablebase_probe", "SEARCH_AT_DEPTH");
-            if let Some(ref best_move) = tablebase_result.best_move {
+            // Only a legal move is returned, as `get_best_move_with_limits` checks.
+            let legal = |m: &Move| {
+                self.move_generator
+                    .generate_legal_moves(board, player, captured_pieces)
+                    .iter()
+                    .any(|l| l.to_usi_string() == m.to_usi_string())
+            };
+            if let Some(ref best_move) = tablebase_result.best_move.clone().filter(legal) {
                 log_decision!(
                     "SEARCH_AT_DEPTH",
                     "Tablebase hit",
@@ -6354,9 +6472,11 @@ impl SearchEngine {
         self.hand_path.push(root_entry);
 
         let mut best_move: Option<Move> = None;
-        // Initialize best_score to alpha (Task 5.12)
-        // This is correct since any move that improves alpha will set best_score
-        let mut best_score = alpha;
+        // Fail-soft: the best score found, even below alpha. Both aspiration
+        // loops widen around the returned score; starting at alpha returned
+        // alpha itself on a fail-low, so they widened from the old bound, not
+        // from the true one (council review, 2026-11-09).
+        let mut best_score = MIN_SCORE;
 
         trace_log!("SEARCH_AT_DEPTH", "Generating legal moves");
         crate::debug_utils::start_timing("move_generation");
@@ -6815,6 +6935,16 @@ impl SearchEngine {
             }
         }
 
+        // A fail-low names no best move (as when the score started at alpha):
+        // the caller re-searches, and if it cannot, the first-ordered move (the
+        // previous best) is the fallback below, as before. Nothing searched: alpha.
+        if best_score <= alpha_orig {
+            best_move = None;
+        }
+        if best_score == MIN_SCORE {
+            best_score = alpha_orig;
+        }
+
         // CRITICAL FIX: Fallback move selection to prevent returning None when moves
         // exist This addresses the bug where best_move would be None even when
         // legal moves were available. The fallback ensures we always return a
@@ -6895,8 +7025,11 @@ impl SearchEngine {
         // Ensure buffered entries are flushed at the end of a root search
         self.flush_tt_buffer();
 
-        // Update memory tracking at search end (Task 26.0 - Task 4.0)
-        self.memory_tracker.update_peak_rss();
+        // Update memory tracking at search end (Task 26.0 - Task 4.0; see the
+        // start of `search_at_depth`).
+        if cfg!(feature = "statistics") {
+            self.memory_tracker.update_peak_rss();
+        }
         self.track_memory_usage(0); // Update tracking
 
         result
@@ -7056,7 +7189,7 @@ impl SearchEngine {
 
     /// Positions above this engine's root (parallel workers search from below
     /// the real root): `search_at_depth` starts its path with them.
-    pub(crate) fn set_hand_path_prefix(&mut self, prefix: &[HandPathEntry]) {
+    pub fn set_hand_path_prefix(&mut self, prefix: &[HandPathEntry]) {
         self.hand_path_prefix.clear();
         self.hand_path_prefix.extend_from_slice(prefix);
     }
@@ -9669,9 +9802,10 @@ impl SearchEngine {
                 let _ = next_hash.take();
                 if let Some(move_) = &entry.best_move {
                     pv.push(move_.clone());
-                    if let Some(captured) = current_board.make_move(move_) {
-                        current_captured.add_piece(captured.piece_type, current_player);
-                    }
+                    // With the hands (a drop leaves the hand): `make_move` alone
+                    // left a dropped piece in hand, so every later hash in the
+                    // line was wrong (council review round 2, 2026-11-09).
+                    current_board.make_move_with_hand(move_, &mut current_captured);
                     current_player = current_player.opposite();
                     let future_hash = self.hash_calculator.get_position_hash(
                         &current_board,
@@ -15717,6 +15851,11 @@ impl IterativeDeepening {
                 .generate_legal_moves(board, player, captured_pieces);
         let legal_move_count = legal_moves.len();
 
+        // A new move on the main thread (helpers do this in `lazy_smp`).
+        if lean::lean_enabled() {
+            lean_hist::new_move();
+        }
+
         // Mate search first: a df-pn solver over checking sequences (see
         // `mate_search`). The main search sees 5-7 plies at a game time
         // control, and in won handicap games the engine took twenty moves to
@@ -15728,7 +15867,19 @@ impl IterativeDeepening {
             let budget = (self.time_limit_ms as u64 * 10).clamp(5_000, 200_000);
             let mate_start = std::time::Instant::now();
             let mut solver = crate::search::mate_search::MateSearch::new(budget);
-            if let Some(line) = solver.solve(board, captured_pieces, player) {
+            // Also bounded in time (a quarter of the move) and by `stop`: the node
+            // budget alone let a position full of checking drops run on
+            // (council review, 2026-11-09).
+            let deadline = mate_start
+                + std::time::Duration::from_millis(u64::from(self.time_limit_ms / 4).max(1));
+            let outcome = solver.solve_until(
+                board,
+                captured_pieces,
+                player,
+                Some(deadline),
+                self._stop_flag.clone(),
+            );
+            if let crate::search::mate_search::MateOutcome::Mate(line) = outcome {
                 let first = &line[0];
                 if let Some(mv) = legal_moves.iter().find(|m| {
                     m.from == first.from

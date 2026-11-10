@@ -1073,20 +1073,29 @@ impl MoveGenerator {
         captured_pieces: &CapturedPieces,
         include_checks: bool,
     ) -> Vec<Move> {
-        // The same three lists as `generate_legal_captures`, `generate_promotions`
-        // and `generate_checks`, in the same order -- the sort below breaks ties
-        // by position and the dedup ignores the promotion flag, so the order
-        // decides which duplicate survives. The piece moves are generated once
-        // and shared; drops come after them and never promote.
-        let mut moves = Vec::with_capacity(32);
-        moves.extend(self.generate_legal_captures(board, player, captured_pieces));
+        // Each move once, and every move legal (council review, 2026-11-09):
+        // - captures (both forms where promotion is optional);
+        // - promotions that do not capture;
+        // - with `include_checks`, quiet checks: non-capturing, non-promoting
+        //   piece moves and drops that give check.
+        // `gives_check` is set (on every kind) only with `include_checks`, so
+        // deeper plies treat checking captures as captures, as before.
+        //
+        // This replaced three lists merged by a sort and a dedup that ignored the
+        // promotion flag. Promotions and checks came from the pseudo-legal list,
+        // so a pinned piece could promote or give check, and an illegal check
+        // with no answer scored as mate; and since checks sort first, a checking
+        // capture also stayed in the list a second time as a plain capture.
+        let own_in_check = board.is_king_in_check(player, captured_pieces);
+        let filter = MoveTestFilter::new(board, player, own_in_check, captured_pieces);
+        let mut scratch = board.clone();
         let mut pseudo = Vec::with_capacity(192);
         self.generate_all_piece_moves_into(board, player, &mut pseudo);
-        moves.extend(pseudo.iter().filter(|m| m.is_promotion).cloned());
+        let piece_moves = pseudo.len();
         if include_checks {
             // Only drops that could give check: a drop never uncovers an attack,
             // so it checks only by attacking the king itself. The mask is a
-            // superset of those squares; `checks_among` still decides.
+            // superset of those squares; the filter still decides.
             let opp = player.opposite();
             let check_squares = match board.find_king_position(opp) {
                 Some(k) if !board.is_king_in_check(opp, captured_pieces) => Some(k),
@@ -1102,9 +1111,25 @@ impl MoveGenerator {
                 },
                 &mut pseudo,
             );
-            moves.extend(checks_among(board, player, captured_pieces, &pseudo));
         }
-        self.deduplicate_and_sort_quiescence_moves(&mut moves);
+        let mut moves = Vec::with_capacity(32);
+        for (i, m) in pseudo.iter().enumerate() {
+            let noisy = i < piece_moves && (m.is_capture || m.is_promotion);
+            if !noisy && !include_checks {
+                continue;
+            }
+            let (safe, check) = if include_checks {
+                filter.test(&mut scratch, m, player, captured_pieces)
+            } else {
+                (filter.is_safe(&mut scratch, m, player, captured_pieces), false)
+            };
+            if safe && (noisy || check) {
+                let mut m = m.clone();
+                m.gives_check = check;
+                moves.push(m);
+            }
+        }
+        moves.sort_by(|a, b| self.compare_quiescence_moves_simple(a, b));
         moves
     }
 
@@ -1591,9 +1616,11 @@ mod tests {
         assert!(in_check_positions > 1000 && double_checks > 10, "{in_check_positions} {double_checks} {compared}");
     }
 
-    /// The quiescence generators must return exactly what the old code did:
-    /// captures filtered with the full `test_after`, promotions from the full
-    /// pseudo-legal list, and checks found by playing each move on a clone.
+    /// The capture, promotion and check generators must return exactly what the
+    /// old code did: captures filtered with the full `test_after`, promotions
+    /// from the full pseudo-legal list, and checks found by playing each move on
+    /// a clone. (The bounded quiescence generator is tested against the legal
+    /// moves in `quiescence_moves_match_legal_oracle`.)
     #[test]
     fn quiescence_generators_match_reference() {
         use rand::{seq::SliceRandom, SeedableRng};
@@ -1633,17 +1660,6 @@ mod tests {
                 assert!(eq(&mg.generate_legal_captures(&board, player, &captured), &ref_caps));
                 assert!(eq(&mg.generate_promotions(&board, player, &captured), &ref_promos));
                 assert!(eq(&mg.generate_checks(&board, player, &captured), &ref_checks));
-                for include_checks in [false, true] {
-                    let mut reference = ref_caps.clone();
-                    reference.extend(ref_promos.iter().cloned());
-                    if include_checks {
-                        reference.extend(ref_checks.iter().cloned());
-                    }
-                    mg.deduplicate_and_sort_quiescence_moves(&mut reference);
-                    let got =
-                        mg.generate_quiescence_moves_bounded(&board, player, &captured, include_checks);
-                    assert!(eq(&got, &reference), "{}", board.to_fen(player, &captured));
-                }
                 checks_seen += ref_checks.len();
                 positions += 1;
                 let legal = mg.generate_legal_moves(&board, player, &captured);
@@ -1653,6 +1669,87 @@ mod tests {
             }
         }
         assert!(checks_seen > 1000 && positions > 1000, "{checks_seen} {positions}");
+    }
+
+    /// The bounded quiescence moves are exactly these legal moves, each once:
+    /// captures (both forms where promotion is optional), promotions,
+    /// and with `include_checks` quiet checks, `gives_check` as the legal
+    /// generator sets it (and false without `include_checks`). Before the
+    /// 2026-11-09 fix it returned illegal promotions and checks, and a checking
+    /// capture twice.
+    #[test]
+    fn quiescence_moves_match_legal_oracle() {
+        use rand::{seq::SliceRandom, SeedableRng};
+        let mg = MoveGenerator::new();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(34);
+        let key = |m: &Move| (m.to_usi_string(), m.gives_check, m.is_capture, m.is_promotion);
+        let (mut positions, mut quiet_checks) = (0usize, 0usize);
+        for _ in 0..30 {
+            let mut board = BitboardBoard::new();
+            let mut captured = CapturedPieces::new();
+            let mut player = Player::Black;
+            for _ in 0..160 {
+                let legal = mg.generate_legal_moves(&board, player, &captured);
+                if board.is_king_in_check(player, &captured) {
+                    // Quiescence uses the legal generator in check.
+                } else {
+                    for include_checks in [false, true] {
+                        let mut want: Vec<_> = legal
+                            .iter()
+                            .filter(|m| m.is_capture || m.is_promotion || (include_checks && m.gives_check))
+                            .map(|m| {
+                                let mut m = m.clone();
+                                m.gives_check &= include_checks;
+                                key(&m)
+                            })
+                            .collect();
+                        let mut got: Vec<_> = mg
+                            .generate_quiescence_moves_bounded(&board, player, &captured, include_checks)
+                            .iter()
+                            .map(key)
+                            .collect();
+                        let n = got.len();
+                        want.sort();
+                        got.sort();
+                        got.dedup();
+                        assert_eq!(n, got.len(), "duplicate in {}", board.to_fen(player, &captured));
+                        assert_eq!(got, want, "{}", board.to_fen(player, &captured));
+                        if include_checks {
+                            quiet_checks += want.iter().filter(|k| k.1 && !k.2 && !k.3).count();
+                        }
+                    }
+                }
+                positions += 1;
+                let Some(m) = legal.choose(&mut rng) else { break };
+                board.make_move_with_hand(m, &mut captured);
+                player = player.opposite();
+            }
+        }
+        assert!(positions > 1000 && quiet_checks > 500, "{positions} {quiet_checks}");
+    }
+
+    /// A silver pinned against its own king by a lance may neither promote
+    /// nor give check (both used to be generated for quiescence).
+    #[test]
+    fn quiescence_skips_pinned_promotion_and_check() {
+        // Black king 5i, Black silver 5c pinned by the White lance on 5a;
+        // White king 4a, so 5c4b and 5c4b+ would give check (only 5c5b stays
+        // on the pin line).
+        let sfen = "4lk3/9/4S4/9/9/9/9/9/4K4 b - 1";
+        let (board, player, captured) = BitboardBoard::from_fen(sfen).expect("sfen");
+        let mg = MoveGenerator::new();
+        let legal: Vec<String> =
+            mg.generate_legal_moves(&board, player, &captured).iter().map(Move::to_usi_string).collect();
+        assert!(!legal.iter().any(|m| m.starts_with("5c4b")), "{legal:?}");
+        for include_checks in [false, true] {
+            let q: Vec<String> = mg
+                .generate_quiescence_moves_bounded(&board, player, &captured, include_checks)
+                .iter()
+                .map(Move::to_usi_string)
+                .collect();
+            assert!(q.iter().all(|m| legal.contains(m)), "{q:?} vs {legal:?}");
+            assert!(q.iter().any(|m| m == "5c5b+"), "{q:?}");
+        }
     }
 
     /// `count_legal_captures_and_promotions` must equal the count it replaced:

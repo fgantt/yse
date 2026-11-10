@@ -812,3 +812,151 @@ accuracy inside our search. Labels are not what limits us; the 11-08 misses were
 the root stack (+73) is the second search gain this session. Not indicated now: N2/N3 (more
 king buckets) and the tanuki- set, which tests the same thing. Kept on the PC for now:
 `suisho5/raw/` (184.6 GB of volumes), `suisho5/packed_s5` (91 GB), `~/data/mix_s5` (114 GB).
+
+## Council (2026-11-09, code review: engine architecture and every feature)
+
+**Members:** Claude Opus 5.5 (`claudeAgent`, effort high), GPT-6.1 Sol (`codex`, high), Gemini 4
+Argon (`cursor`, high). Muse was unavailable; the user asked for three. Read-only review of the
+default game path at `506a366`. Brief: `matches/s41/council_arch_review_brief.md` (ignored).
+**Scores:** Opus 5.5/10, Sol 6/10, Gemini 6.2/10.
+
+Checked by the lead against the code (confirmed unless marked):
+
+| # | Finding | Found by | Where | Fingerprint |
+|---|---|---|---|---|
+| 1 | Quiescence plays illegal moves: non-capturing promotions come from the pseudo-legal list, and `checks_among` never tests legality ("Legality is not tested (this never did)"); `lean_qsearch` makes them unchecked. An illegal check the defender cannot evade scores as MATED. The test at `moves.rs:1597` compares against the same pseudo-legal lists | Opus, Gemini | `moves.rs:1085`, `:2097-2121`; `lean.rs:1265-1272` | changes |
+| 2 | IID never searches: it calls `lean_node` on the same position with that position still on `hash_history`, so `path_repetition` returns at once (the singular search pops it first, `lean.rs:611`). IID has been a no-op | Sol (Opus and Gemini called it sound) | `lean.rs:545-559`, `search_engine.rs:2064` | fixing it changes it |
+| 3 | Full-window overflow: `pv_node = beta - alpha > 1` before mate-distance pruning; the root's first move passes (−MAX_SCORE, −MIN_SCORE), which wraps to −4 in release, so that child is non-PV. Hits depths with a full window (helpers below depth 5, every aspiration fallback) | Sol (Opus said windows were clamped: wrong, the test comes first) | `lean.rs:278`, `search_engine.rs:6526`, `lazy_smp.rs:201,221` | changes |
+| 4 | Quiescence stand-pat correction (root stack bit 16) reads a stale continuation key: depth-0 nodes enter quiescence before `h.enter(ply, prev_move)` | all three | `lean.rs:294-313`, `:1245` | changes |
+| 5 | Micro tablebase on by default; the K+R and K+S tests count only the mover's own board pieces (opponent's pieces and both hands ignored) and return an unsearched move from `get_best_move_with_limits` and every `search_at_depth` | Opus, Gemini | `king_rook_vs_king.rs:36-56`, `lib.rs:507`, `search_engine.rs:6312` | changes only when it fires |
+| 6 | Iterative deepening subtracts a fixed 50 ms on top of MoveOverhead (`max_depth >= 100`). 1 s gate: 850 ms; 250 ms screens: 100 ms; **SPSA (`spsa.py` byoyomi 100, overhead 20): 30 ms, not the ~80 ms assumed above** | Gemini | `search_engine.rs:15817-15838`, `scripts/spsa.py:156-160` | n/a (time) |
+| 7 | QTABLE / PARKED_Q ignore `GAME_EPOCH`; never cleared by `usinewgame` or `SearchEngine::clear` | all three | `lean.rs:1083-1116` | n/a |
+| 8 | Correction history learns from promotion best moves (only captures excluded) and from ±30,000 hand-repetition scores (bound is MATE_THRESHOLD) | Gemini; Opus | `lean.rs:945-953` | changes |
+| 9 | Root `best_score = alpha` (fail-hard on fail-low) while both aspiration loops widen fail-soft; killers at plies 1-2 never cleared; root never calls `enter(0)` | Gemini; Opus (killers) | `search_engine.rs:6359`, `lean_hist.rs:300-307` | changes |
+| 10 | Hand-superiority repetition does not see pre-root positions (`hand_path_prefix` only set by Split) | Gemini | `search_engine.rs:6352`, `parallel_search.rs:808` | changes |
+| 11 | No repetition check inside quiescence (quiet check at qply 0, king reply at qply 1 can close a cycle) | Gemini | `lean.rs:1198` (no path argument) | changes |
+| 12 | Mate pre-search `solve` has no deadline or stop; node-capped (≤200k). df-pn `mid` stores path-dependent disproofs by hash (can only miss mates) | Sol, Gemini | `mate_search.rs:116`, `:228-235`, `:285` | — |
+| 13 | `ponderhit` is a stub; `go ponder` is an infinite search (off by default) | all three | `lib.rs:1603`, `usi.rs:223` | — |
+
+Speed, all fingerprint-identical by construction (confirmed in code; size not measured):
+`BitboardBoard::clone` does a global `fetch_add` (`BOARD_TELEMETRY`, `bitboards.rs:1913`) and
+`Arc` clones, 1-3 clones per node, contended at 4 threads; TT stores take a bucket `RwLock` keyed
+on different bits from the slot, so it guards nothing (`thread_safe_table.rs:603-623`;
+ENGINE_FEATURES' "lock-free" is wrong); `MemoryTracker` refreshes sysinfo twice per
+`search_at_depth` on every thread (`search_engine.rs:6301`, `:6899`); SEE computed 2-3 times per
+move; quiescence builds every piece move to keep the promotions (`moves.rs:1084`);
+`CapturedPieces` is two `Vec`s cloned per child (changes drop order, so not identical).
+
+Not adopted / not confirmed: Opus's "IID sound" and "windows clamped" (wrong, rows 2-3);
+Gemini's "IID sound" (wrong); every Elo range given (priors, none measured); Gemini's claim that
+the mate pre-search can use the whole move before depth 1 (possible, unmeasured: log
+`mate_start.elapsed()` in `timeuse.py`); TT size "256 MB is ~100 MB" (Opus; plausible from
+`search_engine.rs:1826`, not measured); Gemini's x86 AVX2 gap in `layer_2_fixed_i32` (not checked).
+Architecture (all three): per-thread state has five lifetimes (thread-locals, three PARKED statics,
+`GAME_EPOCH`, fresh helper `SearchEngine` per move); a persistent helper pool owning one state per
+thread, and the lean root moved out of `search_engine.rs`, are candidates, not part of any fix.
+Full answers: the three council threads of 2026-11-09.
+
+### Code review round 1: what changed (2026-11-09, uncommitted)
+
+The user asked to keep fixing until all three members score 8 or more. Every fix has a unit
+test that fails with the fix undone (checked by reverting each one) and passes with it.
+
+| Finding (table above) | Change | Test |
+|---|---|---|
+| 1 illegal quiescence moves | `generate_quiescence_moves_bounded` rewritten: one legality filter for every move; each move once (a checking capture was searched twice: checks sort first, so the dedup never met both copies); both forms of an optional-promotion capture kept, as before | `quiescence_moves_match_legal_oracle`, `quiescence_skips_pinned_promotion_and_check` (both fail on `506a366`) |
+| 2 IID never searched | Steps off the path as the singular search does; **off by default** (`SHOGI_LEAN_IID=1`) since a working IID was never measured: default tree unchanged | none (off) |
+| 3 full-window overflow | `is_pv_window` in i64 | `full_window_is_pv` |
+| 4 stale continuation key | `enter(ply, prev_move)` before quiescence | `quiescence_entry_records_its_move` |
+| 5 tablebase | Off in games (`tablebase::game_path_enabled`, USI `EnableTablebase`, now advertised, default false, one flag for every engine copy); K+R and K+S require a bare enemy king and empty hands; a tablebase move is checked against the legal moves | `game_path_probe_is_off_by_default`, `rook/silver_solver_needs_a_bare_enemy_king` |
+| 7 QTABLE lifetime | Tagged with `GAME_EPOCH`, emptied on a new game | `new_game_empties_quiescence_table` |
+| 8 correction learning | `corr_learnable`: no promotions, no |score| ≥ 30,000 | `correction_learns_only_quiet_evaluation_errors` |
+| 9 root fail-hard, root killers | Root fail-soft (fail-low keeps the first-ordered move and the old TT behaviour); `lean_hist::new_move` clears killers at plies 1-2 once per move on every thread | `root_fail_low_returns_true_bound`, `new_move_clears_root_killers` |
+| 10 hand repetition before the root | `ShogiEngine::game_hand_path`, last 16 positions as `hand_path_prefix`, main thread and helpers | `hand_repetition_spans_the_root` |
+| 11 no repetition in quiescence | Quiet-move quiescence nodes test the path and go on it for quiet children | `quiescence_finds_repetition_with_the_path` |
+| 12 mate pre-search | `solve_until` with a quarter of the move's time and the stop flag | none (bounded by the existing `solve_until`) |
+| 13 pondering | `run_usi_loop_with` (testable): `ponderhit` starts a timer for the move's time; a pondering search holds `bestmove` until `ponderhit`/`stop` | `ponderhit_starts_the_clock`, `early_result_waits_for_stop` |
+| TT size (Opus) | `entries_for_megabytes`: `USI_Hash` is an upper bound (256 → 8.4M entries, 192 MB; was 4.2M, 96 MB) | `table_fits_the_requested_megabytes` |
+| USI | `position` replays only legal moves; `usi` reports the thread count in use as the default | `position_rejects_illegal_moves` |
+| Speed | Board clone: no global counter, attack tables a `&'static`; TT stores lock-free; `MemoryTracker` RSS sampling only with `statistics`; NNUE weights shared by `Arc` (`clone_for_worker`) | fingerprint identical (below) |
+
+Measurements (Mac, `search_bench --depth 9`, 30 positions, a1):
+- Base `506a366`: all nodes 1,111,314. Legality fix alone (old merge kept): 1,276,009, 22 of 30
+  positions changed, so illegal quiescence moves were common, not rare. Full correctness stack,
+  old TT size: 933,614. Speed batch on top: byte-identical fingerprint. With the TT size fix:
+  1,323,655 (fixed-depth node counts swing ±40% with the slot mapping: `--tt-mb 16`, the old
+  entry count, reproduces 933,614 exactly; 32/64/128 MB give 1.32M/1.15M/1.03M). Node totals here
+  are not a strength measure.
+- nps, `go movetime 2000`, 8 positions, 256 MB: 1 thread 372,971 → 376,989 (+1%); 4 threads
+  1,340,467 → 1,378,688 (+3%), with the legality filter's extra work included.
+- Unit tests: the same 17 pre-existing failures as `506a366` (legacy evaluation, tablebase
+  checkmate and magic-table tests) plus timing-flaky ones on either side;
+  `initiative_tracking` overflows its stack on both and was skipped.
+
+Not adopted: the fixed 50 ms margin in iterative deepening (a time-use change needs a
+time-loss check at gate conditions; documented instead, and the rules block's SPSA figure is
+corrected: SPSA searched ~30 ms); df-pn cycle disproofs (can only miss mates; a proper fix needs
+path-aware storage); entering-king declaration, root `enter(0)`/root history updates, staged move
+generation, SEE caching, `CapturedPieces` as counts, a two-entry TT bucket, a persistent helper
+pool and moving the lean root out of `search_engine.rs` (candidates: features, tuning or
+refactors, not defects).
+
+### Code review rounds 2-4 (2026-11-09, uncommitted): the target reached
+
+| Member | Round 1 | Round 2 | Round 3 | Round 4 |
+|---|---|---|---|---|
+| Claude Opus 5.5 | 5.5 | 7.5 | 8.0 | 8.5 |
+| GPT-6.1 Sol | 6 | 7.5 | 7.8 | 8.2 |
+| Gemini 4 Argon | 6.2 | 8.3 | 9.2 | 9.5 |
+
+Briefs: `matches/s41/council_arch_review_brief_r2.md`, `_r3.md`, `_r4.md` (each lists what changed
+since the round before and what was not adopted, with reasons). Fixed after round 2: the ponder
+protocol (`go` numbered as read, so an early `ponderhit` is not lost; EOF and `gameover` release a
+pondering search; 50 ms margin after `ponderhit`); quiescence keeps every node on the path and tests
+every node below the root for repetition, before the ply cap; results that met a repetition are
+not cached; cache entries carry the plies they had left (`QSlot::left`), truncated only when the
+cap or a truncated hit cut them short; non-capturing promotions are no killers or counter moves;
+helpers no longer zero `GLOBAL_SEARCH_NODES`; `get_pv` follows drops; the metric-only TT probe per
+store is gone; ProbCut's quiescence gets the child's ply and move. Every fix but the last three
+has a unit test checked to fail with the fix reverted.
+
+Claims not adopted in rounds 2-4: `see_quiet` "ignores the promotion gain" (a promoted piece that
+is taken gives up only its unpromoted piece; SEE already decides); removing the generator's first
+sort (the tie-breaker for quiescence's stable sort); a deterministic dispatch barrier for the
+early-`ponderhit` test (needs a test hook); repetition across a null move and continuation-keyed
+ply-0 cache entries (pre-existing, heuristic; candidates); naming a ponder move (a feature).
+
+Final checks (Mac): unit tests show the same 17 pre-existing failures as `506a366`; integration
+targets touching the changes show no new failures; `search_bench --depth 9` all nodes 1,201,907
+(base 1,111,314); 6 smoke games at 250 ms vs the shipped engine, no crash, illegal move or time
+loss. **Time to depth at gate conditions** (Opus's pre-gate check; 4 threads, 1 s, 256 MB, 17
+positions, two runs): nps 1.390M/1.388M → 1.415M/1.411M (+1.8%; the fixed build no longer zeroes
+the node count as helpers start, so its count reads slightly high), mean depth 13.00/12.71 →
+12.76/12.65 (about −0.15 ply, within run-to-run noise of ~0.3).
+
+**Gate (not run; the user decides).** The correctness stack changes the search, so it needs one
+game gate; the speed batch is fingerprint-identical and needs none. Members: Sol and Opus SPRT
+[−20, +10] (non-regression; passes a true 0 42%, median ~808 games, many reach the 1,000 cap;
+Opus treats a cap without FAIL as acceptance), Gemini [−10, +20] or the same. [0, 40] would reject
+a neutral stack of correct fixes 94% of the time.
+
+### Gate result (2026-11-10): PASS
+
+SPRT [−20, +10] (non-regression, alpha = beta = 0.05), the council-review stack (`506a366` + the
+uncommitted fixes) vs shipped `4dfe9c4`, 1 s byoyomi, 4 threads and 256 MB each, MoveOverhead 100,
+network a1, pooled over six seeds on two machines: **864 games, LLR +3.29, PASS** (07:54).
+
+| Machine | Seeds | W-D-L | Score | Elo (95%) |
+|---|---|---|---|---|
+| Mac | 4121, 4122 (250 each), 4125, 4126 (stopped at the decision) | 317-40-326 | 0.493 | −4.6 ± 25.3 |
+| PC (Windows build of `4dfe9c4` + `matches/s41/gate`'s patch) | 4123, 4124 | 100-9-73 | 0.574 | +51.9 ± 49.7 |
+| Pooled | | 417-49-399 | 0.510 | +7.2 ± 22.5 |
+
+No time losses (all games ended by mate, move limit or repetition; longest think 916 ms of
+1,000). The pass means the stack is not a −20 regression; it does not show a gain. The two
+machines differ by ~56 Elo, about 2 standard errors: possibly noise, possibly the speed batch
+counting for more on the PC's x86 build (lock-free TT stores, no shared counters, shared network);
+unmeasured. Scripts: `matches/s41/gate_mac.sh`, `pc_job.sh`, `hold_pc.sh`, `gate_ctl.sh`; results
+and controller log in `matches/s41/gate/`. The PC's first launch (2026-11-09) died with its WSL
+session (WSL stops when the SSH session ends); the held, resumable `hold_pc.sh` + `pc_job.sh`
+replaced it. Not yet committed or installed as `engines/usi-engine-stable`.

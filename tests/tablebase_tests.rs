@@ -976,6 +976,9 @@ mod endgame_comprehensive_tests {
 
     #[test]
     fn test_tablebase_probe_precedes_search_engine_evaluation() {
+        // Games probe the tablebase only with `EnableTablebase` (off by default
+        // since 2026-11-09); this tests the search with it on.
+        shogi_engine::tablebase::set_game_path_enabled(true);
         let spec = fixtures::gold_mate_in_one();
         let mut search_engine = SearchEngine::new(None, 4);
         let mut board = spec.fixture.board.clone();
@@ -990,6 +993,9 @@ mod endgame_comprehensive_tests {
 
     #[test]
     fn test_move_ordering_prioritises_tablebase_move() {
+        // Games probe the tablebase only with `EnableTablebase` (off by default
+        // since 2026-11-09); this tests the search with it on.
+        shogi_engine::tablebase::set_game_path_enabled(true);
         let spec = fixtures::rook_multi_move_win();
         let mut search_engine = SearchEngine::new(None, 4);
         let mut board = spec.fixture.board.clone();

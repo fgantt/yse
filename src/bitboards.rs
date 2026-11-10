@@ -174,18 +174,27 @@ pub fn get_board_telemetry() -> BoardTelemetry {
     }
 }
 
-/// Task 5.0.5.2: Reset board telemetry counters
+/// Task 5.0.5.2: Reset board telemetry counters. The attack-table figures
+/// are kept: the tables are built once per process (`shared_attack_tables`),
+/// so a reset would leave them 0 for good.
 pub fn reset_board_telemetry() {
     BOARD_TELEMETRY.clone_count.store(0, std::sync::atomic::Ordering::Relaxed);
     BOARD_TELEMETRY
         .hash_collision_count
         .store(0, std::sync::atomic::Ordering::Relaxed);
-    BOARD_TELEMETRY
-        .attack_table_init_time
-        .store(0, std::sync::atomic::Ordering::Relaxed);
-    BOARD_TELEMETRY
-        .attack_table_memory
-        .store(0, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The non-sliding attack tables, built once per process (they are the same
+/// for every board); the build time and size go to the board telemetry.
+fn shared_attack_tables() -> &'static attack_patterns::AttackTables {
+    static TABLES: OnceLock<attack_patterns::AttackTables> = OnceLock::new();
+    TABLES.get_or_init(|| {
+        let start_time = std::time::Instant::now();
+        let tables = attack_patterns::AttackTables::new();
+        let memory = tables.memory_stats().memory_usage_bytes;
+        record_attack_table_init(start_time.elapsed().as_nanos() as u64, memory as u64);
+        tables
+    })
 }
 
 /// Task 5.0.5.2: Record attack table initialization telemetry
@@ -326,8 +335,10 @@ pub struct BitboardBoard {
     white_occupied: Bitboard,
     squares: [Option<Piece>; 81],
     attack_patterns: AttackPatterns,
-    /// Precomputed attack tables for non-sliding pieces
-    attack_tables: Arc<attack_patterns::AttackTables>,
+    /// Precomputed attack tables for non-sliding pieces: one process-wide copy
+    /// (`shared_attack_tables`). As an `Arc`, every board clone (1-3 per search
+    /// node) bumped a reference count shared by all search threads.
+    attack_tables: &'static attack_patterns::AttackTables,
     /// Magic bitboard table for sliding piece moves (shared via Arc)
     magic_table: Option<Arc<MagicTable>>,
     /// Sliding move generator for magic bitboard operations
@@ -404,14 +415,7 @@ impl BitboardBoard {
     }
 
     pub fn empty() -> Self {
-        // Task 5.0.5.2: Track attack table initialization time and memory
-        let start_time = std::time::Instant::now();
-        let attack_tables = Arc::new(attack_patterns::AttackTables::new());
-        let init_time = start_time.elapsed();
-        let memory = attack_tables.memory_stats().memory_usage_bytes;
-
-        record_attack_table_init(init_time.as_nanos() as u64, memory as u64);
-
+        let attack_tables = shared_attack_tables();
         Self {
             pieces: [[Bitboard::default(); 14]; 2],
             occupied: Bitboard::default(),
@@ -1453,7 +1457,7 @@ impl BitboardBoard {
             white_occupied: EMPTY_BITBOARD,
             squares: [None; 81],
             attack_patterns: AttackPatterns::new(),
-            attack_tables: Arc::new(attack_patterns::AttackTables::new()),
+            attack_tables: shared_attack_tables(),
             magic_table: Some(magic_table),
             sliding_generator: None,
             side_to_move: Player::Black,
@@ -1910,8 +1914,9 @@ impl BoardTrait for BitboardBoard {
 impl Clone for BitboardBoard {
     /// Task 5.0.5.2: Track board clone operations
     fn clone(&self) -> Self {
-        BOARD_TELEMETRY.clone_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
+        // No telemetry here: a global counter bumped on every clone was a cache
+        // line all search threads wrote (council review, 2026-11-09);
+        // `BoardTelemetry::clone_count` now stays 0.
         Self {
             pieces: self.pieces,
             occupied: self.occupied,
@@ -1919,7 +1924,7 @@ impl Clone for BitboardBoard {
             white_occupied: self.white_occupied,
             squares: self.squares,
             attack_patterns: self.attack_patterns.clone(),
-            attack_tables: Arc::clone(&self.attack_tables),
+            attack_tables: self.attack_tables,
             magic_table: self.magic_table.clone(),
             sliding_generator: self.sliding_generator.clone(),
             side_to_move: self.side_to_move,

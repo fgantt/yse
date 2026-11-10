@@ -85,6 +85,23 @@ pub mod position_cache;
 pub mod solver_traits;
 pub mod tablebase_config;
 
+/// Whether games probe the tablebase (`get_best_move_with_limits` and every
+/// `search_at_depth`, helpers included). Off by default since the council
+/// review of 2026-11-09: a probe hit plays its move without any search, and the
+/// rook and silver solvers used to claim wins against a full army. USI
+/// `EnableTablebase` turns it on for every engine copy at once.
+static GAME_PATH: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// See [`GAME_PATH`].
+pub fn set_game_path_enabled(on: bool) {
+    GAME_PATH.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// See [`GAME_PATH`].
+pub fn game_path_enabled() -> bool {
+    GAME_PATH.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 // Re-export commonly used types
 pub use micro_tablebase::MicroTablebase;
 pub use pattern_matching::PatternMatcher;
@@ -224,6 +241,18 @@ impl TablebaseOutcome {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Games do not probe the tablebase unless `EnableTablebase` is set, and
+    /// the option switches it for every engine copy at once.
+    #[test]
+    fn game_path_probe_is_off_by_default() {
+        assert!(!game_path_enabled());
+        let mut engine = crate::ShogiEngine::new();
+        engine.handle_setoption(&["name", "EnableTablebase", "value", "true"]);
+        assert!(game_path_enabled());
+        engine.handle_setoption(&["name", "EnableTablebase", "value", "false"]);
+        assert!(!game_path_enabled());
+    }
     use crate::types::{Move, PieceType, Player, Position};
 
     #[test]

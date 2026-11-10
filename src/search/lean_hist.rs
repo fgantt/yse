@@ -65,6 +65,17 @@ pub(super) struct LeanHist {
 /// every move).
 pub(super) static GAME_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
+/// Starts a move on this thread (see [`LeanHist::clear_root_killers`]).
+pub(super) fn new_move() {
+    if hist_uses() != 0 {
+        with(LeanHist::clear_root_killers);
+    }
+}
+
+/// Held by tests that bump or depend on [`GAME_EPOCH`], which is global.
+#[cfg(test)]
+pub(super) static TEST_EPOCH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 /// Starts a new game for every thread's lean tables.
 pub(super) fn new_game() {
     GAME_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -267,7 +278,11 @@ impl LeanHist {
         ply: i32,
     ) {
         let b = bonus(depth);
-        let best_quiet = !best.is_capture;
+        // Quiet as the search counts it (`lean_inner`'s `quiet`): a promotion
+        // is ordered with the captures, so it is neither a killer nor a counter
+        // move, and it was never in `quiets` to be rewarded (council review
+        // round 2, 2026-11-09: non-capturing promotions displaced the killers).
+        let best_quiet = !best.is_capture && !best.is_promotion;
         if best_quiet {
             let prev = self.prev_keys(ply);
             for mv in quiets {
@@ -297,6 +312,14 @@ impl LeanHist {
         }
     }
 
+    /// Clears the killers at plies 1 and 2, which no parent node clears (a node
+    /// clears its grandchildren's): they used to carry over between moves all
+    /// game (council review, 2026-11-09). Called once per move on every thread.
+    pub(super) fn clear_root_killers(&mut self) {
+        self.killers[1] = [None, None];
+        self.killers[2] = [None, None];
+    }
+
     /// Clears the killers two plies below `ply` (as a node's children start).
     pub(super) fn clear_child_killers(&mut self, ply: i32) {
         if let Ok(p) = usize::try_from(ply + 2) {
@@ -304,5 +327,59 @@ impl LeanHist {
                 self.killers[p] = [None, None];
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::bitboards::BitboardBoard;
+    use crate::moves::MoveGenerator;
+    use crate::types::board::CapturedPieces;
+    use crate::types::core::Player;
+
+    /// A promotion that cuts off is no killer or counter move: the ordering
+    /// puts promotions with the captures (it used to displace the killers).
+    #[test]
+    fn promotion_cutoff_is_not_a_killer() {
+        let quiet = MoveGenerator::new()
+            .generate_legal_moves(&BitboardBoard::new(), Player::Black, &CapturedPieces::new())
+            .into_iter()
+            .find(|m| !m.is_capture)
+            .expect("a quiet move");
+        let mut promo = quiet.clone();
+        promo.is_promotion = true;
+        with(|h| {
+            h.killers[5] = [None, None];
+            h.enter(5, Some(&quiet));
+            let prev = h.prev_key(5) as usize;
+            h.counter[prev] = None;
+            h.cutoff(&promo, &[], &[], 6, 5);
+            assert!(!h.is_killer(&promo, 5) && !h.is_killer(&quiet, 5));
+            assert!(h.counter[prev].is_none(), "a promotion became the counter move");
+            h.cutoff(&quiet, &[quiet.clone()], &[], 6, 5);
+            assert!(h.is_killer(&quiet, 5));
+        });
+    }
+
+    /// No node clears the killers at plies 1 and 2 (a node clears its
+    /// grandchildren's), so `new_move` must, or they last the whole game.
+    #[test]
+    fn new_move_clears_root_killers() {
+        let _epoch = TEST_EPOCH_LOCK.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mv = MoveGenerator::new()
+            .generate_legal_moves(&BitboardBoard::new(), Player::Black, &CapturedPieces::new())[0]
+            .clone();
+        with(|h| {
+            h.killers[1] = [Some(mv.clone()), None];
+            h.killers[2] = [Some(mv.clone()), None];
+            h.killers[3] = [Some(mv.clone()), None];
+        });
+        new_move();
+        with(|h| {
+            assert!(!h.is_killer(&mv, 1) && !h.is_killer(&mv, 2));
+            // Deeper plies are left to their parents.
+            assert!(h.is_killer(&mv, 3));
+        });
     }
 }

@@ -122,6 +122,19 @@ pub struct ThreadSafeEntry {
     source: AtomicU32,
 }
 
+/// The number of entries of a table of at most `megabytes` MB: the largest
+/// power of two that fits. The engine used to ask for `MB * 2^20 / 100`
+/// entries, rounded up, which at 24 bytes an entry gave "256 MB" a 96 MB table
+/// (council review, 2026-11-09).
+pub fn entries_for_megabytes(megabytes: usize) -> usize {
+    let fit = (megabytes.max(1) << 20) / std::mem::size_of::<ThreadSafeEntry>();
+    if fit.is_power_of_two() {
+        fit
+    } else {
+        fit.next_power_of_two() / 2
+    }
+}
+
 /// Packed entry data for atomic storage
 ///
 /// This struct packs the essential entry data into a format suitable
@@ -590,10 +603,9 @@ impl ThreadSafeTranspositionTable {
         }
     }
 
-    /// Get the bucket lock for a given hash key
-    ///
-    /// This method maps hash keys to lock buckets for reduced write contention.
-    /// Uses fast bit shifting to calculate bucket index.
+    /// Get the bucket lock for a given hash key (batch stores only; single
+    /// stores take no lock since 2026-11-09, see `store_with_synchronization`).
+    #[cfg(test)]
     fn get_bucket_lock(&self, hash: u64) -> &Arc<RwLock<()>> {
         let bucket_index = self.bucket_index(hash);
         &self.bucket_locks[bucket_index]
@@ -614,12 +626,13 @@ impl ThreadSafeTranspositionTable {
     /// Only locks the specific bucket for this hash, not the entire table.
     #[inline(always)]
     fn store_with_synchronization(&self, index: usize, entry: TranspositionEntry) {
-        // Get the bucket lock for this hash (clone Arc to avoid borrow issues)
-        let bucket_lock = self.get_bucket_lock(entry.hash_key);
-        let _write_guard = self.recover_write_guard(bucket_lock.write(), || {
-            format!("bucket lock for hash 0x{:016x}", entry.hash_key)
-        });
-
+        // No lock: the bucket lock was chosen by the hash's high bits while the
+        // slot is chosen by its low bits, so two stores to one slot usually took
+        // different locks and the lock guarded nothing (council review,
+        // 2026-11-09). A store racing another one or a probe is safe without it:
+        // the key is stored XORed with the data and a probe checks the pair
+        // (`probe`), so a torn entry reads as a miss. A race can only cost a
+        // replacement decision.
         self.store_entry_core(index, entry);
     }
 
@@ -752,7 +765,7 @@ impl ThreadSafeTranspositionTable {
         table_entry.age.store(entry.age, Ordering::Release);
 
         // Atomic write of entry source metadata
-        table_entry.source.store(entry.source.to_discriminant(), Ordering::SeqCst);
+        table_entry.source.store(entry.source.to_discriminant(), Ordering::Relaxed);
     }
 
     /// Reconstruct entry from atomic data (static helper)
@@ -768,7 +781,7 @@ impl ThreadSafeTranspositionTable {
             best_move: AtomicPackedEntry::best_move_of(data),
             hash_key: hash,
             age: table_entry.age.load(Ordering::Acquire),
-            source: EntrySource::from_discriminant(table_entry.source.load(Ordering::SeqCst)),
+            source: EntrySource::from_discriminant(table_entry.source.load(Ordering::Relaxed)),
         }
     }
 
@@ -1085,6 +1098,20 @@ impl ThreadSafeTableBuilder {
 }
 
 #[cfg(test)]
+mod size_tests {
+    use super::*;
+
+    /// `USI_Hash` is an upper bound on the table's memory, and close to it.
+    #[test]
+    fn table_fits_the_requested_megabytes() {
+        for mb in [1usize, 16, 100, 256, 1024] {
+            let bytes = entries_for_megabytes(mb) * std::mem::size_of::<ThreadSafeEntry>();
+            assert!(bytes <= mb << 20 && bytes > (mb << 20) / 2, "{mb} MB -> {bytes} bytes");
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::panic;
@@ -1309,24 +1336,23 @@ mod tests {
         initial_entry.hash_key = 0xAA55_AA55_AA55_AA55;
         table.store(initial_entry.clone());
 
-        // Poison the bucket lock the next store takes (the replacement
-        // decision no longer takes a lock)
+        // Poison the bucket lock for this hash. Single stores no longer take it
+        // (since 2026-11-09 they rely on the key/data check instead), so a
+        // poisoned bucket must not affect them.
         let lock = Arc::clone(table.get_bucket_lock(initial_entry.hash_key));
         let _ = panic::catch_unwind(|| {
             let _guard = lock.write().unwrap();
             panic!("intentional poison");
         });
 
-        // Attempt to store a replacement entry and ensure recovery succeeds
         let mut replacement_entry = create_test_entry(120, 6, TranspositionFlag::Exact, 2, 0);
         replacement_entry.hash_key = initial_entry.hash_key;
         table.store(replacement_entry.clone());
 
         let stats = table.get_stats();
-        assert!(stats.poison_recoveries >= 1, "expected poison recovery to be recorded");
-
-        // Verify store still succeeds after recovery
-        assert!(table.probe(replacement_entry.hash_key, replacement_entry.depth).is_some());
+        assert_eq!(stats.poison_recoveries, 0, "a single store took the bucket lock");
+        let got = table.probe(replacement_entry.hash_key, replacement_entry.depth).expect("stored");
+        assert_eq!(got.score, replacement_entry.score);
     }
 
     #[test]
