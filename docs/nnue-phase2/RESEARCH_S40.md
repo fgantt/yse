@@ -797,3 +797,18 @@ the parts were not gated separately.
 fingerprint is identical to `8934982`; all 264 `search::` unit tests pass either way. Installed
 as `engines/usi-engine-stable` (previous: `-stable-prev` = `8934982`), `engines/usi-engine-4dfe9c4`
 and `target/release/usi-engine`. `search_bench --depth 9`: all nodes 1.71M → 1.11M.
+
+**N4 result (2026-11-09): FAIL, the teacher made no difference.** `p1_s5` (mix_a1 with the
+913.5M Hao positions replaced by the same number of Suisho5 depth-9 positions; a1's recipe,
+epoch 8) against a1, on the PC with the shipped 4dfe9c4 search (Windows build in
+`C:\Users\fgant\yse-s40`), 4 threads, byoyomi 250, two seeds: +4.7 ± 27.8 (586 games, FAIL) and
+−17.8 ± 44.4 (234 games, FAIL); pooled 398-20-402, about 0 Elo, LLR −6.02. Both networks were
+checked to load ("NNUE enabled"). Eight earlier games on the 8934982 search were discarded when
+4dfe9c4 shipped (kept in `n4/old_8934982/`). Games: `matches/s40/n4/`.
+
+What it means, with N1: a teacher worth 110-200 Elo inside YaneuraOu moves our network by
+nothing measurable at this size and recipe, and our network already matches halfkpvm's
+accuracy inside our search. Labels are not what limits us; the 11-08 misses were search, and
+the root stack (+73) is the second search gain this session. Not indicated now: N2/N3 (more
+king buckets) and the tanuki- set, which tests the same thing. Kept on the PC for now:
+`suisho5/raw/` (184.6 GB of volumes), `suisho5/packed_s5` (91 GB), `~/data/mix_s5` (114 GB).

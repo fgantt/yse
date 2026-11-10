@@ -162,6 +162,7 @@ bold, with the first 12 hex digits of the committed file's sha256.
 | p1_c1s | 39 | `mix_c1s` | as p1_c1 | 8, 0.02913 | vs p1_c1 −28 ± 51 (FAIL), −14 ± 43 (FAIL); vs a1 +3 ± 30 over 514 games (FAIL), −56 ± 64 (FAIL); not shipped |
 | p1_h2 | 39 | `mix_h2` | as p1_a1 | 8, 0.02992 | vs a1 +25 ± 27 (cap, 600 games), +35 ± 27 (PASS); ship SPRT vs a1 at 1 s +20.9 ± 25.4 over 600 games (310-16-274), INCONCLUSIVE at the cap (LLR +0.22); not shipped |
 | p1_h3 | 40 | `mix_h3` | as p1_a1 (`938ebeb573e1`) | 8, 0.02890 | vs a1 +40.8 ± 33.4 (PASS), +53.4 ± 42.8 (PASS); vs p1_h2 −137.0 ± 107.9 (FAIL, 40 games), +9.8 ± 27.1 (600, inconclusive); pooled 317-8-315, LLR −4.21 FAIL: no better than h2, not shipped |
+| p1_s5 | 40 | `mix_s5` | as p1_a1 (N4: Suisho5 labels in place of Hao) | 8, 0.02892 (own val set; not comparable) | vs a1 on the PC, 4dfe9c4 search, 250 ms: +4.7 ± 27.8 (FAIL, 586), −17.8 ± 44.4 (FAIL, 234); pooled 398-20-402, LLR −6.02 FAIL: no better than a1, not shipped |
 
 Stage B outcome (2026-11-02): adding the S39 batches (`ours_b1q`, `ours_b2q`, `ours_b4q`) to a1's
 data lowered held-out loss on each mix's own validation set but did not win games: c1/c1m about
