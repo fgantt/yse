@@ -289,6 +289,49 @@ mod search_tests {
         assert_eq!((mv.to_usi_string().as_str(), score), ("5i4h", HAND_REPETITION_SCORE));
     }
 
+    /// Below a null move, repetition does not look past it (a cycle through a
+    /// pass is no game line), for exact and hand repetition alike.
+    #[test]
+    fn repetition_stops_at_the_null_move() {
+        let mut engine = SearchEngine::new(None, 16);
+        let (x, y) = (5u64 << 40, 6u64 << 40);
+        let path = [path_entry(x, false), path_entry(y, false), path_entry(x ^ 8, false)];
+        assert_eq!(engine.path_repetition(&path, x, false), Some(0));
+        engine.rep_floor = 1;
+        assert_eq!(engine.path_repetition(&path, x, false), None);
+        assert!(engine.path_repetition(&path, y, false).is_some(), "at the floor still counts");
+        // Game positions before the root are out of reach below a null move.
+        let mut engine = SearchEngine::new(None, 16);
+        let z = 7u64 << 40;
+        engine.set_game_path(&[path_entry(z, false), path_entry(z ^ 16, false)]);
+        engine.root_entry = path[0];
+        engine.root_path_len = 1;
+        assert!(engine.path_repetition(&path, z, false).is_some(), "game repetition");
+        engine.rep_floor = 1;
+        assert_eq!(engine.path_repetition(&path, z, false), None, "game seen below a null move");
+        engine.rep_floor = 0;
+
+        let (board, player, captured) =
+            BitboardBoard::from_fen("4k4/9/9/9/9/9/9/9/4K4 b P 1").expect("sfen");
+        let richer = hand_path_entry(&engine, &board, player, &captured);
+        let poorer = hand_path_entry(&engine, &board, player, &CapturedPieces::new());
+        // The position being tested is not on the path yet (as in `lean_node`).
+        engine.hand_path = vec![richer];
+        engine.hand_rep_floor = 0;
+        assert_eq!(engine.hand_repetition_score(&poorer), Some(-HAND_REPETITION_SCORE));
+        engine.hand_rep_floor = 1;
+        assert_eq!(engine.hand_repetition_score(&poorer), None);
+    }
+
+    fn hand_path_entry(
+        e: &SearchEngine,
+        b: &BitboardBoard,
+        p: Player,
+        c: &CapturedPieces,
+    ) -> HandPathEntry {
+        e.hand_path_entry(b, p, c)
+    }
+
     /// Perpetual check loses for the side giving it, also when the cycle
     /// began before the root.
     #[test]
@@ -574,6 +617,12 @@ pub struct SearchEngine {
     /// the search path (`hash_history`) rather than threaded through the 17
     /// `negamax_with_context` call sites. Used to rebase mate scores.
     node_ply: i32,
+    /// Repetition floors: inside a null-move search, positions before the null
+    /// move are not compared (a "repetition" through a pass is no game line;
+    /// council review 2026-11-10, as Stockfish stops at the last null move).
+    /// Indices into the search path and `hand_path`; 0 outside any null move.
+    rep_floor: usize,
+    hand_rep_floor: usize,
     /// Length of the path when this search began. The path a search is handed
     /// may already hold the game's move history, so the distance from the root
     /// is measured against this, not against zero — otherwise a mate in 3 in a
@@ -889,6 +938,17 @@ pub fn hand_path_entry_for(
     captured_pieces: &CapturedPieces,
 ) -> HandPathEntry {
     let full = hasher.get_position_hash(board, player, captured_pieces);
+    hand_path_entry_from_key(hasher, full, player, captured_pieces)
+}
+
+/// [`hand_path_entry_for`] from the position's full hash, when the caller has
+/// it already (quiescence).
+pub(crate) fn hand_path_entry_from_key(
+    hasher: &crate::search::shogi_hash::ShogiHashHandler,
+    full: u64,
+    player: Player,
+    captured_pieces: &CapturedPieces,
+) -> HandPathEntry {
     let mut hands = [0u8; 14];
     for (i, pt) in HAND_PIECE_TYPES.iter().enumerate() {
         hands[i] = captured_pieces.count(*pt, Player::Black) as u8;
@@ -1958,6 +2018,8 @@ impl SearchEngine {
             node_limit: None,
             check_extensions_on_path: 0,
             node_ply: 0,
+            rep_floor: 0,
+            hand_rep_floor: 0,
             root_path_len: 0,
             last_search_interrupted: false,
             tactical_threats_memo: std::cell::RefCell::new(None),
@@ -2164,10 +2226,12 @@ impl SearchEngine {
     /// path starts at this search's root, one played earlier in the game.
     #[inline]
     fn path_repetition(&self, path: &[u64], hash: u64, in_check_here: bool) -> Option<i32> {
-        if let Some(j) = path.iter().rposition(|h| same_position(*h, hash)) {
-            return Some(self.repetition_score(path, j, in_check_here));
+        let floor = self.rep_floor.min(path.len());
+        if let Some(j) = path[floor..].iter().rposition(|h| same_position(*h, hash)) {
+            return Some(self.repetition_score(path, floor + j, in_check_here));
         }
-        if self.game_path.is_empty() || path.first() != Some(&self.root_entry) {
+        // Below a null move the game's positions are out of reach too.
+        if floor > 0 || self.game_path.is_empty() || path.first() != Some(&self.root_entry) {
             return None;
         }
         let (w, bit) = game_filter_bit(path_entry(hash, false));
@@ -2530,6 +2594,8 @@ impl SearchEngine {
             node_limit: None,
             check_extensions_on_path: 0,
             node_ply: 0,
+            rep_floor: 0,
+            hand_rep_floor: 0,
             root_path_len: 0,
             last_search_interrupted: false,
             tactical_threats_memo: std::cell::RefCell::new(None),
@@ -6399,6 +6465,13 @@ impl SearchEngine {
         );
         crate::debug_utils::start_timing(&format!("search_at_depth_{}", depth));
 
+        // Null-move searches restore the repetition floors before returning.
+        debug_assert!(
+            self.rep_floor == 0 && self.hand_rep_floor == 0,
+            "repetition floors left set by a null-move search"
+        );
+        (self.rep_floor, self.hand_rep_floor) = (0, 0);
+
         // Memory tracking at search start (Task 26.0 - Task 4.0). Only with the
         // `statistics` feature: it asks the OS for the process's memory (a
         // sysinfo refresh behind a mutex) on every iteration of every thread.
@@ -6420,8 +6493,8 @@ impl SearchEngine {
         } else {
             None
         };
+        crate::debug_utils::end_timing("tablebase_probe", "SEARCH_AT_DEPTH");
         if let Some(tablebase_result) = tablebase_hit {
-            crate::debug_utils::end_timing("tablebase_probe", "SEARCH_AT_DEPTH");
             // Only a legal move is returned, as `get_best_move_with_limits` checks.
             let legal = |m: &Move| {
                 self.move_generator
@@ -6455,7 +6528,6 @@ impl SearchEngine {
                 trace_log!("SEARCH_AT_DEPTH", "Tablebase hit but no best move found",);
             }
         } else {
-            crate::debug_utils::end_timing("tablebase_probe", "SEARCH_AT_DEPTH");
             trace_log!("SEARCH_AT_DEPTH", "TABLEBASE MISS: Position not in tablebase",);
         }
 
@@ -7197,7 +7269,8 @@ impl SearchEngine {
     /// Superior/inferior repetition against the path (see `negamax_with_context`).
     fn hand_repetition_score(&self, now: &HandPathEntry) -> Option<i32> {
         let ours = if now.player == Player::Black { 0 } else { 7 };
-        for then in self.hand_path.iter().rev() {
+        let floor = self.hand_rep_floor.min(self.hand_path.len());
+        for then in self.hand_path[floor..].iter().rev() {
             if then.player != now.player || then.board_hash != now.board_hash {
                 continue;
             }
@@ -15727,7 +15800,7 @@ pub struct TroubleshootingReport {
 pub struct IterativeDeepening {
     max_depth: u8,
     time_limit_ms: u32,
-    _stop_flag: Option<Arc<AtomicBool>>,
+    stop_flag: Option<Arc<AtomicBool>>,
     // on_info removed - no longer using external callbacks
     /// Number of threads to use for parallel root search (1 = single-threaded)
     thread_count: usize,
@@ -15740,7 +15813,7 @@ impl IterativeDeepening {
         Self {
             max_depth,
             time_limit_ms,
-            _stop_flag: stop_flag,
+            stop_flag,
             thread_count: 1,
             parallel_engine: None,
             parallel_min_depth: 0,
@@ -15790,7 +15863,7 @@ impl IterativeDeepening {
         Self {
             max_depth,
             time_limit_ms,
-            _stop_flag: stop_flag,
+            stop_flag,
             thread_count: threads,
             parallel_engine,
             parallel_min_depth,
@@ -15877,7 +15950,7 @@ impl IterativeDeepening {
                 captured_pieces,
                 player,
                 Some(deadline),
-                self._stop_flag.clone(),
+                self.stop_flag.clone(),
             );
             if let crate::search::mate_search::MateOutcome::Mate(line) = outcome {
                 let first = &line[0];

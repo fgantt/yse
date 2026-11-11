@@ -416,6 +416,7 @@ mod performance_tests {
     use std::time::Instant;
 
     #[test]
+    #[ignore = "timing comparison: fails under machine load; run with --ignored on a quiet machine"]
     fn test_popcount_performance_comparison() {
         let test_bitboard = Bitboard::from_u128(0x123456789ABCDEF0123456789ABCDEF0);
         let iterations = 1_000_000;

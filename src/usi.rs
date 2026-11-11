@@ -313,13 +313,38 @@ struct SearchControl {
 /// would have had without `ponder`, counted from the `ponderhit`; a search that
 /// ends earlier (a proved mate) holds its `bestmove` until `ponderhit` or
 /// `stop`, as the protocol requires.
-pub fn run_usi_loop_with<R, W>(mut handler: UsiHandler, input: R, mut stdout: W)
+pub fn run_usi_loop_with<R, W>(handler: UsiHandler, input: R, stdout: W)
 where
+    R: BufRead + Send + 'static,
+    W: Write,
+{
+    run_usi_loop_hooked(handler, input, stdout, LoopHooks::default());
+}
+
+/// Test hooks for [`run_usi_loop_with`] (the engine sets none): `after_read`
+/// runs on the input thread once it has handled a line, `before_dispatch` in
+/// the command loop just before it dispatches one. Tests use them to force an
+/// order between the two threads instead of hoping for it.
+#[derive(Default)]
+pub(crate) struct LoopHooks {
+    pub(crate) after_read: Option<Box<dyn Fn(&str) + Send>>,
+    pub(crate) before_dispatch: Option<Box<dyn Fn(&str) + Send>>,
+}
+
+// One protocol loop: the input thread and the command loop share its state.
+#[allow(clippy::too_many_lines)]
+pub(crate) fn run_usi_loop_hooked<R, W>(
+    mut handler: UsiHandler,
+    input: R,
+    mut stdout: W,
+    hooks: LoopHooks,
+) where
     R: BufRead + Send + 'static,
     W: Write,
 {
     use std::sync::atomic::{AtomicU64, Ordering};
     use std::sync::Arc;
+    let LoopHooks { after_read, before_dispatch } = hooks;
 
     // Commands are read on their own thread so that `stop` (and `quit`) reach a
     // search in progress: `go` blocks this thread until the search returns, and
@@ -370,6 +395,9 @@ where
                         std::thread::spawn(move || ponderhit_timer(go, hit, &control, &stop_flag));
                     }
                 }
+                if let Some(hook) = &after_read {
+                    hook(cmd);
+                }
                 if tx.send((line, seq, gos_read)).is_err() {
                     return;
                 }
@@ -386,10 +414,13 @@ where
         if cmd == "quit" {
             break;
         }
+        if let Some(hook) = &before_dispatch {
+            hook(cmd);
+        }
         let parts: Vec<&str> = cmd.split_whitespace().collect();
         let is_go = parts.first() == Some(&"go");
         if is_go {
-            let mut g = control.generation.lock().unwrap_or_else(|e| e.into_inner());
+            let mut g = control.generation.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             *g = go_number;
             stop_flag.store(false, Ordering::SeqCst);
             if stops_seen.load(Ordering::SeqCst) > seq {
@@ -400,7 +431,7 @@ where
             if limits.ponder {
                 let black = handler.engine.current_player == crate::types::Player::Black;
                 let ms = limits.ponderhit_ms(black, handler.engine.move_overhead_ms);
-                *control.ponderhit_ms.lock().unwrap_or_else(|e| e.into_inner()) = (go_number, ms);
+                *control.ponderhit_ms.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (go_number, ms);
             }
         }
         // `ponderhit` was handled as it was read (see the input thread).
@@ -440,18 +471,18 @@ fn ponderhit_timer(
 ) {
     use std::sync::atomic::Ordering;
     let ms = loop {
-        let (n, ms) = *control.ponderhit_ms.lock().unwrap_or_else(|e| e.into_inner());
+        let (n, ms) = *control.ponderhit_ms.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if n == go {
             break ms;
         }
-        if *control.generation.lock().unwrap_or_else(|e| e.into_inner()) > go {
+        if *control.generation.lock().unwrap_or_else(std::sync::PoisonError::into_inner) > go {
             return;
         }
         std::thread::sleep(std::time::Duration::from_millis(1));
     };
     let deadline = hit + std::time::Duration::from_millis(u64::from(ms));
     std::thread::sleep(deadline.saturating_duration_since(std::time::Instant::now()));
-    let g = control.generation.lock().unwrap_or_else(|e| e.into_inner());
+    let g = control.generation.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if *g == go {
         stop_flag.store(true, Ordering::SeqCst);
     }
@@ -685,8 +716,8 @@ mod ponder_tests {
         h.join().unwrap();
     }
 
-    /// A `ponderhit` read before its `go ponder` is dispatched still starts the
-    /// clock (it used to be dropped, leaving the search to run until `stop`).
+    /// `go ponder` and `ponderhit` in one write (usually both read before the
+    /// `go` is dispatched; `ponderhit_before_dispatch_is_not_lost` forces it).
     #[test]
     fn early_ponderhit_is_not_lost() {
         let (tx, out, h) = start();
@@ -696,6 +727,62 @@ mod ponder_tests {
         tx.send(b"go ponder btime 0 wtime 0 byoyomi 500\nponderhit\n".to_vec()).unwrap();
         let (b, _) = out.wait_bestmove(Duration::from_secs(5)).expect("bestmove after early ponderhit");
         assert!(b.starts_with("bestmove "), "{b}");
+        send(&tx, "quit");
+        h.join().unwrap();
+    }
+
+    /// `ponderhit` handled by the input thread before its `go ponder` is
+    /// dispatched starts that search's clock (it used to be dropped). The hooks
+    /// force the order: the command loop may not dispatch `go ponder` until the
+    /// input thread has handled `ponderhit`.
+    #[test]
+    fn ponderhit_before_dispatch_is_not_lost() {
+        let (hit_tx, hit_rx) = channel::<()>();
+        let hooks = super::LoopHooks {
+            after_read: Some(Box::new(move |cmd: &str| {
+                if cmd == "ponderhit" {
+                    let _ = hit_tx.send(());
+                }
+            })),
+            before_dispatch: Some(Box::new(move |cmd: &str| {
+                if cmd.starts_with("go ponder") {
+                    hit_rx.recv_timeout(Duration::from_secs(5)).expect("ponderhit not read");
+                }
+            })),
+        };
+        let (tx, rx) = channel();
+        let out = Out::default();
+        let o = out.clone();
+        let h = std::thread::spawn(move || {
+            super::run_usi_loop_hooked(UsiHandler::new(), BufReader::new(Pipe { rx, buf: Vec::new() }), o, hooks);
+        });
+        send(&tx, "position startpos moves 7g7f");
+        send(&tx, "go ponder btime 0 wtime 0 byoyomi 500");
+        send(&tx, "ponderhit");
+        assert!(out.wait_bestmove(Duration::from_secs(5)).is_some(), "the pondering search never ended");
+        send(&tx, "quit");
+        h.join().unwrap();
+    }
+
+    /// `gameover` ends a pondering search (a GUI need not send `stop` first)
+    /// and the loop goes on.
+    #[test]
+    fn gameover_releases_a_pondering_search() {
+        let (tx, out, h) = start();
+        send(&tx, "position startpos moves 7g7f");
+        send(&tx, "go ponder btime 0 wtime 0 byoyomi 500");
+        std::thread::sleep(Duration::from_millis(300));
+        assert_eq!(out.bestmove(), None);
+        send(&tx, "gameover lose");
+        assert!(out.wait_bestmove(Duration::from_secs(5)).is_some(), "still pondering after gameover");
+        send(&tx, "isready");
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(5)
+            && !String::from_utf8_lossy(&out.0.lock().unwrap()).contains("readyok")
+        {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        assert!(String::from_utf8_lossy(&out.0.lock().unwrap()).contains("readyok"));
         send(&tx, "quit");
         h.join().unwrap();
     }

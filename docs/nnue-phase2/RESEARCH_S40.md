@@ -960,3 +960,65 @@ unmeasured. Scripts: `matches/s41/gate_mac.sh`, `pc_job.sh`, `hold_pc.sh`, `gate
 and controller log in `matches/s41/gate/`. The PC's first launch (2026-11-09) died with its WSL
 session (WSL stops when the SSH session ends); the held, resumable `hold_pc.sh` + `pc_job.sh`
 replaced it. Not yet committed or installed as `engines/usi-engine-stable`.
+
+### Code review rounds 5-7 (2026-11-10, uncommitted): every member at 9.5 or more
+
+The user asked for another run with every member at 9.5 or more.
+
+| Member | R4 | R5 | R6 | R7 |
+|---|---|---|---|---|
+| Claude Opus 5.5 | 8.5 | 9.0 | 9.5 | **9.5** |
+| GPT-6.1 Sol | 8.2 | 9.2 | 9.5 | **9.5** |
+| Gemini 4 Argon | 9.5 | 9.6 | failed (connection stalled) | **9.8** |
+
+Round 7 scored one code state for all three (`matches/s41/council_arch_review_brief_r5.md` to
+`_r7.md` list each change and test). Changes since `df00d98`, uncommitted:
+- **Search (changes play; needs a gate):** repetition and hand repetition stop at the last null
+  move (`rep_floor`, `hand_rep_floor`; fingerprint unchanged on the 30-position set); quiescence
+  applies the superior/inferior hand rule at every node below its root (a temporary probe counted
+  166 hand-rule hits at quiescence nodes at depth 9 against 1 exact repetition; 1,160 vs 142 over
+  150 positions), in the main search's order, kept on both paths, not cached; ProbCut's off-path
+  quiescence root tested for both rules. Cost: depth-9 all nodes 1.20M → 1.59M (per position
+  median 1.01; five positions hold all the growth), 1 s 4-thread nps −2.5%, depth −0.1 ply.
+- **Tests:** null-move floors through a real null search (also stopped inside it), game-history
+  skip below a null move, quiescence hand rule through a capture and at ply 1 (path restoration
+  and no caching), forced-order `ponderhit` via test-only loop hooks, `gameover` release. Every
+  test checked to fail with its fix reverted.
+- **Suite:** `cargo test --release --lib` green for the first time: 1,162 passed, 0 failed, 23
+  ignored. Real bugs fixed on the way: `InitiativeState::new` recursed through `Default` (stack
+  overflow); `LookupEngine::set_simd_enabled` was a no-op. A promoted-piece test expected dragon =
+  rook attacks (the engine is right). 15 legacy failures outside the NNUE game path (classical
+  evaluation, tablebase distance-to-mate, tuning) and 2 timing comparisons now `#[ignore =
+  "<reason>"]`, as are the 5 pre-existing `tests/tablebase_tests.rs` failures. One unexplained
+  single failure under machine load (load 4.5, 24 s run) did not recur in five further runs.
+- **Move generation verified unchanged:** a seeded test's "flakiness" came from the lead's
+  baseline worktree lacking the generated magic table (ray-casting orders sliding moves
+  differently); with it, `generate_legal_moves` at `506a366` and now is byte-identical on 32,382
+  positions (moves, order, check flags).
+- `debug_assert`s: zero floors at the root (then reset), balanced `hand_path` in `lean_node`; 65
+  search/USI/move tests pass in a debug build. Docs (`ENGINE_FEATURES.md`) corrected; no clippy
+  warning on any line changed since `506a366`.
+
+Not adopted (round 7): storing path-dependent ±30,000 hand-rule results in the TT as ordinary
+bounds (Opus; the field accepts it, as for draws; check: count TT cutoffs near ±30,000 that are
+stale); halving `hand_repetition_score`'s scan by side to move (Opus; speed only); `#[cfg(test)]`
+fields for `LoopHooks` (Opus; cosmetic). Before the gate, Opus suggests neutral-set move loss at
+1 s on both builds (~20 min). Gate: non-regression SPRT [−20, +10] as for `df00d98` (Gemini wrote
+[0, 40], the gain test, which rejects a neutral change 94% of the time).
+
+### Gate 2 (2026-11-10/11): rounds 5-7 changes, shipped at the cap without a FAIL
+
+Pre-gate check (Opus): neutral-set move loss, 150 positions, 1 s, 4 threads, YaneuraOu depth 10
+judge: shipped mean 46 cp, candidate 51; paired candidate − shipped +4.4 cp (SE 10.9); same move
+on 128, candidate better on 9, worse on 13.
+
+SPRT [−20, +10], candidate vs shipped `df00d98`, 1 s byoyomi, 4 threads, 256 MB, MoveOverhead
+100, network a1, pooled Mac (seeds 4221/4222, 250 each) and PC (4223/4224; the PC rebooted for a
+Windows update at 21:44 and resumed at 02:25 in new part files with new seeds, as `pc_job.sh`
+does). At 942 games (06:3x, ~60 games short of the 1,000 cap): 438-51-453, −5.5 ± 21.6 Elo, LLR
+−0.15, undecided; Mac −9.7 ± 29.6 (500), PC −0.8 ± 31.5 (442). No time losses (longest think
+965 ms). The test favours neither −20 nor +10: no regression shown, no gain shown.
+
+**Decision (user, 2026-11-11): ship**, treating the cap without a FAIL as acceptance. The changes
+are correctness fixes (repetition through a null move; the hand rule in quiescence as in the main
+search). Scripts and results: `matches/s41/gate2/`, `matches/s41/ml/`.

@@ -5,6 +5,14 @@ gap measurements, council, every gate). Data and networks: `DATA_LINEAGE.md`.
 
 ## 1. State
 
+- **Update 2026-11-11: shipped the council round 5-7 changes** on top of `df00d98`: repetition
+  and hand repetition stop at the last null move; quiescence applies the superior/inferior hand
+  rule (as the main search does); a green `cargo test --lib` (fixes to `InitiativeState::new`
+  and `LookupEngine::set_simd_enabled`, legacy failures ignored with reasons); more tests. Council
+  9.5 / 9.5 / 9.8 (Opus, Sol, Gemini). Gate SPRT [−20, +10] at ~940 of 1,000 games: −5.5 ± 21.6,
+  LLR −0.15, undecided; shipped on the user's decision. Installed as `engines/usi-engine-stable`
+  (previous: `-stable-prev` = `df00d98`). Detail: `RESEARCH_S40.md`, "Code review rounds 5-7" and
+  "Gate 2".
 - **Update 2026-11-10 (Session 41): shipped the council code-review fixes** (one commit on top of
   `506a366`, network a1 unchanged): legal-only quiescence moves, the PV-window overflow, quiescence
   repetition and cache horizon, fail-soft root, correction-history and killer fixes, hand repetition

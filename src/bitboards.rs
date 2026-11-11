@@ -192,7 +192,8 @@ fn shared_attack_tables() -> &'static attack_patterns::AttackTables {
         let start_time = std::time::Instant::now();
         let tables = attack_patterns::AttackTables::new();
         let memory = tables.memory_stats().memory_usage_bytes;
-        record_attack_table_init(start_time.elapsed().as_nanos() as u64, memory as u64);
+        let nanos = u64::try_from(start_time.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        record_attack_table_init(nanos, u64::try_from(memory).unwrap_or(u64::MAX));
         tables
     })
 }

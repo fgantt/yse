@@ -129,9 +129,15 @@ pub struct InitiativeState {
 impl InitiativeState {
     /// Create a new initiative state
     pub fn new() -> Self {
+        // Every field spelled out: `..Default::default()` here called
+        // `Default::default`, which calls `new`, and overflowed the stack.
         Self {
+            patterns: Vec::new(),
+            initiative_score: 0,
+            development_ready: false,
+            coordinated_attackers: 0,
+            edge_attack_active: false,
             attack_debt: AttackDebt::new(8), // Default 8-ply window
-            ..Default::default()
         }
     }
 

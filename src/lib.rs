@@ -517,8 +517,8 @@ impl ShogiEngine {
         } else {
             None
         };
+        crate::debug_utils::end_timing("tablebase_check", "GET_BEST_MOVE");
         if let Some(tablebase_result) = tablebase_hit {
-            crate::debug_utils::end_timing("tablebase_check", "GET_BEST_MOVE");
             // Only a legal move is played (the search's result is checked the
             // same way further down).
             let best_move = tablebase_result.best_move.filter(|m| {
@@ -542,8 +542,6 @@ impl ShogiEngine {
 
                 return Some(best_move);
             }
-        } else {
-            crate::debug_utils::end_timing("tablebase_check", "GET_BEST_MOVE");
         }
 
         // Check for legal moves BEFORE starting search to avoid panics
@@ -1666,7 +1664,7 @@ impl ShogiEngine {
 
     /// The search threads this engine uses (`USI_Threads`, or the saved
     /// preference, or the CPU count).
-    pub fn thread_count(&self) -> usize {
+    pub const fn thread_count(&self) -> usize {
         self.thread_count
     }
 

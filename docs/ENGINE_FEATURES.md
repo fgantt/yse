@@ -30,9 +30,9 @@ Classic selects the older `negamax` in `search_engine.rs`).
 | Late move reductions | Late quiet moves searched shallower, re-searched if they fail high | `lean_node`, `lmr_table` | Log-log table; less at PV, more at cut nodes |
 | Check extension | Checking moves searched a ply deeper (bounded per path) | `lean_node` | Since `3bd5228` not for checks with negative SEE, which are also prunable |
 | Internal iterative deepening | Shallow search for a move at PV nodes with no table move | `lean_node` | **Off** (`SHOGI_LEAN_IID=1`): until 2026-11-09 it re-entered its own position, hit the repetition test and never searched; fixed but never measured |
-| Quiescence search | Legal captures and promotions to 8 plies, quiet checks at the first ply, all evasions in check; repetition and perpetual check on quiet moves | `lean_qsearch`, `generate_quiescence_moves_bounded` | Delta and SEE filters; own direct-mapped table. Before 2026-11-09 promotions and checks were pseudo-legal (an illegal check could score as mate), a checking capture was searched twice, and no repetition was seen |
+| Quiescence search | Legal captures and promotions to 8 plies, quiet checks at the first ply, all evasions in check; every node below the root tested for the superior/inferior hand rule, repetition and perpetual check (also at the ply cap; the hand rule first, as in the main search) and kept on both paths | `lean_qsearch`, `generate_quiescence_moves_bounded` | Delta and SEE filters; own direct-mapped table. Cache entries record the plies they had left; results that met a repetition are not cached. Before 2026-11-09 promotions and checks were pseudo-legal (an illegal check could score as mate), a checking capture was searched twice, and no repetition was seen |
 | Mate search | df-pn over checking sequences at the root; a proven mate is played at once | `src/search/mate_search.rs` | Session 30; bounded by nodes, a quarter of the move's time and `stop` |
-| Repetition | Sennichite draws; perpetual check lost for the checker; superior/inferior hand repetition, also against the last 16 game positions | `path_repetition`, `hand_repetition_score` | Session 32 fixed perpetual check scored as draw; hand repetition across the root since 2026-11-09 |
+| Repetition | Sennichite draws; perpetual check lost for the checker; superior/inferior hand repetition, also against the last 16 game positions; both in the main search and in quiescence; below a null move, no further back than it | `path_repetition`, `hand_repetition_score`, `rep_floor` | Session 32 fixed perpetual check scored as draw; hand repetition across the root since 2026-11-09 |
 | Time management | Byoyomi and main time, adaptive allocation, move overhead | `time_management.rs` | USI `MoveOverhead`, `TimeSafetyMargin` |
 
 ## Move ordering
@@ -58,7 +58,7 @@ same-kind moves tried before it. First-move cutoffs rose from 79% to 88% (Sessio
 
 | Feature | What it does | Where |
 |---|---|---|
-| NNUE | 256 -> 32 -> 1 network; king-relative features with 9 king buckets, piece-in-hand and side-to-move features; incremental accumulator; exact integer SIMD forward pass. Trained from scratch on 375M YaneuraOu self-play positions labelled at depth 8 (GPU trainer, `trainer/`; Session 38) | `src/evaluation/nnue.rs`, weights `nnue/default.bin` (Git LFS) |
+| NNUE | 256 -> 32 -> 1 network; king-relative features with 9 king buckets, piece-in-hand and side-to-move features; incremental accumulator; exact integer SIMD forward pass. Network a1 (Session 39): trained from scratch with the GPU trainer (`trainer/`) on `mix_a1`, 1.14B quiet positions: our own games labelled by YaneuraOu at depth 8 (222.6M quiet) plus 200 files of nodchip's depth-9 Hao set (913.5M quiet); lineage in `docs/nnue-phase2/DATA_LINEAGE.md` | `src/evaluation/nnue.rs`, weights `nnue/default.bin` (Git LFS) |
 | Classical fallback | Piece-square tables, tapered opening/endgame, king safety, castle recognition | `src/evaluation/` |
 
 ## Other
@@ -88,7 +88,7 @@ same-kind moves tried before it. First-move cutoffs rose from 79% to 88% (Sessio
 | Singular extensions | Extends a table move that is much better than all alternatives | Implemented, off (`SHOGI_LEAN_SE_DEPTH`); screens showed no gain |
 | ProbCut | Prunes when a shallow search already beats beta by a margin | Implemented, off (`SHOGI_LEAN_PROBCUT=1`); no gain |
 | Continuation history | History keyed by the previous moves | Yes, since 2026-10-16 (`lean_hist.rs`) |
-| Larger, better-trained network | Trained on billions of positions | 375M positions; still misjudges drop attacks on our king in handicap games |
+| Larger, better-trained network | Trained on billions of positions | 1.14B positions (a1); a stronger teacher's labels changed nothing measurable (Session 40, N4) |
 
 ## Feature audit (2026-10-13)
 
@@ -103,7 +103,7 @@ value. Details in `SESSION_LOG_034.md`.
 | Aspiration windows | Sound: +-200 as tuned (the USI option's 25 does not drive the lean search) |
 | Null move | Sound (`search-diag` printed the wrong counter, fixed) |
 | History heuristic | Sound: decays every 1,000 updates |
-| Repetition | Sound; minor: repetitions across a null move are still detected |
+| Repetition | Sound; minor: repetitions across a null move were still detected (fixed 2026-11-10: `rep_floor`, as Stockfish stops at the last null move) |
 | Opening book | Off by default. Peta-shock book vs no book, 4-thread 250 ms self-play from startpos (2026-10-24): +3.8 Elo, 95% [-12, +20] over 1,738 games; screen FAIL, so the 1 s SPRT was not run. Games stay in book a median 12-16 plies |
-| Mate search | Sound: ~10 nodes/ms budget, our checking mates only |
+| Mate search | Sound: ~10 nodes/ms budget, our checking mates only; since 2026-11-09 also bounded by a quarter of the move's time and by `stop` |
 | Lazy SMP | Fixed earlier this session (table size); result selection (deeper and higher-scoring helper) reviewed, sound |

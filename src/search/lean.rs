@@ -239,6 +239,7 @@ impl SearchEngine {
             }
         }
         self.hand_path.push(entry);
+        let hand_len = self.hand_path.len();
         let path_len = hash_history.len();
         let score = self.lean_inner(
             board,
@@ -255,6 +256,8 @@ impl SearchEngine {
             prev_move,
         );
         hash_history.truncate(path_len);
+        // Everything below pushed and popped in pairs (quiescence included).
+        debug_assert_eq!(self.hand_path.len(), hand_len, "hand path left unbalanced");
         self.hand_path.pop();
         score
     }
@@ -286,6 +289,8 @@ impl SearchEngine {
             return score;
         }
         hash_history.push(path_entry(position_hash, in_check));
+        #[cfg(test)]
+        tests::probe_node(self, prev_move.is_none(), hash_history.len() - 1);
         let ply = (hash_history.len().saturating_sub(self.root_path_len.max(1))) as i32;
         self.node_ply = ply;
         // The table move, while a singular search asks how the others do without it.
@@ -455,6 +460,10 @@ impl SearchEngine {
                 + ((static_eval - beta) / lp.null_eval_div).min(lp.null_eval_max);
             self.null_move_stats.attempts += 1;
             let path_len = hash_history.len();
+            // Below the null move, repetition looks no further back than it.
+            let floors = (self.rep_floor, self.hand_rep_floor);
+            self.rep_floor = path_len;
+            self.hand_rep_floor = self.hand_path.len();
             let s = -self.lean_node(
                 board,
                 captured_pieces,
@@ -469,6 +478,7 @@ impl SearchEngine {
                 false,
                 None,
             );
+            (self.rep_floor, self.hand_rep_floor) = floors;
             hash_history.truncate(path_len);
             if s >= beta {
                 self.null_move_stats.cutoffs += 1;
@@ -1048,9 +1058,8 @@ fn set_excluded(ply: i32, mv: Option<Move>) {
     }
 }
 
-/// Whether nodes without a table move are reduced a ply (`SHOGI_LEAN_IIR=1`).
 /// Whether `(alpha, beta)` is wider than a null window, i.e. a PV node. In
-/// i64: a full window (MIN_SCORE, MAX_SCORE) overflowed i32 and, in release
+/// i64: a full window (`MIN_SCORE`, `MAX_SCORE`) overflowed i32 and, in release
 /// builds, wrapped negative, so it read as a null window and the node was
 /// searched as non-PV (council review, 2026-11-09).
 fn is_pv_window(alpha: i32, beta: i32) -> bool {
@@ -1073,6 +1082,7 @@ fn lean_iid() -> bool {
     *ON.get_or_init(|| env_flag("SHOGI_LEAN_IID", false))
 }
 
+/// Whether nodes without a table move are reduced a ply (`SHOGI_LEAN_IIR=1`).
 fn lean_iir() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| env_flag("SHOGI_LEAN_IIR", false))
@@ -1140,6 +1150,16 @@ struct QSlot {
 }
 
 const Q_SLOTS: usize = 1 << 18;
+
+/// `QSlot::left` of a complete result (no ply cap met below it).
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+const Q_FULL: u8 = LEAN_Q_MAX_PLY as u8;
+
+/// The quiescence-table slot of a position key (its low bits).
+#[allow(clippy::cast_possible_truncation)]
+const fn q_slot(key: u64) -> usize {
+    (key as usize) & (Q_SLOTS - 1)
+}
 
 thread_local! {
     /// Repetitions quiescence has found on this thread. A node whose subtree
@@ -1273,9 +1293,25 @@ impl SearchEngine {
             // test reads it as consecutive plies), so a root not already there
             // (ProbCut's capture) goes on first.
             let len = path.len();
+            let hand_len = self.hand_path.len();
             if !root_on_path {
+                // A root reached by a move the caller did not test (`ProbCut`'s
+                // capture: a capture undone by a drop can close a cycle) is
+                // tested here, as `lean_node` tests its nodes, and goes on both
+                // paths.
                 let key = self.hash_calculator.get_position_hash(board, player, captured);
-                path.push(path_entry(key, board.is_king_in_check(player, captured)));
+                let in_check = board.is_king_in_check(player, captured);
+                let e = super::hand_path_entry_from_key(&self.hash_calculator, key, player, captured);
+                let hand = || {
+                    (!search_toggles().no_hand_repetition)
+                        .then(|| self.hand_repetition_score(&e))
+                        .flatten()
+                };
+                if let Some(score) = hand().or_else(|| self.path_repetition(path, key, in_check)) {
+                    return score;
+                }
+                path.push(path_entry(key, in_check));
+                self.hand_path.push(e);
             }
             let v = self.lean_qsearch(
                 board,
@@ -1289,6 +1325,7 @@ impl SearchEngine {
                 path,
             );
             path.truncate(len);
+            self.hand_path.truncate(hand_len);
             v
         } else {
             self.quiescence_search(
@@ -1341,8 +1378,20 @@ impl SearchEngine {
         let key = self.hash_calculator.get_position_hash(board, player, captured);
         // Repetition first, also at the ply cap (round 3: a cycle closing at
         // the cap used to get the static evaluation).
+        // Superior/inferior repetition too, as `lean_node` tests it (it used
+        // to be main search only; council review round 5 counted 166 hits at
+        // quiescence nodes in `search_bench --depth 9`, against 1 exact).
+        let hand_entry = (qply > 0)
+            .then(|| super::hand_path_entry_from_key(&self.hash_calculator, key, player, captured));
         if qply > 0 {
-            if let Some(score) = self.path_repetition(path, key, in_check) {
+            let hand_score = || {
+                hand_entry
+                    .as_ref()
+                    .filter(|_| !search_toggles().no_hand_repetition)
+                    .and_then(|e| self.hand_repetition_score(e))
+            };
+            // In `lean_node`'s order: the hand rule, then exact repetition.
+            if let Some(score) = hand_score().or_else(|| self.path_repetition(path, key, in_check)) {
                 Q_REPETITIONS.with(|r| r.set(r.get() + 1));
                 return score;
             }
@@ -1353,7 +1402,7 @@ impl SearchEngine {
         }
         let with_checks = qply == 0 && lean_q_checks();
         let left = u8::try_from((LEAN_Q_MAX_PLY - qply).max(0)).unwrap_or(0);
-        let slot = (key as usize) & (Q_SLOTS - 1);
+        let slot = q_slot(key);
         let hit = with_qtable(|t| t[slot]);
         if hit.flag != 0
             && hit.key == key
@@ -1370,7 +1419,7 @@ impl SearchEngine {
             if usable {
                 // A result the cap truncated truncates whatever uses it
                 // (round 3: its ancestors used to be stored as complete).
-                if hit.left < LEAN_Q_MAX_PLY as u8 {
+                if hit.left < Q_FULL {
                     Q_CAP_HITS.with(|c| c.set(c.get() + 1));
                 }
                 return s;
@@ -1420,10 +1469,14 @@ impl SearchEngine {
             -(m.captured_piece_value() * 16 + promo * 8 - m.piece_value())
         });
 
-        // On the path while the children search (the root already is).
+        // On both paths while the children search (the root already is).
         let path_len = path.len();
+        let hand_len = self.hand_path.len();
         if qply > 0 {
             path.push(path_entry(key, in_check));
+        }
+        if let Some(e) = hand_entry {
+            self.hand_path.push(e);
         }
         let repetitions_before = Q_REPETITIONS.with(std::cell::Cell::get);
         let cap_hits_before = Q_CAP_HITS.with(std::cell::Cell::get);
@@ -1502,6 +1555,7 @@ impl SearchEngine {
             board.unmake_move(&move_info);
             if self.search_aborted {
                 path.truncate(path_len);
+                self.hand_path.truncate(hand_len);
                 return best.max(score);
             }
 
@@ -1516,6 +1570,7 @@ impl SearchEngine {
             }
         }
         path.truncate(path_len);
+        self.hand_path.truncate(hand_len);
         // In check with every evasion skipped cannot happen (none are pruned).
         if best == -INF {
             best = alpha_orig;
@@ -1532,7 +1587,7 @@ impl SearchEngine {
                 1
             };
             let complete = Q_CAP_HITS.with(std::cell::Cell::get) == cap_hits_before;
-            let left = if complete { LEAN_Q_MAX_PLY as u8 } else { left };
+            let left = if complete { Q_FULL } else { left };
             with_qtable(|t| t[slot] = QSlot { key, score: best, flag, checks: with_checks, left });
         }
         best
@@ -1543,6 +1598,74 @@ impl SearchEngine {
 mod tests {
     use super::*;
     use crate::moves::MoveGenerator;
+
+    /// What `probe_node` saw at a node entered with no move into it (only the
+    /// null move does that): (repetition floor, hand floor, its path index,
+    /// its hand-path index).
+    type NullEntry = (usize, usize, usize, usize);
+
+    thread_local! {
+        /// Set by a test to record null-move children; with a stop flag, it
+        /// is raised at the first one (to test a stopped null search).
+        static NODE_PROBE: std::cell::RefCell<Option<(Vec<NullEntry>, Option<Arc<AtomicBool>>)>> =
+            const { std::cell::RefCell::new(None) };
+    }
+
+    /// Called by `lean_inner` on entering a node, after it is on the path.
+    pub(super) fn probe_node(engine: &SearchEngine, null_child: bool, path_index: usize) {
+        if !null_child {
+            return;
+        }
+        NODE_PROBE.with(|p| {
+            if let Some((seen, stop)) = p.borrow_mut().as_mut() {
+                let hand_index = engine.hand_path.len().saturating_sub(1);
+                seen.push((engine.rep_floor, engine.hand_rep_floor, path_index, hand_index));
+                if let Some(s) = stop.take() {
+                    s.store(true, Ordering::Relaxed);
+                }
+            }
+        });
+    }
+
+    /// Searches a won non-PV node, where null-move pruning must be tried, and
+    /// returns what the null children saw and the floors afterwards.
+    fn null_search(stop_inside: bool) -> (Vec<NullEntry>, (usize, usize)) {
+        let (mut b, p, c) =
+            BitboardBoard::from_fen("8k/9/9/9/9/9/R8/R8/GG6K b - 1").expect("sfen");
+        let stop = Arc::new(AtomicBool::new(false));
+        let mut engine = SearchEngine::new(Some(stop.clone()), 16);
+        let key = engine.hash_calculator.get_position_hash(&b, p, &c);
+        engine.root_entry = path_entry(key ^ 2, false);
+        engine.root_path_len = 1;
+        let mut path = vec![engine.root_entry];
+        NODE_PROBE.with(|x| *x.borrow_mut() = Some((Vec::new(), stop_inside.then(|| stop.clone()))));
+        let start = TimeSource::now();
+        // A move into the node (any), so only null children have none. A
+        // null window just below the static evaluation: null-move pruning's
+        // condition holds, reverse futility pruning's does not.
+        let into = startpos_moves().remove(0);
+        let eval = engine.evaluator.evaluate(&b, p, &c);
+        let beta = eval - 10;
+        engine.lean_node(&mut b, &c, p, 6, beta - 1, beta, &start, 60_000, &mut path, true, true, Some(&into));
+        let seen = NODE_PROBE.with(|x| x.borrow_mut().take()).map(|(s, _)| s).unwrap_or_default();
+        assert_eq!(path.len(), 1);
+        (seen, (engine.rep_floor, engine.hand_rep_floor))
+    }
+
+    /// The null move raises both repetition floors to its child's place on
+    /// the paths, and restores them, also when the search stops inside it.
+    #[test]
+    fn null_move_sets_and_restores_repetition_floors() {
+        let (seen, after) = null_search(false);
+        assert!(!seen.is_empty(), "null-move pruning was not tried");
+        for &(floor, hand_floor, at, hand_at) in &seen {
+            assert_eq!((floor, hand_floor), (at, hand_at), "floors at a null child");
+        }
+        assert_eq!(after, (0, 0), "floors not restored");
+        let (seen, after) = null_search(true);
+        assert!(!seen.is_empty());
+        assert_eq!(after, (0, 0), "floors not restored after a stopped null search");
+    }
 
     fn startpos_moves() -> Vec<Move> {
         MoveGenerator::new().generate_legal_moves(
@@ -1656,7 +1779,7 @@ mod tests {
         assert_eq!(path.len(), 3);
         // The draw holds only on this path: Z's result is not cached.
         let zkey = engine.hash_calculator.get_position_hash(&z, zp, &zc);
-        let slot = with_qtable(|t| t[(zkey as usize) & (Q_SLOTS - 1)]);
+        let slot = with_qtable(|t| t[q_slot(zkey)]);
         assert!(slot.flag == 0 || slot.key != zkey, "path-dependent result cached");
     }
 
@@ -1671,8 +1794,8 @@ mod tests {
         let mut engine = SearchEngine::new(None, 16);
         let akey = engine.hash_calculator.get_position_hash(&a, ap, &ac);
         let bkey = engine.hash_calculator.get_position_hash(&b, bp, &bc);
-        let bslot = (bkey as usize) & (Q_SLOTS - 1);
-        let aslot = (akey as usize) & (Q_SLOTS - 1);
+        let bslot = q_slot(bkey);
+        let aslot = q_slot(akey);
         assert_ne!(aslot, bslot);
         // B's entry: exact, from one ply before the cap (1 ply left).
         with_qtable(|t| {
@@ -1686,6 +1809,88 @@ mod tests {
         let stored = with_qtable(|t| t[aslot]);
         assert_eq!(stored.key, akey, "A was not stored");
         assert_eq!(i32::from(stored.left), LEAN_Q_MAX_PLY - qply, "stored as complete");
+    }
+
+    /// A quiescence root that is not on the path (`ProbCut`'s capture) is tested
+    /// for repetition before it goes on (it used to be skipped).
+    #[test]
+    fn off_path_quiescence_root_is_tested_for_repetition() {
+        let (mut z, zp, zc) = BitboardBoard::from_fen("8k/7p1/4R4/9/9/9/r8/r8/gg6K b - 1").expect("sfen");
+        let mut engine = SearchEngine::new(None, 16);
+        let key = engine.hash_calculator.get_position_hash(&z, zp, &zc);
+        let start = TimeSource::now();
+        let mut path = vec![path_entry(key ^ 2, false), path_entry(key, false), path_entry(key ^ 4, false)];
+        let q = engine.lean_q_entry(&mut z, &zc, zp, -30_000, 30_000, &start, 60_000, &mut path, false);
+        assert_eq!(q, 0, "the repeated root was searched");
+        assert_eq!(path.len(), 3);
+        // Off the path, the same root is searched (Black is far behind).
+        let mut fresh = vec![path_entry(key ^ 2, false)];
+        let q = engine.lean_q_entry(&mut z, &zc, zp, -30_000, 30_000, &start, 60_000, &mut fresh, false);
+        assert!(q < -500, "{q}");
+        assert_eq!(fresh.len(), 1);
+    }
+
+    /// Quiescence applies the superior/inferior hand rule, as the main search
+    /// does: a quiescence node on an earlier board with less in the mover's
+    /// hand scores as inferior, is not cached, and leaves both paths as they
+    /// were.
+    #[test]
+    fn quiescence_applies_the_hand_rule() {
+        let (mut now, p, c) = BitboardBoard::from_fen("4k4/9/9/9/9/9/9/9/4K4 b - 1").expect("sfen");
+        let (then, _, richer) = BitboardBoard::from_fen("4k4/9/9/9/9/9/9/9/4K4 b P 1").expect("sfen");
+        let mut engine = SearchEngine::new(None, 16);
+        engine.hand_path = vec![engine.hand_path_entry(&then, p, &richer)];
+        let key = engine.hash_calculator.get_position_hash(&now, p, &c);
+        let start = TimeSource::now();
+        let mut path = vec![path_entry(key ^ 2, false)];
+        with_qtable(|t| t[q_slot(key)] = QSlot::default());
+        let q = engine.lean_qsearch(&mut now, &c, p, -40_000, 40_000, &start, 60_000, 1, &mut path);
+        assert_eq!(q, -super::super::HAND_REPETITION_SCORE);
+        assert_eq!((path.len(), engine.hand_path.len()), (1, 1));
+        assert_eq!(with_qtable(|t| t[q_slot(key)].flag), 0, "a path-dependent result was cached");
+    }
+
+    /// Through a real recursion: the root's capture reaches a board White has
+    /// seen with more in hand, so the child scores inferior for White; the
+    /// root takes that line, is not cached, and both paths are restored.
+    #[test]
+    fn quiescence_hand_rule_through_a_capture() {
+        // A: Black's rook on 5h takes the pawn on 5e (its only noisy move).
+        let (mut a, ap, ac) = BitboardBoard::from_fen("8k/9/9/9/4p4/9/9/4R4/K8 b - 1").expect("sfen");
+        // The same board after the capture, White to move, White a pawn richer.
+        let (seen, sp, sc) = BitboardBoard::from_fen("8k/9/9/9/4R4/9/9/9/K8 w Pp 1").expect("sfen");
+        let mut engine = SearchEngine::new(None, 16);
+        engine.hand_path = vec![engine.hand_path_entry(&seen, sp, &sc)];
+        let akey = engine.hash_calculator.get_position_hash(&a, ap, &ac);
+        with_qtable(|t| t[q_slot(akey)] = QSlot::default());
+        let start = TimeSource::now();
+        let mut path = vec![path_entry(akey, false)];
+        let q = engine.lean_q_entry(&mut a, &ac, ap, -40_000, 40_000, &start, 60_000, &mut path, true);
+        assert_eq!(q, super::super::HAND_REPETITION_SCORE, "the capture's child was not inferior");
+        assert_eq!((path.len(), engine.hand_path.len()), (1, 1), "paths not restored");
+        assert_eq!(with_qtable(|t| t[q_slot(akey)].flag), 0, "a path-dependent root was cached");
+    }
+
+    /// A node below the root pushes onto both paths while its children search
+    /// and must pop them itself (searched here at quiescence ply 1, so no
+    /// caller's truncation hides a missing one): after Black's pawn took on 5e,
+    /// White's gold retakes, reaching a board seen with Black a pawn richer
+    /// (inferior for Black). Both paths come back as they were, and the node
+    /// is not cached.
+    #[test]
+    fn quiescence_hand_rule_restores_paths_below_the_root() {
+        let (mut b, bp, bc) = BitboardBoard::from_fen("8k/9/9/5g3/4P4/9/9/9/K8 w P 1").expect("sfen");
+        let (seen, sp, sc) = BitboardBoard::from_fen("8k/9/9/9/4g4/9/9/9/K8 b 2Pp 1").expect("sfen");
+        let mut engine = SearchEngine::new(None, 16);
+        engine.hand_path = vec![engine.hand_path_entry(&seen, sp, &sc)];
+        let bkey = engine.hash_calculator.get_position_hash(&b, bp, &bc);
+        with_qtable(|t| t[q_slot(bkey)] = QSlot::default());
+        let start = TimeSource::now();
+        let mut path = vec![path_entry(bkey ^ 2, false)];
+        let q = engine.lean_qsearch(&mut b, &bc, bp, -40_000, 40_000, &start, 60_000, 1, &mut path);
+        assert_eq!(q, super::super::HAND_REPETITION_SCORE, "the retake's position was not inferior");
+        assert_eq!((path.len(), engine.hand_path.len()), (1, 1), "paths not restored");
+        assert_eq!(with_qtable(|t| t[q_slot(bkey)].flag), 0, "a path-dependent node was cached");
     }
 
     /// A repetition at the ply cap is scored as one, not by the evaluation.
@@ -1713,7 +1918,7 @@ mod tests {
         let (mut b, p, c) = BitboardBoard::from_fen("4k4/9/9/9/9/9/9/9/4K4 b - 1").expect("sfen");
         let mut engine = SearchEngine::new(None, 16);
         let key = engine.hash_calculator.get_position_hash(&b, p, &c);
-        let slot = (key as usize) & (Q_SLOTS - 1);
+        let slot = q_slot(key);
         let start = TimeSource::now();
         let mut path = vec![path_entry(key, false)];
         let fake = 4_321;

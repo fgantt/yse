@@ -315,7 +315,7 @@ impl LeanHist {
     /// Clears the killers at plies 1 and 2, which no parent node clears (a node
     /// clears its grandchildren's): they used to carry over between moves all
     /// game (council review, 2026-11-09). Called once per move on every thread.
-    pub(super) fn clear_root_killers(&mut self) {
+    pub(super) const fn clear_root_killers(&mut self) {
         self.killers[1] = [None, None];
         self.killers[2] = [None, None];
     }
@@ -357,7 +357,7 @@ mod tests {
             h.cutoff(&promo, &[], &[], 6, 5);
             assert!(!h.is_killer(&promo, 5) && !h.is_killer(&quiet, 5));
             assert!(h.counter[prev].is_none(), "a promotion became the counter move");
-            h.cutoff(&quiet, &[quiet.clone()], &[], 6, 5);
+            h.cutoff(&quiet, std::slice::from_ref(&quiet), &[], 6, 5);
             assert!(h.is_killer(&quiet, 5));
         });
     }

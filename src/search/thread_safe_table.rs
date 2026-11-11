@@ -123,7 +123,9 @@ pub struct ThreadSafeEntry {
 }
 
 /// The number of entries of a table of at most `megabytes` MB: the largest
-/// power of two that fits. The engine used to ask for `MB * 2^20 / 100`
+/// power of two that fits.
+///
+/// The engine used to ask for `MB * 2^20 / 100`
 /// entries, rounded up, which at 24 bytes an entry gave "256 MB" a 96 MB table
 /// (council review, 2026-11-09).
 pub fn entries_for_megabytes(megabytes: usize) -> usize {

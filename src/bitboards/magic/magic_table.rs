@@ -1045,17 +1045,21 @@ mod tests {
     #[test]
     fn test_magic_table_promoted_pieces() {
         let table = MagicTable::default();
-        // Test promoted pieces use the same tables as base pieces
-        let rook_attacks = table.get_attacks(40, PieceType::Rook, EMPTY_BITBOARD);
-        let promoted_rook_attacks = table.get_attacks(40, PieceType::PromotedRook, EMPTY_BITBOARD);
-        assert!(!rook_attacks.is_empty());
-        assert_eq!(rook_attacks, promoted_rook_attacks);
+        // A dragon is a rook plus the four diagonal steps, a horse a bishop
+        // plus the four orthogonal steps (the test used to expect the same
+        // attacks as the unpromoted piece). Square 40 is 5e.
+        let bit = |sq: u32| 1u128 << sq;
+        let diagonal = bit(30) | bit(32) | bit(48) | bit(50);
+        let orthogonal = bit(31) | bit(39) | bit(41) | bit(49);
+        let rook_attacks = table.get_attacks(40, PieceType::Rook, EMPTY_BITBOARD).to_u128();
+        let dragon = table.get_attacks(40, PieceType::PromotedRook, EMPTY_BITBOARD).to_u128();
+        assert!(rook_attacks != 0);
+        assert_eq!(dragon, rook_attacks | diagonal);
 
-        let bishop_attacks = table.get_attacks(40, PieceType::Bishop, EMPTY_BITBOARD);
-        let promoted_bishop_attacks =
-            table.get_attacks(40, PieceType::PromotedBishop, EMPTY_BITBOARD);
-        assert!(!bishop_attacks.is_empty());
-        assert_eq!(bishop_attacks, promoted_bishop_attacks);
+        let bishop_attacks = table.get_attacks(40, PieceType::Bishop, EMPTY_BITBOARD).to_u128();
+        let horse = table.get_attacks(40, PieceType::PromotedBishop, EMPTY_BITBOARD).to_u128();
+        assert!(bishop_attacks != 0);
+        assert_eq!(horse, bishop_attacks | orthogonal);
     }
 
     #[test]
