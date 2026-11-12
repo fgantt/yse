@@ -9197,6 +9197,12 @@ impl SearchEngine {
         self.node_limit = limit;
     }
 
+    /// Nodes this engine has counted but not yet added to the global
+    /// `info nodes`/`go nodes` counter (under one batch).
+    pub fn pending_global_nodes(&self) -> u64 {
+        self.search_statistics.pending_global_nodes()
+    }
+
     fn generate_noisy_moves(
         &self,
         board: &BitboardBoard,
@@ -15887,6 +15893,8 @@ impl IterativeDeepening {
         let start_time = TimeSource::now();
         let node_limit = search_engine.node_limit;
         search_engine.time_manager.begin_search(node_limit);
+        // With the global count: the previous search's unflushed remainder is not this one's.
+        search_engine.search_statistics.discard_pending_global_nodes();
         // Reset total search time at the start of a new search
         search_engine.iid_stats.total_search_time_ms = 0;
 

@@ -243,6 +243,31 @@ fn load_shared_magic_table() -> &'static Option<Arc<MagicTable>> {
     })
 }
 
+/// A warning for `isready` when the precomputed magic table is not loaded.
+///
+/// The table is gitignored, so fresh checkouts, copies and tarballs lack it.
+/// Without it every sliding attack is ray-cast: correct, slower on one thread
+/// and several times slower with threads (global telemetry counters), and
+/// sliding moves are generated in another order, so the search differs.
+pub fn magic_table_warning() -> Option<String> {
+    if load_shared_magic_table().is_some() {
+        return None;
+    }
+    Some(format!(
+        "WARNING: no magic table at {}; sliding attacks are ray-cast (slower). Copy \
+         resources/magic_tables/magic_table.bin or set SHOGI_MAGIC_TABLE_PATH.",
+        magic::magic_table::get_default_magic_table_path().display()
+    ))
+}
+
+/// Rook or bishop attacks from `square` under `occupied`, ray-cast: the fallback
+/// for code that needs slider attacks under an occupancy other than the board's
+/// when no magic table is loaded (SEE's x-rays).
+pub(crate) fn raycast_slider_attacks(square: u8, piece_type: PieceType, occupied: Bitboard) -> Bitboard {
+    RAYCAST_ATTACK_GENERATOR
+        .with(|generator| generator.borrow().generate_attack_pattern_uncached(square, piece_type, occupied))
+}
+
 fn get_shared_magic_table() -> Option<Arc<MagicTable>> {
     load_shared_magic_table().clone()
 }

@@ -8,6 +8,13 @@ use crate::bitboards::BitboardBoard;
 use crate::types::core::{Move, Piece, PieceType, Player, Position};
 use std::collections::HashMap;
 
+#[cfg(test)]
+thread_local! {
+    /// Tests: compute SEE's slider rays by ray-casting even when a magic table
+    /// is loaded, to check the no-table path against the table.
+    static FORCE_RAYCAST: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 /// SEE calculation result
 pub type SEEResult<T> = Result<T, String>;
 
@@ -302,13 +309,27 @@ impl AttackList {
 
     /// [`sliding_attackers`] under `occupied`, appending those not yet listed,
     /// in its order.
+    ///
+    /// Without a magic table the rays are ray-cast. This returned early instead,
+    /// so SEE saw no rook, bishop, dragon, horse or lance at all whenever
+    /// `magic_table.bin` was missing (a PC build from a tarball without the
+    /// gitignored file searched different trees from the Mac; S41, 2026-11-12).
     fn add_sliders(&mut self, board: &BitboardBoard, to: Position, occupied: crate::types::Bitboard) {
-        let Some(magic) = board.magic_table_ref() else {
-            return;
-        };
         let to_idx = to.to_index();
-        let rook_rays = magic.get_attacks(to_idx, PieceType::Rook, occupied).to_u128();
-        let bishop_rays = magic.get_attacks(to_idx, PieceType::Bishop, occupied).to_u128();
+        #[cfg(test)]
+        let magic = if FORCE_RAYCAST.with(std::cell::Cell::get) { None } else { board.magic_table_ref() };
+        #[cfg(not(test))]
+        let magic = board.magic_table_ref();
+        let (rook_rays, bishop_rays) = match magic {
+            Some(magic) => (
+                magic.get_attacks(to_idx, PieceType::Rook, occupied).to_u128(),
+                magic.get_attacks(to_idx, PieceType::Bishop, occupied).to_u128(),
+            ),
+            None => (
+                crate::bitboards::raycast_slider_attacks(to_idx, PieceType::Rook, occupied).to_u128(),
+                crate::bitboards::raycast_slider_attacks(to_idx, PieceType::Bishop, occupied).to_u128(),
+            ),
+        };
         let pieces = board.get_pieces();
         let unseen = occupied.to_u128() & !self.seen;
         let bb = |player: Player, pt: PieceType| pieces[player as usize][pt.as_index()].to_u128();
@@ -913,5 +934,48 @@ mod tests {
             }
         }
         assert!(nonzero > 1000, "{compared} {nonzero}");
+    }
+
+    /// Without a magic table, SEE must give the values it gives with one: its
+    /// slider rays are ray-cast instead. It used to skip sliders entirely when
+    /// the table was missing, so this fails on that version (`differs` from the
+    /// table run, and `slider_moves` would be counted on one side only).
+    #[test]
+    fn see_without_magic_table_matches_table() {
+        let mg = MoveGenerator::new();
+        let board0 = BitboardBoard::new();
+        assert!(board0.magic_table_ref().is_some(), "needs resources/magic_tables/magic_table.bin");
+        let mut rng = rand::rngs::StdRng::seed_from_u64(41);
+        let (mut compared, mut slider_moves) = (0u64, 0u64);
+        for _ in 0..30 {
+            let mut board = BitboardBoard::new();
+            let mut captured = CapturedPieces::new();
+            let mut player = Player::Black;
+            for _ in 0..140 {
+                for m in mg.generate_legal_moves(&board, player, &captured) {
+                    let with_table = (calculate_see_internal(&m, &board), see_quiet(&m, &board));
+                    let sliders_seen = find_attackers_defenders(m.to, &board)
+                        .iter()
+                        .any(|(_, p)| matches!(p.piece_type, PieceType::Rook | PieceType::Bishop
+                            | PieceType::PromotedRook | PieceType::PromotedBishop | PieceType::Lance));
+                    FORCE_RAYCAST.with(|f| f.set(true));
+                    let without = (calculate_see_internal(&m, &board), see_quiet(&m, &board));
+                    let sliders_without = find_attackers_defenders(m.to, &board)
+                        .iter()
+                        .any(|(_, p)| matches!(p.piece_type, PieceType::Rook | PieceType::Bishop
+                            | PieceType::PromotedRook | PieceType::PromotedBishop | PieceType::Lance));
+                    FORCE_RAYCAST.with(|f| f.set(false));
+                    assert_eq!(with_table, without, "{}", m.to_usi_string());
+                    assert_eq!(sliders_seen, sliders_without, "{}", m.to_usi_string());
+                    compared += 1;
+                    slider_moves += sliders_seen as u64;
+                }
+                let legal = mg.generate_legal_moves(&board, player, &captured);
+                let Some(m) = legal.choose(&mut rng) else { break };
+                board.make_move_with_hand(m, &mut captured);
+                player = player.opposite();
+            }
+        }
+        assert!(slider_moves > 10_000, "{compared} {slider_moves}");
     }
 }

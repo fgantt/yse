@@ -173,6 +173,9 @@ impl UsiHandler {
         if !status.is_empty() {
             response.push(format!("info string {}", status));
         }
+        if let Some(warning) = crate::bitboards::magic_table_warning() {
+            response.push(format!("info string {}", warning));
+        }
         let book = self.engine.book_status();
         if !book.is_empty() {
             response.push(format!("info string {}", book));

@@ -263,6 +263,21 @@ impl SearchStatistics {
         self.initiative_metrics = InitiativeMetrics::default();
     }
 
+    /// Drop the nodes not yet added to the global counters: a search's last
+    /// partial batch (up to `GLOBAL_NODE_BATCH - 1` nodes). Called when a search
+    /// begins, after `GLOBAL_SEARCH_NODES` is zeroed; otherwise the previous
+    /// search's remainder lands in this one's count and `go nodes` budget, and
+    /// fixed-node games depend on what was searched before (S41 council,
+    /// 2026-11-12: colour-swapped A/A pairs diverged by plies 8-12).
+    pub fn discard_pending_global_nodes(&mut self) {
+        self.pending_global_nodes = 0;
+    }
+
+    /// Nodes counted locally but not yet added to the global counters.
+    pub fn pending_global_nodes(&self) -> u64 {
+        self.pending_global_nodes
+    }
+
     /// Reset nodes counter (but keep other metrics)
     pub fn reset_nodes(&mut self) {
         self.nodes_searched = 0;
