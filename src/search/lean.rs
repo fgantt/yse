@@ -674,12 +674,18 @@ impl SearchEngine {
                     if self.search_aborted {
                         return alpha;
                     }
-                    SE_TESTS.fetch_add(1, Ordering::Relaxed);
+                    if diag() {
+                        SE_TESTS.fetch_add(1, Ordering::Relaxed);
+                    }
                     if v < sing_beta {
-                        SE_EXT.fetch_add(1, Ordering::Relaxed);
+                        if diag() {
+                            SE_EXT.fetch_add(1, Ordering::Relaxed);
+                        }
                         singular = true;
                     } else if sing_beta >= beta {
-                        SE_MULTICUT.fetch_add(1, Ordering::Relaxed);
+                        if diag() {
+                            SE_MULTICUT.fetch_add(1, Ordering::Relaxed);
+                        }
                         return sing_beta;
                     }
                 }
@@ -820,12 +826,25 @@ impl SearchEngine {
             } else {
                 // Late move reductions for quiet moves past the first few.
                 let mut r = 0;
-                if depth >= 2
-                    && !lean_off(off::LMR)
-                    && move_count > 1 + usize::from(pv_node)
-                    && quiet
-                    && !mv.gives_check
-                {
+                let late = depth >= 2 && !lean_off(off::LMR) && move_count > 1 + usize::from(pv_node);
+                if late && !quiet && lmr_tactical() && lmr_tactical_candidate(mv, board) {
+                    // As quiet moves below, without the quiet-history term: `quiet_score` is
+                    // never updated for captures and promotions.
+                    r = i32::from(lmr[(depth as usize).min(63)][move_count.min(63)]);
+                    if pv_node {
+                        r -= 1;
+                    }
+                    if cut_node {
+                        r += 1;
+                    }
+                    if !improving_for(4) {
+                        r += 1;
+                    }
+                    if in_check {
+                        r -= 1;
+                    }
+                    r = r.clamp(0, new_depth - 1);
+                } else if late && quiet && !mv.gives_check {
                     r = i32::from(lmr[(depth as usize).min(63)][move_count.min(63)]);
                     if pv_node {
                         r -= 1;
@@ -1007,15 +1026,17 @@ impl SearchEngine {
             0,
             crate::types::EntrySource::MainSearch,
         );
-        // A search without the table move must not overwrite what the table knows.
-        if excluded.is_none() {
+        // A search without the table move must not overwrite what the table knows, and a
+        // hand-repetition score belongs to the path, not the position.
+        if excluded.is_none() && (store_hand_scores() || !is_hand_repetition_score(best_score)) {
             self.maybe_buffer_tt_store(entry, d, flag);
         }
         best_score
     }
 }
 
-/// Whether the table move may get a singular extension (`SHOGI_LEAN_SE=1`).
+/// Singular-extension counters for `search-diag` (counted only under its diagnostic switch:
+/// shared atomics on a search path cost Lazy SMP threads).
 pub static SE_TESTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static SE_EXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 pub static SE_MULTICUT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
@@ -1032,9 +1053,42 @@ fn se_param(name: &'static str, default: i32) -> i32 {
     if name == "SHOGI_LEAN_SE_DEPTH" { d } else { m }
 }
 
+/// Whether the table move may get a singular extension (`SHOGI_LEAN_SE=0` turns it off).
+/// On since S41 (PLAN_S41 step 2a: 1-thread fixed-node screen at 400k nodes, +66 ± 13 over
+/// 600 games; it needs ~3.4x the nodes to reach a given depth, so depth-based checks
+/// misjudge it). Off before: S35 screened it once, on an engine without `lean_hist`.
 fn lean_se() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| env_flag("SHOGI_LEAN_SE", false))
+    *ON.get_or_init(|| env_flag("SHOGI_LEAN_SE", true))
+}
+
+/// Late losing captures (SEE < 0) and late non-capturing promotions are reduced by LMR
+/// (`SHOGI_LMR_TACTICAL=0` turns it off). S41 step 2a: +28 ± 13 at 400k nodes, equal time.
+fn lmr_tactical() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_LMR_TACTICAL", true))
+}
+
+/// Whether a move searched late at a node may get LMR as a tactical move: a capture that
+/// loses material by SEE, or a promotion that captures nothing. Never a checking move.
+fn lmr_tactical_candidate(mv: &Move, board: &BitboardBoard) -> bool {
+    (mv.is_capture || mv.is_promotion)
+        && !mv.gives_check
+        && (!mv.is_capture
+            || crate::search::move_ordering::see_calculation::calculate_see_internal(mv, board) < 0)
+}
+
+/// Superior/inferior-repetition scores (±30,000) depend on the path that reached a node; the
+/// main table is keyed by position alone, so they are not stored there
+/// (`SHOGI_HAND_TT_STORE=1` stores them as before). S41 step 2a candidate 0.
+fn store_hand_scores() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_HAND_TT_STORE", false))
+}
+
+/// A score in the hand-repetition range, which the main table does not keep.
+fn is_hand_repetition_score(score: i32) -> bool {
+    score.abs() >= super::HAND_REPETITION_SCORE - 1_000 && score.abs() < MATE_THRESHOLD
 }
 
 thread_local! {
@@ -1891,6 +1945,64 @@ mod tests {
         assert_eq!(q, super::super::HAND_REPETITION_SCORE, "the retake's position was not inferior");
         assert_eq!((path.len(), engine.hand_path.len()), (1, 1), "paths not restored");
         assert_eq!(with_qtable(|t| t[q_slot(bkey)].flag), 0, "a path-dependent node was cached");
+    }
+
+    /// The main search does not store a hand-repetition score in the table: it holds for the
+    /// path that reached the node, and the table is keyed by position alone. The root's
+    /// capture reaches a board White has seen a pawn richer (as in
+    /// `quiescence_hand_rule_through_a_capture`), so the root scores +30,000; without the
+    /// guard that score was stored for the root position and reused on any path.
+    #[test]
+    fn main_search_does_not_store_hand_repetition_scores() {
+        let (mut a, ap, ac) = BitboardBoard::from_fen("8k/9/9/9/4p4/9/9/4R4/K8 b - 1").expect("sfen");
+        let (seen, sp, sc) = BitboardBoard::from_fen("8k/9/9/9/4R4/9/9/9/K8 w Pp 1").expect("sfen");
+        let mut engine = SearchEngine::new(None, 16);
+        engine.hand_path = vec![engine.hand_path_entry(&seen, sp, &sc)];
+        let akey = engine.hash_calculator.get_position_hash(&a, ap, &ac);
+        let start = TimeSource::now();
+        let mut path = vec![path_entry(akey ^ 2, false)];
+        let into = startpos_moves().remove(0);
+        let v = engine.lean_node(&mut a, &ac, ap, 2, -40_000, 40_000, &start, 60_000, &mut path, false, false, Some(&into));
+        assert_eq!(v, super::super::HAND_REPETITION_SCORE, "the capture's child was not inferior");
+        engine.flush_tt_buffer();
+        let stored = engine.tt_probe(akey, 0).map(|e| e.score);
+        assert!(
+            stored.is_none_or(|s| !is_hand_repetition_score(s)),
+            "a path-dependent score was stored for the position: {stored:?}"
+        );
+    }
+
+    /// Late losing captures and quiet promotions are LMR candidates; winning captures and
+    /// checking moves are not (S41: reducing them gained +28 ± 13 at 400k nodes).
+    #[test]
+    fn lmr_tactical_candidates() {
+        use crate::moves::MoveGenerator;
+        let mg = MoveGenerator::new();
+        let find = |sfen: &str, usi: &str| {
+            let (b, p, c) = BitboardBoard::from_fen(sfen).expect("sfen");
+            let m = mg
+                .generate_legal_moves(&b, p, &c)
+                .into_iter()
+                .find(|m| m.to_usi_string() == usi)
+                .unwrap_or_else(|| panic!("{usi} not legal in {sfen}"));
+            (b, m)
+        };
+        // Rook takes a pawn a gold defends (4c guards 5d): SEE < 0.
+        let (b, m) = find("8k/9/5g3/4p4/9/9/9/4R4/K8 b - 1", "5h5d");
+        assert!(lmr_tactical_candidate(&m, &b), "losing capture");
+        // Rook takes an undefended pawn: SEE > 0.
+        let (b, m) = find("8k/9/9/4p4/9/9/9/4R4/K8 b - 1", "5h5d");
+        assert!(!lmr_tactical_candidate(&m, &b), "winning capture");
+        // A pawn promotes on an empty square.
+        let (b, m) = find("8k/9/9/4P4/9/9/9/9/K8 b - 1", "5d5c+");
+        assert!(lmr_tactical_candidate(&m, &b), "quiet promotion");
+        // A quiet move is the quiet LMR's, not this one's.
+        let (b, m) = find("8k/9/9/9/9/9/9/4R4/K8 b - 1", "5h6h");
+        assert!(!lmr_tactical_candidate(&m, &b), "quiet move");
+        // A losing capture that gives check stays unreduced.
+        let (b, m) = find("4k4/9/5g3/4p4/9/9/9/4R4/K8 b - 1", "5h5d");
+        assert!(m.gives_check, "the fixture's capture checks");
+        assert!(!lmr_tactical_candidate(&m, &b), "checking capture");
     }
 
     /// A repetition at the ply cap is scored as one, not by the evaluation.

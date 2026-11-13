@@ -94,6 +94,10 @@ struct Cli {
     /// after 8 pairs once read as a pass.
     #[arg(long, default_value_t = 20)]
     sprt_min_pairs: usize,
+    /// Byoyomi games: a move that takes longer than byoyomi + this many ms loses on time
+    /// (reason "time"). Off when absent: think time is only reported.
+    #[arg(long)]
+    time_loss_ms: Option<u32>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -107,6 +111,11 @@ struct Side {
     engine: UsiEngine,
     go: String,
     max_think_ms: u128,
+    /// Total think time and moves, for the mean (PLAN_S41 r6 rule 6).
+    total_think_ms: u128,
+    think_moves: u64,
+    /// A move longer than this loses on time (`--time-loss-ms`, byoyomi games only).
+    time_limit_ms: Option<u128>,
 }
 
 fn start(path: &Path, cwd: &Path, options: &str) -> Result<UsiEngine, Box<dyn std::error::Error>> {
@@ -168,6 +177,11 @@ fn play(
         let result = side.engine.go_with(&side.go)?;
         let took = t0.elapsed().as_millis();
         side.max_think_ms = side.max_think_ms.max(took);
+        side.total_think_ms += took;
+        side.think_moves += 1;
+        if side.time_limit_ms.is_some_and(|limit| took > limit) {
+            return Ok((win_for(player.opposite()), moves.len() as u32, format!("time ({took} ms)"), moves));
+        }
         if took > 2000 && side.go.contains("byoyomi") {
             eprintln!(
                 "SLOW MOVE {} ms ({}): position startpos moves {}",
@@ -260,18 +274,37 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         engine: start(&cli.engine_a, cli.cwd_a.as_deref().unwrap_or(&here), &cli.options_a)?,
         go: cli.go_a.clone().unwrap_or_else(|| default_go.clone()),
         max_think_ms: 0,
+        total_think_ms: 0,
+        think_moves: 0,
+        time_limit_ms: None,
     };
     let mut b = Side {
         engine: start(&cli.engine_b, cli.cwd_b.as_deref().unwrap_or(&here), &cli.options_b)?,
         go: cli.go_b.clone().unwrap_or_else(|| default_go.clone()),
         max_think_ms: 0,
+        total_think_ms: 0,
+        think_moves: 0,
+        time_limit_ms: None,
     };
+    // `--time-loss-ms`: byoyomi from each side's `go` arguments plus the allowance.
+    let time_limit = |go: &str| -> Option<u128> {
+        let allowance = cli.time_loss_ms?;
+        let mut words = go.split_whitespace();
+        words.find(|w| *w == "byoyomi")?;
+        let byoyomi: u128 = words.next()?.parse().ok()?;
+        Some(byoyomi + u128::from(allowance))
+    };
+    a.time_limit_ms = time_limit(&a.go);
+    b.time_limit_ms = time_limit(&b.go);
     println!("A: {} (go {})", cli.engine_a.display(), a.go);
     println!("B: {} (go {})", cli.engine_b.display(), b.go);
+    if let (Some(la), Some(lb)) = (a.time_limit_ms, b.time_limit_ms) {
+        println!("Time loss: a move over {la} ms (A) / {lb} ms (B) loses");
+    }
 
     let mut rng = StdRng::seed_from_u64(cli.seed);
     let mut csv = std::fs::File::create(&cli.output)?;
-    writeln!(csv, "game,a_color,result,moves,reason,record")?;
+    writeln!(csv, "game,a_color,result,moves,reason,record,a_ms,a_moves,b_ms,b_moves")?;
     let pairs = (cli.games + 1) / 2;
     let (mut w, mut d, mut l) = (0u32, 0u32, 0u32);
     let mut pair_points: Vec<f64> = Vec::new();
@@ -293,6 +326,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut pts = 0.0;
         for k in 0..2 {
             let a_black = k == 0;
+            let before = (a.total_think_ms, a.think_moves, b.total_think_ms, b.think_moves);
             let (res, n, why, record) = play(&mut a, &mut b, a_black, &opening, cli.max_moves, cli.start_sfen.as_deref())?;
             match res {
                 Res::AWin => {
@@ -308,13 +342,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let g = p * 2 + k + 1;
             writeln!(
                 csv,
-                "{},{},{:?},{},{},{}",
+                "{},{},{:?},{},{},{},{},{},{},{}",
                 g,
                 if a_black { "black" } else { "white" },
                 res,
                 n,
                 why,
-                record.join(" ")
+                record.join(" "),
+                a.total_think_ms - before.0,
+                a.think_moves - before.1,
+                b.total_think_ms - before.2,
+                b.think_moves - before.3
             )?;
             csv.flush()?;
             println!(
@@ -361,6 +399,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         pair_points.len()
     );
     println!("  Longest think: A {} ms, B {} ms", a.max_think_ms, b.max_think_ms);
+    let mean_ms = |s: &Side| s.total_think_ms as f64 / s.think_moves.max(1) as f64;
+    println!("  Mean think: A {:.1} ms, B {:.1} ms (ratio A/B {:.3})", mean_ms(&a), mean_ms(&b), mean_ms(&a) / mean_ms(&b).max(1e-9));
     if let Some((e0, e1)) = sprt {
         let scores: Vec<f64> = pair_points.iter().map(|x| x / 2.0).collect();
         println!(
