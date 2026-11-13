@@ -1022,3 +1022,155 @@ does). At 942 games (06:3x, ~60 games short of the 1,000 cap): 438-51-453, −5.
 **Decision (user, 2026-11-11): ship**, treating the cap without a FAIL as acceptance. The changes
 are correctness fixes (repetition through a null move; the hand rule in quiescence as in the main
 search). Scripts and results: `matches/s41/gate2/`, `matches/s41/ml/`.
+
+## Council (2026-11-11, plan check: the next levers after `6c611cf`)
+
+Five rounds on `docs/nnue-phase2/PLAN_S41.md` (briefs `matches/s41/council_plan_brief_r1.md` to
+`_r5.md`). Members: Claude Opus 5.5 (claudeAgent, effort high), GPT-6.1 Sol (codex, high), Gemini 4
+Argon (cursor, high). Muse Wonder 1.0 failed in round 1 (API 402, billing) and was not run after.
+
+| Member | R1 | R2 | R3 | R4 | R5 |
+|---|---|---|---|---|---|
+| Claude Opus 5.5 | 7.0 | 8.3 | 8.8 | 9.0 | 9.2 |
+| GPT-6.1 Sol | 7.6 | 8.6 | 8.9 | 9.0 | 9.3 |
+| Gemini 4 Argon | 7.4 | 8.5 | 9.4 | 9.7 | 9.8 |
+| Muse Wonder 1.0 | failed | — | — | — | — |
+
+**Adopted (the main points; full list in PLAN_S41 §6):**
+- The lead's first ranking (speed first, then SPSA, then switched-off features) was replaced by tree
+  efficiency at equal evaluation (§5's own primary target), with speed byte-identical and ungated.
+- The 1.6 s vs 1.0 s match was dropped: partial iterations' 0 ± 35 is consistent with ~80 per
+  doubling (§6 "Correction"), so there was no disagreement to settle.
+- Cross-engine nodes-to-depth is not a gap measure (depth is not one unit); replaced by a
+  work-equivalence match at equal evaluation (testbed, halfkpvm in both).
+- Neutral-set move loss is not a screen (SESSION_LOG_035 had shown it); the screen is 1-thread
+  fixed-node games, calibrated on root stack (23), losing-check pruning, the improving flag and an
+  A/A or seed-agreement check, with acceptance rules fixed before any result.
+- `go nodes` gives the root mate pre-search 200k uncounted nodes (checked, `search_engine.rs:15939`):
+  `SHOGI_NO_MATE_SEARCH=1` in every fixed-node run.
+- New candidates found in code: unbounded check extensions (`lean.rs:779-782`), LMR only on quiet
+  non-checks (`lean.rs:822-827`), no pruning in check (`lean.rs:720`), quiescence evasion pruning off.
+- SPSA v1 searched ~30 ms per move; a v2 at 2 threads / 300 ms would cost ~38 h, not 6-10 h.
+
+**Not adopted:** an ad hoc LLR futility stop in the gate; the mate pre-search as a lever before it is
+measured; a YaneuraOu build with node-type counters (needs a source build and the user's approval);
+a k ≥ 3 threshold for step 0a (k is no longer a gate). Member threads: in the session transcript.
+
+**Addendum (2026-11-11): one independent rating by GPT-6 Astra (codex, effort high): 8.9.** Checked
+and adopted into PLAN_S41: the quiescence table (`QSlot`, `lean.rs:1137`) cannot tell a
+recapture-only search from a full one, so step 2a(5) needs cache context and a regression test;
+`usi_match` never adjudicates time losses (warns only past 2,000 ms, `usi_match.rs:168-176`), so the
+gate gets a time-loss rule first; equal-time node budgets are logged and verified; the a1 row in
+step 0a can reopen evaluation work. Astra put the most likely overstated belief at "a1 ≈ halfkpvm,
+so evaluation is measured out" (N1 measured accuracy, not strength).
+
+**Addendum (2026-11-11): one independent rating by Claude Fable 5.2 (claudeAgent, effort high): 8.8.**
+Checked and adopted into PLAN_S41: `usi_match` plays one game at a time per process
+(`usi_match.rs:290-296`), so "two seeds" and "11 games at once" could not both hold; runs are now
+12-seed blocks (assigned in §2), with the two-seed rules on the block's halves. The root mate solver
+is now given a fixed 9k-node budget in fixed-node runs (a new diagnostic option), not switched off,
+since switching it off biases the screen against check-extension candidates. Step 0a's trigger is
+two-sided (k ≥ 16 also returns to the council); a closing fixed-node rung vs YaneuraOu runs with the
+confirmed stack. Calibration failure odds revised to 20-30% (the F4 controls were measured on the
+S35 engine).
+
+## Council (2026-11-11, result reading: PLAN_S41 step 0a)
+
+Members: Claude Opus 5.5, GPT-6.1 Sol, Gemini 4 Argon (high effort; brief
+`matches/s41/council_0a_brief.md`). Muse not run (billing); Astra and Fable not used (the user's
+plan limits).
+
+**Agreed:** today's engine shows no gain against YaneuraOu at 1 thread and fixed nodes; "weaker
+than 11-05" is suggestive, not established (~1.65 SE with the SE over opening pairs, Sol;
+pairing is nearly useless because games diverge by plies 8-12, Opus). Most of the +110-150 came
+from the 4-thread path (helper tables, helper-only root-stack bits) and from stopped-SPRT
+estimates, which 1-thread fixed-node games cannot see (Opus, Sol, Gemini). Keep the self-play
+gate; add a paired YaneuraOu non-regression check once per stack, not per change. Do not revert
+correctness fixes on this evidence. The a1 vs halfkpvm gap (1.66 SE, unpaired) does not reopen
+evaluation work yet.
+
+**Disagreed:** Sol and Gemini would run a ~2-3 h bisect of the intermediate binaries now (power
+~20% for a 50 Elo step); Opus would first confirm the loss (16x on fresh seeds, both production
+binaries) and test 1-thread self-play today vs 11-05. Lead: Opus's order, since a 60-game bisect
+cannot resolve the steps it looks for.
+
+**Checked by the lead:** the testbed replays production `6c611cf` 20/20; the main-table store has
+no repetition guard (Gemini) and 0.54% of stores carry hand-repetition-range scores; the hand rule
+costs +26% nodes at depth 12. Not adopted: Gemini's 15k-vs-400k external co-gate as a screen
+(much shallower than game depth; transfer unknown).
+
+**Addendum (2026-11-11, run 1, run 2 and 16x self-play):** today − 11-05 is +94 ± 18 in 1-thread
+self-play at 400k nodes, +56 ± 26 at 1.6M, +30 ± 29 against YaneuraOu at 16x (paired, 120 opening
+pairs; pooled with 0a's 32x row ≈ +6 ± 26). No regression; the self-play gain appears to shrink with depth
+(38 ± 32, 1.2 SE: suggestive), and at equal budget self-play and YaneuraOu agree within noise. Detail: PLAN_S41 §7.
+
+## Council (2026-11-12, plan check: PLAN_S41 r6, steps 1-2 after runs 1-2)
+
+Members: Claude Opus 5.5 (effort high) 8.4, GPT-6.1 Sol (high) 8.3, Gemini 4 Argon (high) 8.7;
+Muse Wonder 1.0 failed (API 402, billing). Brief: `matches/s41/council_r6_brief.md`.
+
+**Agreed:** screen at 400k, not 800k; drop the 1.6M depth-check control; the two-stage futility
+stop is sound (it lowers the null carry rate slightly); the cap was mis-counted (it buys ~4-6
+setting runs, not 5-6 candidate families); the old setting (b) for the hand-rule candidate leaks
+(singular extension and ProbCut read table scores, `lean.rs:496,646-651`) and "bound none" does
+not exist (`types/search.rs:26-30`; flag bits 3 decode as Exact, `thread_safe_table.rs:277-284`).
+All checked by the lead. Stack confirmation at the gate's depth rather than 1.6M (Opus, Gemini):
+measured, 1 thread reaches the gate's 13.20 at ≈ 510k nodes (PLAN_S41 §7 "Depth vs nodes"), 1.6M
+is 2.7 ply past it; adopted 800k, 1,000 games.
+
+**Adopted** (detail in PLAN_S41 §3 "r6" and §6): run 1 as the positive control; improving first
+with a stop rule; χ²(3); 312/600-game stages, stop below −5; per-carry confirmations only with 3+
+carries; no stack retry; guard after a gate pass, reusing run 2's baseline row, stop below −1 SE;
+candidate 0 offline kill checks and regression tests; the depth fade called suggestive (1.2 SE).
+
+**Not adopted:** see PLAN_S41 §6 r6. Odds: reach a gate ~35-50%, overall ~12-25%.
+
+**Rounds 2-4 (2026-11-12):** briefs `matches/s41/council_r6_brief_r2.md` to `_r4.md`. Scores:
+
+| Member | R1 | R2 | R3 | R4 |
+|---|---|---|---|---|
+| Claude Opus 5.5 | 8.4 | 8.9 | 8.9 | 9.2 |
+| GPT-6.1 Sol | 8.3 | 8.9 | 8.9 | 9.3 |
+| Gemini 4 Argon | 8.7 | 9.5 | 9.6 | 9.8 |
+| Muse Wonder 1.0 | failed (402) | not run | not run | not run |
+
+Adopted (all checked in code or arithmetic by the lead): acceptance (a) on run 1, losing-check by
+sign (0c: +0.24 ply at equal time); stage continuation from the per-game CSV flush; 1,008 stack
+games; at most two carries, the second ends screening (a third can never be funded: ≥ 19.9 h);
+the 5% time check kept with in-plan outcomes and one pilot-based rule for the stack's node budget;
+candidate 0's (c) counter inside `hand_repetition_score` (four callers), hand scores only, gating
+correction history; root store exempt; controls on the diagnostic build at solver 9k. All five
+round-1 non-adoptions accepted by all three. Remaining limits, stated in the plan: transfer from
+1-thread fixed nodes to the 4-thread gate is unproven, and the YaneuraOu guard catches only large
+losses. Odds: step 1 ~65-70%, a gate ~25-55%, overall ~9-25%.
+
+## Council (2026-11-12, result reading: step 1)
+
+Members: Claude Opus 5.5, GPT-6.1 Sol, Gemini 4 Argon (high); Muse not run (billing). Brief:
+`matches/s41/council_step1_brief.md`. Input: improving 7 vs 0 at 400k +10 ± 13 (step 1 stopped by
+rule (b)); a partial PC A/A at −35 ± 17; non-determinism at fixed nodes; Mac/PC trees differing.
+
+**Agreed and checked by the lead:** the A/A was chance, not a slot bias (the only asymmetry is A
+taking black first); a node-count leak (`pending_global_nodes` never cleared) makes fixed-node
+games history-dependent; with a diagnostic fix 10/10 pilot pairs are identical. **Gemini alone
+found the Mac/PC cause**: `magic_table.bin` (gitignored) was missing from the PC tree, and without
+it SEE ignores sliders; verified both ways (PLAN_S41 §7). Improving is most likely a stale
+control (all three).
+
+**Disagreed on next:** Opus: replace the control with one whose value on today's engine is known
+(root stack 0 vs default, +73 at the 4dfe9c4 gate) plus losing-check, at 400k; Sol: measure
+improving at 1 s / 4 threads (~3-5 h) before deciding; Gemini: the rule binds, go to the
+pre-registered 250 ms fallback (choosing new controls after a failure is "shopping"). Decision
+left to the user.
+
+## Gate 3 (2026-11-13): PASS, the PLAN_S41 step 2a stack
+
+Singular extension (on by default; screened +66 ± 13 at 400k, 1 thread) + LMR for late losing
+captures and late non-capturing promotions (+28 ± 13 at equal time) + no main-table store of
+hand-repetition-range scores (candidate 0 (a), −28 ± 19 in 312 games, kept by its rule). Stack
+confirmation at 800k, 1,008 games: +74 ± 10. Gate vs `main` `76fb942`, 1 s, 4 threads, 256 MB,
+MoveOverhead 100, pooled SPRT [0, 40]: **PASS after 122 games, 72-3-47, +72 ± 28** (Mac +95, PC
++51); no time losses (new `--time-loss-ms` rule). Detail: PLAN_S41 §7 "Step 2a", "2b and the
+gate". The screen's first calibration failed on a stale control (improving), the second passed
+with root stack off and losing-check; the screen ranked this stack correctly in sign and scale.
+
