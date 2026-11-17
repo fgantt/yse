@@ -27,13 +27,14 @@ use crate::bitboards::BitboardBoard;
 use crate::search::move_ordering::see_calculation::{calculate_see_internal, QuietSee};
 use crate::types::core::{Move, PieceType};
 
-/// Which parts are on (`SHOGI_LEAN_HIST`, a bit set): 1 move ordering (default),
-/// 2 reductions adjusted by history, 4 shallow pruning of quiet moves with bad
-/// history. 0 restores the general move orderer.
+/// Which parts are on (`SHOGI_LEAN_HIST`, a bit set): 1 move ordering, 2 reductions adjusted
+/// by history, 4 shallow pruning of quiet moves with bad history; default 3 (ordering and
+/// reductions: history-adjusted LMR passed the S42 gate alone, +43 ± 18 at 4 threads, 1 s).
+/// 0 restores the general move orderer.
 pub(super) fn hist_uses() -> u8 {
     static ON: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
     *ON.get_or_init(|| {
-        std::env::var("SHOGI_LEAN_HIST").ok().and_then(|v| v.parse().ok()).unwrap_or(1)
+        std::env::var("SHOGI_LEAN_HIST").ok().and_then(|v| v.parse().ok()).unwrap_or(3)
     })
 }
 
