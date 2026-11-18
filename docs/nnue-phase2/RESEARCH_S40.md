@@ -1174,3 +1174,92 @@ MoveOverhead 100, pooled SPRT [0, 40]: **PASS after 122 games, 72-3-47, +72 ± 2
 gate". The screen's first calibration failed on a stale control (improving), the second passed
 with root stack off and losing-check; the screen ranked this stack correctly in sign and scale.
 
+
+## Council (2026-11-15, plan check: PLAN_S42, re-screen switched-off features on `f3fd207`)
+
+Members: Claude Opus 5.5 (high), GPT-6.1 Sol (high), Gemini 4 Argon (high); Muse not convened
+(default council). Three rounds: r1 Opus 7.0 / Sol 8.0 / Gemini 8.2; r2 Opus 8.8 / Sol 8.9 /
+Gemini 9.5; r3 Opus 9.3 / Sol 9.2 / Gemini 9.8, no blockers. Briefs `matches/s42/council_r*_brief.md`.
+- **Found in code** (all checked by the lead): ProbCut's cut returns `v - (pc_beta - beta)`
+  (`lean.rs:562`), turning a hand-repetition 30,000 into 29,794, which `corr_learnable`
+  (`:1127-1130`, \|s\| < 30,000) lets into correction history; harmless today only because
+  ProbCut is off (Gemini). A negative extension routed through `ext` would wrap the unsigned
+  per-path counter (`:803,934`; Opus, Gemini). A singular test on a table move that gives a
+  non-losing check adds nothing, since check and singular share one ply (`:784-788`; Gemini).
+  Helpers keep history across moves via park/unpark (`lazy_smp.rs:150,191`); the module comment
+  at `lean_hist.rs:22-23` is stale (all three).
+- **Adopted**: E (LMR on late quiet checks) first; distinct families early; early stop by
+  families, enforced, with provisional results; A2 = check-plus-singular two plies within the
+  budget (`min(want, room)`); B screened against the baseline it joins, killed below 2% firing;
+  equal-time rule (faster side more nodes) and seed blocks corrected (Sol); confirmation split
+  Mac/PC (Opus); a confirmed stack that fails the gate becomes round 2's base (Opus); budget
+  recounted, gate funded ~7 h (Sol).
+- **Not adopted**: gate only above +25 (Opus r1; withdrawn in effect by r2's rule above); G out of
+  round 1 (Sol r1; withdrawn r2); drop the hand-rule re-check (Opus; kept as idle-PC filler).
+- **Did not hold**: Opus r1's reading that S41's 14.12 vs 12.03 contradicts the 2-ply cost of
+  singular extension (14.12 is the baseline; withdrawn). Not checked: Sol's reading of
+  YaneuraOu's development log (the plan now uses no figure from it).
+- Odds for a round 1 ship: Opus 15-20%, Sol 9-18%, Gemini 20-25%; the lead 15-25%.
+
+## Council (2026-11-17, result reading + plan check: the S42 gate failure)
+
+Members: Claude Opus 5.5 (high), GPT-6.1 Sol (high), Gemini 4 Argon (high). Five rounds (the last
+two on the run scripts only): r1 Opus 7 / Sol 7 / Gemini 7.2; r2 7.5 / 8.3 / 8.8; r3 8.0 / 8.5 /
+9.5; r4 8.5 / 8.9 / 9.8; r5 (Opus, Sol) 9.0 / 9.1, each with its last condition then applied.
+Briefs `matches/s42/council_r4_brief.md` .. `council_r8_brief.md`; detail in PLAN_S42 §10
+"Diagnostic".
+- **Found in code** (checked by the lead): `go nodes` forces one thread (`lib.rs:582`), so a
+  4-thread fixed-node match is impossible without a change (Gemini); `moves_equal`
+  (`search_engine.rs:9678`) ignores promotion, so the singular test excludes both twins and both
+  count as the table move (Gemini; shipped engine too; round 2 candidate); the ply-0
+  continuation-history gap (`lean_hist.rs:189-192`; Gemini, confirmed by Opus); a helper can
+  replace the main thread's move (`lazy_smp.rs:115-119`; Opus). The measurement driver's
+  last-PV-line nodes are not the move's work (Sol; replaced by an end-of-search counter).
+- **Found in data**: the gate's Mac streams fell from +46 ± 24 (first halves) to −26 ± 21 (second
+  halves) while the PC stayed level (Opus); a GUI game is plausible (the GUI engine process had
+  17.5 CPU-hours) but untimed. Primary estimate stays all 802 games, +11 ± 11; PC alone +12 ± 15.
+- **Ruled out offline** (per-thread counters, `SHOGI_S42_STATS`): helper overrides change the move
+  on 0-2 of 40 moves in every config, not more with the stack (Opus's hypothesis); per-thread work
+  at 4 threads ≈ one thread at 1 s; singular rates shift alike for margin 2 and 16 from 1 to 4
+  threads; the stack does not waste more time in unfinished iterations (Gemini's hypothesis).
+  History-adjusted LMR raises reductions on ~43% of eligible moves and lowers them on ~7%, on 1
+  and 4 threads alike.
+- **Adopted**: D1 (the gate minus threads) on the Mac, read as D1 − gate and tied to round 2's
+  method; components alone at the gate's conditions to choose round 2's base, +20 bar, the higher
+  if both (margin 16 on a tie), no recombination without a fresh confirmation and gate; one
+  stage-1 rule; 8 Mac processes after a load probe; script fixes (counts, seeds, stop handling,
+  scoped kills, completion status, Windows-side monitoring, time-loss pattern).
+- **Not adopted**: a clean stack re-run at 4 threads (Opus; the gate's clean subset exists and the
+  base is chosen from components); the override A/B (counts too low); D3 by default (now
+  conditional, on the gate's binaries); history-adjustment histogram (Sol; deferred to tuning).
+
+## Council (2026-11-17, direction: next gate candidates after the S42 ship)
+
+Members: Claude Opus 5.5 (high), GPT-6.2 Sol (high), Gemini 4 Argon (high). Brief:
+`matches/s42/council_r9_brief.md`. Baseline `ada63e6` (history LMR on).
+
+- **Agreed by all three:** retune `lmr_hist_div` (8123, set while the code was off), with the
+  1-thread 400k screen, since history transferred (+48 → +43); and fix `moves_equal`
+  (`search_engine.rs:9669`), which ignores promotion. Checked: the singular search skips both
+  versions of a promoting table move (`lean.rs:705`), and the same comparison marks both as the
+  table move (`:711`, extended and exempt from pruning); the 4-thread history log has 78,492
+  singular-extended visits for 76,719 singular results (`diag/t1sb_h3_4t.txt`).
+- **Offline check of the divisor (lead, 1 thread, 40-move sequence at 1 s, `usi-engine-s42b`):**
+  reduction raised / lowered / changed by the clamp on 46.2 / 6.5 / 34.0% of eligible moves at
+  8123, 57.3 / 8.3 / 48.5% at 5700, 33.7 / 3.9 / 20.7% at 12200. Both alternatives move it, so
+  neither is killed offline.
+- **Margin 16's sign flip, three explanations, none checked:** Opus: depth trade (helpers already
+  supply depth at 4 threads, the lost extensions still cost); Sol: the excluded node probes the
+  shared table again and a helper may have changed the entry; Gemini: multicut with the coupled
+  threshold. Margin 2 stays; the cheap counter checks are deferred (they diagnose, they don't
+  ship).
+- **Gemini's speed batch** (cached SEE, in-place `CapturedPieces`): the profile it cites is real
+  (PLAN_S41 §7: SEE 13.7%, malloc/memmove 8.9% at 4 threads; clones at `lean.rs:514, 797, 1169`).
+  It has to keep the search identical (fingerprint), so it can join any stack at no screen cost.
+- **Not adopted:** Gemini's "history updates inside the singular verification are pollution"
+  (Stockfish updates there too) and multicut at PV nodes as a defect (rarely reachable with a
+  wide window); its 85% stacked pass odds (no basis given). Opus's IIR in a stack needs a
+  4-thread check first (table misses).
+- **Screening rule (all three):** anything that reads table bounds or misses (singular
+  extension, multicut, ProbCut, IIR) or moves nodes-to-depth-10 by more than ~15-20% is screened
+  at 4 threads on the clock; move-local history and reduction changes keep the 400k screen.
