@@ -702,13 +702,13 @@ impl SearchEngine {
         let lmr = lmr_table();
 
         for mv in &moves {
-            if excluded.as_ref().is_some_and(|x| self.moves_equal(mv, x)) {
+            if excluded.as_ref().is_some_and(|x| same_move(self, mv, x)) {
                 continue;
             }
             move_count += 1;
             let line_mv = traced && trace_move(ply, mv);
             let quiet = !mv.is_capture && !mv.is_promotion;
-            let is_tt = tt_move.as_ref().is_some_and(|t| self.moves_equal(mv, t));
+            let is_tt = tt_move.as_ref().is_some_and(|t| same_move(self, mv, t));
             // A check that loses material: not extended, and prunable like any
             // other move (see `lean_check_see`).
             let losing_check = mv.gives_check && lean_check_see() && {
@@ -721,6 +721,22 @@ impl SearchEngine {
                 };
                 see < 0
             };
+
+            // Late-move pruning of quiet evasions in check (`lean_evasion`): never a checking
+            // evasion, the table move, a PV node or inside a singular test.
+            if in_check
+                && lean_evasion()
+                && evasion_prunable(
+                    quiet && !mv.gives_check && !is_tt,
+                    pv_node || excluded.is_some(),
+                    depth,
+                    best_score,
+                    move_count,
+                )
+                && !search_toggles().no_pruning
+            {
+                continue;
+            }
 
             // Shallow pruning, once a move has been searched, never of checks.
             if !in_check
@@ -1136,10 +1152,35 @@ fn lean_iid() -> bool {
     *ON.get_or_init(|| env_flag("SHOGI_LEAN_IID", false))
 }
 
-/// Whether nodes without a table move are reduced a ply (`SHOGI_LEAN_IIR=1`).
+/// Whether nodes without a table move are reduced a ply (`SHOGI_LEAN_IIR=0` turns it off; on
+/// since S43: +10 ± 13 on its 1-thread screen against `f3fd207`).
 fn lean_iir() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| env_flag("SHOGI_LEAN_IIR", false))
+    *ON.get_or_init(|| env_flag("SHOGI_LEAN_IIR", true))
+}
+
+/// Whether late quiet evasions are pruned in check (`SHOGI_LEAN_EVASION=0` turns it off; S42
+/// family F, +7 ± 13 on its 1-thread screen against `f3fd207`; see `evasion_prunable`).
+fn lean_evasion() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_LEAN_EVASION", true))
+}
+
+/// Whether a move searched in check may be skipped: `candidate` is a quiet, non-checking evasion
+/// other than the table move; `protected` a PV node or a singular test. Only at depth 3 or less,
+/// once a score above the mated range is found, after the first `2 + depth` moves.
+fn evasion_prunable(
+    candidate: bool,
+    protected: bool,
+    depth: i32,
+    best_score: i32,
+    move_count: usize,
+) -> bool {
+    candidate
+        && !protected
+        && depth <= 3
+        && best_score > -MATE_THRESHOLD
+        && move_count > 2 + usize::try_from(depth).unwrap_or(0)
 }
 
 /// Whether non-PV nodes try ProbCut (`SHOGI_LEAN_PROBCUT=1`).
@@ -1278,6 +1319,18 @@ pub(super) fn q_park(slot: usize) {
             v.resize_with(slot + 1, || None);
         }
         v[slot] = Some(t);
+    }
+}
+
+/// The singular search's move identity: promotion included (`SHOGI_LEAN_PROMO_SAME=0` restores
+/// `moves_equal`, which ignores it, so a promoting table move and its non-promoting twin were
+/// both excluded from the singular test and both treated as the table move).
+fn same_move(e: &SearchEngine, a: &Move, b: &Move) -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if *ON.get_or_init(|| env_flag("SHOGI_LEAN_PROMO_SAME", true)) {
+        super::lean_hist::same(a, b)
+    } else {
+        e.moves_equal(a, b)
     }
 }
 
@@ -1663,6 +1716,34 @@ mod tests {
         /// is raised at the first one (to test a stopped null search).
         static NODE_PROBE: std::cell::RefCell<Option<(Vec<NullEntry>, Option<Arc<AtomicBool>>)>> =
             const { std::cell::RefCell::new(None) };
+    }
+
+    /// Evasion pruning: only late quiet non-checking evasions, outside PV nodes and singular
+    /// tests, near the leaves, once a score above the mated range is known.
+    #[test]
+    fn evasion_prunable_window() {
+        let ok = |c, p, d, b, n| evasion_prunable(c, p, d, b, n);
+        assert!(ok(true, false, 3, 0, 6));
+        assert!(!ok(true, false, 3, 0, 5), "the first 2 + depth moves are kept");
+        assert!(ok(true, false, 1, 0, 4));
+        assert!(!ok(true, false, 4, 0, 20), "depth <= 3 only");
+        assert!(!ok(true, false, 2, -MATE_THRESHOLD, 20), "only once a non-mated score is known");
+        assert!(!ok(true, true, 2, 0, 20), "never at PV or inside a singular test");
+        assert!(!ok(false, false, 2, 0, 20), "never a check, capture or the table move");
+    }
+
+    /// The singular search tells a promotion from the same move without it: the singular test
+    /// skips only the table move, and only the table move is extended (S43; `moves_equal`, used
+    /// before, ignores promotion and matched both).
+    #[test]
+    fn singular_identity_sees_promotion() {
+        let engine = SearchEngine::new(None, 16);
+        let mv = startpos_moves().into_iter().find(|m| m.from.is_some()).expect("a board move");
+        let mut promo = mv.clone();
+        promo.is_promotion = true;
+        assert!(engine.moves_equal(&mv, &promo), "moves_equal ignores promotion");
+        assert!(!same_move(&engine, &mv, &promo));
+        assert!(same_move(&engine, &mv, &mv.clone()) && same_move(&engine, &promo, &promo.clone()));
     }
 
     /// Called by `lean_inner` on entering a node, after it is on the path.

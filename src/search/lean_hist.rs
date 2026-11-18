@@ -144,7 +144,9 @@ fn origin(mv: &Move) -> usize {
     mv.from.map_or(81 + mv.piece_type.as_index().min(6), |f| f.to_index() as usize)
 }
 
-fn same(a: &Move, b: &Move) -> bool {
+/// The same move, promotion included (`moves_equal` ignores promotion, so a promoting move and
+/// its non-promoting twin would compare equal).
+pub(super) fn same(a: &Move, b: &Move) -> bool {
     a.from == b.from && a.to == b.to && a.piece_type == b.piece_type && a.is_promotion == b.is_promotion
 }
 
