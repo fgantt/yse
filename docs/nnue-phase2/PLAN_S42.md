@@ -572,3 +572,58 @@ move).
 - **Speed change tried and taken out:** one hand copy per node with apply/undo instead of a copy per
   move (search identical) gave +0.4% nps on 1 thread (313.5k/315.9k vs 313.9k/317.7k), within
   noise. The 8.9% malloc in S41's profile is not those copies.
+- Divisor screens: **12200 +2 ± 13** (598 games), **5700 stopped at stage 1, −8 ± 18** (312 games).
+  Neither carries; 8123 stays.
+
+### Margin-16 counters (2026-11-17 evening)
+
+Build `tools/bins/usi-engine-m16c` = `s42-cand` + two counters (search identical with counting
+on: `diag/m16c/id_*.txt`). `diag/m16c/run.sh`: g1108 plies 30-69 and 70-109, 1 s byoyomi,
+margin 2 vs 16, 1 and 4 threads; sums of both sequences, all threads.
+
+| | se tests | entry changed during the test | entry's move changed | sampled multicuts | of which the node then failed low |
+|---|---|---|---|---|---|
+| margin 2, 1 thread | 49,535 | 0 | 0 | 2,186 | 21 (0.96%) |
+| margin 16, 1 thread | 56,305 | 0 | 0 | 2,371 | 18 (0.76%) |
+| margin 2, 4 threads | 263,671 | 487 (0.18%) | 10 | 12,715 | 136 (1.07%) |
+| margin 16, 4 threads | 288,453 | 458 (0.16%) | 20 | 13,233 | 92 (0.70%) |
+
+- **Sol's explanation (a helper changes the entry during the singular test): killed.** It
+  happens on 0.2% of tests at 4 threads, equally for both margins.
+- **Gemini's explanation (multicut with the coupled threshold): killed.** A multicut is wrong
+  (the node searched anyway fails low) on about 1% at either thread count, and *less* often with
+  margin 16 (0.70% vs 1.07% at 4 threads).
+- **Opus's depth trade: not settled offline.** Margin 16's gain in reported depth: +0.98 / +0.43
+  plies (1 thread, the two sequences), +1.47 / +0.02 (4 threads). It needs games to test.
+- Checked on the way: `tt_probe`'s fallback to the thread's own table and the write buffer
+  (`search_engine.rs:1844-1903`) apply only to `shared_transposition_table`, which Lazy SMP does
+  not use (helpers share `transposition_table` directly, `lazy_smp.rs:89, 156`). Not a defect.
+
+### S43 stack gate (started 2026-11-17 20:00)
+
+- Stack in worktree `s43` (from `ada63e6`, uncommitted): the promotion identity fix, IIR on
+  (`SHOGI_LEAN_IIR` default 0 → 1), evasion pruning ported from `s42-cand` (family F,
+  `lean_evasion`/`evasion_prunable`, `SHOGI_LEAN_EVASION` default on). Unit tests: `lean` 20 pass.
+  Binary `tools/bins/usi-engine-s43stack` (md5 4aa4ef62…); PC build `yse-s43stack` from the same
+  source; Mac and PC give identical fixed-node searches with the stack on and off.
+- Identity (`diag/s43/ident_stack.sh`): all three off = byte-identical to `usi-engine-g1ship`;
+  each part alone and all on change all 40 positions.
+- Gate: the stack's defaults vs the same binary with all three off, 4 threads, 1 s byoyomi, 256 MB,
+  MoveOverhead 100, `--time-loss-ms 100`; Mac seeds 49400/49401, PC 49500/49501, 300 games per
+  stream. `s43gate/ctl.sh` pools the four streams: stage 1 at 80 per stream (320 games),
+  estimate < −5 stops; then SPRT [0, 40]. Result in `s43gate/gate.pool`.
+- The PC's own GUI (`shogi-vibe.exe`) has an engine process open (idle at the start; 45,227 CPU s
+  used since 18:16); `s43gate/gui.log` records its CPU every 5 min.
+- **Gate: PASS** (2026-11-17 22:04): SPRT [0, 40], LLR +2.99 at **286 games, +44 ± 18** (95% +8 ..
+  +80), W-D-L 153-16-117. Mac +69 ± 28 (138 games), PC +21 ± 24 (148), z +1.30. No time losses;
+  think ratio 0.981. Stage 1 never ran (the SPRT decided before every stream had 80 games). The
+  PC's GUI engine used no CPU during the run (`gui.log`).
+- YaneuraOu guard started 2026-11-18 05:40 (`guard/guard_s43.sh`): `usi-engine-s43stack` at
+  1.6M vs YaneuraOu halfkpvm 100k, seeds 43800-43811 × 20, paired with the g42g1_16x row
+  (`ada63e6`). Rule fixed in advance: s43 − ada63e6 < −29 → no ship, council.
+- **YaneuraOu guard: passed** (07:20). 240 games: s43 stack 49.8% (−1), `ada63e6` 46.2% (−26);
+  difference **+25 ± 33** (95% −39 .. +89), above the −29 no-ship line. Waiting for the user's OK.
+- **Shipped** (user's OK, 2026-11-18): `80fcef5` "Search: promotion-aware singular move identity,
+  IIR and evasion pruning on" (code identical to the gated `s43` source), and
+  `engines/usi-engine-stable` = `usi-engine-s43stack` (md5 4aa4ef62…). The baseline for the next
+  gates is `80fcef5`.
