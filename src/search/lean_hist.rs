@@ -228,10 +228,26 @@ impl LeanHist {
         tt_move: Option<&Move>,
         ply: i32,
     ) -> Vec<Move> {
+        self.order_see(moves, board, tt_move, ply).0
+    }
+
+    /// [`Self::order`], with the SEE values ordering computed, per ordered move: a capture's
+    /// `calculate_see_internal` (every capture but the table move) and a quiet move's
+    /// `see_quiet` when its square was attacked (`None` where ordering computed none). The
+    /// search reuses them instead of computing the same exchange again.
+    pub(super) fn order_see(
+        &self,
+        moves: &[Move],
+        board: &BitboardBoard,
+        tt_move: Option<&Move>,
+        ply: i32,
+    ) -> (Vec<Move>, Vec<Option<i32>>) {
         let prev = self.prev_keys(ply)[0];
         let counter = (prev != NO_KEY).then(|| self.counter[prev as usize].as_ref()).flatten();
         let mut see = QuietSee::default();
-        let mut scored: Vec<(i32, usize)> = moves
+        let mut values: Vec<Option<i32>> = vec![None; moves.len()];
+        let mut opp_attacks: Option<u128> = None;
+        let scored: Vec<(i32, usize)> = moves
             .iter()
             .enumerate()
             .map(|(i, mv)| {
@@ -241,7 +257,9 @@ impl LeanHist {
                     let victim = mv.captured_piece.as_ref().map_or(0, |p| p.piece_type.base_value());
                     let ch = Self::capture_idx(mv).map_or(0, |i| i32::from(self.capture[i]));
                     let value = victim * 8 + ch / 4 + i32::from(mv.is_promotion) * 400;
-                    if calculate_see_internal(mv, board) >= 0 {
+                    let v = calculate_see_internal(mv, board);
+                    values[i] = Some(v);
+                    if v >= 0 {
                         TIER_GOOD_CAPTURE + value
                     } else {
                         TIER_BAD_CAPTURE + value
@@ -254,9 +272,13 @@ impl LeanHist {
                     TIER_COUNTER
                 } else {
                     let h = self.quiet_score(mv, ply);
-                    let opp = mv.player.opposite();
-                    if board.is_square_attacked_by(mv.to, opp) {
+                    // The squares the opponent attacks, once per node (`attacked_squares`
+                    // answers as `is_square_attacked_by` square by square did).
+                    let opp_attacks = *opp_attacks
+                        .get_or_insert_with(|| board.attacked_squares(mv.player.opposite()));
+                    if opp_attacks >> mv.to.to_index() & 1 == 1 {
                         let loss = see.see_quiet(mv, board);
+                        values[i] = Some(loss);
                         if loss < 0 {
                             return (TIER_HANGING + loss * 64 + h / 64, i);
                         }
@@ -266,8 +288,17 @@ impl LeanHist {
                 (s, i)
             })
             .collect();
-        scored.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.cmp(&b.1)));
-        scored.into_iter().map(|(_, i)| moves[i].clone()).collect()
+        // Score descending, then generation order: one u64 key per move (high half the score
+        // flipped so larger sorts first, low half the index). Keys are unique, so an unstable
+        // sort gives exactly the order of the stable `(score, index)` sort it replaces.
+        let mut keys: Vec<u64> = scored
+            .iter()
+            .map(|&(s, i)| u64::from(!((s as u32) ^ 0x8000_0000)) << 32 | i as u64)
+            .collect();
+        keys.sort_unstable();
+        let order = keys.iter().map(|&k| (k & 0xffff_ffff) as usize);
+        let see_values = order.clone().map(|i| values[i]).collect();
+        (order.map(|i| moves[i].clone()).collect(), see_values)
     }
 
     /// Updates after `best` caused a cutoff at `depth`, having searched

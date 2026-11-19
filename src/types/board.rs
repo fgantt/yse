@@ -39,6 +39,23 @@ impl CapturedPieces {
         }
     }
 
+    /// Counts of each droppable piece type in `player`'s hand, indexed by
+    /// `PieceType::as_index` (pawn 0 .. rook 6), in one pass over the hand: the
+    /// same numbers as seven calls of [`Self::count`].
+    pub fn counts(&self, player: Player) -> [u8; 7] {
+        let pieces = match player {
+            Player::Black => &self.black,
+            Player::White => &self.white,
+        };
+        let mut c = [0u8; 7];
+        for p in pieces {
+            if let Some(n) = c.get_mut(p.as_index()) {
+                *n += 1;
+            }
+        }
+        c
+    }
+
     pub fn count(&self, piece_type: PieceType, player: Player) -> usize {
         let pieces = match player {
             Player::Black => &self.black,

@@ -300,6 +300,14 @@ pub struct NNUEWeights {
     /// 0 = unknown). With it the forward pass proves, per evaluation, that a
     /// 32-bit accumulation cannot overflow and so equals the 64-bit one.
     pub l2_colsum_max: i64,
+    /// `flat_weights_2` for the default layer-2 width, rows interleaved in pairs for 16-bit
+    /// multiply-adds: for rows `2p, 2p+1` and output `j`, entries `64p + 2j` and `64p + 2j + 1`
+    /// are `w[2p][j]` and `w[2p+1][j]` (an odd last row is paired with zeros). Derived with
+    /// `flat_weights_2`; empty when the width is not [`DEFAULT_HIDDEN_SIZE_2`].
+    pub l2_pairs: Vec<i16>,
+    /// The largest column sum of |layer-2 weight| within one block of [`L2_BLOCK_ROWS`] rows
+    /// (set with `l2_pairs`; 0 = unknown). Bounds a block's 32-bit partial sums.
+    pub l2_block_colsum_max: i64,
     /// Hidden-2-to-output weights: [hidden_size_2] or [hidden_size_1] if no layer 2
     pub output_weights: Vec<i16>,
     /// Output bias
@@ -534,6 +542,8 @@ impl NNUEWeights {
             input_weights_2,
             hidden_biases_2,
             flat_weights_2: Vec::new(),
+            l2_pairs: Vec::new(),
+            l2_block_colsum_max: 0,
             l2_colsum_max: 0,
             output_weights,
             output_bias,
@@ -641,6 +651,8 @@ impl NNUEWeights {
             input_weights_2: file_data.input_weights_2,
             hidden_biases_2: file_data.hidden_biases_2,
             flat_weights_2: Vec::new(),
+            l2_pairs: Vec::new(),
+            l2_block_colsum_max: 0,
             l2_colsum_max: 0,
             output_weights: file_data.output_weights,
             output_bias: file_data.output_bias,
@@ -659,6 +671,8 @@ impl NNUEWeights {
     /// missing rebuild costs speed and never correctness.
     pub fn rebuild_flat_weights_2(&mut self) {
         self.flat_weights_2.clear();
+        self.l2_pairs.clear();
+        self.l2_block_colsum_max = 0;
         self.l2_colsum_max = 0;
         let Some(rows) = self.input_weights_2.as_ref() else { return };
         let Some(cols) = rows.first().map(|r| r.len()) else { return };
@@ -673,6 +687,14 @@ impl NNUEWeights {
             .map(|j| rows.iter().map(|r| i64::from(r[j]).abs()).sum::<i64>())
             .max()
             .unwrap_or(0);
+        if cols == DEFAULT_HIDDEN_SIZE_2 {
+            self.l2_pairs = pair_rows(&self.flat_weights_2);
+            self.l2_block_colsum_max = rows
+                .chunks(L2_BLOCK_ROWS)
+                .flat_map(|block| (0..cols).map(move |j| block.iter().map(|r| i64::from(r[j]).abs()).sum::<i64>()))
+                .max()
+                .unwrap_or(0);
+        }
     }
 
     /// Save weights to file. Dispatches by extension: `.bin` → bincode,
@@ -1638,16 +1660,26 @@ fn forward_from_activations(activated_1: &[i32], weights: &NNUEWeights) -> i32 {
             // max activation x max column sum of |w|, fits i32. With the trained
             // network activations stay under ~1,000 and the column sums under
             // ~14,000, so this is the path every evaluation takes.
-            let max_act = activated_1.iter().copied().max().unwrap_or(0);
+            let (min_act, max_act) =
+                activated_1.iter().fold((0, 0), |(lo, hi), &a| (a.min(lo), a.max(hi)));
             if weights.l2_colsum_max > 0
                 && max_act <= i32::from(i16::MAX)
                 && i64::from(max_act) * weights.l2_colsum_max < i64::from(i32::MAX)
             {
                 let mut h2_32 = [0i32; DEFAULT_HIDDEN_SIZE_2];
-                layer_2_fixed_i32(activated_1, flat, &mut h2_32);
+                layer_2_fixed_i32(activated_1, flat, &weights.l2_pairs, min_act >= 0, &mut h2_32);
                 for (d, s) in h2_values.iter_mut().zip(h2_32) {
                     *d = i64::from(s);
                 }
+            } else if min_act >= 0
+                && weights.l2_block_colsum_max > 0
+                && max_act <= i32::from(i16::MAX)
+                && i64::from(max_act) * weights.l2_block_colsum_max < i64::from(i32::MAX)
+            {
+                // The trained network's whole-column sums are too large for one 32-bit
+                // accumulation (S44: max column sum 659,019, activations 4,096-16,383), but each
+                // block of `L2_BLOCK_ROWS` rows fits; blocks are summed in 64 bits. Exact.
+                layer_2_blocked(activated_1, flat, &weights.l2_pairs, &mut h2_values);
             } else {
                 layer_2_fixed(activated_1, flat, &mut h2_values);
             }
@@ -1725,21 +1757,170 @@ fn forward_from_activations(activated_1: &[i32], weights: &NNUEWeights) -> i32 {
 /// cannot overflow (see `forward_from_activations`), so the result equals
 /// [`layer_2_fixed`]'s. On aarch64, `smlal` on 16-bit lanes: four products
 /// per instruction into 32-bit accumulators, against two into 64-bit.
+///
+/// On x86_64, with `pairs` (`NNUEWeights::l2_pairs`) built and every activation non-negative,
+/// 16-bit multiply-adds over row pairs (`pmaddwd`: SSE2, part of every x86_64 CPU; AVX2 when the
+/// CPU has it, detected at run time): each 32-bit lane gets `a0*w0 + a1*w1`, exact because
+/// `0 <= a <= i16::MAX` keeps each pair sum inside i32 and the caller's bound covers every
+/// partial sum. Integer sums in another order: the same result.
 #[inline]
-fn layer_2_fixed_i32(activated_1: &[i32], flat: &[i16], h2: &mut [i32; DEFAULT_HIDDEN_SIZE_2]) {
+#[allow(unused_variables)]
+fn layer_2_fixed_i32(
+    activated_1: &[i32],
+    flat: &[i16],
+    pairs: &[i16],
+    non_negative: bool,
+    h2: &mut [i32; DEFAULT_HIDDEN_SIZE_2],
+) {
     #[cfg(target_arch = "aarch64")]
     {
         layer_2_neon_i32(activated_1, flat, h2);
     }
+    #[cfg(target_arch = "x86_64")]
+    {
+        if non_negative && pairs.len() == activated_1.len().div_ceil(2) * 2 * DEFAULT_HIDDEN_SIZE_2 {
+            if x86_has_avx2() {
+                // SAFETY: AVX2 was detected on this CPU.
+                unsafe { layer_2_pairs_avx2(activated_1, pairs, h2) };
+            } else {
+                layer_2_pairs_sse2(activated_1, pairs, h2);
+            }
+            return;
+        }
+    }
     #[cfg(not(target_arch = "aarch64"))]
     {
-        for (&act_1, row) in activated_1.iter().zip(flat.chunks_exact(DEFAULT_HIDDEN_SIZE_2)) {
-            if act_1 == 0 {
+        layer_2_generic_i32(activated_1, flat, h2);
+    }
+}
+
+/// The portable layer-2 loop of [`layer_2_fixed_i32`] (and its reference in tests).
+#[cfg_attr(target_arch = "aarch64", allow(dead_code))]
+fn layer_2_generic_i32(activated_1: &[i32], flat: &[i16], h2: &mut [i32; DEFAULT_HIDDEN_SIZE_2]) {
+    for (&act_1, row) in activated_1.iter().zip(flat.chunks_exact(DEFAULT_HIDDEN_SIZE_2)) {
+        if act_1 == 0 {
+            continue;
+        }
+        for (h, &w) in h2.iter_mut().zip(row) {
+            *h += act_1 * i32::from(w);
+        }
+    }
+}
+
+/// Rows per block of [`layer_2_blocked`] (even, so blocks start on a row pair).
+pub const L2_BLOCK_ROWS: usize = 32;
+
+/// Layer 2 as [`layer_2_fixed`] (64-bit sums) from blocks of [`L2_BLOCK_ROWS`] rows, each
+/// accumulated in 32 bits by [`layer_2_fixed_i32`] (SIMD on aarch64 and x86_64) and then
+/// added in 64 bits. The caller has checked `0 <= a <= i16::MAX` and that `max_act` times
+/// `NNUEWeights::l2_block_colsum_max` fits i32, which bounds every partial sum of a block,
+/// so the result equals [`layer_2_fixed`]'s.
+fn layer_2_blocked(
+    activated_1: &[i32],
+    flat: &[i16],
+    pairs: &[i16],
+    h2: &mut [i64; DEFAULT_HIDDEN_SIZE_2],
+) {
+    let w = DEFAULT_HIDDEN_SIZE_2;
+    let have_pairs = pairs.len() == activated_1.len().div_ceil(2) * 2 * w;
+    for (b, acts) in activated_1.chunks(L2_BLOCK_ROWS).enumerate() {
+        if acts.iter().all(|&a| a == 0) {
+            continue;
+        }
+        let r0 = b * L2_BLOCK_ROWS;
+        let block_flat = &flat[r0 * w..(r0 + acts.len()) * w];
+        let block_pairs: &[i16] =
+            if have_pairs { &pairs[r0 * w..(r0 + acts.len().div_ceil(2) * 2) * w] } else { &[] };
+        let mut part = [0i32; DEFAULT_HIDDEN_SIZE_2];
+        layer_2_fixed_i32(acts, block_flat, block_pairs, true, &mut part);
+        for (h, p) in h2.iter_mut().zip(part) {
+            *h += i64::from(p);
+        }
+    }
+}
+
+/// `flat` (rows of [`DEFAULT_HIDDEN_SIZE_2`]) interleaved in row pairs: see
+/// `NNUEWeights::l2_pairs`.
+fn pair_rows(flat: &[i16]) -> Vec<i16> {
+    let w = DEFAULT_HIDDEN_SIZE_2;
+    let rows = flat.len() / w;
+    let mut out = vec![0i16; rows.div_ceil(2) * 2 * w];
+    for r in 0..rows {
+        let (p, half) = (r / 2, r % 2);
+        for j in 0..w {
+            out[p * 2 * w + 2 * j + half] = flat[r * w + j];
+        }
+    }
+    out
+}
+
+/// Whether this x86_64 CPU has AVX2, detected once.
+#[cfg(target_arch = "x86_64")]
+fn x86_has_avx2() -> bool {
+    static AVX2: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *AVX2.get_or_init(|| std::arch::is_x86_feature_detected!("avx2"))
+}
+
+/// The two activations of row pair `p` as one 32-bit lane: `a0` low, `a1` high (both fit i16).
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+fn pair_lane(activated_1: &[i32], p: usize) -> i32 {
+    let a0 = activated_1[2 * p];
+    let a1 = activated_1.get(2 * p + 1).copied().unwrap_or(0);
+    (a1 << 16) | (a0 & 0xffff)
+}
+
+#[cfg(target_arch = "x86_64")]
+fn layer_2_pairs_sse2(activated_1: &[i32], pairs: &[i16], h2: &mut [i32; DEFAULT_HIDDEN_SIZE_2]) {
+    use std::arch::x86_64::*;
+    const _: () = assert!(DEFAULT_HIDDEN_SIZE_2 == 32);
+    let n_pairs = activated_1.len().div_ceil(2);
+    assert!(pairs.len() >= n_pairs * 64);
+    // SAFETY: SSE2 is part of the x86_64 baseline; every load reads 8 i16 inside the pair's 64
+    // entries (checked above), unaligned loads; the stores write h2's 32 i32 in 4-lane blocks.
+    unsafe {
+        let mut acc: [__m128i; 8] = std::array::from_fn(|k| _mm_loadu_si128(h2.as_ptr().add(4 * k).cast()));
+        for p in 0..n_pairs {
+            let lane = pair_lane(activated_1, p);
+            if lane == 0 {
                 continue;
             }
-            for (h, &w) in h2.iter_mut().zip(row) {
-                *h += act_1 * i32::from(w);
+            let a = _mm_set1_epi32(lane);
+            let base = pairs.as_ptr().add(p * 64);
+            for (k, slot) in acc.iter_mut().enumerate() {
+                let w = _mm_loadu_si128(base.add(8 * k).cast());
+                *slot = _mm_add_epi32(*slot, _mm_madd_epi16(w, a));
             }
+        }
+        for (k, v) in acc.iter().enumerate() {
+            _mm_storeu_si128(h2.as_mut_ptr().add(4 * k).cast(), *v);
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn layer_2_pairs_avx2(activated_1: &[i32], pairs: &[i16], h2: &mut [i32; DEFAULT_HIDDEN_SIZE_2]) {
+    use std::arch::x86_64::*;
+    let n_pairs = activated_1.len().div_ceil(2);
+    assert!(pairs.len() >= n_pairs * 64);
+    // SAFETY: the caller detected AVX2; loads as in the SSE2 version, 16 i16 at a time.
+    unsafe {
+        let mut acc: [__m256i; 4] = std::array::from_fn(|k| _mm256_loadu_si256(h2.as_ptr().add(8 * k).cast()));
+        for p in 0..n_pairs {
+            let lane = pair_lane(activated_1, p);
+            if lane == 0 {
+                continue;
+            }
+            let a = _mm256_set1_epi32(lane);
+            let base = pairs.as_ptr().add(p * 64);
+            for (k, slot) in acc.iter_mut().enumerate() {
+                let w = _mm256_loadu_si256(base.add(16 * k).cast());
+                *slot = _mm256_add_epi32(*slot, _mm256_madd_epi16(w, a));
+            }
+        }
+        for (k, v) in acc.iter().enumerate() {
+            _mm256_storeu_si256(h2.as_mut_ptr().add(8 * k).cast(), *v);
         }
     }
 }
@@ -3656,9 +3837,94 @@ mod tests {
                     *e += a as i64 * flat[i * DEFAULT_HIDDEN_SIZE_2 + j] as i64;
                 }
             }
+            let pairs = pair_rows(&flat);
             let mut got = [0i32; DEFAULT_HIDDEN_SIZE_2];
-            layer_2_fixed_i32(&act, &flat, &mut got);
+            layer_2_fixed_i32(&act, &flat, &pairs, true, &mut got);
             assert_eq!(got.map(i64::from), expected);
+            let mut got = [0i32; DEFAULT_HIDDEN_SIZE_2];
+            layer_2_fixed_i32(&act, &flat, &[], true, &mut got);
+            assert_eq!(got.map(i64::from), expected, "without pairs");
+        }
+    }
+
+    /// The blocked kernel against [`layer_2_fixed`] where only the per-block bound holds, as for
+    /// the shipped network (whole-column sums too large for 32 bits): activations up to 16,383,
+    /// row counts odd and even, with and without row pairs, sparse and dense.
+    #[test]
+    fn layer_2_blocked_matches_i64() {
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(4401);
+        for t in 0..80 {
+            let n = [2 * DEFAULT_HIDDEN_SIZE_1, 2 * DEFAULT_HIDDEN_SIZE_1 - 1, 33, 31][t % 4];
+            let p_zero = [0.0, 0.5, 0.9, 1.0][t % 4];
+            let act: Vec<i32> =
+                (0..n).map(|_| if rng.gen_bool(p_zero) { 0 } else { rng.gen_range(1..=16_383) }).collect();
+            let flat: Vec<i16> =
+                (0..n * DEFAULT_HIDDEN_SIZE_2).map(|_| rng.gen_range(-3_000..=3_000)).collect();
+            let block_max: i64 = flat
+                .chunks(L2_BLOCK_ROWS * DEFAULT_HIDDEN_SIZE_2)
+                .flat_map(|b| {
+                    (0..DEFAULT_HIDDEN_SIZE_2).map(move |j| {
+                        b.chunks(DEFAULT_HIDDEN_SIZE_2).map(|r| i64::from(r[j]).abs()).sum::<i64>()
+                    })
+                })
+                .max()
+                .unwrap();
+            assert!(16_383 * block_max < i64::from(i32::MAX), "test inputs inside the block bound");
+            let mut expected = [0i64; DEFAULT_HIDDEN_SIZE_2];
+            layer_2_fixed(&act, &flat, &mut expected);
+            let pairs = pair_rows(&flat);
+            for p in [&pairs[..], &[][..]] {
+                let mut got = [0i64; DEFAULT_HIDDEN_SIZE_2];
+                layer_2_blocked(&act, &flat, p, &mut got);
+                assert_eq!(got, expected, "case {t}, pairs {}", !p.is_empty());
+            }
+        }
+    }
+
+    /// The x86_64 pair kernels (SSE2 always, AVX2 when the CPU has it) against plain i64
+    /// arithmetic: odd and even row counts, sparse and dense activations, and extremes inside
+    /// the preconditions (activations up to i16::MAX with small weights, weights at the i16
+    /// limits with small activations).
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn layer_2_pair_kernels_match_i64() {
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(44);
+        for t in 0..120 {
+            let n = [2 * DEFAULT_HIDDEN_SIZE_1, 2 * DEFAULT_HIDDEN_SIZE_1 - 1, 7, 1][t % 4];
+            let p_zero = [0.0, 1.0, 0.5, 0.9, 0.1][t % 5];
+            let (amax, wlim): (i32, i16) = match t % 3 {
+                0 => (1_000, 150),
+                1 => (i32::from(i16::MAX), 1),
+                _ => (2, i16::MAX),
+            };
+            let act: Vec<i32> =
+                (0..n).map(|_| if rng.gen_bool(p_zero) { 0 } else { rng.gen_range(1..=amax) }).collect();
+            let flat: Vec<i16> = (0..n * DEFAULT_HIDDEN_SIZE_2)
+                .map(|_| if t % 3 == 2 && rng.gen_bool(0.1) { i16::MIN } else { rng.gen_range(-wlim..=wlim) })
+                .collect();
+            let mut expected = [0i64; DEFAULT_HIDDEN_SIZE_2];
+            for (i, &a) in act.iter().enumerate() {
+                for (j, e) in expected.iter_mut().enumerate() {
+                    *e += a as i64 * flat[i * DEFAULT_HIDDEN_SIZE_2 + j] as i64;
+                }
+            }
+            if expected.iter().any(|e| e.abs() >= i64::from(i32::MAX)) {
+                continue; // outside the caller's proof
+            }
+            let pairs = pair_rows(&flat);
+            let mut got = [0i32; DEFAULT_HIDDEN_SIZE_2];
+            layer_2_pairs_sse2(&act, &pairs, &mut got);
+            assert_eq!(got.map(i64::from), expected, "sse2, case {t}");
+            if x86_has_avx2() {
+                let mut got = [0i32; DEFAULT_HIDDEN_SIZE_2];
+                unsafe { layer_2_pairs_avx2(&act, &pairs, &mut got) };
+                assert_eq!(got.map(i64::from), expected, "avx2, case {t}");
+            }
+            let mut got = [0i32; DEFAULT_HIDDEN_SIZE_2];
+            layer_2_generic_i32(&act, &flat, &mut got);
+            assert_eq!(got.map(i64::from), expected, "generic, case {t}");
         }
     }
 
@@ -3837,4 +4103,5 @@ mod tests {
         );
     }
 }
+
 

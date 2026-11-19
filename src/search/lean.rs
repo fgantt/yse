@@ -622,11 +622,11 @@ impl SearchEngine {
             DIAG_LEGAL[d].fetch_add(legal_moves.len() as u64, Ordering::Relaxed);
             DIAG_MOVE_NODES[d].fetch_add(1, Ordering::Relaxed);
         }
-        let moves = if hist & 1 != 0 {
-            super::lean_hist::with(|h| h.order(&legal_moves, board, tt_move.as_ref(), ply))
+        let (moves, see_values) = if hist & 1 != 0 {
+            super::lean_hist::with(|h| h.order_see(&legal_moves, board, tt_move.as_ref(), ply))
         } else {
             self.initialize_move_orderer();
-            self.order_moves_for_negamax(
+            let ordered = self.order_moves_for_negamax(
                 &legal_moves,
                 board,
                 captured_pieces,
@@ -636,7 +636,8 @@ impl SearchEngine {
                 beta,
                 tt_move.as_ref(),
                 prev_move,
-            )
+            );
+            (ordered, Vec::new())
         };
         // Singular extension: if every other move falls well short of the table
         // move's score in a reduced search, the table move gets one more ply.
@@ -701,26 +702,21 @@ impl SearchEngine {
         let mut move_count = 0usize;
         let lmr = lmr_table();
 
-        for mv in &moves {
+        for (mi, mv) in moves.iter().enumerate() {
             if excluded.as_ref().is_some_and(|x| same_move(self, mv, x)) {
                 continue;
             }
+            // This move's SEE, computed at most once: from ordering where it computed one
+            // (`LeanHist::order_see`), else on first use. For a capture the exchange of
+            // `calculate_see_internal`, otherwise `see_quiet`'s.
+            let mut see_memo = MoveSee::new(see_values.get(mi).copied().flatten());
             move_count += 1;
             let line_mv = traced && trace_move(ply, mv);
             let quiet = !mv.is_capture && !mv.is_promotion;
             let is_tt = tt_move.as_ref().is_some_and(|t| same_move(self, mv, t));
             // A check that loses material: not extended, and prunable like any
             // other move (see `lean_check_see`).
-            let losing_check = mv.gives_check && lean_check_see() && {
-                let see = if mv.is_capture {
-                    crate::search::move_ordering::see_calculation::calculate_see_internal(
-                        mv, board,
-                    )
-                } else {
-                    crate::search::move_ordering::see_calculation::see_quiet(mv, board)
-                };
-                see < 0
-            };
+            let losing_check = mv.gives_check && lean_check_see() && see_memo.get(mv, board) < 0;
 
             // Late-move pruning of quiet evasions in check (`lean_evasion`): never a checking
             // evasion, the table move, a PV node or inside a singular test.
@@ -776,8 +772,7 @@ impl SearchEngine {
                     // Quiet moves and drops that lose material.
                     if depth <= lp.see_quiet_depth
                         && !lean_off(off::SEE_QUIET)
-                        && crate::search::move_ordering::see_calculation::see_quiet(mv, board)
-                            < -lp.see_quiet_mul * depth
+                        && see_memo.get(mv, board) < -lp.see_quiet_mul * depth
                     {
                         if line_mv {
                             eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: losing quiet/drop (SEE)", mv.to_usi_string(), moves.len());
@@ -786,9 +781,7 @@ impl SearchEngine {
                     }
                 } else if depth <= lp.see_cap_depth
                     && !lean_off(off::SEE_CAPTURE)
-                    && crate::search::move_ordering::see_calculation::calculate_see_internal(
-                        mv, board,
-                    ) < -lp.see_cap_mul * depth
+                    && see_memo.capture_see(mv, board) < -lp.see_cap_mul * depth
                 {
                     if line_mv {
                         eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: losing capture (SEE)", mv.to_usi_string(), moves.len());
@@ -1087,11 +1080,47 @@ fn lmr_tactical() -> bool {
 
 /// Whether a move searched late at a node may get LMR as a tactical move: a capture that
 /// loses material by SEE, or a promotion that captures nothing. Never a checking move.
+///
+/// Its one caller passes the board *after* `mv` has been made (`lean_inner`, after
+/// `make_move_with_info`), so the SEE is of the position the move reached, not of the move: a
+/// known defect (S44 note), kept as shipped and measured; fixing it is a search change.
 fn lmr_tactical_candidate(mv: &Move, board: &BitboardBoard) -> bool {
     (mv.is_capture || mv.is_promotion)
         && !mv.gives_check
         && (!mv.is_capture
             || crate::search::move_ordering::see_calculation::calculate_see_internal(mv, board) < 0)
+}
+
+/// One move's SEE in `lean_inner`, computed at most once (S44 speed: the same exchange used to
+/// be computed in ordering and again by up to three of the checks that follow). `get` is the
+/// value the move's own kind uses: `calculate_see_internal` for a capture, `see_quiet`
+/// otherwise; `capture_see` is always `calculate_see_internal` (the losing-capture pruning
+/// also applies it to non-capturing promotions), shared with `get` only for captures.
+struct MoveSee(Option<i32>, Option<i32>);
+
+impl MoveSee {
+    fn new(from_ordering: Option<i32>) -> Self {
+        Self(from_ordering, None)
+    }
+
+    fn get(&mut self, mv: &Move, board: &BitboardBoard) -> i32 {
+        *self.0.get_or_insert_with(|| {
+            if mv.is_capture {
+                crate::search::move_ordering::see_calculation::calculate_see_internal(mv, board)
+            } else {
+                crate::search::move_ordering::see_calculation::see_quiet(mv, board)
+            }
+        })
+    }
+
+    fn capture_see(&mut self, mv: &Move, board: &BitboardBoard) -> i32 {
+        if mv.is_capture {
+            return self.get(mv, board);
+        }
+        *self.1.get_or_insert_with(|| {
+            crate::search::move_ordering::see_calculation::calculate_see_internal(mv, board)
+        })
+    }
 }
 
 /// Superior/inferior-repetition scores (±30,000) depend on the path that reached a node; the

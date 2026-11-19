@@ -1585,12 +1585,22 @@ mod tests {
                     let sq = Position::from_index(idx);
                     for side in [Player::Black, Player::White] {
                         assert_eq!(board.attackers_of(sq, side) != 0, board.is_square_attacked_by(sq, side));
+                        assert_eq!(
+                            board.attacked_squares(side) >> idx & 1 == 1,
+                            board.is_square_attacked_by(sq, side),
+                            "attacked_squares at {idx} for {side:?} in {}",
+                            board.to_fen(player, &captured)
+                        );
                     }
                 }
-                if in_check {
-                    in_check_positions += 1;
-                    let k = board.find_king_position(player).unwrap();
-                    double_checks += (board.attackers_of(k, player.opposite()).count_ones() > 1) as u64;
+                // Every position, in check or not (S44: the pin/discovered-check answers serve
+                // the positions without check).
+                {
+                    if in_check {
+                        in_check_positions += 1;
+                        let k = board.find_king_position(player).unwrap();
+                        double_checks += (board.attackers_of(k, player.opposite()).count_ones() > 1) as u64;
+                    }
                     let filter = MoveTestFilter::new(&board, player, in_check, &captured);
                     let mut scratch = board.clone();
                     for m in mg.generate_pseudo_legal_moves(&board, player, &captured) {
@@ -1598,6 +1608,10 @@ mod tests {
                         let fen = board.to_fen(player, &captured);
                         assert_eq!(filter.test(&mut scratch, &m, player, &captured), full, "{} in {fen}", m.to_usi_string());
                         assert_eq!(filter.is_safe(&mut scratch, &m, player, &captured), full.0, "{} in {fen}", m.to_usi_string());
+                        let info = scratch.make_move_with_info(&m);
+                        let raw_check = scratch.is_king_in_check(player.opposite(), &captured);
+                        scratch.unmake_move(&info);
+                        assert_eq!(filter.gives_check(&mut scratch, &m, player, &captured), raw_check, "gives_check {} in {fen}", m.to_usi_string());
                         compared += 1;
                     }
                 }
@@ -2044,6 +2058,63 @@ struct MoveTestFilter {
     /// Opponent king square, when it is not in check.
     opp_king: Option<usize>,
     opp_in_check: bool,
+    /// Computed on first need (S44), when neither side is in check: the sole blockers between
+    /// our king and the opponent's line pieces (pins), the sole blockers between the
+    /// opponent's king and ours (discovered checks), and the squares the opponent attacks with
+    /// our king lifted off the board (where our king may not go).
+    pins: std::cell::OnceCell<LineBlockers>,
+    discoverers: std::cell::OnceCell<LineBlockers>,
+    king_danger: std::cell::OnceCell<u128>,
+}
+
+/// The pieces standing alone between a king and a line piece (rook, bishop, dragon, horse
+/// along their lines; lance from in front), each with its line: the squares between the king
+/// and that line piece, plus the line piece's own square.
+#[derive(Clone, Copy)]
+struct LineBlockers {
+    items: [(u8, u128); 16],
+    len: usize,
+}
+
+impl LineBlockers {
+    /// For `king` (an index), against the line pieces of `owner`, under the board's occupancy.
+    fn new(board: &BitboardBoard, king: usize, owner: Player) -> Self {
+        let mut out = Self { items: [(0, 0); 16], len: 0 };
+        let occ = board.get_occupied_bitboard().to_u128();
+        let pieces = board.get_pieces();
+        let bb = |pt: PieceType| pieces[owner as usize][pt.as_index()].to_u128();
+        let (kr, kc) = ((king / 9) as i32, (king % 9) as i32);
+        let straight = bb(PieceType::Rook) | bb(PieceType::PromotedRook);
+        let diagonal = bb(PieceType::Bishop) | bb(PieceType::PromotedBishop);
+        let lances = bb(PieceType::Lance);
+        let mut v = straight | diagonal | lances;
+        while v != 0 {
+            let s = v.trailing_zeros() as usize;
+            v &= v - 1;
+            let bit = 1u128 << s;
+            let (sr, sc) = ((s / 9) as i32, (s % 9) as i32);
+            let aligned = (straight & bit != 0 && (sr == kr || sc == kc))
+                || (diagonal & bit != 0 && (sr - kr).abs() == (sc - kc).abs())
+                || (lances & bit != 0
+                    && sc == kc
+                    && if owner == Player::Black { kr < sr } else { kr > sr });
+            if !aligned {
+                continue;
+            }
+            let between = squares_between(king, s);
+            let b = between & occ;
+            if b.count_ones() == 1 && out.len < out.items.len() {
+                out.items[out.len] = (b.trailing_zeros() as u8, between | bit);
+                out.len += 1;
+            }
+        }
+        out
+    }
+
+    /// The line of the blocker on `sq`, if it is one.
+    fn line_of(&self, sq: usize) -> Option<u128> {
+        self.items[..self.len].iter().find(|(b, _)| usize::from(*b) == sq).map(|&(_, l)| l)
+    }
 }
 
 impl MoveTestFilter {
@@ -2073,7 +2144,74 @@ impl MoveTestFilter {
             evasion_targets,
             opp_king: board.find_king_position(player.opposite()).map(|p| p.to_index() as usize),
             opp_in_check,
+            pins: std::cell::OnceCell::new(),
+            discoverers: std::cell::OnceCell::new(),
+            king_danger: std::cell::OnceCell::new(),
         }
+    }
+
+    /// Whether the exact bitboard answers apply: both kings present, neither side in check.
+    #[inline]
+    fn quiet_kings(&self) -> bool {
+        !self.own_in_check && !self.opp_in_check && self.own_king.is_some() && self.opp_king.is_some()
+    }
+
+    /// `player`'s king is safe after `m` (requires [`Self::quiet_kings`]; `board` as before
+    /// the move): a king move must not land where the opponent attacks once our king is
+    /// lifted off; any other move must not take a pinned piece off its line.
+    fn safe_by_lines(&self, board: &BitboardBoard, m: &Move, player: Player) -> bool {
+        let k = self.own_king.unwrap_or(0);
+        let to_bit = 1u128 << m.to.to_index();
+        if m.piece_type == PieceType::King || m.from.is_some_and(|f| f.to_index() as usize == k) {
+            let danger = *self.king_danger.get_or_init(|| {
+                board.attacked_squares_with(player.opposite(), board.get_occupied_bitboard().to_u128() & !(1u128 << k))
+            });
+            return danger & to_bit == 0;
+        }
+        let Some(f) = m.from else { return true };
+        let pins = self.pins.get_or_init(|| LineBlockers::new(board, k, player.opposite()));
+        pins.line_of(f.to_index() as usize).is_none_or(|line| line & to_bit != 0)
+    }
+
+    /// The opponent's king is attacked after `m` (requires [`Self::quiet_kings`]; `board` as
+    /// before the move): the moved piece attacks it from `to` under the new occupancy, or the
+    /// move leaves the line of a discovered attack.
+    fn check_by_lines(&self, board: &BitboardBoard, m: &Move, player: Player) -> bool {
+        let k = self.opp_king.unwrap_or(0);
+        let king_bit = 1u128 << k;
+        let to = m.to.to_index();
+        let to_bit = 1u128 << to;
+        let from_bit = m.from.map_or(0, |f| 1u128 << f.to_index());
+        let moved = match m.from {
+            Some(f) => {
+                let pt = board.get_piece(f).map_or(m.piece_type, |p| p.piece_type);
+                if m.is_promotion { pt.promoted_version().unwrap_or(pt) } else { pt }
+            }
+            None => m.piece_type,
+        };
+        let occ = (board.get_occupied_bitboard().to_u128() & !from_bit) | to_bit;
+        let step = |pt: PieceType| board.get_attack_pattern_precomputed(m.to, pt, player).to_u128();
+        let direct = match moved {
+            PieceType::Rook => board.slider_attacks(to, PieceType::Rook, occ),
+            PieceType::Bishop => board.slider_attacks(to, PieceType::Bishop, occ),
+            PieceType::PromotedRook => board.slider_attacks(to, PieceType::Rook, occ) | step(PieceType::King),
+            PieceType::PromotedBishop => {
+                board.slider_attacks(to, PieceType::Bishop, occ) | step(PieceType::King)
+            }
+            PieceType::Lance => {
+                let (tr, tc, kr, kc) = (to / 9, to % 9, (k / 9) as u8, (k % 9) as u8);
+                let ahead = if player == Player::Black { kr < tr } else { kr > tr };
+                if tc == kc && ahead && squares_between(to as usize, k) & occ == 0 { king_bit } else { 0 }
+            }
+            pt => step(pt),
+        } & king_bit
+            != 0;
+        if direct {
+            return true;
+        }
+        let Some(f) = m.from else { return false };
+        let disc = self.discoverers.get_or_init(|| LineBlockers::new(board, k, player));
+        disc.line_of(f.to_index() as usize).is_some_and(|line| line & to_bit == 0)
     }
 
     fn test(
@@ -2104,6 +2242,11 @@ impl MoveTestFilter {
         if self.cannot_evade(m, to_bit) {
             return (false, false);
         }
+        if self.quiet_kings() {
+            let safe = safety_known || self.safe_by_lines(scratch, m, player);
+            let check = safe && !check_known && self.check_by_lines(scratch, m, player);
+            return (safe, check);
+        }
         let info = scratch.make_move_with_info(m);
         let safe = safety_known || !scratch.is_king_in_check(player, captured_pieces);
         let check =
@@ -2130,6 +2273,9 @@ impl MoveTestFilter {
         };
         if known {
             return false;
+        }
+        if self.quiet_kings() {
+            return self.check_by_lines(scratch, m, player);
         }
         let info = scratch.make_move_with_info(m);
         let check = scratch.is_king_in_check(player.opposite(), captured_pieces);
@@ -2158,6 +2304,9 @@ impl MoveTestFilter {
         }
         if self.cannot_evade(m, 1u128 << m.to.to_index()) {
             return false;
+        }
+        if self.quiet_kings() {
+            return self.safe_by_lines(scratch, m, player);
         }
         let info = scratch.make_move_with_info(m);
         let safe = !scratch.is_king_in_check(player, captured_pieces);

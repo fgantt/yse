@@ -174,37 +174,8 @@ impl ZobristHasher {
             hash ^= self.table.get_side_to_move_key();
         }
 
-        // Hash pieces in hand for Black
-        for piece_type in [
-            PieceType::Pawn,
-            PieceType::Lance,
-            PieceType::Knight,
-            PieceType::Silver,
-            PieceType::Gold,
-            PieceType::Bishop,
-            PieceType::Rook,
-        ] {
-            let count = captured_pieces.count(piece_type, Player::Black);
-            if count > 0 {
-                hash ^= self.table.get_hand_key(piece_type, Player::Black, count as u8);
-            }
-        }
-
-        // Hash pieces in hand for White
-        for piece_type in [
-            PieceType::Pawn,
-            PieceType::Lance,
-            PieceType::Knight,
-            PieceType::Silver,
-            PieceType::Gold,
-            PieceType::Bishop,
-            PieceType::Rook,
-        ] {
-            let count = captured_pieces.count(piece_type, Player::White);
-            if count > 0 {
-                hash ^= self.table.get_hand_key(piece_type, Player::White, count as u8);
-            }
-        }
+        // Hash pieces in hand (as `hand_hash`)
+        hash ^= self.hand_hash(captured_pieces);
 
         // Hash repetition state
         hash ^= self.table.get_repetition_key(repetition_state);
@@ -299,6 +270,8 @@ impl ZobristHasher {
     pub fn hand_hash(&self, captured_pieces: &CapturedPieces) -> u64 {
         let mut hash = 0u64;
         for player in [Player::Black, Player::White] {
+            // One pass over the hand for all seven counts (`CapturedPieces::counts`).
+            let counts = captured_pieces.counts(player);
             for piece_type in [
                 PieceType::Pawn,
                 PieceType::Lance,
@@ -308,9 +281,9 @@ impl ZobristHasher {
                 PieceType::Bishop,
                 PieceType::Rook,
             ] {
-                let count = captured_pieces.count(piece_type, player);
+                let count = counts[piece_type.as_index()];
                 if count > 0 {
-                    hash ^= self.table.get_hand_key(piece_type, player, count as u8);
+                    hash ^= self.table.get_hand_key(piece_type, player, count);
                 }
             }
         }

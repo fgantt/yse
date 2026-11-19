@@ -850,6 +850,87 @@ impl BitboardBoard {
         false
     }
 
+    /// Every square `attacking_player` attacks under the current occupancy, as a bit set (bit =
+    /// `Position::to_index`): bit `t` is set exactly when
+    /// [`Self::is_square_attacked_by`]`(t, attacking_player)` holds. Built from each piece's own
+    /// square with the same tables (step pieces are point-symmetric between the colours, sliders
+    /// use the same rays), so a caller testing many squares of one board pays once (S44: move
+    /// ordering tested every quiet move's square separately).
+    pub fn attacked_squares(&self, attacking_player: Player) -> u128 {
+        self.attacked_squares_with(attacking_player, self.occupied.to_u128())
+    }
+
+    /// [`Self::attacked_squares`] with slider rays (rook, bishop, dragon, horse, lance) taken
+    /// under `occupied` instead of the board's occupancy; the pieces are the board's.
+    pub fn attacked_squares_with(&self, attacking_player: Player, occupied: u128) -> u128 {
+        let a = if attacking_player == Player::Black { 0 } else { 1 };
+        let pcs = |pt: PieceType| self.pieces[a][pt.to_u8() as usize].to_u128();
+        let squares = |mut v: u128| {
+            std::iter::from_fn(move || {
+                (v != 0).then(|| {
+                    let sq = v.trailing_zeros() as u8;
+                    v &= v - 1;
+                    sq
+                })
+            })
+        };
+        let mut out = 0u128;
+        for pt in [
+            PieceType::Pawn,
+            PieceType::Knight,
+            PieceType::Silver,
+            PieceType::Gold,
+            PieceType::PromotedPawn,
+            PieceType::PromotedLance,
+            PieceType::PromotedKnight,
+            PieceType::PromotedSilver,
+        ] {
+            for sq in squares(pcs(pt)) {
+                out |= self.attack_tables.get_attack_pattern(sq, pt, attacking_player).to_u128();
+            }
+        }
+        for pt in [PieceType::King, PieceType::PromotedRook, PieceType::PromotedBishop] {
+            for sq in squares(pcs(pt)) {
+                out |= self.attack_tables.get_attack_pattern(sq, PieceType::King, attacking_player).to_u128();
+            }
+        }
+        for (pt, ray) in [
+            (PieceType::Rook, PieceType::Rook),
+            (PieceType::PromotedRook, PieceType::Rook),
+            (PieceType::Bishop, PieceType::Bishop),
+            (PieceType::PromotedBishop, PieceType::Bishop),
+        ] {
+            for sq in squares(pcs(pt)) {
+                out |= self.slider_attacks(sq, ray, occupied);
+            }
+        }
+        // Lances: forward (toward row 0 for Black) up to and including the first piece.
+        let dir: i8 = if attacking_player == Player::Black { -1 } else { 1 };
+        for sq in squares(pcs(PieceType::Lance)) {
+            let from = Position::from_index(sq);
+            let mut row = from.row as i8 + dir;
+            while (0..9).contains(&row) {
+                let to = Position::new(row as u8, from.col);
+                out |= 1u128 << to.to_index();
+                if occupied >> to.to_index() & 1 == 1 {
+                    break;
+                }
+                row += dir;
+            }
+        }
+        out
+    }
+
+    /// Rook or bishop rays from `square` under `occupied` (up to and including the first
+    /// piece each way), from the magic table when there is one, else ray-cast.
+    pub fn slider_attacks(&self, square: u8, ray: PieceType, occupied: u128) -> u128 {
+        let occ = Bitboard::from_u128(occupied);
+        match self.magic_table_ref() {
+            Some(m) => m.get_attacks(square, ray, occ).to_u128(),
+            None => raycast_slider_attacks(square, ray, occ).to_u128(),
+        }
+    }
+
     /// The squares of `attacking_player`'s pieces that attack `target_pos`, as a
     /// bit set (bit = `Position::to_index`). The same tests as
     /// [`Self::is_square_attacked_by`], collecting every attacker.

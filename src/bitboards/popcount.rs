@@ -422,8 +422,10 @@ mod performance_tests {
         let iterations = 1_000_000;
 
         // Benchmark hardware implementation
+        // (Bound outside the block: the x86_64 assertion below reads it. Inside a block it
+        // was out of scope there and the crate's tests did not compile on x86_64.)
         #[cfg(target_arch = "x86_64")]
-        {
+        let hardware_duration = {
             let start = Instant::now();
             for _ in 0..iterations {
                 let _result = popcount_hardware(test_bitboard);
@@ -434,7 +436,8 @@ mod performance_tests {
                 hardware_duration,
                 hardware_duration / iterations
             );
-        }
+            hardware_duration
+        };
 
         // Benchmark SWAR implementation
         let start = Instant::now();

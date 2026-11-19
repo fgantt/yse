@@ -416,6 +416,14 @@ impl QuietSee {
     }
 }
 
+/// Whether `a` lies on a rank, file or diagonal through `b`: the only squares whose
+/// emptying can open a rook, bishop, dragon, horse or lance ray onto `b`.
+#[inline]
+fn on_line(a: Position, b: Position) -> bool {
+    let (dr, dc) = (i32::from(a.row) - i32::from(b.row), i32::from(a.col) - i32::from(b.col));
+    dr == 0 || dc == 0 || dr.abs() == dc.abs()
+}
+
 /// [`swap_value`] given the attackers of `move_.to` under the board's occupancy.
 fn swap_value_from(
     mut pieces: AttackList,
@@ -439,8 +447,12 @@ fn swap_value_from(
         if let Some(i) = pieces.as_slice().iter().position(|(p, _)| *p == from) {
             pieces.remove(i);
         }
+        // Lifting the mover can uncover a slider only through a square on a line through the
+        // target. A drop vacates nothing: the occupancy is the one `attackers_of` used.
+        if on_line(from, to) {
+            pieces.add_sliders(board, to, occupied);
+        }
     }
-    pieces.add_sliders(board, to, occupied);
 
     let mut gain = [0i32; 40];
     gain[0] = first_gain;
@@ -466,9 +478,8 @@ fn swap_value_from(
         let (used_pos, used_piece) = pieces.remove(idx);
         on_square = used_piece.piece_type.base_value();
         occupied &= !crate::types::Bitboard::from_u128(1u128 << used_pos.to_index());
-        // A knight stands on no line through the target: lifting it uncovers
-        // nothing.
-        if used_piece.piece_type != PieceType::Knight {
+        // A piece off every line through the target (a knight always) uncovers nothing.
+        if on_line(used_pos, to) {
             pieces.add_sliders(board, to, occupied);
         }
         side = side.opposite();

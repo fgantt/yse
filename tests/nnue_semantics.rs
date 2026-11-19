@@ -66,7 +66,12 @@ fn det_weights(num_features: usize, h1: usize, h2: usize) -> NNUEWeights {
         output_weights,
         output_bias: 0,
         flat_weights_2: Vec::new(),
+        l2_pairs: Vec::new(),
+        l2_block_colsum_max: 0,
         l2_colsum_max: 0,
+        l2_shift: shogi_engine::evaluation::nnue::DEFAULT_SHIFT,
+        l3_shift: shogi_engine::evaluation::nnue::DEFAULT_SHIFT,
+        mid_layers: Vec::new(),
         psqt: Vec::new(),
     };
     w.rebuild_flat_weights_2();
@@ -468,7 +473,12 @@ fn material_only_weights() -> NNUEWeights {
         output_weights: vec![0; h2],
         output_bias: 0,
         flat_weights_2: Vec::new(),
+        l2_pairs: Vec::new(),
+        l2_block_colsum_max: 0,
         l2_colsum_max: 0,
+        l2_shift: shogi_engine::evaluation::nnue::DEFAULT_SHIFT,
+        l3_shift: shogi_engine::evaluation::nnue::DEFAULT_SHIFT,
+        mid_layers: Vec::new(),
         psqt: NNUEWeights::material_psqt(NUM_NNUE_FEATURES_WITH_HAND_TOTAL),
     };
     w.rebuild_flat_weights_2();

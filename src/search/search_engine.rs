@@ -950,9 +950,10 @@ pub(crate) fn hand_path_entry_from_key(
     captured_pieces: &CapturedPieces,
 ) -> HandPathEntry {
     let mut hands = [0u8; 14];
+    let (b, w) = (captured_pieces.counts(Player::Black), captured_pieces.counts(Player::White));
     for (i, pt) in HAND_PIECE_TYPES.iter().enumerate() {
-        hands[i] = captured_pieces.count(*pt, Player::Black) as u8;
-        hands[7 + i] = captured_pieces.count(*pt, Player::White) as u8;
+        hands[i] = b[pt.as_index()];
+        hands[7 + i] = w[pt.as_index()];
     }
     HandPathEntry { board_hash: full ^ hasher.hand_hash(captured_pieces), player, hands }
 }
