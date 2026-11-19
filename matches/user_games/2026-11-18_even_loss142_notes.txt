@@ -1,0 +1,22 @@
+2026-11-18 even loss (142 plies), engine 80fcef5 on the PC (same fixed-node search as the gated build).
+Judge (YaneuraOu halfkpvm, 3M nodes, game_gap.py): +78 at ply 13, -64 after ply 22, -251 at ply 25, < -300 from ply 43.
+Deep check (YaneuraOu 8 threads, 10 s, depth 38-47), before ply 21: 3d3f +68, 3d3e +48, 5g5f +17; played 3d6d -131.
+  The decisive mistake is 3d6d (the rook goes on to the 6d pawn; 3c4d refutes). The 3M judge missed it (+100).
+  Ply 19 2d3d was fine (+80, YaneuraOu's first choice).
+Our engine before ply 21 never chose 3d6d: 1 thread 400k/1.6M/6.4M -> 5g5f; 4 threads fresh process, 1/2/3/5/15 s,
+  13 searches -> 3d3f, 3d3e, 5g5f, P*2d. Not reproduced (the game's time control and the warm table unknown).
+Other costly moves (ladder): ply 41 5i4h -170 (ours never finds 3e5e; YaneuraOu only at 6.4M); ply 59 5h5i -225
+  (neither finds N*7e reliably); ply 61 3e3f -502 (YaneuraOu finds 3e3d at 25k, ours needs 1.6M).
+Promotion twins at plies 51, 57, 71 (6e7c+/6e7c, 5e7c/5e7c+, 6f6c/6f6c+): each piece is recaptured at once, so the
+  twins are equivalent; the judge's 66-105 cp differences are judge noise, not a bug.
+Game settings (user): GUI defaults, 16 threads, 60 min per side (+ GUI default 10 s byoyomi); no saved engine options, so
+  USI_Hash 256 (engine default). Allocation: 60 min / 30 + 10 s; moves took ~87-115 s, ~240-350M nodes each at ~2.9M nps.
+Replay on the PC (matches/s43/replay, one process, 16 threads, 256 MB, 60 min + 10 s, the game's moves, clock charged):
+  9 of 11 moves to ply 21 the same; ply 3 7i6h (game 2g2f), ply 19 2d2h (game 2d3d), ply 21 3d3f (game 3d6d; YaneuraOu deep +68).
+  So 3d6d is not what the engine usually plays under the game's settings either: 0 of 17 searches over all conditions.
+Note: 256 MB = 8.4M entries against ~250-350M nodes per move at this time control; never tested (gates: 4 threads, 1 s).
+Hash test on the PC (matches/s43/replay/hashcmp.py, _hash60.jsonl): 10 positions (plies 17-61), 16 threads, movetime 60 s,
+  fresh process, 256 vs 1024 MB (the option's max). Mean depth 20.6 vs 20.4, nodes 145M vs 141M: no difference.
+  Same move on 6 of 10. Where they differ, deep YaneuraOu (8 threads, 10 s, depth 44-58), cp for Sente:
+  ply 21 3d6d -128 (256) vs 5g5f -42 (1024); 57 5e3c+ -911 vs 5e7g -754; 59 1f1e -994 vs 6h7g -1546; 61 3e3d -844 vs 3e3f -953.
+  Split 2-2: no evidence for the larger table. The 256 MB run played the game's 3d6d at ply 21 (1 of 18 searches overall).

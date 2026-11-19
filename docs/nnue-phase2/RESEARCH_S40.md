@@ -1263,3 +1263,37 @@ Members: Claude Opus 5.5 (high), GPT-6.2 Sol (high), Gemini 4 Argon (high). Brie
 - **Screening rule (all three):** anything that reads table bounds or misses (singular
   extension, multicut, ProbCut, IIR) or moves nodes-to-depth-10 by more than ~15-20% is screened
   at 4 threads on the clock; move-local history and reduction changes keep the 400k screen.
+
+## Council (2026-11-18, direction: closing the gap to the user's YaneuraOu + Suisho5)
+
+Members: Claude Opus 5.5 (high), GPT-6.2 Sol (high), Gemini 4 Argon (high). Brief:
+`matches/s43/council_r10_brief.md` (today's loss, PC speed 5.9x, Suisho5 found on the user's PC,
+1-thread Mac profile `matches/s43/prof1t_top.txt`). Lead's plan: speed, then search, measure, network.
+
+- **Agreed by all three:** measure against YaneuraOu + Suisho5 on the PC now, in parallel with
+  speed work; an equal-time match scores ~2-5% and resolves nothing, so use odds that put us at
+  25-70%. Speed work is search-identical (fingerprints, no gates), but worth less than 6x: Sol
+  1.12-1.30x, Opus 1.4-1.7x, Gemini 2-2.3x (with staged TT-move generation). Gap 400-700 Elo is
+  plausible; occasional wins realistic, parity not in sight.
+- **Corrections to the brief, checked:** Suisho5's margin over halfkpvm *was* measured (A2 above:
+  ~110-200). x86 layer 2 has no hand-written SIMD (`nnue.rs:1735-1745`, an i32 x i16 loop; NEON
+  only on aarch64). `CapturedPieces` is two `Vec<PieceType>` with a linear `count`
+  (`types/board.rs:11-37`). `MoveTestFilter::test` makes/unmakes and calls `is_king_in_check`
+  for moves near either king (`moves.rs:2104-2111`).
+- **Speed candidates (overlap):** an x86 layer-2 kernel (16-bit multiply-adds; all three), SEE
+  computed once per move and threshold-only where only a sign is used (all three), legality and
+  gives-check from per-node pin/check bitboards (Opus 1st, Sol), fixed-size `Copy` hands with O(1)
+  counts (Gemini). Profile on the PC first (Opus, Sol): the Mac already has NEON and the user plays
+  on the PC (250k nps per thread there vs 370k on the Mac).
+- **Yardstick:** Opus time odds (both clocked), Sol node odds (both fixed nodes; misses speed),
+  Gemini hybrid (ours clocked 4 threads, YaneuraOu + Suisho5 1 thread at fixed nodes). Adopted:
+  the hybrid, since it counts our speed and Lazy SMP while YaneuraOu's strength stays load-immune;
+  plus Opus's occasional near-user check (16 threads each, minutes + increment).
+- **Beliefs most likely wrong (all three testable on the PC):** Opus: gate gains transfer to long
+  games at about a third (guard +50 from +159 in gates); test 4dfe9c4 vs 80fcef5 at 16 threads,
+  2 min + 5 s, 100-150 games. Sol: Elo per doubling at the user's clock is unknown. Gemini: our
+  network a1 trails halfkpvm in our search (PLAN_S41 Step 0a: −101 at 32x, 1.66 SE, on 6c611cf);
+  test 80fcef5 with halfkpvm (`yo-diagnostic`) in the guard's 16x row, paired with 49.8%.
+- **Not adopted:** Gemini's "x86 fallback is scalar" (the inner 32-wide loop vectorises; the
+  missing piece is a 16-bit multiply-add kernel); its k "already 8-10x" (speculation); its 4-6 week
+  timeline and 2x speed (no basis given).

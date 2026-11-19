@@ -1,0 +1,11 @@
+2026-11-18_even_loss142: our moves 71, open 42, judge < -300 from ply 43; open-phase loss sum 1548, mean 37, >=40: 10, >=100: 5, best move 48%
+  ply  17 4i5h   loss   54 (judge   +96) ours found    25000  yane found        -  ours@6.4M 4i5h (54)
+  ply  23 6d7d   loss  100 (judge   -64) ours found   400000  yane found    25000  ours@6.4M 4g4f (0)
+  ply  39 7e3e   loss   61 (judge  -251) ours found    25000  yane found   400000  ours@6.4M 5i4h (0)
+  ply  41 5i4h   loss  170 (judge  -236) ours found        -  yane found  6400000  ours@6.4M 5i4h (170)
+  ply  51 6e7c+  loss   66 (judge  -386) ours found    25000  yane found    25000  ours@6.4M 6e7c (0)
+  ply  57 5e7c   loss   71 (judge  -555) ours found    25000  yane found    25000  ours@6.4M 5e7c+ (16)
+  ply  59 5h5i   loss  225 (judge  -397) ours found    25000  yane found        -  ours@6.4M 7f7e (246)
+  ply  61 3e3f   loss  502 (judge  -472) ours found  1600000  yane found    25000  ours@6.4M 3e3d (0)
+  ply  65 3f6f   loss   79 (judge  -895) ours found        -  yane found    25000  ours@6.4M 3f6f (79)
+  ply  71 6f6c   loss  105 (judge -1207) ours found    25000  yane found    25000  ours@6.4M 7e6c+ (1)

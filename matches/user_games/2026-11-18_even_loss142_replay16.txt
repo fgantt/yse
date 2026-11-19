@@ -1,0 +1,11 @@
+ply 1 engine 7g7f game 7g7f SAME used 96949 ms | info depth 25 seldepth 38 multipv 1 score cp 28 time 96940 nodes 289260800 nps 2983915 pv 7g7f 8c8d 7i7h 3c3d 7h7g 3a4b
+ply 3 engine 7i6h game 2g2f DIFF used 90299 ms | info depth 26 seldepth 39 multipv 1 score cp 39 time 90296 nodes 267549952 nps 2963032 pv 7i6h 3c3d 6h7g 3a4b 3i4h 4b3c
+ply 5 engine 7i6h game 7i6h SAME used 90344 ms | info depth 27 seldepth 36 multipv 1 score cp 41 time 90342 nodes 272352512 nps 3014683 pv 7i6h 3c3d 6h7g 3a4b 2f2e 4b3c
+ply 7 engine 6h7g game 6h7g SAME used 115272 ms | info depth 27 seldepth 37 multipv 1 score cp 19 time 115270 nodes 348950784 nps 3027247 pv 6h7g 3a4b 2f2e 4b3c 5g5f 5a4a
+ply 9 engine 2f2e game 2f2e SAME used 90865 ms | info depth 26 seldepth 39 multipv 1 score cp 52 time 90862 nodes 262235136 nps 2886081 pv 2f2e 3a4b 2e2d 2c2d 2h2d 4b3c
+ply 11 engine 2e2d game 2e2d SAME used 91520 ms | info depth 25 seldepth 39 multipv 1 score cp 37 time 91517 nodes 261821952 nps 2860910 pv 6i7h 3a4b 2e2d 2c2d 2h2d 4b3c
+ply 13 engine 2h2d game 2h2d SAME used 87225 ms | info depth 26 seldepth 38 multipv 1 score cp 26 time 87222 nodes 239354624 nps 2744200 pv 2h2d 8d8e 6i7h 6b7c 1g1f P*2c
+ply 15 engine 6i7h game 6i7h SAME used 92278 ms | info depth 26 seldepth 41 multipv 1 score cp 38 time 92276 nodes 250967040 nps 2719743 pv 6i7h 6b7c 1g1f 5a4a 4g4f 7c6d
+ply 17 engine 4i5h game 4i5h SAME used 104701 ms | info depth 24 seldepth 38 score cp 94 time 104699 nodes 281144576 nps 2685265 pv 4i5h 6b7c 5g5f 5b4a 2d2h P*2c
+ply 19 engine 2d2h game 2d3d DIFF used 92306 ms | info depth 23 seldepth 42 multipv 1 score cp 3 time 92304 nodes 249444096 nps 2702419 pv 2d2h P*2c 8h7i 6b6c 5g5f 8a7c
+ply 21 engine 3d3f game 3d6d DIFF used 86625 ms | info depth 25 seldepth 44 multipv 1 score cp -12 time 86624 nodes 232982784 nps 2689586 pv 3d3e 8a7c 3e2e 3a2b 4g4f 2b2c
