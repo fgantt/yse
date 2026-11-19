@@ -93,11 +93,38 @@ median (Mac runs were taken with the network test loading the Mac; relative only
 −3 ± 31 / −35 ± 31, no time losses, mean think 727 ms vs 33 ms. This is the number later builds
 are compared with at the same setting.
 
-## 7. Pending
+## 7. Transfer test (step 4, Opus's belief)
 
-- Transfer test (step 4, Opus's belief): 80fcef5 vs 4dfe9c4, 16 threads each, 4 s byoyomi,
-  100 games, one at a time (~14 h, overnight; started 17:45); both from the yse-s43stack folder (network a1,
-  unchanged between them; the yse-s40 tree has no nnue/default.bin).
+80fcef5 vs 4dfe9c4, 16 threads each, 256 MB, MoveOverhead 100, 4 s byoyomi, `--time-loss-ms 200`,
+100 games one at a time (seed 50300, 2026-11-18 17:45 to 11-19 05:36, `/mnt/c/Users/fgant/s43xfer/
+x_s50300.csv`); both from the yse-s43stack folder (network a1, unchanged between them; the yse-s40
+tree has no nnue/default.bin).
+
+- W-D-L **82-7-11, 85.5%, +308 ± 42** paired (95% +226 .. +390). The four ships' gates claimed
+  +159 in sum (1 s, 4 threads): the gains **carry over to 16 threads and 4 s, and come out larger**.
+  The belief that gate gains might not transfer to the user's settings is refuted at this setting.
+- All 5 time losses are B's (4dfe9c4: 4217-4284 ms against
+  4.2 s allowed); mean think A 3145 ms, B 3401 ms. Without those 5 pairs: 90 games 73-6-11, 84.4%,
+  +294. So the time losses do not explain the margin.
+- Self-play only. Against YaneuraOu the gains have been about half the self-play figure
+  (`self_play_gains_shrink_with_depth`); the yardstick (§3, §6) measures that.
+
+## 7a. Yardstick of the speed ship (2b99c36, 50k)
+
+Windows build `yse-s44ship` (md5 c0f7a62c…; fixed-node identical to yse-s43stack on g1108 plies
+30-69, `s44yard/ident_a/b.txt`), same harness, setting and seeds as §6 (same openings, 120/120),
+2026-11-19 12:09-13:46, `matches/s44/yard/`. W-D-L **138-2-100, 57.9%, +55 ± 22** (95% +13 .. +98),
+halves +59 / +53, no time losses, mean think 720 ms vs 34 ms. Against the baseline pair by pair:
+47.3% → 57.9%, **+74 ± 31** (95% +13 .. +135) from the speedup alone (search identical; PC native
++34% nps, so about 0.42 doublings; S41 measured ~+140 per doubling against YaneuraOu). At 4 threads
+and 1 s, our engine is now ahead of YaneuraOu + Suisho5 at 50k nodes (≈ 30 ms of its 1-thread search).
+
+## 7b. Notes
+
+- First even win in the user's records (2026-11-18, Mac GUI defaults: 60 min + 10 s, 16 threads,
+  vs YaneuraOu **halfkpvm**): `matches/user_games/2026-11-18_mac_even_win183.txt` (+ `_curve.jsonl`,
+  Suisho5 2M nodes: level to ply 57, +200-300 after YaneuraOu's 8e8f and 5a4b, +250-450 held for
+  60 plies, mate from ply 165).
 
 ## 8. Shipped (user's OK, 2026-11-18)
 
