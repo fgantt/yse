@@ -242,6 +242,7 @@ impl AttackList {
         }
     }
 
+    #[cfg(test)]
     fn remove(&mut self, idx: usize) -> (Position, Piece) {
         let item = self.items[idx];
         self.items.copy_within(idx + 1..self.len, idx);
@@ -378,6 +379,231 @@ impl AttackList {
     }
 }
 
+/// Slider ray attacks from square index `to` under `occupied`, as [`AttackList::add_sliders`]
+/// computes them: from the magic table, ray-cast without one.
+#[inline]
+fn slider_rays(board: &BitboardBoard, to: u8, pt: PieceType, occupied: crate::types::Bitboard) -> u128 {
+    #[cfg(test)]
+    let magic = if FORCE_RAYCAST.with(std::cell::Cell::get) { None } else { board.magic_table_ref() };
+    #[cfg(not(test))]
+    let magic = board.magic_table_ref();
+    match magic {
+        Some(magic) => magic.get_attacks(to, pt, occupied).to_u128(),
+        None => crate::bitboards::raycast_slider_attacks(to, pt, occupied).to_u128(),
+    }
+}
+
+/// Squares, in the order they were found, of one side's pieces of one slider type that
+/// attack the exchange square (at most four of a type exist).
+#[derive(Clone, Copy, Default)]
+struct SqQueue {
+    sq: [u8; 4],
+    head: u8,
+    len: u8,
+}
+
+impl SqQueue {
+    #[inline]
+    fn push(&mut self, sq: u8) {
+        if (self.len as usize) < self.sq.len() {
+            self.sq[self.len as usize] = sq;
+            self.len += 1;
+        }
+    }
+
+    #[inline]
+    fn front(&self) -> Option<u8> {
+        (self.head < self.len).then(|| self.sq[self.head as usize])
+    }
+
+    /// Removes `sq` wherever it stands (the moving piece), keeping the order of the rest.
+    fn remove(&mut self, sq: u8) {
+        let (h, n) = (self.head as usize, self.len as usize);
+        if let Some(i) = self.sq[h..n].iter().position(|&x| x == sq) {
+            self.sq.copy_within(h + i + 1..n, h + i);
+            self.len -= 1;
+        }
+    }
+}
+
+/// Slider types in [`Exchange::sliders`], and which of them move along ranks and files.
+const SLIDERS: [PieceType; 5] =
+    [PieceType::Lance, PieceType::Bishop, PieceType::Rook, PieceType::PromotedBishop, PieceType::PromotedRook];
+const SLIDER_ROOK_LIKE: [bool; 5] = [true, false, true, false, true];
+
+/// The attackers of one square for the exchange, as bitboards and small queues (S45).
+///
+/// Picks exactly the piece [`AttackList`] picks: the least valuable of the side to move,
+/// ties broken by the list's order. Step attackers (pawn, knight, silver, the five
+/// gold-movers, king) never change during an exchange; among equal values the list holds
+/// them by type (gold, +P, +L, +N, +S) and then by square, which is the lowest set bit
+/// type by type. Sliders can appear later (x-rays) and the list appends them, so each
+/// side and slider type keeps its squares in the order found. The slider types all have
+/// different values from each other and from the step types, so only the order within a
+/// type matters.
+#[derive(Clone, Copy)]
+struct Exchange {
+    /// Step attackers of both sides still to capture.
+    steps: u128,
+    sliders: [[SqQueue; 5]; 2],
+    /// Squares ever listed, plus the target (as [`AttackList::seen`]).
+    seen: u128,
+}
+
+impl Exchange {
+    fn attackers_of(square: Position, board: &BitboardBoard) -> Self {
+        let pieces = board.get_pieces();
+        let to = square.to_index();
+        let bb = |player: Player, pt: PieceType| pieces[player as usize][pt.as_index()].to_u128();
+        let mut x = Self { steps: 0, sliders: [[SqQueue::default(); 5]; 2], seen: 1u128 << to };
+        let occupied = board.get_occupied_bitboard();
+        for player in [Player::Black, Player::White] {
+            // Step attacks, looked up from the target with the other colour's patterns (as
+            // `AttackList::attackers_of`); the promoted minors move as a gold.
+            let pat = |pt: PieceType| board.get_attack_pattern_precomputed(square, pt, player.opposite()).to_u128();
+            let gold_movers = bb(player, PieceType::Gold)
+                | bb(player, PieceType::PromotedPawn)
+                | bb(player, PieceType::PromotedLance)
+                | bb(player, PieceType::PromotedKnight)
+                | bb(player, PieceType::PromotedSilver);
+            let adjacent = board.get_attack_pattern_precomputed(square, PieceType::King, player).to_u128();
+            x.steps |= pat(PieceType::Pawn) & bb(player, PieceType::Pawn)
+                | pat(PieceType::Knight) & bb(player, PieceType::Knight)
+                | pat(PieceType::Silver) & bb(player, PieceType::Silver)
+                | pat(PieceType::Gold) & gold_movers
+                | adjacent & bb(player, PieceType::King);
+            // Horse and dragon one step away come first, as the list finds them.
+            let q = &mut x.sliders[player as usize];
+            for k in [3, 4] {
+                let mut v = adjacent & bb(player, SLIDERS[k]);
+                while v != 0 {
+                    q[k].push(v.trailing_zeros() as u8);
+                    x.seen |= v & v.wrapping_neg();
+                    v &= v - 1;
+                }
+            }
+        }
+        x.seen |= x.steps;
+        let t = square.to_index();
+        x.add_sliders(
+            board,
+            square,
+            occupied.to_u128(),
+            Some(slider_rays(board, t, PieceType::Rook, occupied)),
+            Some(slider_rays(board, t, PieceType::Bishop, occupied)),
+        );
+        x
+    }
+
+    /// Appends the sliders newly visible on `to` (not yet seen) under `occupied`, by square
+    /// within each side and type, for the ray kinds given.
+    #[inline]
+    fn add_sliders(
+        &mut self,
+        board: &BitboardBoard,
+        to: Position,
+        occupied: u128,
+        rook_rays: Option<u128>,
+        bishop_rays: Option<u128>,
+    ) {
+        let pieces = board.get_pieces();
+        let unseen = occupied & !self.seen;
+        for player in [Player::Black, Player::White] {
+            for (k, pt) in SLIDERS.iter().enumerate() {
+                let Some(rays) = (if SLIDER_ROOK_LIKE[k] { rook_rays } else { bishop_rays }) else {
+                    continue;
+                };
+                let mut v = pieces[player as usize][pt.as_index()].to_u128() & rays & unseen;
+                while v != 0 {
+                    let sq = v.trailing_zeros() as u8;
+                    v &= v - 1;
+                    if *pt == PieceType::Lance {
+                        // Same file, and in front of the target from its own side.
+                        let pos = Position::from_index(sq);
+                        if pos.col != to.col {
+                            continue;
+                        }
+                        let forward = if player == Player::Black { pos.row > to.row } else { pos.row < to.row };
+                        if !forward {
+                            continue;
+                        }
+                    }
+                    self.sliders[player as usize][k].push(sq);
+                    self.seen |= 1u128 << sq;
+                }
+            }
+        }
+    }
+
+    /// After the piece on `from` (on a line through `to`) left `occupied`: a square on a
+    /// rank or file through `to` can open only rook-like rays, one on a diagonal only
+    /// bishop-like ones (no square but `to` is on both), and every slider visible before
+    /// is already listed.
+    #[inline]
+    fn uncover(&mut self, board: &BitboardBoard, to: Position, from: Position, occupied: crate::types::Bitboard) {
+        let t = to.to_index();
+        if from.row == to.row || from.col == to.col {
+            let rays = slider_rays(board, t, PieceType::Rook, occupied);
+            self.add_sliders(board, to, occupied.to_u128(), Some(rays), None);
+        } else {
+            let rays = slider_rays(board, t, PieceType::Bishop, occupied);
+            self.add_sliders(board, to, occupied.to_u128(), None, Some(rays));
+        }
+    }
+
+    /// Removes the piece on `sq` (the mover) wherever it is listed.
+    fn remove_square(&mut self, sq: u8) {
+        self.steps &= !(1u128 << sq);
+        for side in &mut self.sliders {
+            for q in side.iter_mut() {
+                q.remove(sq);
+            }
+        }
+    }
+
+    /// The least valuable remaining attacker of `side` (ties in list order), taken out.
+    #[inline]
+    fn pop_least(&mut self, board: &BitboardBoard, side: Player) -> Option<(u8, PieceType)> {
+        let own = &board.get_pieces()[side as usize];
+        let steps = self.steps;
+        let step = |pt: PieceType| {
+            let v = steps & own[pt.as_index()].to_u128();
+            (v != 0).then(|| v.trailing_zeros() as u8)
+        };
+        // By value: pawn 100, lance 300, knight 320, silver 450, the gold-movers 500,
+        // bishop 800, rook 1000, horse 1200, dragon 1300, king.
+        const GOLD_MOVERS: [PieceType; 5] = [
+            PieceType::Gold,
+            PieceType::PromotedPawn,
+            PieceType::PromotedLance,
+            PieceType::PromotedKnight,
+            PieceType::PromotedSilver,
+        ];
+        let q = &mut self.sliders[side as usize];
+        let (sq, pt, slot) = if let Some(s) = step(PieceType::Pawn) {
+            (s, PieceType::Pawn, None)
+        } else if let Some(s) = q[0].front() {
+            (s, PieceType::Lance, Some(0))
+        } else if let Some(s) = step(PieceType::Knight) {
+            (s, PieceType::Knight, None)
+        } else if let Some(s) = step(PieceType::Silver) {
+            (s, PieceType::Silver, None)
+        } else if let Some((s, pt)) = GOLD_MOVERS.into_iter().find_map(|pt| step(pt).map(|s| (s, pt))) {
+            (s, pt, None)
+        } else if let Some((k, s)) = (1..5).find_map(|k| q[k].front().map(|s| (k, s))) {
+            (s, SLIDERS[k], Some(k))
+        } else {
+            let s = step(PieceType::King)?;
+            (s, PieceType::King, None)
+        };
+        match slot {
+            Some(k) => q[k].head += 1,
+            None => self.steps &= !(1u128 << sq),
+        }
+        Some((sq, pt))
+    }
+}
+
 /// The swap-list exchange on `move_.to`, starting from `first_gain` -- the
 /// value of what the move itself captures, 0 for a quiet move.
 ///
@@ -385,7 +611,7 @@ impl AttackList {
 /// without heap allocation: SEE runs for every attacked quiet move in move
 /// ordering.
 fn swap_value(move_: &Move, board: &BitboardBoard, first_gain: i32) -> i32 {
-    swap_value_from(AttackList::attackers_of(move_.to, board), move_, board, first_gain)
+    exchange_from(Exchange::attackers_of(move_.to, board), move_, board, first_gain)
 }
 
 /// Quiet-move SEE ([`see_quiet`]) for many moves on one board. The attackers
@@ -394,7 +620,7 @@ fn swap_value(move_: &Move, board: &BitboardBoard, first_gain: i32) -> i32 {
 /// drops of different pieces, and pieces converging on one square.
 pub struct QuietSee {
     index: [u8; 81],
-    lists: Vec<AttackList>,
+    lists: Vec<Exchange>,
 }
 
 impl Default for QuietSee {
@@ -410,9 +636,9 @@ impl QuietSee {
         let t = move_.to.to_index() as usize;
         if self.index[t] == u8::MAX {
             self.index[t] = self.lists.len() as u8;
-            self.lists.push(AttackList::attackers_of(move_.to, board));
+            self.lists.push(Exchange::attackers_of(move_.to, board));
         }
-        swap_value_from(self.lists[self.index[t] as usize], move_, board, 0)
+        exchange_from(self.lists[self.index[t] as usize], move_, board, 0)
     }
 }
 
@@ -424,7 +650,9 @@ fn on_line(a: Position, b: Position) -> bool {
     dr == 0 || dc == 0 || dr.abs() == dc.abs()
 }
 
-/// [`swap_value`] given the attackers of `move_.to` under the board's occupancy.
+/// [`swap_value`] given the attackers of `move_.to` under the board's occupancy: the
+/// list version [`exchange_from`] replaced (S45), kept as its test reference.
+#[cfg(test)]
 fn swap_value_from(
     mut pieces: AttackList,
     move_: &Move,
@@ -485,6 +713,52 @@ fn swap_value_from(
         side = side.opposite();
     }
 
+    while d > 1 {
+        d -= 1;
+        gain[d - 1] = -((-gain[d - 1]).max(gain[d]));
+    }
+    gain[0]
+}
+
+/// [`swap_value_from`] on an [`Exchange`]: the same exchange, the same pieces picked.
+fn exchange_from(mut x: Exchange, move_: &Move, board: &BitboardBoard, first_gain: i32) -> i32 {
+    let to = move_.to;
+    let mover = move_.player;
+    let mut on_square = match move_.from.and_then(|f| board.get_piece(f)) {
+        Some(p) => p.piece_type.base_value(),
+        None => move_.piece_type.base_value(), // drop
+    };
+    let mut occupied = board.get_occupied_bitboard();
+    if let Some(from) = move_.from {
+        occupied &= !crate::types::Bitboard::from_u128(1u128 << from.to_index());
+        x.remove_square(from.to_index());
+        // A drop vacates nothing: the occupancy is the one `attackers_of` used.
+        if on_line(from, to) {
+            x.uncover(board, to, from, occupied);
+        }
+    }
+    let mut gain = [0i32; 40];
+    gain[0] = first_gain;
+    let mut d = 0usize;
+    let mut side = mover.opposite();
+    while d + 1 < gain.len() {
+        d += 1;
+        gain[d] = on_square - gain[d - 1];
+        if (-gain[d - 1]).max(gain[d]) < 0 {
+            break;
+        }
+        let Some((sq, pt)) = x.pop_least(board, side) else {
+            break;
+        };
+        on_square = pt.base_value();
+        occupied &= !crate::types::Bitboard::from_u128(1u128 << sq);
+        let used = Position::from_index(sq);
+        // A piece off every line through the target (a knight always) uncovers nothing.
+        if on_line(used, to) {
+            x.uncover(board, to, used, occupied);
+        }
+        side = side.opposite();
+    }
     while d > 1 {
         d -= 1;
         gain[d - 1] = -((-gain[d - 1]).max(gain[d]));
@@ -945,6 +1219,71 @@ mod tests {
             }
         }
         assert!(nonzero > 1000, "{compared} {nonzero}");
+    }
+
+    /// The promoted minors move as a gold, for both colours on every square
+    /// (`Exchange::attackers_of` looks up the gold pattern for all five).
+    #[test]
+    fn promoted_minors_move_as_gold() {
+        let board = BitboardBoard::new();
+        for idx in 0..81u8 {
+            let sq = Position::from_index(idx);
+            for player in [Player::Black, Player::White] {
+                let gold = board.get_attack_pattern_precomputed(sq, PieceType::Gold, player);
+                for pt in [
+                    PieceType::PromotedPawn,
+                    PieceType::PromotedLance,
+                    PieceType::PromotedKnight,
+                    PieceType::PromotedSilver,
+                ] {
+                    assert_eq!(board.get_attack_pattern_precomputed(sq, pt, player), gold, "{pt:?} {idx}");
+                }
+            }
+        }
+    }
+
+    /// The bitboard exchange (S45) picks the pieces the list version picked: equal values
+    /// for every legal move, quiet and capture, along random games, with and without the
+    /// magic table. Counts positions where equal-valued attackers of one side compete, so
+    /// the tie order is exercised.
+    #[test]
+    fn exchange_matches_attack_list() {
+        let mg = MoveGenerator::new();
+        let mut rng = rand::rngs::StdRng::seed_from_u64(4545);
+        let (mut compared, mut nonzero, mut ties) = (0u64, 0u64, 0u64);
+        for _ in 0..60 {
+            let mut board = BitboardBoard::new();
+            let mut captured = CapturedPieces::new();
+            let mut player = Player::Black;
+            for _ in 0..200 {
+                for m in mg.generate_legal_moves(&board, player, &captured) {
+                    let first = m.captured_piece.map_or(0, |p| p.piece_type.base_value());
+                    let list = AttackList::attackers_of(m.to, &board);
+                    let mut vals: Vec<(Player, i32)> =
+                        list.as_slice().iter().map(|(_, p)| (p.player, p.piece_type.base_value())).collect();
+                    vals.sort_unstable_by_key(|&(pl, v)| (pl as u8, v));
+                    ties += vals.windows(2).any(|w| w[0] == w[1]) as u64;
+                    for raycast in [false, true] {
+                        FORCE_RAYCAST.with(|f| f.set(raycast));
+                        let list = AttackList::attackers_of(m.to, &board);
+                        let x = Exchange::attackers_of(m.to, &board);
+                        for g in [0, first] {
+                            let want = swap_value_from(list, &m, &board, g);
+                            let got = exchange_from(x, &m, &board, g);
+                            assert_eq!(got, want, "{} raycast {raycast}", m.to_usi_string());
+                            compared += 1;
+                            nonzero += (got != g) as u64;
+                        }
+                        FORCE_RAYCAST.with(|f| f.set(false));
+                    }
+                }
+                let legal = mg.generate_legal_moves(&board, player, &captured);
+                let Some(m) = legal.choose(&mut rng) else { break };
+                board.make_move_with_hand(m, &mut captured);
+                player = player.opposite();
+            }
+        }
+        assert!(nonzero > 10_000 && ties > 10_000, "{compared} {nonzero} {ties}");
     }
 
     /// Without a magic table, SEE must give the values it gives with one: its

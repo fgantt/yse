@@ -1571,13 +1571,17 @@ impl NNUEAccumulator {
     /// material from its own side, so for a material PSQT the two halves agree
     /// and this is just `stm.psqt`.
     pub fn evaluate_dual(stm: &Self, nstm: &Self, weights: &NNUEWeights) -> i32 {
-        let mut act = [0i32; MAX_ACTIVATIONS];
+        // Not zeroed first: every entry read is written below (S45: zeroing the 2 KB buffer
+        // was ~2% of search time).
+        let mut buf = [std::mem::MaybeUninit::<i32>::uninit(); MAX_ACTIVATIONS];
         let h1 = stm.hidden_1.len().min(MAX_ACTIVATIONS / 2);
         for i in 0..h1 {
-            act[i] = (stm.hidden_1[i] + weights.hidden_biases_1[i]).max(0);
-            act[h1 + i] = (nstm.hidden_1[i] + weights.hidden_biases_1[i]).max(0);
+            buf[i].write((stm.hidden_1[i] + weights.hidden_biases_1[i]).max(0));
+            buf[h1 + i].write((nstm.hidden_1[i] + weights.hidden_biases_1[i]).max(0));
         }
-        forward_from_activations(&act[..2 * h1], weights) + (stm.psqt - nstm.psqt) / 2
+        // SAFETY: entries 0..2*h1 were all written just above.
+        let act = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<i32>(), 2 * h1) };
+        forward_from_activations(act, weights) + (stm.psqt - nstm.psqt) / 2
     }
 
     /// [`Self::evaluate_dual`] for a network with a threat block at row `base`
@@ -1861,29 +1865,33 @@ fn x86_has_avx2() -> bool {
     *AVX2.get_or_init(|| std::arch::is_x86_feature_detected!("avx2"))
 }
 
-/// Most rows of the activated first layer that layer 2 takes in one call.
-const L2_MAX_ROWS: usize = 2 * DEFAULT_HIDDEN_SIZE_1;
+/// Rows (NEON) or row pairs (x86) listed per pass of the layer-2 kernels. Small, because the
+/// list is zeroed on every pass and the kernels run once per block of [`L2_BLOCK_ROWS`] rows:
+/// a list for the whole layer (512 entries) cost a 1 KB clear per block, ~6% of search time.
+const L2_NZ_CHUNK: usize = L2_BLOCK_ROWS;
 
-/// Indices of the row pairs with a non-zero activation, written to `out` without branches
-/// (S45: about 69% of activations are zero in no regular pattern, so testing each pair in the
-/// multiply loop mispredicted about half the time). Returns their count.
+/// Indices of the row pairs `start..end` (at most [`L2_NZ_CHUNK`]) with a non-zero
+/// activation, written to `out` without branches (S45: about 69% of activations are zero in
+/// no regular pattern, so testing each pair in the multiply loop mispredicted about half the
+/// time). Returns their count.
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
-fn nonzero_pairs(activated_1: &[i32], n_pairs: usize, out: &mut [u16; L2_MAX_ROWS]) -> usize {
+fn nonzero_pairs(activated_1: &[i32], start: usize, end: usize, out: &mut [u16; L2_NZ_CHUNK]) -> usize {
     let mut n = 0;
-    for p in 0..n_pairs.min(L2_MAX_ROWS) {
+    for p in start..end.min(start + L2_NZ_CHUNK) {
         out[n] = p as u16;
         n += usize::from(pair_lane(activated_1, p) != 0);
     }
     n
 }
 
-/// Indices of the non-zero activations among the first `rows`, as [`nonzero_pairs`].
+/// Indices (relative to the slice) of the non-zero activations among the first `rows` (at
+/// most [`L2_NZ_CHUNK`]), as [`nonzero_pairs`].
 #[cfg_attr(not(target_arch = "aarch64"), allow(dead_code))]
 #[inline(always)]
-fn nonzero_rows(activated_1: &[i32], rows: usize, out: &mut [u16; L2_MAX_ROWS]) -> usize {
+fn nonzero_rows(activated_1: &[i32], rows: usize, out: &mut [u16; L2_NZ_CHUNK]) -> usize {
     let mut n = 0;
-    for (i, &a) in activated_1[..rows.min(L2_MAX_ROWS)].iter().enumerate() {
+    for (i, &a) in activated_1[..rows.min(L2_NZ_CHUNK)].iter().enumerate() {
         out[n] = i as u16;
         n += usize::from(a != 0);
     }
@@ -1904,20 +1912,22 @@ fn layer_2_pairs_sse2(activated_1: &[i32], pairs: &[i16], h2: &mut [i32; DEFAULT
     use std::arch::x86_64::*;
     const _: () = assert!(DEFAULT_HIDDEN_SIZE_2 == 32);
     let n_pairs = activated_1.len().div_ceil(2);
-    assert!(pairs.len() >= n_pairs * 64 && n_pairs <= L2_MAX_ROWS);
+    assert!(pairs.len() >= n_pairs * 64);
     // SAFETY: SSE2 is part of the x86_64 baseline; every load reads 8 i16 inside the pair's 64
     // entries (checked above), unaligned loads; the stores write h2's 32 i32 in 4-lane blocks.
     unsafe {
         let mut acc: [__m128i; 8] = std::array::from_fn(|k| _mm_loadu_si128(h2.as_ptr().add(4 * k).cast()));
-        let mut nz = [0u16; L2_MAX_ROWS];
-        let n_nz = nonzero_pairs(activated_1, n_pairs, &mut nz);
-        for &p in &nz[..n_nz] {
-            let p = usize::from(p);
-            let a = _mm_set1_epi32(pair_lane(activated_1, p));
-            let base = pairs.as_ptr().add(p * 64);
-            for (k, slot) in acc.iter_mut().enumerate() {
-                let w = _mm_loadu_si128(base.add(8 * k).cast());
-                *slot = _mm_add_epi32(*slot, _mm_madd_epi16(w, a));
+        for start in (0..n_pairs).step_by(L2_NZ_CHUNK) {
+            let mut nz = [0u16; L2_NZ_CHUNK];
+            let n_nz = nonzero_pairs(activated_1, start, n_pairs, &mut nz);
+            for &p in &nz[..n_nz] {
+                let p = usize::from(p);
+                let a = _mm_set1_epi32(pair_lane(activated_1, p));
+                let base = pairs.as_ptr().add(p * 64);
+                for (k, slot) in acc.iter_mut().enumerate() {
+                    let w = _mm_loadu_si128(base.add(8 * k).cast());
+                    *slot = _mm_add_epi32(*slot, _mm_madd_epi16(w, a));
+                }
             }
         }
         for (k, v) in acc.iter().enumerate() {
@@ -1931,19 +1941,21 @@ fn layer_2_pairs_sse2(activated_1: &[i32], pairs: &[i16], h2: &mut [i32; DEFAULT
 unsafe fn layer_2_pairs_avx2(activated_1: &[i32], pairs: &[i16], h2: &mut [i32; DEFAULT_HIDDEN_SIZE_2]) {
     use std::arch::x86_64::*;
     let n_pairs = activated_1.len().div_ceil(2);
-    assert!(pairs.len() >= n_pairs * 64 && n_pairs <= L2_MAX_ROWS);
+    assert!(pairs.len() >= n_pairs * 64);
     // SAFETY: the caller detected AVX2; loads as in the SSE2 version, 16 i16 at a time.
     unsafe {
         let mut acc: [__m256i; 4] = std::array::from_fn(|k| _mm256_loadu_si256(h2.as_ptr().add(8 * k).cast()));
-        let mut nz = [0u16; L2_MAX_ROWS];
-        let n_nz = nonzero_pairs(activated_1, n_pairs, &mut nz);
-        for &p in &nz[..n_nz] {
-            let p = usize::from(p);
-            let a = _mm256_set1_epi32(pair_lane(activated_1, p));
-            let base = pairs.as_ptr().add(p * 64);
-            for (k, slot) in acc.iter_mut().enumerate() {
-                let w = _mm256_loadu_si256(base.add(16 * k).cast());
-                *slot = _mm256_add_epi32(*slot, _mm256_madd_epi16(w, a));
+        for start in (0..n_pairs).step_by(L2_NZ_CHUNK) {
+            let mut nz = [0u16; L2_NZ_CHUNK];
+            let n_nz = nonzero_pairs(activated_1, start, n_pairs, &mut nz);
+            for &p in &nz[..n_nz] {
+                let p = usize::from(p);
+                let a = _mm256_set1_epi32(pair_lane(activated_1, p));
+                let base = pairs.as_ptr().add(p * 64);
+                for (k, slot) in acc.iter_mut().enumerate() {
+                    let w = _mm256_loadu_si256(base.add(16 * k).cast());
+                    *slot = _mm256_add_epi32(*slot, _mm256_madd_epi16(w, a));
+                }
             }
         }
         for (k, v) in acc.iter().enumerate() {
@@ -1972,8 +1984,8 @@ fn layer_2_neon_i32(activated_1: &[i32], flat: &[i16], h2: &mut [i32; DEFAULT_HI
         // branch-free multiply loop over them, alternating the two accumulator sets.
         let mut start = 0;
         while start < rows {
-            let len = (rows - start).min(L2_MAX_ROWS);
-            let mut nz = [0u16; L2_MAX_ROWS];
+            let len = (rows - start).min(L2_NZ_CHUNK);
+            let mut nz = [0u16; L2_NZ_CHUNK];
             let n = nonzero_rows(&activated_1[start..], len, &mut nz);
             let mut j = 0;
             while j + 1 < n {
