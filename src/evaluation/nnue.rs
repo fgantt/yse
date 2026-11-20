@@ -1861,6 +1861,35 @@ fn x86_has_avx2() -> bool {
     *AVX2.get_or_init(|| std::arch::is_x86_feature_detected!("avx2"))
 }
 
+/// Most rows of the activated first layer that layer 2 takes in one call.
+const L2_MAX_ROWS: usize = 2 * DEFAULT_HIDDEN_SIZE_1;
+
+/// Indices of the row pairs with a non-zero activation, written to `out` without branches
+/// (S45: about 69% of activations are zero in no regular pattern, so testing each pair in the
+/// multiply loop mispredicted about half the time). Returns their count.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+fn nonzero_pairs(activated_1: &[i32], n_pairs: usize, out: &mut [u16; L2_MAX_ROWS]) -> usize {
+    let mut n = 0;
+    for p in 0..n_pairs.min(L2_MAX_ROWS) {
+        out[n] = p as u16;
+        n += usize::from(pair_lane(activated_1, p) != 0);
+    }
+    n
+}
+
+/// Indices of the non-zero activations among the first `rows`, as [`nonzero_pairs`].
+#[cfg_attr(not(target_arch = "aarch64"), allow(dead_code))]
+#[inline(always)]
+fn nonzero_rows(activated_1: &[i32], rows: usize, out: &mut [u16; L2_MAX_ROWS]) -> usize {
+    let mut n = 0;
+    for (i, &a) in activated_1[..rows.min(L2_MAX_ROWS)].iter().enumerate() {
+        out[n] = i as u16;
+        n += usize::from(a != 0);
+    }
+    n
+}
+
 /// The two activations of row pair `p` as one 32-bit lane: `a0` low, `a1` high (both fit i16).
 #[cfg(target_arch = "x86_64")]
 #[inline(always)]
@@ -1875,17 +1904,16 @@ fn layer_2_pairs_sse2(activated_1: &[i32], pairs: &[i16], h2: &mut [i32; DEFAULT
     use std::arch::x86_64::*;
     const _: () = assert!(DEFAULT_HIDDEN_SIZE_2 == 32);
     let n_pairs = activated_1.len().div_ceil(2);
-    assert!(pairs.len() >= n_pairs * 64);
+    assert!(pairs.len() >= n_pairs * 64 && n_pairs <= L2_MAX_ROWS);
     // SAFETY: SSE2 is part of the x86_64 baseline; every load reads 8 i16 inside the pair's 64
     // entries (checked above), unaligned loads; the stores write h2's 32 i32 in 4-lane blocks.
     unsafe {
         let mut acc: [__m128i; 8] = std::array::from_fn(|k| _mm_loadu_si128(h2.as_ptr().add(4 * k).cast()));
-        for p in 0..n_pairs {
-            let lane = pair_lane(activated_1, p);
-            if lane == 0 {
-                continue;
-            }
-            let a = _mm_set1_epi32(lane);
+        let mut nz = [0u16; L2_MAX_ROWS];
+        let n_nz = nonzero_pairs(activated_1, n_pairs, &mut nz);
+        for &p in &nz[..n_nz] {
+            let p = usize::from(p);
+            let a = _mm_set1_epi32(pair_lane(activated_1, p));
             let base = pairs.as_ptr().add(p * 64);
             for (k, slot) in acc.iter_mut().enumerate() {
                 let w = _mm_loadu_si128(base.add(8 * k).cast());
@@ -1903,16 +1931,15 @@ fn layer_2_pairs_sse2(activated_1: &[i32], pairs: &[i16], h2: &mut [i32; DEFAULT
 unsafe fn layer_2_pairs_avx2(activated_1: &[i32], pairs: &[i16], h2: &mut [i32; DEFAULT_HIDDEN_SIZE_2]) {
     use std::arch::x86_64::*;
     let n_pairs = activated_1.len().div_ceil(2);
-    assert!(pairs.len() >= n_pairs * 64);
+    assert!(pairs.len() >= n_pairs * 64 && n_pairs <= L2_MAX_ROWS);
     // SAFETY: the caller detected AVX2; loads as in the SSE2 version, 16 i16 at a time.
     unsafe {
         let mut acc: [__m256i; 4] = std::array::from_fn(|k| _mm256_loadu_si256(h2.as_ptr().add(8 * k).cast()));
-        for p in 0..n_pairs {
-            let lane = pair_lane(activated_1, p);
-            if lane == 0 {
-                continue;
-            }
-            let a = _mm256_set1_epi32(lane);
+        let mut nz = [0u16; L2_MAX_ROWS];
+        let n_nz = nonzero_pairs(activated_1, n_pairs, &mut nz);
+        for &p in &nz[..n_nz] {
+            let p = usize::from(p);
+            let a = _mm256_set1_epi32(pair_lane(activated_1, p));
             let base = pairs.as_ptr().add(p * 64);
             for (k, slot) in acc.iter_mut().enumerate() {
                 let w = _mm256_loadu_si256(base.add(16 * k).cast());
@@ -1941,37 +1968,40 @@ fn layer_2_neon_i32(activated_1: &[i32], flat: &[i16], h2: &mut [i32; DEFAULT_HI
         let mut acc: [int32x4_t; 8] = std::array::from_fn(|k| vld1q_s32(h2.as_ptr().add(4 * k)));
         let mut acc_odd: [int32x4_t; 8] = [vdupq_n_s32(0); 8];
         let rows = activated_1.len().min(flat.len() / DEFAULT_HIDDEN_SIZE_2);
-        let mut i = 0;
-        while i + 1 < rows {
-            let (a0, a1) = (*activated_1.get_unchecked(i), *activated_1.get_unchecked(i + 1));
-            let p = flat.as_ptr().add(i * DEFAULT_HIDDEN_SIZE_2);
-            if a0 != 0 {
+        // The non-zero rows first, without branches (see `nonzero_pairs`), then a
+        // branch-free multiply loop over them, alternating the two accumulator sets.
+        let mut start = 0;
+        while start < rows {
+            let len = (rows - start).min(L2_MAX_ROWS);
+            let mut nz = [0u16; L2_MAX_ROWS];
+            let n = nonzero_rows(&activated_1[start..], len, &mut nz);
+            let mut j = 0;
+            while j + 1 < n {
+                let (i0, i1) = (start + usize::from(nz[j]), start + usize::from(nz[j + 1]));
+                let (a0, a1) = (*activated_1.get_unchecked(i0) as i16, *activated_1.get_unchecked(i1) as i16);
+                let (p0, p1) =
+                    (flat.as_ptr().add(i0 * DEFAULT_HIDDEN_SIZE_2), flat.as_ptr().add(i1 * DEFAULT_HIDDEN_SIZE_2));
                 for k in 0..4 {
-                    let w = vld1q_s16(p.add(8 * k));
-                    acc[2 * k] = vmlal_n_s16(acc[2 * k], vget_low_s16(w), a0 as i16);
-                    acc[2 * k + 1] = vmlal_high_n_s16(acc[2 * k + 1], w, a0 as i16);
+                    let w0 = vld1q_s16(p0.add(8 * k));
+                    acc[2 * k] = vmlal_n_s16(acc[2 * k], vget_low_s16(w0), a0);
+                    acc[2 * k + 1] = vmlal_high_n_s16(acc[2 * k + 1], w0, a0);
+                    let w1 = vld1q_s16(p1.add(8 * k));
+                    acc_odd[2 * k] = vmlal_n_s16(acc_odd[2 * k], vget_low_s16(w1), a1);
+                    acc_odd[2 * k + 1] = vmlal_high_n_s16(acc_odd[2 * k + 1], w1, a1);
+                }
+                j += 2;
+            }
+            if j < n {
+                let i0 = start + usize::from(nz[j]);
+                let a0 = *activated_1.get_unchecked(i0) as i16;
+                let p0 = flat.as_ptr().add(i0 * DEFAULT_HIDDEN_SIZE_2);
+                for k in 0..4 {
+                    let w0 = vld1q_s16(p0.add(8 * k));
+                    acc[2 * k] = vmlal_n_s16(acc[2 * k], vget_low_s16(w0), a0);
+                    acc[2 * k + 1] = vmlal_high_n_s16(acc[2 * k + 1], w0, a0);
                 }
             }
-            if a1 != 0 {
-                let p = p.add(DEFAULT_HIDDEN_SIZE_2);
-                for k in 0..4 {
-                    let w = vld1q_s16(p.add(8 * k));
-                    acc_odd[2 * k] = vmlal_n_s16(acc_odd[2 * k], vget_low_s16(w), a1 as i16);
-                    acc_odd[2 * k + 1] = vmlal_high_n_s16(acc_odd[2 * k + 1], w, a1 as i16);
-                }
-            }
-            i += 2;
-        }
-        if i < rows {
-            let a0 = *activated_1.get_unchecked(i);
-            if a0 != 0 {
-                let p = flat.as_ptr().add(i * DEFAULT_HIDDEN_SIZE_2);
-                for k in 0..4 {
-                    let w = vld1q_s16(p.add(8 * k));
-                    acc[2 * k] = vmlal_n_s16(acc[2 * k], vget_low_s16(w), a0 as i16);
-                    acc[2 * k + 1] = vmlal_high_n_s16(acc[2 * k + 1], w, a0 as i16);
-                }
-            }
+            start += len;
         }
         for k in 0..8 {
             vst1q_s32(h2.as_mut_ptr().add(4 * k), vaddq_s32(acc[k], acc_odd[k]));
