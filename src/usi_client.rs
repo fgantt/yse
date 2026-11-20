@@ -43,6 +43,8 @@ pub struct SearchResult {
     pub depth: Option<u32>,
     pub nodes: Option<u64>,
     pub time_ms: Option<u64>,
+    /// Every `info` line with a `depth` field, in the order received (for per-move logs).
+    pub info_lines: Vec<String>,
 }
 
 impl SearchResult {
@@ -243,6 +245,9 @@ impl UsiEngine {
             }
             if let Some(rest) = trimmed.strip_prefix("info ") {
                 parse_info_line(rest, &mut result);
+                if rest.split_whitespace().any(|t| t == "depth") {
+                    result.info_lines.push(rest.to_string());
+                }
             } else if let Some(rest) = trimmed.strip_prefix("bestmove ") {
                 let parts: Vec<&str> = rest.split_whitespace().collect();
                 if parts.is_empty() {

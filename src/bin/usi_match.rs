@@ -98,6 +98,26 @@ struct Cli {
     /// (reason "time"). Off when absent: think time is only reported.
     #[arg(long)]
     time_loss_ms: Option<u32>,
+    /// Clock games, as the GUI plays them: this much main time per side (ms), then
+    /// `--byoyomi` per move. Every `go` sends both remaining clocks
+    /// (`btime .. wtime .. byoyomi ..`); `--go-a/--go-b` are then not allowed. With
+    /// `--time-loss-ms`, a move longer than the mover's main time left + byoyomi + that
+    /// allowance loses on time.
+    #[arg(long, conflicts_with_all = ["go_a", "go_b"])]
+    main_ms: Option<u64>,
+    /// Per-move log, one JSON object per move: game, ply, mover, think time, both clocks
+    /// before the move, the move, and the mover's info lines (depth, score, pv, hashfull...).
+    #[arg(long)]
+    move_log: Option<PathBuf>,
+}
+
+/// A running clock for both colours (`--main-ms`).
+#[derive(Clone, Copy)]
+struct Clock {
+    main_ms: u64,
+    byoyomi_ms: u64,
+    /// Allowance over main time left + byoyomi before a move loses on time.
+    loss_allowance_ms: Option<u64>,
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -137,7 +157,11 @@ fn play(
     opening: &[String],
     max_moves: u32,
     start_sfen: Option<&str>,
+    clock: Option<Clock>,
+    mut log: Option<(&mut std::fs::File, u32)>,
 ) -> Result<(Res, u32, String, Vec<String>), Box<dyn std::error::Error>> {
+    // Main time left for Black and White.
+    let mut left = [clock.map_or(0, |c| c.main_ms); 2];
     let mg = MoveGenerator::new();
     let hasher = ShogiHashHandler::new_default();
     let (mut board, mut player, mut captured) = match start_sfen {
@@ -173,16 +197,45 @@ fn play(
         }
         let side = if a_is(player) { &mut *a } else { &mut *b };
         side.engine.set_position(start_sfen, &moves)?;
+        let go = match clock {
+            Some(c) => format!("btime {} wtime {} byoyomi {}", left[0], left[1], c.byoyomi_ms),
+            None => side.go.clone(),
+        };
         let t0 = Instant::now();
-        let result = side.engine.go_with(&side.go)?;
+        let result = side.engine.go_with(&go)?;
         let took = t0.elapsed().as_millis();
+        let mover = usize::from(player == Player::White);
+        let left_before = left;
+        if let Some((file, game)) = log.as_mut() {
+            let entry = serde_json::json!({
+                "game": game, "ply": moves.len() + 1, "mover": if a_is(player) { "A" } else { "B" },
+                "color": if player == Player::Black { "b" } else { "w" }, "ms": took as u64,
+                "btime": left_before[0], "wtime": left_before[1], "move": result.bestmove.trim(),
+                "info": result.info_lines,
+            });
+            writeln!(file, "{entry}")?;
+        }
+        if let Some(c) = clock {
+            let took = took as u64;
+            if let Some(allow) = c.loss_allowance_ms {
+                if took > left[mover] + c.byoyomi_ms + allow {
+                    return Ok((
+                        win_for(player.opposite()),
+                        moves.len() as u32,
+                        format!("time ({took} ms, {} ms main left)", left[mover]),
+                        moves,
+                    ));
+                }
+            }
+            left[mover] = left[mover].saturating_sub(took);
+        }
         side.max_think_ms = side.max_think_ms.max(took);
         side.total_think_ms += took;
         side.think_moves += 1;
         if side.time_limit_ms.is_some_and(|limit| took > limit) {
             return Ok((win_for(player.opposite()), moves.len() as u32, format!("time ({took} ms)"), moves));
         }
-        if took > 2000 && side.go.contains("byoyomi") {
+        if clock.is_none() && took > 2000 && side.go.contains("byoyomi") {
             eprintln!(
                 "SLOW MOVE {} ms ({}): position startpos moves {}",
                 took,
@@ -294,8 +347,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let byoyomi: u128 = words.next()?.parse().ok()?;
         Some(byoyomi + u128::from(allowance))
     };
-    a.time_limit_ms = time_limit(&a.go);
-    b.time_limit_ms = time_limit(&b.go);
+    let clock = cli.main_ms.map(|main_ms| Clock {
+        main_ms,
+        byoyomi_ms: u64::from(cli.byoyomi),
+        loss_allowance_ms: cli.time_loss_ms.map(u64::from),
+    });
+    if clock.is_none() {
+        a.time_limit_ms = time_limit(&a.go);
+        b.time_limit_ms = time_limit(&b.go);
+    } else {
+        println!("Clock: {} ms main + {} ms byoyomi per side", cli.main_ms.unwrap_or(0), cli.byoyomi);
+    }
+    let mut move_log = match &cli.move_log {
+        Some(p) => Some(std::fs::OpenOptions::new().create(true).append(true).open(p)?),
+        None => None,
+    };
     println!("A: {} (go {})", cli.engine_a.display(), a.go);
     println!("B: {} (go {})", cli.engine_b.display(), b.go);
     if let (Some(la), Some(lb)) = (a.time_limit_ms, b.time_limit_ms) {
@@ -327,7 +393,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for k in 0..2 {
             let a_black = k == 0;
             let before = (a.total_think_ms, a.think_moves, b.total_think_ms, b.think_moves);
-            let (res, n, why, record) = play(&mut a, &mut b, a_black, &opening, cli.max_moves, cli.start_sfen.as_deref())?;
+            let g = p * 2 + k + 1;
+            let (res, n, why, record) = play(
+                &mut a,
+                &mut b,
+                a_black,
+                &opening,
+                cli.max_moves,
+                cli.start_sfen.as_deref(),
+                clock,
+                move_log.as_mut().map(|f| (f, g)),
+            )?;
             match res {
                 Res::AWin => {
                     w += 1;
@@ -339,7 +415,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     pts += 0.5
                 }
             }
-            let g = p * 2 + k + 1;
             writeln!(
                 csv,
                 "{},{},{:?},{},{},{},{},{},{},{}",

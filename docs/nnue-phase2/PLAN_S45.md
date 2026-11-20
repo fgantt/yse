@@ -89,3 +89,42 @@ they are selected for a1's misjudgments; scales differ somewhat between engines.
 `engines/usi-engine-2b99c36`). Fingerprint on the shipped build: 0 of 40 positions differ from
 2b99c36 (g1108 plies 30-69, 200k nodes). Search unchanged, so no gate. On the PC the kernel is
 neutral (0.99x); the PC's speed work waits on a profile.
+
+## 8. PC profile of the shipped code (2026-11-20)
+
+Linux build of 0425008's source in WSL (`~/yse-s45prof`, native), samply, one middlegame, 20 s
+(`matches/s45/pcprof/top1t.txt`, `top16t.txt`; same script and position as PLAN_S44 §2).
+1-thread nps **339k** (S43 profile: 254k), 16 threads 3.07M.
+
+| Area | 1 thread | Largest items |
+|---|---|---|
+| NNUE | 27.2% | layer 2 16.7% (AVX2 pairs kernel, inlined), forward 4.7%, make_move 3.3%, refresh 1.6% |
+| SEE | 23.2% | `attackers_of` 8.8%, `add_sliders` 6.3%, `swap_value_from` 2.9%, `see_quiet` 2.9%, `order_see` 2.2% |
+| Legality and move generation | 20.0% | `MoveTestFilter::test` 5.5%, per-piece generation ~4.3%, attack patterns 1.8% |
+| Hashing and correction keys | 6.0% | `lean_corr::keys` 3.4%, `hand_hash` 2.3% |
+| Ordering | 3.8% | `quiet_score` 2.0%, sort 1.8% |
+
+16 threads: the same order (layer 2 17.3%, `attackers_of` 7.7%, `add_sliders` 6.9%). On the PC
+layer 2 is already a vector kernel, hence no gain from §5; SEE is the largest part not yet
+reworked: a list of (square, piece) pairs rebuilt per target square, copied per move and searched
+linearly, where a bitboard exchange (attackers as one bitboard, least valuable by piece-type
+masks) is the usual form.
+
+## 9. Full games at the user's settings (PC, from 2026-11-20)
+
+The user: why not play full games as on the PC and study our decisions against YaneuraOu? Short
+tests measure Elo (300-500 games); full games (~2.5-3 h each, one at a time) cannot, but they are
+the only place the long-time-control mechanisms act: the 30 s re-search limit, time allocation
+(remaining/30, no extension on instability), the hash filling at 100M+ nodes per move.
+
+- Harness: `usi_match --main-ms N --byoyomi B` (running clocks, `go btime .. wtime .. byoyomi ..`,
+  as the GUI sends; `ysu/src/components/GamePage.tsx:1672`), `--move-log` (per move: think time,
+  clocks, every info line of the mover). `src/bin/usi_match.rs`, `src/usi_client.rs` (`info_lines`).
+- Run `f1` (`matches/s45/full/`, PC `/mnt/c/Users/fgant/s45full/`): ours (0425008 code, Windows
+  build `yse-s45clock`, md5 183a2fea…) vs YaneuraOu V9 AVX512VNNI + Suisho5 (FV_SCALE 24), both 16
+  threads, 256 MB, otherwise engine defaults; 60 min + 10 s byoyomi; 2 random plies then free play;
+  up to 20 games, seed 50510; started 2026-11-20 07:44. Stop on request when the user wants the PC.
+- After each game: Suisho5 judge curve, the decisive moves, each classed as evaluation / depth /
+  time management / hash, from our logged depth, score, PV and time. Our engine does not report
+  `hashfull`, so the hash class needs a replay: the decisive positions re-searched for the logged
+  time at 256 vs 1024 MB.
