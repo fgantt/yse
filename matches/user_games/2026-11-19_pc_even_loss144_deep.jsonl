@@ -1,0 +1,5 @@
+{"ply": 45, "played": "8h7g", "yo_top": [["8h7g", 23, 28], ["2d2c+", 7, 28], ["3f2f", 0, 28], ["9f9e", 0, 28], ["1g1f", -2, 27]], "yo_6i7i": ["6i7i", -22, 34], "ours": "8h7g", "ours_info": "depth 23 score cp 0 nodes 269334272"}
+{"ply": 51, "played": "4f5e", "yo_top": [["6i7i", -21, 25], ["4f5e", -42, 25], ["6g6f", -64, 25], ["1g1f", -170, 25], ["3f2f", -168, 24]], "ours": "4f5e", "ours_info": "depth 30 score cp 0 nodes 298055168"}
+{"ply": 53, "played": "P*5d", "yo_top": [["6i7i", -22, 25], ["P*5d", -38, 25], ["1g1f", -51, 25], ["6g6f", -83, 25], ["9f9e", -153, 25]], "ours": "P*5d", "ours_info": "depth 24 score cp -4 nodes 219255296"}
+{"ply": 55, "played": "7g6f", "yo_top": [["6g6f", -83, 24], ["1g1f", -203, 24], ["7g6f", -210, 24], ["5h5i", -105, 23], ["9f9e", -222, 23]], "yo_6i7i": ["6i7i", -352, 29], "ours": "7g6f", "ours_info": "depth 23 score cp 80 nodes 289318912"}
+{"ply": 57, "played": "P*3e", "yo_top": [["3f5f", -154, 23], ["8i7g", -161, 23], ["7f7e", -167, 23], ["6i7i", -253, 23], ["6h9e", -225, 22]], "yo_P*3e": ["8i7g", -154, 28], "ours": "8i7g", "ours_info": "depth 23 score cp -32 nodes 278988800"}

@@ -1297,3 +1297,35 @@ Members: Claude Opus 5.5 (high), GPT-6.2 Sol (high), Gemini 4 Argon (high). Brie
 - **Not adopted:** Gemini's "x86 fallback is scalar" (the inner 32-wide loop vectorises; the
   missing piece is a 16-bit multiply-add kernel); its k "already 8-10x" (speculation); its 4-6 week
   timeline and 2x speed (no basis given).
+
+## Council (2026-11-19, direction: what next after the S44 speed ship, a win and two losses)
+
+Members: Claude Opus 5.5, GPT-6.2 Sol, Gemini 4 Argon (high effort). Brief:
+`matches/s44/council_r11_brief.md` (includes test 1: 4x the game's time changed none of three
+decisive choices; move 79 of the 11-19 Mac loss kept score 0).
+
+- **Agreed, adopted:** first find out why the engine scores a lost position (Suisho5 −200 ..
+  −1338) as exactly 0. All three point at the main table storing repetition scores by position
+  key: `lean.rs:1036-1042` excludes only hand-rule ±30000 scores, while quiescence refuses to
+  store results that met a repetition (`lean.rs:1715`). Gemini adds `corr_learnable`
+  (`lean.rs:1172`) learning from them. Checked by the lead: both read as described. Lead's trace
+  (PC, 16 threads, `SHOGI_DIAG_ASPIRATION`, clock 2400 s + 10 s): with the game history, score
+  exactly 0 at every depth 10-19, then depth 20 fails low (−200) and is not re-searched; from the
+  bare SFEN (no history) the same: 0 at depths 12-18, depth 19 fails low, not re-searched,
+  bestmove 3i4h with "score 0". So the 0 comes from the search, not from the game's history.
+- **Agreed:** time management is worth doing, tested with main time (not the 1 s byoyomi gate).
+  Gemini found a hard-coded 30 s per-iteration limit on aspiration re-searches
+  (`search_engine.rs:16514-16548`; checked: a re-search after a fail-high/low is skipped once an
+  iteration has run 30 s, keeping the previous depth's move). In 90 s game moves the last fail-low
+  is then never acted on; the gate (1 s) never reaches it. Also no instability/score-drop extension
+  (all three), and `cap` in `allocate_ms` is dead (Gemini; `time/30 ≤ time/4`, harmless).
+- **Agreed:** speed round 2 still pays (+74 per 0.42 doublings), but re-profile the shipped build
+  first; per-ISA builds (+9% PC). Gemini ranks it first; adopted as second, after the 0 score.
+- **Agreed:** separate evaluation from search on these positions with our search + halfkpvm
+  (`yo-diagnostic`) before any network work (all three).
+- **Merged/dropped:** 4 → 16-thread scaling as a separate run (the transfer test already shows
+  gains grow); yardstick recalibration folded into the next yardstick (50k + a higher rung, FV 24).
+- **Not adopted:** Opus's "87-115 s per move doesn't fit the formula" (remaining/30 + 10 s gives
+  130 s at the start and ~90 s at 2400 s left: it fits); Gemini's claim that a1's 9 king buckets
+  blind it in king attacks (speculation; p81 trailed p9, SESSION_LOG_036); its +25-50 Elo for time
+  management and 65-80% pass odds (no basis given).
