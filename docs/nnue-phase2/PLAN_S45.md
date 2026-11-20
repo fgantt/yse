@@ -128,3 +128,48 @@ the only place the long-time-control mechanisms act: the 30 s re-search limit, t
   time management / hash, from our logged depth, score, PV and time. Our engine does not report
   `hashfull`, so the hash class needs a replay: the decisive positions re-searched for the logged
   time at 256 vs 1024 MB.
+
+## 10. Speed round 3 (worktree `s45see`, Mac; PC check pending)
+
+Search-identical; fixed-node fingerprint 0 of 80 positions differ from stable (g1108 plies 30-109,
+200k nodes); `cargo test --release --lib` 1170 passed. Mac speed (`speed_ab.py`, 8 positions x 1M
+nodes, 4 rounds, same node counts) vs stable (0425008):
+
+| Change | Where | Mac |
+|---|---|---|
+| Exchange evaluation on bitboards (`Exchange`): step attackers as one bitboard, sliders in small per-type queues in the order found, x-rays recomputed for the line's ray kind only; picks exactly the list version's piece (test `exchange_matches_attack_list` against it, with and without the magic table; fails on a wrong tie order or a missed x-ray) | see_calculation.rs | +6.2% |
+| Layer-2 non-zero list per 32-row block (64 bytes) instead of 512 entries: the §5 kernel cleared 1 KB per block, 16 blocks per evaluation (~6% of samples in `memset`) | nnue.rs | +6.0% |
+| Activations not zeroed before being written in full (`evaluate_dual`, 2 KB) | nnue.rs | +1.1% |
+| **Total** | | **+14.3%** |
+
+PC (2026-11-20, between full games; `matches/s45/pc_check_see.sh`, `/mnt/c/Users/fgant/s45seecheck`):
+fingerprint 0 of 40 differ, native and generic x86-64 builds; x86 unit tests 1170 passed, 1 failed
+(`test_memory_breakdown`: RSS is not read on Windows, file unchanged, not this change); the SEE and
+layer-2 tests pass in the generic build too (runtime AVX2 dispatch). Speed vs the shipped 0425008
+native build (8 positions x 1M nodes, 4 rounds): **native +7.0%, generic x86-64 +6.2%**.
+
+## 10a. Shipped (user's OK, 2026-11-20)
+
+`3eec8b3` (§10), and `engines/usi-engine-stable` = that Mac build (md5 6fd0701a…; fingerprint
+re-run on this binary: 0 of 80 differ). The previous stable is kept as `engines/usi-engine-0425008`.
+The PC full games keep the 0425008 build (`yse-s45clock`) until the run ends, so games stay
+comparable; the search is identical either way.
+
+## 11. Full game 1 (run f1, 2026-11-20 07:44-09:07): loss in 114 plies, ours Black
+
+Files: `matches/s45/full/f1.csv`, `f1.jsonl` (per move), `judge/f1_judge.jsonl` (Suisho5 on the Mac,
+8 threads, MultiPV 4 for 60 s, each candidate alone for 30 s; scores for Black).
+
+- YaneuraOu's in-game view (Suisho5, depth 27-40): level to ply 36 (−58 .. +32), then −117 (38),
+  −217 (40), −417 (46), −666 (54), lost. Ours stayed near level: +31 at ply 51 where YaneuraOu
+  said −590 (the optimism of §4).
+- Depth and time: plies 41-80, ours 52 s per move for depth 21-23, YaneuraOu 23 s for depth 27-28
+  (its nps ~4x ours at 16 threads). Our allocation (remaining/30 + byoyomi) spent 88 s per move in
+  plies 3-40; YaneuraOu kept ~1000 s more clock throughout.
+- Two decisive moves (judge):
+  - Ply 37 3g4e: −196, best 6g6f −10 .. −35 (our score for 3g4e: +58).
+  - Ply 45 5c4a+: −447 vs **4f4d −292**, the main thread's choice all through its search (depth
+    22-23, score falling −40, −99, −129). A Lazy SMP helper replaced it: `LazyHelpers::finish`
+    plays a helper move when the helper completed a deeper iteration with a higher score than the
+    main thread's (`lazy_smp.rs:115`, `search_engine.rs:17169`); here the main score was a falling
+    one. Helper moves replaced the main thread's on 4 of our 56 moves (plies 5, 9, 45, 49).
