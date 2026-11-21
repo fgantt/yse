@@ -128,7 +128,7 @@ flate2 = "1.0"
 chrono = "0.4"
 parking_lot = "0.12"
 crossbeam-deque = "0.8"
-smallvec = "1.13"
+smallvec = { version = "1.13", features = ["const_generics", "serde"] }
 memmap2 = "0.9"
 sysinfo = "0.29"
 

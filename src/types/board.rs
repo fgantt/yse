@@ -7,15 +7,21 @@
 use super::core::{PieceType, Player};
 use serde::{Deserialize, Serialize};
 
+/// The pieces in one side's hand, in the order they were captured (drop generation lists
+/// piece types in order of first appearance, so the order is part of the search). Inline: a
+/// side holds at most 38 pieces, so copying a hand never allocates (S45 round 4; it was a
+/// `Vec`, two heap allocations per copied `CapturedPieces`, one copy per searched move).
+pub type Hand = smallvec::SmallVec<[PieceType; 38]>;
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CapturedPieces {
-    pub black: Vec<PieceType>,
-    pub white: Vec<PieceType>,
+    pub black: Hand,
+    pub white: Hand,
 }
 
 impl CapturedPieces {
     pub fn new() -> Self {
-        Self { black: Vec::new(), white: Vec::new() }
+        Self { black: Hand::new(), white: Hand::new() }
     }
 
     pub fn add_piece(&mut self, piece_type: PieceType, player: Player) {

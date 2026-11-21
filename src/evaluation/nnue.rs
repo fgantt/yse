@@ -1825,26 +1825,36 @@ fn layer_2_blocked(
     pairs: &[i16],
     h2: &mut [i64; DEFAULT_HIDDEN_SIZE_2],
 ) {
-    let w = DEFAULT_HIDDEN_SIZE_2;
-    let have_pairs = pairs.len() == activated_1.len().div_ceil(2) * 2 * w;
-    #[cfg(target_arch = "x86_64")]
-    if have_pairs {
-        // One call for every block, 64-bit sums kept in registers (S45 round 4): the per-block
-        // calls below stored, reloaded and widened through memory 16 times per evaluation for
-        // about five multiply-adds each.
-        match x86_l2_level() {
-            // SAFETY: the level says the CPU has these features.
-            3 => unsafe { layer_2_blocked_pairs_avx512::<true>(activated_1, pairs, h2) },
-            2 => unsafe { layer_2_blocked_pairs_avx512::<false>(activated_1, pairs, h2) },
-            1 => unsafe { layer_2_blocked_pairs_avx2(activated_1, pairs, h2) },
-            _ => layer_2_blocked_chunks(activated_1, flat, pairs, have_pairs, h2),
-        }
-        return;
+    #[cfg(target_arch = "aarch64")]
+    {
+        let _ = pairs;
+        // One call for every block (S45 round 4), as on x86_64 below.
+        // SAFETY: NEON is part of the aarch64 baseline.
+        unsafe { layer_2_blocked_neon(activated_1, flat, h2) };
     }
-    layer_2_blocked_chunks(activated_1, flat, pairs, have_pairs, h2);
+    #[cfg(not(target_arch = "aarch64"))]
+    {
+        let have_pairs = pairs.len() == activated_1.len().div_ceil(2) * 2 * DEFAULT_HIDDEN_SIZE_2;
+        #[cfg(target_arch = "x86_64")]
+        if have_pairs {
+            // One call for every block, 64-bit sums kept in registers (S45 round 4): the
+            // per-block calls stored, reloaded and widened through memory 16 times per
+            // evaluation for about five multiply-adds each.
+            match x86_l2_level() {
+                // SAFETY: the level says the CPU has these features.
+                3 => unsafe { layer_2_blocked_pairs_avx512::<true>(activated_1, pairs, h2) },
+                2 => unsafe { layer_2_blocked_pairs_avx512::<false>(activated_1, pairs, h2) },
+                1 => unsafe { layer_2_blocked_pairs_avx2(activated_1, pairs, h2) },
+                _ => layer_2_blocked_chunks(activated_1, flat, pairs, have_pairs, h2),
+            }
+            return;
+        }
+        layer_2_blocked_chunks(activated_1, flat, pairs, have_pairs, h2);
+    }
 }
 
 /// The per-block path of [`layer_2_blocked`]: each block through [`layer_2_fixed_i32`].
+#[cfg_attr(target_arch = "aarch64", allow(dead_code))]
 fn layer_2_blocked_chunks(
     activated_1: &[i32],
     flat: &[i16],
@@ -2163,6 +2173,69 @@ unsafe fn layer_2_blocked_pairs_avx512_body<const VNNI: bool>(
         }
         for (k, v) in acc64.iter().enumerate() {
             _mm512_storeu_si512(h2.as_mut_ptr().add(8 * k).cast(), *v);
+        }
+    }
+}
+
+/// [`layer_2_blocked`] in one call on aarch64 (S45 round 4, as `layer_2_blocked_pairs_avx2`):
+/// per block of [`L2_BLOCK_ROWS`] rows, 32-bit sums in two register sets (even and odd non-zero
+/// rows, `smlal`), added together and widened into 64-bit sums (`saddw`) that stay in
+/// registers. The same integers as the per-block path: each set's partial sums and their total
+/// are sums over a subset of the block's rows, inside the caller's block bound; integer adds
+/// are exact in any order. Blocks are the same rows as `activated_1.chunks(L2_BLOCK_ROWS)`.
+#[cfg(target_arch = "aarch64")]
+unsafe fn layer_2_blocked_neon(activated_1: &[i32], flat: &[i16], h2: &mut [i64; DEFAULT_HIDDEN_SIZE_2]) {
+    use std::arch::aarch64::*;
+    const _: () = assert!(DEFAULT_HIDDEN_SIZE_2 == 32 && L2_BLOCK_ROWS <= L2_NZ_CHUNK);
+    let rows = activated_1.len().min(flat.len() / DEFAULT_HIDDEN_SIZE_2);
+    // SAFETY: every row index is < rows, so each row's 32 i16 are inside `flat`; h2 is 32 i64,
+    // read and written as sixteen 2-lane blocks; activations fit i16 (the caller's check).
+    unsafe {
+        let mut acc64: [int64x2_t; 16] = std::array::from_fn(|k| vld1q_s64(h2.as_ptr().add(2 * k)));
+        let mut start = 0;
+        while start < rows {
+            let len = (rows - start).min(L2_BLOCK_ROWS);
+            let mut nz = [0u16; L2_NZ_CHUNK];
+            let n = nonzero_rows(&activated_1[start..], len, &mut nz);
+            if n > 0 {
+                let mut s0: [int32x4_t; 8] = [vdupq_n_s32(0); 8];
+                let mut s1: [int32x4_t; 8] = [vdupq_n_s32(0); 8];
+                let mut j = 0;
+                while j + 1 < n {
+                    let (i0, i1) = (start + usize::from(nz[j]), start + usize::from(nz[j + 1]));
+                    let (a0, a1) = (*activated_1.get_unchecked(i0) as i16, *activated_1.get_unchecked(i1) as i16);
+                    let (p0, p1) =
+                        (flat.as_ptr().add(i0 * DEFAULT_HIDDEN_SIZE_2), flat.as_ptr().add(i1 * DEFAULT_HIDDEN_SIZE_2));
+                    for k in 0..4 {
+                        let w0 = vld1q_s16(p0.add(8 * k));
+                        s0[2 * k] = vmlal_n_s16(s0[2 * k], vget_low_s16(w0), a0);
+                        s0[2 * k + 1] = vmlal_high_n_s16(s0[2 * k + 1], w0, a0);
+                        let w1 = vld1q_s16(p1.add(8 * k));
+                        s1[2 * k] = vmlal_n_s16(s1[2 * k], vget_low_s16(w1), a1);
+                        s1[2 * k + 1] = vmlal_high_n_s16(s1[2 * k + 1], w1, a1);
+                    }
+                    j += 2;
+                }
+                if j < n {
+                    let i0 = start + usize::from(nz[j]);
+                    let a0 = *activated_1.get_unchecked(i0) as i16;
+                    let p0 = flat.as_ptr().add(i0 * DEFAULT_HIDDEN_SIZE_2);
+                    for k in 0..4 {
+                        let w0 = vld1q_s16(p0.add(8 * k));
+                        s0[2 * k] = vmlal_n_s16(s0[2 * k], vget_low_s16(w0), a0);
+                        s0[2 * k + 1] = vmlal_high_n_s16(s0[2 * k + 1], w0, a0);
+                    }
+                }
+                for k in 0..8 {
+                    let s = vaddq_s32(s0[k], s1[k]);
+                    acc64[2 * k] = vaddw_s32(acc64[2 * k], vget_low_s32(s));
+                    acc64[2 * k + 1] = vaddw_high_s32(acc64[2 * k + 1], s);
+                }
+            }
+            start += len;
+        }
+        for (k, v) in acc64.iter().enumerate() {
+            vst1q_s64(h2.as_mut_ptr().add(2 * k), *v);
         }
     }
 }

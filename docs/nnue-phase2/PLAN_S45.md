@@ -405,3 +405,33 @@ move generation and legality ~19% (`MoveTestFilter::test` 5.3%), ordering ~5%, c
   (`SHOGI_NO_AVX512=1`) and generic x86-64. `speed_ab` (8 positions x 1M nodes, 4 rounds): native
   +3.0%, generic +3.6% (generic's node total differs: the search reads the clock). Speed across
   the three PC measurements: +3.0% to +6.6%.
+- **Shipped `17300ab`** (layer-2 x86 kernel; user's OK 2026-11-21), pushed to origin. Mac
+  `engines/usi-engine-stable` = that build (md5 3ba5798d…; behaviour identical on the Mac; the
+  previous stable kept as `engines/usi-engine-3eec8b3`). The PC GUI's build is the user's to update.
+- **Screen of table move first** (PC, `matches/s45/r4screen/`, `C:\Users\fgant\s45r4screen`,
+  `yse-s45tt` Windows build = 17300ab's kernel + `lean.rs`/`moves.rs`; A default vs B
+  `SHOGI_TT_FIRST=0`, 1 thread, 400k nodes, 12 seeds 50000-50011 x 50, PLAN_S42 protocol) from 11:52.
+  At 128 games +5 ± 27; think ratio A/B 0.947 (the ~5% nps gain at fixed nodes).
+  **Stage 1 (312 games, 13:32): 143-13-156, −14 ± 18 (95% −49 .. +20), think ratio 0.949: STOP**
+  (< −5). Even crediting the ~5% nps (not seen at fixed nodes) it would be ~−7. Dropped; the code
+  stays only in worktree `s45x86` (never shipped). Ordering the rest after the table move's search
+  is what Stockfish's picker does, so the loss is more likely in our ordering inputs (killers,
+  counter move, `order_see` tiers read at a different time) than in the idea; not pursued now.
+- **Next pair, worktree `s45hand`** (from 17300ab, uncommitted), both search-identical:
+  - Pieces in hand stored inline (`types/board.rs`: `Hand = SmallVec<[PieceType; 38]>`, smallvec
+    features `const_generics` + `serde`; capture order kept, which drop generation and so the
+    search depend on). Copying a hand no longer allocates. Every use compiled unchanged.
+  - Layer 2 in one call on aarch64 (`layer_2_blocked_neon`: two `smlal` sets per block, widened
+    with `saddw` into 64-bit register sums): the Mac profile (`round4/prof/sample1t.txt`, macOS
+    `sample`, 6 positions x 5 s) had `layer_2_blocked` at ~19% of search samples.
+  - Mac: unit tests 1170 passed, 0 failed (with `magic_table.bin` copied into the worktree: without
+    it three magic-vs-fallback tests fail, an environment effect); g1108 fingerprint 0 of 40
+    differ; 6 positions x depth 13 x 3 rounds: hand alone +1.2%, hand + NEON kernel **+5.2%**,
+    24,722,688 nodes in every round as stable. PC measurement after the screen.
+  - PC (`matches/s45/pc_check_hand.sh` → `C:\Users\fgant\s45handcheck`, against the 17300ab
+    Windows build): 1171 passed, 1 failed (`test_memory_breakdown`, as before); g1108 fingerprint
+    0 of 40 differ (native VNNI, forced AVX2, generic x86-64); `speed_ab` native **+1.9%**, generic
+    +2.4% (on x86 only the inline hand changes anything). Ready to ship on the user's OK.
+- **Shipped** (user's OK 2026-11-21): the inline hand + aarch64 layer 2 pair as the commit after
+  17300ab; Mac `engines/usi-engine-stable` = its build (g1108 0 of 40 differ); the previous stable
+  kept as `engines/usi-engine-17300ab`.
