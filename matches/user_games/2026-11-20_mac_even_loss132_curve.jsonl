@@ -1,0 +1,133 @@
+{"ply": 0, "sente_cp": 27, "kind": "cp", "best": "2g2f", "played": "7g7f", "pv": "2g2f 4a3b 7g7f"}
+{"ply": 1, "sente_cp": 103, "kind": "cp", "best": "8c8d", "played": "8c8d", "pv": "8c8d 2g2f"}
+{"ply": 2, "sente_cp": 61, "kind": "cp", "best": "2g2f", "played": "7i7h", "pv": "2g2f 4a3b 2f2e"}
+{"ply": 3, "sente_cp": 51, "kind": "cp", "best": "3c3d", "played": "3c3d", "pv": "3c3d 7h7g 7a6b"}
+{"ply": 4, "sente_cp": 70, "kind": "cp", "best": "7h7g", "played": "7h7g", "pv": "7h7g"}
+{"ply": 5, "sente_cp": 34, "kind": "cp", "best": "7c7d", "played": "7a6b", "pv": "7c7d"}
+{"ply": 6, "sente_cp": 64, "kind": "cp", "best": "2g2f", "played": "2g2f", "pv": "2g2f 7c7d"}
+{"ply": 7, "sente_cp": 56, "kind": "cp", "best": "7c7d", "played": "3a4b", "pv": "7c7d 2f2e 2b3c"}
+{"ply": 8, "sente_cp": 53, "kind": "cp", "best": "3i4h", "played": "2f2e", "pv": "3i4h 4a3b 2f2e"}
+{"ply": 9, "sente_cp": 46, "kind": "cp", "best": "4b3c", "played": "4b3c", "pv": "4b3c 8h7i 7c7d"}
+{"ply": 10, "sente_cp": 46, "kind": "cp", "best": "3g3f", "played": "4i5h", "pv": "3g3f 5c5d 4i5h"}
+{"ply": 11, "sente_cp": 47, "kind": "cp", "best": "6a5b", "played": "4a3b", "pv": "6a5b 3g3f 7c7d"}
+{"ply": 12, "sente_cp": 31, "kind": "cp", "best": "3i4h", "played": "6i7h", "pv": "3i4h 7c7d 6i7h"}
+{"ply": 13, "sente_cp": 51, "kind": "cp", "best": "5a4a", "played": "5a4a", "pv": "5a4a"}
+{"ply": 14, "sente_cp": 37, "kind": "cp", "best": "3g3f", "played": "3g3f", "pv": "3g3f 7c7d"}
+{"ply": 15, "sente_cp": 44, "kind": "cp", "best": "6a5b", "played": "5c5d", "pv": "6a5b 5g5f"}
+{"ply": 16, "sente_cp": 44, "kind": "cp", "best": "3i4h", "played": "3i4h", "pv": "3i4h 7c7d 5g5f"}
+{"ply": 17, "sente_cp": 33, "kind": "cp", "best": "7c7d", "played": "7c7d", "pv": "7c7d 5g5f 6a5b"}
+{"ply": 18, "sente_cp": 35, "kind": "cp", "best": "2i3g", "played": "4h3g", "pv": "2i3g"}
+{"ply": 19, "sente_cp": 35, "kind": "cp", "best": "6a5b", "played": "2b3a", "pv": "6a5b 5i6i"}
+{"ply": 20, "sente_cp": 67, "kind": "cp", "best": "5i6i", "played": "5i6i", "pv": "5i6i"}
+{"ply": 21, "sente_cp": 10, "kind": "cp", "best": "6a5b", "played": "6a5b", "pv": "6a5b 5g5f 8d8e"}
+{"ply": 22, "sente_cp": 16, "kind": "cp", "best": "8h7i", "played": "5g5f", "pv": "8h7i 8a7c"}
+{"ply": 23, "sente_cp": 50, "kind": "cp", "best": "8a7c", "played": "4c4d", "pv": "8a7c 6g6f"}
+{"ply": 24, "sente_cp": 45, "kind": "cp", "best": "8h7i", "played": "6g6f", "pv": "8h7i 8a7c"}
+{"ply": 25, "sente_cp": 16, "kind": "cp", "best": "9c9d", "played": "3a6d", "pv": "9c9d 9g9f 1c1d"}
+{"ply": 26, "sente_cp": 23, "kind": "cp", "best": "8h7i", "played": "8h7i", "pv": "8h7i 9c9d 9g9f"}
+{"ply": 27, "sente_cp": 13, "kind": "cp", "best": "9c9d", "played": "4a3a", "pv": "9c9d 9g9f 8d8e"}
+{"ply": 28, "sente_cp": 6, "kind": "cp", "best": "7i4f", "played": "5h6g", "pv": "7i4f 3a2b"}
+{"ply": 29, "sente_cp": -6, "kind": "cp", "best": "9c9d", "played": "3a2b", "pv": "9c9d"}
+{"ply": 30, "sente_cp": 46, "kind": "cp", "best": "7i4f", "played": "7i4f", "pv": "7i4f 9c9d 9g9f"}
+{"ply": 31, "sente_cp": -1, "kind": "cp", "best": "9c9d", "played": "6b5c", "pv": "9c9d 1g1f 9d9e"}
+{"ply": 32, "sente_cp": 40, "kind": "cp", "best": "6i7i", "played": "9g9f", "pv": "6i7i 9c9d"}
+{"ply": 33, "sente_cp": 5, "kind": "cp", "best": "8a7c", "played": "1c1d", "pv": "8a7c 1g1f 9c9d"}
+{"ply": 34, "sente_cp": -6, "kind": "cp", "best": "1g1f", "played": "1g1f", "pv": "1g1f 4d4e"}
+{"ply": 35, "sente_cp": 3, "kind": "cp", "best": "9c9d", "played": "4d4e", "pv": "9c9d 4f6d"}
+{"ply": 36, "sente_cp": 2, "kind": "cp", "best": "4f6d", "played": "4f6d", "pv": "4f6d"}
+{"ply": 37, "sente_cp": -2, "kind": "cp", "best": "6c6d", "played": "6c6d", "pv": "6c6d 3g2f 8a7c"}
+{"ply": 38, "sente_cp": -3, "kind": "cp", "best": "3g2f", "played": "6i7i", "pv": "3g2f 8a7c 2i3g"}
+{"ply": 39, "sente_cp": -10, "kind": "cp", "best": "8a7c", "played": "8a7c", "pv": "8a7c 3g2f"}
+{"ply": 40, "sente_cp": -41, "kind": "cp", "best": "3g2f", "played": "7i8h", "pv": "3g2f 7d7e 2i3g"}
+{"ply": 41, "sente_cp": 11, "kind": "cp", "best": "8b6b", "played": "8b6b", "pv": "8b6b 3f3e"}
+{"ply": 42, "sente_cp": 13, "kind": "cp", "best": "3f3e", "played": "1f1e", "pv": "3f3e 3d3e 1f1e"}
+{"ply": 43, "sente_cp": -17, "kind": "cp", "best": "1d1e", "played": "1d1e", "pv": "1d1e 3f3e 3d3e"}
+{"ply": 44, "sente_cp": 4, "kind": "cp", "best": "3f3e", "played": "3f3e", "pv": "3f3e 7c8e 3e3d"}
+{"ply": 45, "sente_cp": 26, "kind": "cp", "best": "3d3e", "played": "3d3e", "pv": "3d3e 3g2f 6d6e"}
+{"ply": 46, "sente_cp": -12, "kind": "cp", "best": "3g2f", "played": "3g2f", "pv": "3g2f 7c8e"}
+{"ply": 47, "sente_cp": -50, "kind": "cp", "best": "1e1f", "played": "7c8e", "pv": "1e1f"}
+{"ply": 48, "sente_cp": -20, "kind": "cp", "best": "2e2d", "played": "1i1e", "pv": "2e2d 3c2d 2i3g"}
+{"ply": 49, "sente_cp": 25, "kind": "cp", "best": "8e7g+", "played": "P*1d", "pv": "8e7g+"}
+{"ply": 50, "sente_cp": 30, "kind": "cp", "best": "1e1d", "played": "1e1d", "pv": "1e1d 1a1d P*1e"}
+{"ply": 51, "sente_cp": 35, "kind": "cp", "best": "1a1d", "played": "1a1d", "pv": "1a1d P*1e"}
+{"ply": 52, "sente_cp": 52, "kind": "cp", "best": "P*1e", "played": "P*1e", "pv": "P*1e 8e7g+"}
+{"ply": 53, "sente_cp": 36, "kind": "cp", "best": "8e7g+", "played": "8e7g+", "pv": "8e7g+ 7h7g 7d7e"}
+{"ply": 54, "sente_cp": 0, "kind": "cp", "best": "7h7g", "played": "6g7g", "pv": "7h7g 6d6e 6f6e"}
+{"ply": 55, "sente_cp": -52, "kind": "cp", "best": "7d7e", "played": "7d7e", "pv": "7d7e 1e1d 7e7f"}
+{"ply": 56, "sente_cp": -13, "kind": "cp", "best": "1e1d", "played": "1e1d", "pv": "1e1d 7e7f 7g7f"}
+{"ply": 57, "sente_cp": -14, "kind": "cp", "best": "7e7f", "played": "7e7f", "pv": "7e7f 7g7f"}
+{"ply": 58, "sente_cp": -23, "kind": "cp", "best": "7g7f", "played": "7g7f", "pv": "7g7f L*7a P*7d"}
+{"ply": 59, "sente_cp": 34, "kind": "cp", "best": "L*7a", "played": "L*7a", "pv": "L*7a P*7d P*7e"}
+{"ply": 60, "sente_cp": -14, "kind": "cp", "best": "P*7d", "played": "P*7d", "pv": "P*7d P*7e 1d1c+"}
+{"ply": 61, "sente_cp": 0, "kind": "cp", "best": "P*7e", "played": "B*4i", "pv": "P*7e 7f7e B*3i"}
+{"ply": 62, "sente_cp": 64, "kind": "cp", "best": "B*6g", "played": "L*7g", "pv": "B*6g S*2g"}
+{"ply": 63, "sente_cp": -106, "kind": "cp", "best": "S*6g", "played": "P*1b", "pv": "S*6g 7h6g 4i6g+"}
+{"ply": 64, "sente_cp": -82, "kind": "cp", "best": "2i3g", "played": "2i3g", "pv": "2i3g 3c3d 2e2d"}
+{"ply": 65, "sente_cp": -24, "kind": "cp", "best": "S*3d", "played": "5c4d", "pv": "S*3d N*5g"}
+{"ply": 66, "sente_cp": -3, "kind": "cp", "best": "2e2d", "played": "4g4f", "pv": "2e2d 2c2d 4g4f"}
+{"ply": 67, "sente_cp": -40, "kind": "cp", "best": "S*6g", "played": "4e4f", "pv": "S*6g 7h6g 4i6g+"}
+{"ply": 68, "sente_cp": -61, "kind": "cp", "best": "P*4e", "played": "P*4e", "pv": "P*4e S*6i 4e4d"}
+{"ply": 69, "sente_cp": 86, "kind": "cp", "best": "4d5c", "played": "7a7d", "pv": "4d5c 2e2d"}
+{"ply": 70, "sente_cp": -267, "kind": "cp", "best": "4e4d", "played": "4e4d", "pv": "4e4d 7d7f"}
+{"ply": 71, "sente_cp": -191, "kind": "cp", "best": "7d7f", "played": "7d7f", "pv": "7d7f 7g7f"}
+{"ply": 72, "sente_cp": -186, "kind": "cp", "best": "7g7f", "played": "7g7f", "pv": "7g7f 4i7f+"}
+{"ply": 73, "sente_cp": -96, "kind": "cp", "best": "4i7f+", "played": "4i7f+", "pv": "4i7f+ 2e2d 2c2d"}
+{"ply": 74, "sente_cp": -223, "kind": "cp", "best": "2e2d", "played": "2e2d", "pv": "2e2d 2c2d 2f3e"}
+{"ply": 75, "sente_cp": -328, "kind": "cp", "best": "2c2d", "played": "2c2d", "pv": "2c2d 2f3e P*7g"}
+{"ply": 76, "sente_cp": -251, "kind": "cp", "best": "S*6g", "played": "2f3e", "pv": "S*6g L*7d"}
+{"ply": 77, "sente_cp": -228, "kind": "cp", "best": "P*7g", "played": "P*7g", "pv": "P*7g P*2c"}
+{"ply": 78, "sente_cp": -260, "kind": "cp", "best": "P*2c", "played": "8i7g", "pv": "P*2c 2b3a"}
+{"ply": 79, "sente_cp": -294, "kind": "cp", "best": "S*6g", "played": "S*6g", "pv": "S*6g P*2c"}
+{"ply": 80, "sente_cp": -378, "kind": "cp", "best": "P*2c", "played": "L*7i", "pv": "P*2c 2b3a"}
+{"ply": 81, "sente_cp": -385, "kind": "cp", "best": "L*8f", "played": "6g7h+", "pv": "L*8f S*9h 6g7h+"}
+{"ply": 82, "sente_cp": -343, "kind": "cp", "best": "7i7h", "played": "7i7h", "pv": "7i7h L*8f P*2c"}
+{"ply": 83, "sente_cp": -296, "kind": "cp", "best": "L*8f", "played": "G*6g", "pv": "L*8f S*9h 7f6f"}
+{"ply": 84, "sente_cp": -397, "kind": "cp", "best": "P*3d", "played": "P*3d", "pv": "P*3d L*8f"}
+{"ply": 85, "sente_cp": -161, "kind": "cp", "best": "L*7e", "played": "L*8f", "pv": "L*7e"}
+{"ply": 86, "sente_cp": -606, "kind": "cp", "best": "3d3c+", "played": "3d3c+", "pv": "3d3c+ 3b3c 1d1c+"}
+{"ply": 87, "sente_cp": -246, "kind": "cp", "best": "3b3c", "played": "2a3c", "pv": "3b3c S*9h"}
+{"ply": 88, "sente_cp": -581, "kind": "cp", "best": "S*9h", "played": "1d1c+", "pv": "S*9h 6b7b 1d1c+"}
+{"ply": 89, "sente_cp": -277, "kind": "cp", "best": "1b1c", "played": "1b1c", "pv": "1b1c"}
+{"ply": 90, "sente_cp": -798, "kind": "cp", "best": "8g8f", "played": "P*2c", "pv": "8g8f G*8g"}
+{"ply": 91, "sente_cp": -522, "kind": "cp", "best": "2b3a", "played": "2b3a", "pv": "3b2c 8g8f G*8g"}
+{"ply": 92, "sente_cp": -990, "kind": "cp", "best": "8g8f", "played": "S*9h", "pv": "8g8f G*8g"}
+{"ply": 93, "sente_cp": -715, "kind": "cp", "best": "7f6f", "played": "6b7b", "pv": "7f6f S*6h 6g7h"}
+{"ply": 94, "sente_cp": -644, "kind": "cp", "best": "N*6i", "played": "N*8i", "pv": "N*6i 7f8g 9h8g"}
+{"ply": 95, "sente_cp": -1115, "kind": "cp", "best": "8f8g", "played": "7f8g", "pv": "8f8g 9h8g 7f8g"}
+{"ply": 96, "sente_cp": -1310, "kind": "cp", "best": "9h8g", "played": "9h8g", "pv": "9h8g 8f8g+"}
+{"ply": 97, "sente_cp": -1371, "kind": "cp", "best": "8f8g+", "played": "8f8g+", "pv": "8f8g+"}
+{"ply": 98, "sente_cp": -1537, "kind": "cp", "best": "8h8g", "played": "8h8g", "pv": "8h8g S*7f"}
+{"ply": 99, "sente_cp": -1582, "kind": "cp", "best": "S*7f", "played": "S*7f", "pv": "S*7f"}
+{"ply": 100, "sente_cp": -1590, "kind": "cp", "best": "8g8h", "played": "8g8h", "pv": "8g8h G*8g"}
+{"ply": 101, "sente_cp": -1561, "kind": "cp", "best": "G*8g", "played": "G*8g", "pv": "G*8g 8h7i P*3h"}
+{"ply": 102, "sente_cp": -1750, "kind": "cp", "best": "8h7i", "played": "8h7i", "pv": "8h7i 7f7g+ 8i7g"}
+{"ply": 103, "sente_cp": -1655, "kind": "cp", "best": "P*3h", "played": "7f7g", "pv": "P*3h 2h3h 4f4g+"}
+{"ply": 104, "sente_cp": -1883, "kind": "cp", "best": "8i7g", "played": "8i7g", "pv": "8i7g 8g7g"}
+{"ply": 105, "sente_cp": -2322, "kind": "cp", "best": "8g7g", "played": "N*7f", "pv": "8g7g"}
+{"ply": 106, "sente_cp": -1346, "kind": "cp", "best": "B*2b", "played": "B*2b", "pv": "S*8i 4f4g+ B*4i"}
+{"ply": 107, "sente_cp": -2362, "kind": "cp", "best": "3a4a", "played": "3a4a", "pv": "3a4a L*4c 4a5a"}
+{"ply": 108, "sente_cp": -2527, "kind": "cp", "best": "L*4c", "played": "7i6i", "pv": "L*4c 4a5a"}
+{"ply": 109, "sente_cp": -2991, "kind": "cp", "best": "4f4g+", "played": "4f4g+", "pv": "4f4g+ L*4c 3b4c"}
+{"ply": 110, "sente_cp": -3452, "kind": "cp", "best": "L*4c", "played": "L*4c", "pv": "L*4c 3b4c"}
+{"ply": 111, "sente_cp": -3284, "kind": "cp", "best": "4a5a", "played": "4a5a", "pv": "4a5a B*4b 3b4b"}
+{"ply": 112, "sente_cp": -3220, "kind": "cp", "best": "S*7i", "played": "6i5i", "pv": "S*7i 3b2b S*4b"}
+{"ply": 113, "sente_cp": -3801, "kind": "cp", "best": "P*3h", "played": "P*3h", "pv": "P*3h 2h3h 4g3h"}
+{"ply": 114, "sente_cp": -3513, "kind": "cp", "best": "2b3c+", "played": "2b3c+", "pv": "2b3c+ 3b3c 2h3h"}
+{"ply": 115, "sente_cp": -4053, "kind": "cp", "best": "3b3c", "played": "3b3c", "pv": "3b3c 4c4a+ 5a4a"}
+{"ply": 116, "sente_cp": -3995, "kind": "cp", "best": "4c4a+", "played": "4c4a+", "pv": "4c4a+ 5a4a S*4b"}
+{"ply": 117, "sente_cp": -4652, "kind": "cp", "best": "5a4a", "played": "5a4a", "pv": "5a4a S*4b 5b4b"}
+{"ply": 118, "sente_cp": -5355, "kind": "cp", "best": "S*4b", "played": "B*3b", "pv": "S*4b 5b4b B*7d"}
+{"ply": 119, "sente_cp": -35281, "kind": "cp", "best": "3c3b", "played": "3c3b", "pv": "3c3b N*5c 5b5c"}
+{"ply": 120, "sente_cp": -35281, "kind": "cp", "best": "N*5c", "played": "N*3c", "pv": "N*5c 5b5c S*4b"}
+{"ply": 121, "sente_cp": -35281, "kind": "cp", "best": "3b3c", "played": "3b3c", "pv": "3b3c"}
+{"ply": 122, "sente_cp": -35281, "kind": "cp", "best": "S*4b", "played": "S*3b", "pv": "S*4b 5b4b S*3b"}
+{"ply": 123, "sente_cp": -35281, "kind": "cp", "best": "3c3b", "played": "3c3b", "pv": "3c3b"}
+{"ply": 124, "sente_cp": -29992, "kind": "mate", "best": "S*4b", "played": "S*4b", "pv": "S*4b 5b4b S*5b"}
+{"ply": 125, "sente_cp": -29991, "kind": "mate", "best": "3b4b", "played": "5b4b", "pv": "3b4b S*3b 4a5a"}
+{"ply": 126, "sente_cp": -29994, "kind": "mate", "best": "S*5b", "played": "S*5b", "pv": "S*5b 7b5b 2h3h"}
+{"ply": 127, "sente_cp": -29995, "kind": "mate", "best": "7b5b", "played": "7b5b", "pv": "7b5b 2h3h 4g3h"}
+{"ply": 128, "sente_cp": -29996, "kind": "mate", "best": "2h3h", "played": "2h3h", "pv": "2h3h 4g3h 3e2d"}
+{"ply": 129, "sente_cp": -29997, "kind": "mate", "best": "S*5h", "played": "S*5h", "pv": "S*5h 3h5h 4g5h"}
+{"ply": 130, "sente_cp": -29998, "kind": "mate", "best": "3h5h", "played": "3h5h", "pv": "3h5h 4g5h"}
+{"ply": 131, "sente_cp": -29999, "kind": "mate", "best": "4g5h", "played": "4g5h", "pv": "4g5h"}
+{"ply": 132, "sente_cp": -29999, "kind": "mate", "best": "resign", "played": null, "pv": "resign"}

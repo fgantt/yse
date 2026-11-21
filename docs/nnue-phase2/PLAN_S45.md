@@ -173,3 +173,88 @@ Files: `matches/s45/full/f1.csv`, `f1.jsonl` (per move), `judge/f1_judge.jsonl` 
     plays a helper move when the helper completed a deeper iteration with a higher score than the
     main thread's (`lazy_smp.rs:115`, `search_engine.rs:17169`); here the main score was a falling
     one. Helper moves replaced the main thread's on 4 of our 56 moves (plies 5, 9, 45, 49).
+
+## 12. Run f2 games 1-4 and the Mac GUI game of 2026-11-20
+
+Run f2 (PC, 0425008 code, 16 threads, 256 MB each, 60 min + 10 s, paired 2-ply random openings,
+seed 50511; logs `matches/s45/full/f2.*`, analysis `matches/s45/full/judge/f2_g*`). Stopped
+after game 4 (user, 2026-11-20): 0.5 of 4.
+
+| Game | Opening (random plies) | Ours | Start (Suisho5, ours' view) | Result |
+|---|---|---|---|---|
+| 1 | 6g6f 9a9b | Black | about +150 | draw, repetition at 58 (both engines scored 0) |
+| 2 | same | White | about −150 | loss, 149 |
+| 3 | 2h4h 4a4b | Black | about −100 | loss, 144 |
+| 4 | same | White | about +100 | lost at ply 120 (−2000) |
+
+- Games 2 and 3: a slow slide from the starting deficit; ours' own eval followed the judge's
+  (no large optimism), and no single move cost more than ~200 cp before the position was lost.
+- Game 4, from the better side: level +100 to ply 42, then ply 44 6a5b −125 vs 9c9d +52 (ours
+  scored it +222, main thread's choice, depth 22) and ply 56 3c3d −491 vs P*4g −337 (ours +42).
+  From ply 45 to 60 the judge went −118 → −378 while ours stayed +31..+75.
+- Mac GUI game (`matches/user_games/2026-11-20_mac_even_loss132.txt`, 3eec8b3 vs YaneuraOu
+  halfkpvm): level to 64; ply 65 2i3g −157 vs 2e2d −2 (ours +12); ours above +25 while the judge
+  went to −305 by 71. Three fresh replays of ply 65: 2e2d, 2e2d (by helper override), 2i3g.
+- Speed in these games (last info line, moves over 5 s): ours 3.39M nps median, YaneuraOu 14.2M
+  (4.2x); YaneuraOu's 256 MB hash 96% full (median hashfull 960). Ours reports no hashfull.
+- Helper moves replaced the main thread's on 23 of our 230 f2 moves; the two decisive game 4
+  moves were the main thread's.
+- Time: ours `time/30 + byoyomi` (`src/usi.rs:280`) spends 80-130 s per opening move against
+  YaneuraOu's 15-110 s; by ply 100 of game 3 ours had 9 min left, YaneuraOu 34 min; in game 4
+  ours 32 min vs 38 at ply 44 and 9 vs 26 at ply 105 (an earlier note here had game 4's clocks
+  the wrong way round; corrected after the council's Sol member checked the log).
+- Pattern over the five losses analysed (f1, 11-19 Mac, 11-20 Mac, f2 g4; g2/g3 started behind):
+  a middlegame move the main thread scores +50..+220 that Suisho5 scores 150-350 lower, then
+  10-20 moves of over-optimism while the position goes.
+
+## 13. Council (2026-11-20, direction: over-optimism at long time controls)
+
+Members: Claude Opus 5.5 (high), GPT-6.2 Sol (high). Gemini failed twice (Gemini 4 Neon not on the
+Cursor account; Gemini 4 Argon: monthly usage limit); not replaced. Brief:
+`matches/s45/council_optimism_brief.md`.
+
+- Opus: (1) long-TC time management (30 s per-iteration re-search cap `search_engine.rs:16514`
+  fires on 64 of 199 long moves and drops fail-lows; no extension when the score falls; heavy
+  opening spending), (2) the Lazy SMP selection rule `lazy_smp.rs:115`, (3) network
+  (outcome weight 0.3). Belief to test: "the optimism is the network" — run YaneuraOu's own search
+  with halfkpvm on the survey.
+- Sol: (1) network coverage of quiet threats, (2) LMR on quiet replies, (3) time reserve released
+  on instability. Corrected §12's game 4 clock claim (checked, right).
+- Both: no games tonight; cheap replays/diagnostics first. Adopted.
+
+Checks run (2026-11-20):
+- YaneuraOu's search + halfkpvm, 1 thread, 2M nodes, the 414 survey positions
+  (`matches/s45/survey/yoscale.py`, `yo_2m.jsonl`), bias vs Suisho5: **−18** where Suisho5 < −300
+  (ours with the same network +219, ours with a1 +387); all +20 (ours +131 / +204); best move =
+  Suisho5's 70% (ours 57% / 56%). Most of the optimism is our search, not the network class.
+- Node ladder, 60 positions, 8M and 32M nodes (`ladder.jsonl`): behind (40), bias vs Suisho5 at 32M:
+  ours a1 +480 (2M) → +427 (8M) → +402 (32M); YaneuraOu-halfkpvm +24 (8M), −88 (32M). Ours barely
+  moves with 16x the nodes: a systematic score bias, not a horizon.
+- Helper overrides (21 open positions of f1/f2, Suisho5 4 threads 10 s per candidate,
+  `full/judge/override_*.jsonl`): helper move minus main move +47 mean (9 better, 4 worse, 8 within
+  20 cp). The selection rule is not hurting on average: Opus's candidate 2 dropped.
+- Per-rule ablation (`survey/ablate.py`, `ablate.jsonl`; 368 positions with Suisho5 < +100, ours a1,
+  1 thread, 2M nodes; one switch per arm), bias where Suisho5 < −300 (n=158): base +387,
+  correction history off +388, LMR off +415, null move off +383, rfp/razor/futility/LMP off +440,
+  singular extension off +414. No single rule makes the optimism.
+- Static (go depth 1) on the same 158: ours a1 +571, ours + halfkpvm +494, YaneuraOu + halfkpvm
+  +597: our halfkpvm implementation is not the cause (YaneuraOu's static is the more optimistic).
+  So from static to 2M nodes YaneuraOu's search removes ~615 cp of optimism, ours ~275 (halfkpvm)
+  or ~185 (a1), and 16x the nodes adds only ~80 (ladder). Next: compare the PVs where the gap is
+  largest, to see what kind of opponent resource our search does not find (drops, mating attacks,
+  quiet threats) — a structural blind spot rather than a tuning margin.
+- PVs (`survey/pvcmp.txt`, 2M nodes, the 20 largest halfkpvm-vs-YaneuraOu gaps): our score swings
+  hundreds of cp between iterations (e.g. +405, +17, +326, +459, then −438 at depth 17 at 8M where
+  YaneuraOu says −1353); some PVs are a single move with optimistic scores. Exact-zero scores in
+  the 158 losing positions: base 1, hk 2, YaneuraOu 1, so repetition draws are not the cause.
+- PC replay (`matches/s45/replay`, `replay.out`, `judge.jsonl`): 21 decisive positions (f1 plies
+  37–51, f2 game 4 plies 38–56, Mac 11-20 plies 63–67), 16 threads, 256 MB, game move time T;
+  arms base / no 30 s cap / no cap 2.5T / LMR off. 12 positions had differing moves; each was
+  judged by Suisho5 (12 threads, 30 s MultiPV 4, then 15 s per candidate). Mean loss against the
+  best candidate: base −54, no cap −41, no cap 2.5T −47, LMR off −43 (n=12, noise level). No arm
+  is consistently better: no cap fixes f1 37 (−177 → −10) and Mac 65 (−236 → 0) but loses
+  Mac 63 (104 → 5) and f2g4 56 (−328 → −427); 2.5T keeps the bad base move at f1 45 and Mac 65.
+  At f2 game 4 plies 38–46 all arms, 2.5T included, still score +117..+377. Base itself picked
+  9c9d (+74) at ply 44, not the 6a5b the game played: move choice there is run-to-run noise.
+  Conclusion: neither the 30 s cap, time nor LMR is the lever; the optimism survives all of them.
+  Time-allocation and cap changes are dropped as candidates for now.
