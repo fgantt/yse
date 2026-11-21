@@ -1827,6 +1827,32 @@ fn layer_2_blocked(
 ) {
     let w = DEFAULT_HIDDEN_SIZE_2;
     let have_pairs = pairs.len() == activated_1.len().div_ceil(2) * 2 * w;
+    #[cfg(target_arch = "x86_64")]
+    if have_pairs {
+        // One call for every block, 64-bit sums kept in registers (S45 round 4): the per-block
+        // calls below stored, reloaded and widened through memory 16 times per evaluation for
+        // about five multiply-adds each.
+        match x86_l2_level() {
+            // SAFETY: the level says the CPU has these features.
+            3 => unsafe { layer_2_blocked_pairs_avx512::<true>(activated_1, pairs, h2) },
+            2 => unsafe { layer_2_blocked_pairs_avx512::<false>(activated_1, pairs, h2) },
+            1 => unsafe { layer_2_blocked_pairs_avx2(activated_1, pairs, h2) },
+            _ => layer_2_blocked_chunks(activated_1, flat, pairs, have_pairs, h2),
+        }
+        return;
+    }
+    layer_2_blocked_chunks(activated_1, flat, pairs, have_pairs, h2);
+}
+
+/// The per-block path of [`layer_2_blocked`]: each block through [`layer_2_fixed_i32`].
+fn layer_2_blocked_chunks(
+    activated_1: &[i32],
+    flat: &[i16],
+    pairs: &[i16],
+    have_pairs: bool,
+    h2: &mut [i64; DEFAULT_HIDDEN_SIZE_2],
+) {
+    let w = DEFAULT_HIDDEN_SIZE_2;
     for (b, acts) in activated_1.chunks(L2_BLOCK_ROWS).enumerate() {
         if acts.iter().all(|&a| a == 0) {
             continue;
@@ -1960,6 +1986,183 @@ unsafe fn layer_2_pairs_avx2(activated_1: &[i32], pairs: &[i16], h2: &mut [i32; 
         }
         for (k, v) in acc.iter().enumerate() {
             _mm256_storeu_si256(h2.as_mut_ptr().add(8 * k).cast(), *v);
+        }
+    }
+}
+
+/// The best x86_64 kernel set for [`layer_2_blocked`], detected once: 3 = AVX-512 BW + VNNI,
+/// 2 = AVX-512 BW, 1 = AVX2, 0 = none (per-block SSE2 path).
+#[cfg(target_arch = "x86_64")]
+fn x86_l2_level() -> u8 {
+    static LEVEL: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *LEVEL.get_or_init(|| {
+        let avx512 = std::arch::is_x86_feature_detected!("avx512f") && std::arch::is_x86_feature_detected!("avx512bw");
+        if std::env::var_os("SHOGI_NO_AVX512").is_none() && avx512 {
+            if std::arch::is_x86_feature_detected!("avx512vnni") { 3 } else { 2 }
+        } else if x86_has_avx2() {
+            1
+        } else {
+            0
+        }
+    })
+}
+
+/// Pairs per block of [`L2_BLOCK_ROWS`] rows.
+#[cfg(target_arch = "x86_64")]
+const L2_BLOCK_PAIRS: usize = L2_BLOCK_ROWS / 2;
+
+/// [`layer_2_blocked`] in one call (x86_64, AVX2): per block of [`L2_BLOCK_ROWS`] rows, 32-bit
+/// sums in two register sets (non-zero row pairs alternate between them, two dependency chains
+/// per column group instead of one), added together and widened into 64-bit sums that stay in
+/// registers. The same integers as the per-block path: every partial sum of a block (either set,
+/// or both) is a sum over a subset of the block's rows, inside the caller's block bound, and
+/// integer adds are exact in any order. Blocks are the same rows as `activated_1.chunks`.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+unsafe fn layer_2_blocked_pairs_avx2(activated_1: &[i32], pairs: &[i16], h2: &mut [i64; DEFAULT_HIDDEN_SIZE_2]) {
+    use std::arch::x86_64::*;
+    const _: () = assert!(DEFAULT_HIDDEN_SIZE_2 == 32 && L2_BLOCK_ROWS % 2 == 0 && L2_BLOCK_PAIRS <= L2_NZ_CHUNK);
+    let n_pairs = activated_1.len().div_ceil(2);
+    assert!(pairs.len() >= n_pairs * 64);
+    // SAFETY: AVX2 was detected by the caller; every load reads 16 i16 inside pair p's 64 entries
+    // (p < n_pairs, checked above); h2 is 32 i64, read and written as eight 4-lane blocks.
+    unsafe {
+        let mut acc64: [__m256i; 8] = std::array::from_fn(|k| _mm256_loadu_si256(h2.as_ptr().add(4 * k).cast()));
+        let mut start = 0;
+        while start < n_pairs {
+            let mut nz = [0u16; L2_NZ_CHUNK];
+            let n_nz = nonzero_pairs(activated_1, start, (start + L2_BLOCK_PAIRS).min(n_pairs), &mut nz);
+            start += L2_BLOCK_PAIRS;
+            if n_nz == 0 {
+                continue;
+            }
+            let mut s0 = [_mm256_setzero_si256(); 4];
+            let mut s1 = [_mm256_setzero_si256(); 4];
+            let mut i = 0;
+            while i + 1 < n_nz {
+                let (p, q) = (usize::from(nz[i]), usize::from(nz[i + 1]));
+                let (ap, aq) = (_mm256_set1_epi32(pair_lane(activated_1, p)), _mm256_set1_epi32(pair_lane(activated_1, q)));
+                let (bp, bq) = (pairs.as_ptr().add(p * 64), pairs.as_ptr().add(q * 64));
+                for k in 0..4 {
+                    s0[k] = _mm256_add_epi32(s0[k], _mm256_madd_epi16(_mm256_loadu_si256(bp.add(16 * k).cast()), ap));
+                    s1[k] = _mm256_add_epi32(s1[k], _mm256_madd_epi16(_mm256_loadu_si256(bq.add(16 * k).cast()), aq));
+                }
+                i += 2;
+            }
+            if i < n_nz {
+                let p = usize::from(nz[i]);
+                let ap = _mm256_set1_epi32(pair_lane(activated_1, p));
+                let bp = pairs.as_ptr().add(p * 64);
+                for k in 0..4 {
+                    s0[k] = _mm256_add_epi32(s0[k], _mm256_madd_epi16(_mm256_loadu_si256(bp.add(16 * k).cast()), ap));
+                }
+            }
+            for k in 0..4 {
+                let s = _mm256_add_epi32(s0[k], s1[k]);
+                acc64[2 * k] = _mm256_add_epi64(acc64[2 * k], _mm256_cvtepi32_epi64(_mm256_castsi256_si128(s)));
+                acc64[2 * k + 1] =
+                    _mm256_add_epi64(acc64[2 * k + 1], _mm256_cvtepi32_epi64(_mm256_extracti128_si256::<1>(s)));
+            }
+        }
+        for (k, v) in acc64.iter().enumerate() {
+            _mm256_storeu_si256(h2.as_mut_ptr().add(4 * k).cast(), *v);
+        }
+    }
+}
+
+/// [`layer_2_blocked_pairs_avx2`] in 512-bit registers (AVX-512 F + BW): a row pair's 64 weights
+/// are two loads, a block's 32 column sums two registers per set. With `VNNI`, each
+/// multiply-add-accumulate is one `vpdpwssd` (the non-saturating form: the same integers as
+/// `vpmaddwd` + `vpaddd`).
+#[cfg(target_arch = "x86_64")]
+unsafe fn layer_2_blocked_pairs_avx512<const VNNI: bool>(
+    activated_1: &[i32],
+    pairs: &[i16],
+    h2: &mut [i64; DEFAULT_HIDDEN_SIZE_2],
+) {
+    // SAFETY: the caller detected the features of the variant it asks for.
+    unsafe {
+        if VNNI {
+            layer_2_blocked_pairs_avx512_vnni(activated_1, pairs, h2);
+        } else {
+            layer_2_blocked_pairs_avx512_bw(activated_1, pairs, h2);
+        }
+    }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw")]
+unsafe fn layer_2_blocked_pairs_avx512_bw(activated_1: &[i32], pairs: &[i16], h2: &mut [i64; DEFAULT_HIDDEN_SIZE_2]) {
+    // SAFETY: AVX-512 F/BW detected by the caller.
+    unsafe { layer_2_blocked_pairs_avx512_body::<false>(activated_1, pairs, h2) }
+}
+
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx512f,avx512bw,avx512vnni")]
+unsafe fn layer_2_blocked_pairs_avx512_vnni(activated_1: &[i32], pairs: &[i16], h2: &mut [i64; DEFAULT_HIDDEN_SIZE_2]) {
+    // SAFETY: AVX-512 F/BW/VNNI detected by the caller.
+    unsafe { layer_2_blocked_pairs_avx512_body::<true>(activated_1, pairs, h2) }
+}
+
+/// The body of both AVX-512 variants, inlined into each so it is compiled with that variant's
+/// features.
+#[cfg(target_arch = "x86_64")]
+#[inline(always)]
+unsafe fn layer_2_blocked_pairs_avx512_body<const VNNI: bool>(
+    activated_1: &[i32],
+    pairs: &[i16],
+    h2: &mut [i64; DEFAULT_HIDDEN_SIZE_2],
+) {
+    use std::arch::x86_64::*;
+    let n_pairs = activated_1.len().div_ceil(2);
+    assert!(pairs.len() >= n_pairs * 64);
+    #[inline(always)]
+    unsafe fn mac<const VNNI: bool>(s: __m512i, w: __m512i, a: __m512i) -> __m512i {
+        // SAFETY: the enclosing function's target features; VNNI only when the caller detected it.
+        unsafe { if VNNI { _mm512_dpwssd_epi32(s, w, a) } else { _mm512_add_epi32(s, _mm512_madd_epi16(w, a)) } }
+    }
+    // SAFETY: AVX-512 F/BW (and VNNI when `VNNI`) detected by the caller; loads read 32 i16
+    // inside pair p's 64 entries (p < n_pairs, checked above); h2 is 32 i64 = four 8-lane blocks.
+    unsafe {
+        let mut acc64: [__m512i; 4] = std::array::from_fn(|k| _mm512_loadu_si512(h2.as_ptr().add(8 * k).cast()));
+        let mut start = 0;
+        while start < n_pairs {
+            let mut nz = [0u16; L2_NZ_CHUNK];
+            let n_nz = nonzero_pairs(activated_1, start, (start + L2_BLOCK_PAIRS).min(n_pairs), &mut nz);
+            start += L2_BLOCK_PAIRS;
+            if n_nz == 0 {
+                continue;
+            }
+            let mut s0 = [_mm512_setzero_si512(); 2];
+            let mut s1 = [_mm512_setzero_si512(); 2];
+            let mut i = 0;
+            while i + 1 < n_nz {
+                let (p, q) = (usize::from(nz[i]), usize::from(nz[i + 1]));
+                let (ap, aq) = (_mm512_set1_epi32(pair_lane(activated_1, p)), _mm512_set1_epi32(pair_lane(activated_1, q)));
+                let (bp, bq) = (pairs.as_ptr().add(p * 64), pairs.as_ptr().add(q * 64));
+                for k in 0..2 {
+                    s0[k] = mac::<VNNI>(s0[k], _mm512_loadu_si512(bp.add(32 * k).cast()), ap);
+                    s1[k] = mac::<VNNI>(s1[k], _mm512_loadu_si512(bq.add(32 * k).cast()), aq);
+                }
+                i += 2;
+            }
+            if i < n_nz {
+                let p = usize::from(nz[i]);
+                let ap = _mm512_set1_epi32(pair_lane(activated_1, p));
+                let bp = pairs.as_ptr().add(p * 64);
+                for k in 0..2 {
+                    s0[k] = mac::<VNNI>(s0[k], _mm512_loadu_si512(bp.add(32 * k).cast()), ap);
+                }
+            }
+            for k in 0..2 {
+                let s = _mm512_add_epi32(s0[k], s1[k]);
+                acc64[2 * k] = _mm512_add_epi64(acc64[2 * k], _mm512_cvtepi32_epi64(_mm512_castsi512_si256(s)));
+                acc64[2 * k + 1] =
+                    _mm512_add_epi64(acc64[2 * k + 1], _mm512_cvtepi32_epi64(_mm512_extracti64x4_epi64::<1>(s)));
+            }
+        }
+        for (k, v) in acc64.iter().enumerate() {
+            _mm512_storeu_si512(h2.as_mut_ptr().add(8 * k).cast(), *v);
         }
     }
 }
@@ -3922,6 +4125,55 @@ mod tests {
                 assert_eq!(got, expected, "case {t}, pairs {}", !p.is_empty());
             }
         }
+    }
+
+    /// The one-call x86_64 block kernels (AVX2, AVX-512 BW, AVX-512 VNNI: each one this CPU has)
+    /// against plain i64 arithmetic, with inputs inside the block bound as `layer_2_blocked` is
+    /// called: full and odd lengths, all-zero blocks, dense and sparse activations, odd non-zero
+    /// counts per block (the single-pair tail), and a non-zero starting `h2`.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn layer_2_blocked_pair_kernels_match_i64() {
+        use rand::{Rng, SeedableRng};
+        let mut rng = rand::rngs::StdRng::seed_from_u64(4504);
+        let avx512 = is_x86_feature_detected!("avx512f") && is_x86_feature_detected!("avx512bw");
+        let vnni = avx512 && is_x86_feature_detected!("avx512vnni");
+        let mut ran = [0usize; 3];
+        for t in 0..200 {
+            let n = [2 * DEFAULT_HIDDEN_SIZE_1, 2 * DEFAULT_HIDDEN_SIZE_1 - 1, 33, 31, 1][t % 5];
+            let p_zero = [0.0, 0.5, 0.7, 0.95, 1.0][(t / 5) % 5];
+            let act: Vec<i32> = (0..n)
+                .map(|i| if (t % 7 == 3 && (i / L2_BLOCK_ROWS) % 2 == 1) || rng.gen_bool(p_zero) { 0 } else { rng.gen_range(1..=16_383) })
+                .collect();
+            let flat: Vec<i16> = (0..n * DEFAULT_HIDDEN_SIZE_2).map(|_| rng.gen_range(-3_000..=3_000)).collect();
+            let start: [i64; DEFAULT_HIDDEN_SIZE_2] =
+                std::array::from_fn(|j| if t % 2 == 0 { 0 } else { (j as i64 - 16) * 1_000_000_007 });
+            let mut expected = start;
+            layer_2_fixed(&act, &flat, &mut expected);
+            let pairs = pair_rows(&flat);
+            if x86_has_avx2() {
+                let mut got = start;
+                unsafe { layer_2_blocked_pairs_avx2(&act, &pairs, &mut got) };
+                assert_eq!(got, expected, "avx2, case {t}");
+                ran[0] += 1;
+            }
+            if avx512 {
+                let mut got = start;
+                unsafe { layer_2_blocked_pairs_avx512::<false>(&act, &pairs, &mut got) };
+                assert_eq!(got, expected, "avx512bw, case {t}");
+                ran[1] += 1;
+            }
+            if vnni {
+                let mut got = start;
+                unsafe { layer_2_blocked_pairs_avx512::<true>(&act, &pairs, &mut got) };
+                assert_eq!(got, expected, "avx512vnni, case {t}");
+                ran[2] += 1;
+            }
+            let mut got = start;
+            layer_2_blocked(&act, &flat, &pairs, &mut got);
+            assert_eq!(got, expected, "dispatched, case {t}");
+        }
+        eprintln!("layer_2_blocked_pair_kernels_match_i64: avx2 {} avx512bw {} vnni {}", ran[0], ran[1], ran[2]);
     }
 
     /// The x86_64 pair kernels (SSE2 always, AVX2 when the CPU has it) against plain i64

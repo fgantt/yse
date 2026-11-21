@@ -258,3 +258,150 @@ Checks run (2026-11-20):
   9c9d (+74) at ply 44, not the 6a5b the game played: move choice there is run-to-run noise.
   Conclusion: neither the 30 s cap, time nor LMR is the lever; the optimism survives all of them.
   Time-allocation and cap changes are dropped as candidates for now.
+
+### 13.1 Blind-spot trace (2026-11-20, `matches/s45/survey`)
+
+- `tracepv.py` / `tracepv2.py`: down YaneuraOu's own PV in the 20 pvcmp positions (lines of 9-37
+  plies), ours + halfkpvm and YaneuraOu + halfkpvm at 2M nodes, scored from the root side. Our
+  search mostly plays YaneuraOu's moves (57/80 with the losing side to move, 44/64 with the
+  winning side) but stays more optimistic everywhere along the line: ours − YaneuraOu +544 at
+  the root, +671 / +527 / +428 at plies 4 / 8 / 12+, +270 at the PV's end. No single missed
+  reply: the optimism is spread over the whole line. Our score also swings twice as much from
+  one ply to the next (median 313 vs 141 cp). (The depth-1 columns of `tracepv2` are not
+  static: YaneuraOu's reused its table from the 2M search just before. Use `ablate.jsonl`.)
+- The one-move PVs in `pvcmp.txt` are a reporting artefact, not a search result: when the last
+  iteration does not finish, the periodic info line repeats the previous depth's score under the
+  new depth with only the move as PV.
+- Mate in one at every node (`SHOGI_LEAN_MATE1=1`, `mate1.py`, a1, 2M nodes, the 368 ablation
+  positions): bias where Suisho5 < −300 +393 vs base +387, same depth, same move agreement. Ruled out.
+- **Equal nominal depth** (`eqdepth.py`, `eqdepth15.py`; same halfkpvm network, 1 thread, fresh
+  engines, go depth N; bias vs Suisho5 on the 158 positions with Suisho5 < −300):
+
+  | depth | ours | YaneuraOu | nodes ours / YaneuraOu (median) |
+  |---|---|---|---|
+  | 6 | +366 | +467 | 7k / 2k |
+  | 9 | +271 | +298 | 86k / 18k |
+  | 12 | +231 | +152 | 568k / 115k |
+  | 15 | +154 | +59 | 2.78M / 451k |
+  | 2M nodes | +219 (d≈14) | −21 (d≈18) | |
+
+  Level positions (n=132): both +39..+134 at every depth. So at equal depth our search corrects
+  the network's optimism about as fast as YaneuraOu's (d12→d15: −77 vs −93), trailing it by
+  ~80-95 cp from depth 12. The equal-nodes gap of §13 (+219 vs −21) is mostly the cost of a
+  depth: ours needs ~5-6x the nodes for the same nominal depth (S35 measured ~5x; the ratio has
+  not closed since). Correction to §13's "the optimism is our search": it is our search's
+  **node efficiency**, plus ~90 cp per depth, plus a1's extra ~170 cp over halfkpvm.
+- Next: where our nodes per depth go (search_bench `qnodes` share, nodes by node type and by
+  move kind at the 158 positions), against YaneuraOu's published design for ideas only.
+
+### 13.2 Where the nodes go, and what the "optimism" is (2026-11-21, `matches/s45/survey`)
+
+- **Nodes per depth = singular extension.** `search-diag` depth 12 on 40 of the 158 losing
+  positions (`diag/`, a1, 1 thread): 559k nodes with singular extension, **154k without**
+  (YaneuraOu + halfkpvm 115k), q-share 49% / 41%. Singular tests extend 48% and multicut 33%.
+  The gap below `sing_beta` of the extended moves (instrumented build, not kept): ≤ 20 cp 10%,
+  21-100 12%, 101-300 28%, 301-1000 34%, > 1000 17%: the table move really is far better in most
+  extended nodes, so a larger margin cannot cut much (S42: margin 16 still extended 40%, and failed
+  at 4 threads). Extensions are already capped per path at the iteration depth (`lean.rs:793-797`);
+  check extensions off was −9 in S41. The equal-depth table of §13.1 therefore compares unequal
+  trees: our depth 12 contains far more extended plies.
+- **Ladder with halfkpvm** (`ladderhk.py`, `ladderhk_nose.py`; 60 ladder positions, reference
+  Suisho5 at 32M, not 2M — Suisho5 2M is itself +120 off it on the 40 behind):
+
+  | behind (40) | 2M | 8M | 32M |
+  |---|---|---|---|
+  | ours + halfkpvm | +315 | +244 | +253 (d20) |
+  | same, singular extension off | | +294 (d20) | +270 (d22.5) |
+  | ours + a1 | +480 | +427 | +402 |
+  | YaneuraOu + halfkpvm | | +20 (d22) | −123 (d26) |
+
+- **The "optimism" is mostly score scale, not an offset.** Linear fit of each search's score on
+  Suisho5 32M (60 positions): intercepts +17..+56 for all; slopes ours + halfkpvm 0.61 / 0.74 /
+  0.69 (2M/8M/32M), ours a1 0.35 / 0.49 (2M/32M), YaneuraOu + halfkpvm 1.03 / 1.23 (8M/32M),
+  Suisho5 2M 0.80. And **a1's scores are 0.56x halfkpvm's** at depth 1 and 0.59x after 2M (368
+  positions; mean |score| 181 vs 239 static, 202 vs 295 at 2M). Our search widens the scale with
+  depth less than YaneuraOu's does, and a1 starts on a narrower scale. Consistent with this, in
+  the 20 survey positions where we are winning (Suisho5 > +300) ours is *below* YaneuraOu's search
+  (a1 −56, halfkpvm −14 vs YaneuraOu +68). A uniform scale does not change minimax move choice.
+- **Move quality at equal nodes shows no gap** (`moveloss.py`): every distinct best move on the 60
+  positions scored by Suisho5 alone at 32M nodes (`searchmoves`); mean loss against the best
+  candidate: ours a1 33 / 38 / 41 (2M/8M/32M), ours + halfkpvm 73 / 36 / 42, YaneuraOu + halfkpvm
+  — / 50 / 33, Suisho5 36 / 41 / 34 (its own 32M move loses 34: the judge's noise floor). Best
+  move = Suisho5 32M's: a1 32M 36/60, YaneuraOu + halfkpvm 32M 34/60, Suisho5 2M 37/60. (§4's
+  70% vs 57% used Suisho5 2M as reference, which shares YaneuraOu's search code.) Resolution is
+  only ~±10-15 cp per move with n=60, 1 thread, fixed nodes.
+- **Correction to §13 and to commit bf9d238's summary ("search, not network, is the cause"):** the
+  cp bias measured the scale of the scores, not the quality of the moves. At equal nodes on 1
+  thread our move choice is not measurably worse than YaneuraOu + halfkpvm here. What remains
+  for the long-TC losses: nodes (YaneuraOu + Suisho5 searches 4.2x our nps in the f2 games, and
+  one time doubling = +246 at 16 threads, §6), 16-thread scaling, Suisho5's network over
+  halfkpvm/a1, and game-level noise (6 games). Next: 1 → 16 thread time-to-depth and nodes for
+  ours vs YaneuraOu (offline), and the speed work.
+
+### 13.3 Thread scaling (2026-11-21, `matches/s45/threads`)
+
+6 level middlegame positions from the user's games (`jobs.txt`), go movetime 10 s, 256 MB, one
+engine and thread count at a time. Mac (M4 Max, 12P+4E, ~1.5 cores of desktop load): ours =
+`engines/usi-engine-stable` (3eec8b3); PC (7800X3D, WSL driver, Windows exes): ours = `yse-s45see`
+build (3eec8b3 code, native), YaneuraOu V9 AVX512VNNI + Suisho5. `analyse.py`; completion of depth
+d = last info line labelled d that is followed by a deeper one.
+
+| median nps (M) | 1T | 2T | 4T | 8T | 16T | 16T / 1T |
+|---|---|---|---|---|---|---|
+| Mac ours | 0.53 | 0.99 | 1.81 | 3.61 | 5.81 | 11.0 |
+| Mac YaneuraOu + Suisho5 | 1.20 | 2.41 | 4.85 | 9.37 | 14.38 | 12.0 |
+| Mac YaneuraOu + halfkpvm | 1.17 | 2.33 | 4.68 | 8.99 | 13.97 | 11.9 |
+| PC ours | 0.38 | 0.73 | 1.39 | 2.67 | 3.57 | 9.4 |
+| PC YaneuraOu + Suisho5 | 1.56 | 3.12 | 5.84 | 11.22 | 14.91 | 9.6 |
+
+- **Thread scaling is not the gap**: nps scales the same for both (11.0 vs 12.0 Mac, 9.4 vs 9.6 PC),
+  and time-to-depth speedups are small and noisy for both (Lazy SMP adds little nominal depth:
+  ours 1.2-1.8x, YaneuraOu 1.0-2.0x at 2-16 threads; 6 positions).
+- **The gap is per-thread speed, and it is twice as large on the PC**: 1-thread ours / YaneuraOu
+  2.3x on the Mac, **4.1x on the PC** (16 threads 4.2x, as in the f2 games). Ours is 0.72x as fast
+  on the PC as on the M4 Max; YaneuraOu is 1.30x faster on the PC (its x86 build uses AVX-512 VNNI;
+  our x86 NNUE kernels are AVX2, `nnue.rs:1865`). Windows vs Linux is not it: §8's Linux build ran
+  339k (0425008), the Windows 3eec8b3 build 380k. CapturedPieces is two `Vec`s cloned per move
+  (`types/board.rs:11`), an allocation per node on every platform; not visible in §8's top items.
+- Levers, in order of measured share (§8, 0425008; re-profile 3eec8b3 first): legal move lists
+  generated in full at the nodes that search moves (≈86 legal/node, `diag/`; whether scoring and
+  sorting are also done in full is to be checked in the code) where 84% of cuts come on the first move — a staged move picker is the standard form; x86 NNUE kernels
+  (AVX-512/VNNI with runtime dispatch, x86 only, NNUE 27% of PC time); the rest of SEE.
+
+## 14. Speed round 4 (2026-11-21, worktree `s45x86`, uncommitted)
+
+PC profile of 3eec8b3 (Linux build `~/yse-s45prof2`, samply, the 6 `threads/jobs.txt` positions,
+1 thread 5 s each and 16 threads 3 s; `matches/s45/pcprof/s3eec_top1t.txt`, `s3eec_top16t.txt`;
+1-thread 408k nps, 16 threads 3.83M; fingerprint: `go depth 12` 428,032 nodes on Mac and PC):
+NNUE ~31% (layer 2 15.7%, `forward_from_activations` 6.3%, make 3.9%, refresh 2.2%), SEE ~19%,
+move generation and legality ~19% (`MoveTestFilter::test` 5.3%), ordering ~5%, correction keys
++ hand hash 5.1%, malloc/free 1.2%.
+
+- **Layer 2 on x86 in one call** (`nnue.rs`, `layer_2_blocked_pairs_avx2/avx512`): the a1 network's
+  activations (4,096-16,383) need 64-bit totals, so layer 2 ran as 16 calls of `layer_2_fixed_i32`
+  per evaluation (one per 32-row block, ~5 non-zero pairs each), each storing, reloading and
+  widening its sums through memory. Now one call keeps the 64-bit sums in registers, two 32-bit
+  sets per block (latency), AVX2 or AVX-512 BW, with VNNI `vpdpwssd` when present (runtime
+  dispatch, `SHOGI_NO_AVX512=1` forces AVX2). Exact: test `layer_2_blocked_pair_kernels_match_i64`
+  (200 cases per kernel, all three ran on the 7800X3D). PC, 6 positions x depth 13, 3 rounds
+  interleaved: **+6.6% (VNNI), +5.3% (AVX2 only)**, same 24.7M nodes and moves in every round
+  (a second 2-round run: +4.3%). aarch64 unchanged (same per-block code).
+- **Table move first** (`lean.rs`, `MoveGenerator::legal_move_like`; `SHOGI_TT_FIRST=0` = old):
+  the table move is built alone (that piece's moves or the drops onto its square, legality and
+  `gives_check` as `generate_legal_moves`; test `legal_move_like_matches_full_list`, field-equal
+  over 40 random games incl. evasions) and searched before the rest is generated. Not
+  search-identical: the rest is ordered after the table move's search, with updated history.
+  Off = identical to the stable engine (Mac: 8,240,896 nodes, same moves). On, depth 13 on the 6
+  positions: Mac 15.1 s → 10.9 s, PC 39.1 → 28.3 s (vs off), but mostly from a smaller tree
+  (nodes 8.24M → 6.11M Mac, 16.48M → 12.22M PC); nps only +3%. So it is an ordering change whose
+  value needs games (fixed-node screen fits: nps nearly unchanged), not a speedup.
+
+- **Ship check of the layer-2 kernel alone** (bf9d238 + `nnue.rs`; Mac `matches/s45/round4/`, PC
+  `matches/s45/pc_check_x86.sh` → `C:\Users\fgant\s45x86check`): Mac unit tests 1170 passed, 0
+  failed; Mac g1108 fingerprint (plies 30-69, 200k nodes) 0 of 40 differ from
+  `engines/usi-engine-stable`. PC Windows: 1171 passed, 1 failed (`test_memory_breakdown`, RSS not
+  read on Windows, as in round 3); layer-2 tests also pass in the generic x86-64 build; g1108
+  fingerprint vs the 3eec8b3 build 0 of 40 differ for native VNNI, native forced AVX2
+  (`SHOGI_NO_AVX512=1`) and generic x86-64. `speed_ab` (8 positions x 1M nodes, 4 rounds): native
+  +3.0%, generic +3.6% (generic's node total differs: the search reads the clock). Speed across
+  the three PC measurements: +3.0% to +6.6%.
