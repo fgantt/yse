@@ -352,3 +352,17 @@ tests pass; both off = the gated fix (0 of 40 fingerprints differ). a1, 40k vs Y
 No gain from either. D5's order is right on paper and measured worse or neutral: it stays out
 unless a larger run says otherwise. D3 is neutral and may join the bundle as a correctness fix
 after self-play. Remaining: D1 at depth, D4, D6 (saturated table), D7, D8, interrupted iterations.
+
+### Correction: the user's games were 16 threads against 4 (2026-11-22)
+
+The user never set engine options, and the GUI sends none: YaneuraOu plays on its default 4 threads,
+ours on all logical CPUs (16 on both machines). "The user plays 16 threads" here, in PLAN_S44 and in
+the user-game notes is wrong for the opponent (it came from a misread GUI default).
+
+- PC, move 41 of the 2026-11-22 game: ours 16T 4.02M nps, YaneuraOu 4T 5.73M (1.4x), 16T 14.49M (3.6x).
+  That game was at about equal nodes, as ours thought 1.5x as long.
+- So the speed share of the gap in the user's games is about 0.5 doubling, not 2: those losses are
+  search and network. At equal threads the user's games would be harder than the record shows.
+- Clock readings and think times in earlier GUI game notes are unreliable: the GUI's clock counted
+  timer ticks, and engines got no move history (fixed in ysu 5b68290; 15df20c makes a resignation
+  end the game).

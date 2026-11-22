@@ -92,7 +92,7 @@ Before Session 35: corpora `corpus_s23` … `corpus_s28`, `corpus_self`, `corpus
 | Hao sample 200b | same set | `docs/nnue-phase2/hao/sample200b.txt` (25 per generation run, none in samples 50/150; 62.7 GB, fetched 2026-11-03) | 1,567M |
 | Suisho5 depth 9 | nodchip `shogi_suisho5_depth9` (Hugging Face, MIT), depth-9 labels by Suisho5, already shuffled and replaced by quiescence leaves (no stored move) | all 8 volumes `shuffled.7z.001`-`.008` (184.6 GB, sha256 from the Hugging Face listing, fetched 2026-11-08) + `shuffled.bin` (290 MB, 7,240,673, validation; Mac `corpus_suisho5/val/`) | ~5B |
 
-Raw files: Mac `corpus_hao/raw/` (sample 50), PC `/mnt/c/Users/fgant/hao/raw/` (samples 50, 150, 200b). Suisho5 volumes: PC `/mnt/c/Users/fgant/suisho5/raw/`.
+Raw files: Mac `corpus_hao/raw/` (sample 50), PC `/mnt/c/Users/fgant/hao/raw/` (samples 50, 150, 200b). The Suisho5 volumes were **deleted from the PC 2026-11-22** (§6; refetch with `suisho5/fetch.sh`, about 3.5 h).
 
 ## 3. Packed sets (`nnue_pack`, 100-byte records)
 
@@ -101,18 +101,18 @@ Raw files: Mac `corpus_hao/raw/` (sample 50), PC `/mnt/c/Users/fgant/hao/raw/` (
 | `packed_d8` | Mac `corpus_s38/` | pool 1-6 (`corpus_s37c/pool_d8.jsonl`) | none | 355,549,320 | 19,285,765 |
 | `packed_half` | Mac `corpus_s38/` | same pool | `--half` (half the training games; val kept) | 177,739,896 | 19,285,765 |
 | `packed_quiet` = PC `~/data/ours_quiet` | Mac `corpus_s38/` | same pool | `--quiet` | 222,630,232 | 12,201,870 |
-| `packed_s50` | Mac `corpus_hao/`, PC `hao/` | Hao sample 50 | none | 388,975,767 | 8,560,167 |
+| `packed_s50` | Mac `corpus_hao/` (PC copy deleted 2026-11-22, §6) | Hao sample 50 | none | 388,975,767 | 8,560,167 |
 | `packed_s50q` | PC `/mnt/c/Users/fgant/hao/` | Hao sample 50 | `--quiet` | 229,751,145 | 5,075,521 |
-| `hao_q3000` | PC `~/data/` | `packed_s50q` via `mix.py --max-eval 3000` | \|score\| ≤ 3000 | 206,150,012 | 4,559,648 |
+| `hao_q3000` | deleted 2026-11-22, rebuild: §6 | `packed_s50q` via `mix.py --max-eval 3000` | \|score\| ≤ 3000 | 206,150,012 | 4,559,648 |
 | `packed_s150q` | PC `/mnt/c/Users/fgant/hao/` | Hao sample 150 (held out: `thread_index=120`) | `--quiet` | 683,784,419 | 4,134,127 |
 | `packed_s200bq` | PC `/mnt/c/Users/fgant/hao/` | Hao sample 200b (held out: its last file) | `--quiet` | 920,303,519 | 4,297,099 |
 | `packed_b1q` = PC `~/data/ours_b1q` | Mac `corpus_s39/` | Mac batch 1 + PC batches 1-2 (178,755,714) | `--quiet` | 109,731,122 | 5,822,174 |
 | `packed_b2q` = PC `~/data/ours_b2q` | Mac `corpus_s39/` | Mac batch 2 + PC batch 3 (118,473,086) | `--quiet` | 72,852,017 | 3,863,057 |
 | `packed_b4q` = PC `~/data/ours_b4q` | Mac `corpus_s39/` | PC batch 4 (58,669,741) | `--quiet` | 35,864,254 | 1,906,803 |
-| `packed_b1s5q` = PC `~/data/ours_b1s5q` | Mac `corpus_s39/` | `b1_s5` + `pc1_s5` + `pc2_s5` | `--quiet --eval-scale 1.29` | 109,731,122 | 5,822,174 |
+| `packed_b1s5q` (PC `~/data/ours_b1s5q` deleted 2026-11-22, §6) | Mac `corpus_s39/` | `b1_s5` + `pc1_s5` + `pc2_s5` | `--quiet --eval-scale 1.29` | 109,731,122 | 5,822,174 |
 | `packed_s5` | PC `/mnt/c/Users/fgant/suisho5/` | first 922.7M records of Suisho5 depth 9 (a1's Hao counts); held out: the last 9,209,648 | none (already quiet; `--quiet` would drop all, no stored move); no `--eval-scale` (logistic scale 630 vs Hao 590) | 913,535,564 | 9,209,648 |
 
-## 4. Mixes (`trainer/mix.py`, on the PC in `~/data/`)
+## 4. Mixes (`trainer/mix.py`, were on the PC in `~/data/`; **none is on disk since 2026-11-22**, rebuild: §6)
 
 | Mix | Inputs (train positions) | Train | Val |
 |---|---|---|---|
@@ -174,3 +174,33 @@ self-play positions the choice between these two teachers is not the lever.
 
 Weights: Mac `weights/session3x/` (engine `.bin`), run directories in `trainer/runs/` on the
 machine that trained them (S39 `p1_*` and `p0_hao*` on the PC, `~/yse/trainer/runs/`).
+
+## 6. Deleted for disk, 2026-11-22 (Session 46, the user's request)
+
+Each mix was rebuilt in memory from inputs still held and compared byte for byte before deletion
+(seed 39, numpy 2.2.6). Inputs go in this order.
+
+| Mix | Inputs | Options | Draw | train.bin sha256 | val.bin sha256 |
+|---|---|---|---|---|---|
+| `mix_q` | `ours_quiet` `packed_s50q` | - | **old** | `fb5e396e772ee4a4d517a3dc3889ef3d041131292a359534f0918a5114de3173` | `bb9c872e3d3a39826771ec90418301f1883169eeb2160a6801bac8de1b557a6c` |
+| `mix_a2` | `ours_quiet` `packed_s50q` `packed_s150q` | `--limits 0 0 215500000` | **old** | `17ffdb5291eab17e9fe8d68e2bcbb917000823c0aaf9fbbf463697684d300336` | `2546cde66a5aa5e3c482240e2b60186536cc94cd28cab99084dc40e835810a50` |
+| `hao_q3000` | `packed_s50q` | `--max-eval 3000` | current | `79e36c073543e3687e49d720f6964daae18f0fc8f9174013315238f9f6efe847` | `43d3796807a31a7a40994c9faafba67770b865beb2e883b8ec45adefb187db9d` |
+| `mix_a1` | `ours_quiet` `packed_s50q` `packed_s150q` | - | current | `480fc7aca105a49c3a05ea0a917a37b718535312cc4e7a60886d2f2c23d854ca` | `127d2e817e8f328fdefcfff330cd4056a7e234917c4b0ab1ea8404b4fe59281b` |
+| `mix_c1` | `ours_quiet` `ours_b1q` `packed_s50q` `packed_s150q` | - | current | `10e7ae5eea74f3ab2c0ed0eeaab4bc5fd83028d9d207da9972ba5c9287d044b8` | `b9f02a5440a73f1b6e4362fce5a2061c0b86801395d9cf062546dc8bae6496a4` |
+| `mix_h2` | `ours_quiet` `packed_s50q` `packed_s150q` `packed_s200bq` | - | current | `847d30765c393f7650075bc525bd7f6e42abd3a4d17ed8d02d343f1c61d032b9` | `94b386b0111dae88963ddb1a593c3d67fe98f398c91a71214add6d4813b6663f` |
+| `mix_s5` | `ours_quiet` `packed_s5` | - | current | `718478ab0d57c19206b19b1d3d5ef391bea439454dea2761b8f58a09b0807e0c` | `21e6ad6bede829675bb3fabcd8f2ef4cde1a6c29f0683d710f88370cc5db9769` |
+
+**Old draw:** `mix_q` and `mix_a2` predate d8efcaa and do **not** rebuild with today's `mix.py`.
+Replace its `need = ...` line in `mix()` with
+`need = rng.multivariate_hypergeometric(left, min(CHUNK, int(left.sum())))`.
+HANDOFF_S40's "all reproducible" is true only with that change. The shipped a1's `mix_a1` uses the
+current mixer.
+
+Also deleted from the PC:
+- `hao/packed_s50`, `~/data/ours_b1s5q`, `~/relabel/pc1_s5`: identical to the Mac's copies by sha256
+  (`corpus_hao/packed_s50`, `corpus_s39/packed_b1s5q`, `corpus_s39/pc1_s5`).
+- `suisho5/raw` (8 volumes): same sizes and sha256 on Hugging Face that day (`suisho5/list.txt`).
+  `suisho5/packed_s5` is kept.
+
+Still on the PC: `hao/raw`, `hao/packed_s50q`, `packed_s150q`, `packed_s200bq`, `suisho5/packed_s5`,
+`~/data/ours_quiet`, `ours_b1q`, `ours_b2q`, `ours_b4q` (the four `ours_*` = the Mac's copies by sha256).
