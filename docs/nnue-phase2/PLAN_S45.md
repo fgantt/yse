@@ -323,14 +323,14 @@ Checks run (2026-11-20):
   depth less than YaneuraOu's does, and a1 starts on a narrower scale. Consistent with this, in
   the 20 survey positions where we are winning (Suisho5 > +300) ours is *below* YaneuraOu's search
   (a1 −56, halfkpvm −14 vs YaneuraOu +68). A uniform scale does not change minimax move choice.
-- **Move quality at equal nodes shows no gap** (`moveloss.py`): every distinct best move on the 60
+- **[WRONG, see §15: equal-node games score 0.8%.]** **Move quality at equal nodes shows no gap** (`moveloss.py`): every distinct best move on the 60
   positions scored by Suisho5 alone at 32M nodes (`searchmoves`); mean loss against the best
   candidate: ours a1 33 / 38 / 41 (2M/8M/32M), ours + halfkpvm 73 / 36 / 42, YaneuraOu + halfkpvm
   — / 50 / 33, Suisho5 36 / 41 / 34 (its own 32M move loses 34: the judge's noise floor). Best
   move = Suisho5 32M's: a1 32M 36/60, YaneuraOu + halfkpvm 32M 34/60, Suisho5 2M 37/60. (§4's
   70% vs 57% used Suisho5 2M as reference, which shares YaneuraOu's search code.) Resolution is
   only ~±10-15 cp per move with n=60, 1 thread, fixed nodes.
-- **Correction to §13 and to commit bf9d238's summary ("search, not network, is the cause"):** the
+- **[WITHDRAWN, see §15: the search is the largest gap.]** **Correction to §13 and to commit bf9d238's summary ("search, not network, is the cause"):** the
   cp bias measured the scale of the scores, not the quality of the moves. At equal nodes on 1
   thread our move choice is not measurably worse than YaneuraOu + halfkpvm here. What remains
   for the long-TC losses: nodes (YaneuraOu + Suisho5 searches 4.2x our nps in the f2 games, and
@@ -435,3 +435,45 @@ move generation and legality ~19% (`MoveTestFilter::test` 5.3%), ordering ~5%, c
 - **Shipped** (user's OK 2026-11-21): the inline hand + aarch64 layer 2 pair as the commit after
   17300ab; Mac `engines/usi-engine-stable` = its build (g1108 0 of 40 differ); the previous stable
   kept as `engines/usi-engine-17300ab`.
+
+## 15. The search gap at equal evaluation, re-measured (2026-11-21, `matches/s45/equal_nodes`)
+
+After the PC loss of 2026-11-21 (`matches/user_games/2026-11-21_pc_even_loss164.txt`) and the user's
+request for something bigger than small speedups.
+
+Today's search (bcf86fb, yo-diagnostic) vs YaneuraOu V9, **both on halfkpvm**, 1 thread, equal
+`go nodes`, 256 MB, no book, random openings as PLAN_S41 step 0a (`run.sh`, seeds 43400-43409):
+
+| Nodes per move, each engine | W-D-L (ours) | Score |
+|---|---|---|
+| 1k | 98-0-142 | 40.8% |
+| 3k | 28-0-212 | 11.7% |
+| 10k | 12-1-227 | 5.2% |
+| 30k | 8-0-232 | 3.3% |
+| 100k | 1-0-119 | **0.8%** |
+| 100k, control: stable binary + a1 (`run_a1.sh`) | 2-0-118 | 1.7% |
+
+- The two 100k rows: all 240 games ended "no legal moves", no faults.
+- Parity at 100k needs **16x** the nodes: 50.2% of 240 games (PLAN_S44 §4, 80fcef5 + halfkpvm). That
+  is today's search: bcf86fb and 80fcef5 give 0 of 40 different fingerprints on a1, 0 of 20 on halfkpvm.
+- The gap is small at 1k nodes and grows with the budget, with the evaluation held equal. This points
+  at how the tree is grown (selectivity, ordering), not at the evaluation code or the network.
+- Caveats: `go nodes` discards our cut-off iteration (RESEARCH_S40, correction to §4 A), which costs
+  us some of the nominal budget, more at small budgets. Nothing here measures budgets above 1.6M
+  nodes or more than one thread; do not extrapolate the 16x to long time controls.
+- **§13.2's "no gap at equal nodes" was wrong.** The move-loss test (60 selected positions, judge
+  noise 35-45 cp) could not see a gap that is overwhelming in games; S41 had already found move loss
+  blind as a screen. §13.3's and §14's "speed is the gap" inherited the error.
+- In doublings, against the user's PC opponent: search 4 (16x, at 100k), speed 2 (4.1x), network ~1
+  (Suisho5 over halfkpvm +110-200, RESEARCH_S40 A2). The speed ships of §14 were ~0.1.
+
+Proposed to the user: a new search core built and tuned as a whole next to `lean.rs`, behind a
+switch, judged on this testbed; kill rule 16x -> 8x or better at 100k. **Approved 2026-11-21 for
+the design and an Opus / Sol / Gemini council**; the plan goes to the user before any code or long run.
+
+### `go searchmoves` (2026-11-21, committed on the user's OK; binary not installed)
+
+Root filter on every thread (`SearchEngine::set_root_filter`); book and tablebase skipped; none
+legal = all moves, as YaneuraOu V9 does (checked on the binary). A restricted root is stored only
+as a lower bound. The in-check depth cap counts all legal moves, not the list. Without the option:
+0 of 40 fingerprints differ from stable. 1175 unit tests pass.

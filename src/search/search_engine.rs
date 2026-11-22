@@ -647,6 +647,8 @@ pub struct SearchEngine {
     game_path: Vec<u64>,
     /// A 4,096-bit filter over `game_path`, so most nodes skip scanning it.
     game_path_filter: [u64; 64],
+    /// USI `go searchmoves`: the root searches only these moves (empty: all moves).
+    root_filter: Vec<Move>,
     /// This search's root path entry: a path starting with it continues the game.
     root_entry: u64,
     /// Latched by `should_stop`: the search in progress has been told to stop,
@@ -2028,6 +2030,7 @@ impl SearchEngine {
             hand_path_prefix: Vec::new(),
             game_path: Vec::new(),
             game_path_filter: [0; 64],
+            root_filter: Vec::new(),
             root_entry: 0,
             search_aborted: false,
             search_statistics: SearchStatistics::new(),
@@ -2220,6 +2223,32 @@ impl SearchEngine {
     /// The game positions before the root (see `set_game_path`).
     pub(crate) fn game_path(&self) -> &[u64] {
         &self.game_path
+    }
+
+    /// USI `go searchmoves`: search only these root moves (empty: all). Lazy SMP helpers get
+    /// the same list. Set before every search: it stays until replaced.
+    pub fn set_root_filter(&mut self, moves: &[Move]) {
+        self.root_filter.clear();
+        self.root_filter.extend_from_slice(moves);
+    }
+
+    pub(crate) fn root_filter(&self) -> &[Move] {
+        &self.root_filter
+    }
+
+    /// The root moves this search may play: `moves` restricted to the `searchmoves` list, or
+    /// all of `moves` when the list is empty or none of it is among them (so a search below
+    /// the root, as the classic split runs, is never restricted).
+    pub(crate) fn restrict_root_moves(&self, moves: Vec<Move>) -> Vec<Move> {
+        if self.root_filter.is_empty() {
+            return moves;
+        }
+        let kept: Vec<Move> = moves.iter().filter(|m| self.root_filter.contains(m)).cloned().collect();
+        if kept.is_empty() {
+            moves
+        } else {
+            kept
+        }
     }
 
     /// The score of a repetition of the position `hash` (the current node,
@@ -2604,6 +2633,7 @@ impl SearchEngine {
             hand_path_prefix: Vec::new(),
             game_path: Vec::new(),
             game_path_filter: [0; 64],
+            root_filter: Vec::new(),
             root_entry: 0,
             search_aborted: false,
             search_statistics: SearchStatistics::new(),
@@ -6489,7 +6519,7 @@ impl SearchEngine {
 
         // Check tablebase first
         crate::debug_utils::start_timing("tablebase_probe");
-        let tablebase_hit = if crate::tablebase::game_path_enabled() {
+        let tablebase_hit = if crate::tablebase::game_path_enabled() && self.root_filter.is_empty() {
             self.tablebase.probe(board, player, captured_pieces)
         } else {
             None
@@ -6554,6 +6584,10 @@ impl SearchEngine {
         trace_log!("SEARCH_AT_DEPTH", "Generating legal moves");
         crate::debug_utils::start_timing("move_generation");
         let legal_moves = self.move_generator.generate_legal_moves(board, player, captured_pieces);
+        let all_moves_count = legal_moves.len();
+        let legal_moves = self.restrict_root_moves(legal_moves);
+        // Whether `searchmoves` left some moves out (see the store at the end).
+        let root_restricted = legal_moves.len() < all_moves_count;
         crate::debug_utils::end_timing("move_generation", "SEARCH_AT_DEPTH");
 
         if legal_moves.is_empty() {
@@ -7037,12 +7071,18 @@ impl SearchEngine {
         self.validate_move_tracking(&best_move, best_score, sorted_moves.len());
 
         // Store the root position in the transposition table so get_pv can extract it
-        // (not from an interrupted search: its best covers only some moves)
-        if let Some(best_move_ref) = best_move.as_ref().filter(|_| !self.last_search_interrupted) {
+        // (not from an interrupted search: its best covers only some moves). With
+        // `searchmoves` the best also covers only some moves: a lower bound on the position's
+        // value, and no bound at all on a fail-low.
+        if let Some(best_move_ref) = best_move.as_ref().filter(|_| {
+            !self.last_search_interrupted && !(root_restricted && best_score <= alpha_orig)
+        }) {
             let position_hash =
                 self.hash_calculator.get_position_hash(board, player, captured_pieces);
             let lower = if lean::root_stack() & 4 != 0 { alpha_orig } else { alpha };
-            let flag = if best_score <= lower {
+            let flag = if root_restricted {
+                TranspositionFlag::LowerBound
+            } else if best_score <= lower {
                 TranspositionFlag::UpperBound
             } else if best_score >= beta {
                 TranspositionFlag::LowerBound
@@ -15931,7 +15971,12 @@ impl IterativeDeepening {
             search_engine
                 .move_generator
                 .generate_legal_moves(board, player, captured_pieces);
+        // The position's own count: the check limits below must not see a `searchmoves` list
+        // (one listed move would cap `go depth` at 3).
         let legal_move_count = legal_moves.len();
+        // `go searchmoves` restricts the root here too: the mate search below plays only a
+        // mate starting with one of these, and the fallbacks at the end pick from them.
+        let legal_moves = search_engine.restrict_root_moves(legal_moves);
 
         // A new move on the main thread (helpers do this in `lazy_smp`).
         if lean::lean_enabled() {

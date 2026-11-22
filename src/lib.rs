@@ -262,6 +262,15 @@ impl ShogiEngine {
         self.sync_parallel_options();
     }
 
+    /// Tests: the thread count without writing the prefs file (`USI_Threads` saves it, and the
+    /// file is shared with the GUI's engine unless `SHOGI_PREFS_DIR` is set).
+    #[cfg(test)]
+    pub(crate) fn set_thread_count_unsaved(&mut self, threads: usize) {
+        self.thread_count = threads.clamp(1, 32);
+        self.parallel_options.enable_parallel = self.thread_count > 1;
+        self.sync_parallel_options();
+    }
+
     fn save_prefs(&self) {
         let path = Self::prefs_path();
         let obj = serde_json::json!({
@@ -487,6 +496,29 @@ impl ShogiEngine {
         node_limit: Option<u64>,
         stop_flag: Option<Arc<AtomicBool>>,
     ) -> Option<Move> {
+        self.get_best_move_with_search_moves(depth, time_limit_ms, node_limit, stop_flag, &[])
+    }
+
+    /// [`Self::get_best_move_with_limits`] with USI `go searchmoves`: only the listed moves
+    /// (USI strings) are searched at the root, on every thread. Illegal or unknown entries are
+    /// ignored; if none is legal, all moves are searched. The tablebase is not consulted then.
+    pub fn get_best_move_with_search_moves(
+        &mut self,
+        depth: u8,
+        time_limit_ms: u32,
+        node_limit: Option<u64>,
+        stop_flag: Option<Arc<AtomicBool>>,
+        search_moves: &[String],
+    ) -> Option<Move> {
+        let root_filter: Vec<Move> = if search_moves.is_empty() {
+            Vec::new()
+        } else {
+            MoveGenerator::new()
+                .generate_legal_moves(&self.board, self.current_player, &self.captured_pieces)
+                .into_iter()
+                .filter(|m| search_moves.iter().any(|s| *s == m.to_usi_string()))
+                .collect()
+        };
         // CRITICAL DEBUG: Log the engine's internal state at the very beginning
         let fen = self.board.to_fen(self.current_player, &self.captured_pieces);
         crate::utils::telemetry::debug_log("========================================");
@@ -512,7 +544,7 @@ impl ShogiEngine {
         crate::trace_log_fast!("GET_BEST_MOVE", &format!("Position FEN: {}", fen));
 
         // Check tablebase first
-        let tablebase_hit = if crate::tablebase::game_path_enabled() {
+        let tablebase_hit = if crate::tablebase::game_path_enabled() && root_filter.is_empty() {
             self.tablebase.probe(&self.board, self.current_player, &self.captured_pieces)
         } else {
             None
@@ -598,6 +630,7 @@ impl ShogiEngine {
         let search_result = self.search_engine.lock().map(|mut search_engine_guard| {
             crate::utils::telemetry::debug_log("Got search engine lock, starting search");
             search_engine_guard.set_node_limit(node_limit);
+            search_engine_guard.set_root_filter(&root_filter);
             search_engine_guard.set_game_path(&self.game_path);
             // Superior/inferior repetition also against recent game positions
             // (it used to see only the search's own line; council review,

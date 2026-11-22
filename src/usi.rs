@@ -43,8 +43,9 @@ impl UsiHandler {
         if limits.mate {
             return vec![self.engine.handle_go_mate(limits.mate_ms)];
         }
-        // `go infinite` / `go ponder` must search until `stop`, so no book there.
-        if !limits.infinite {
+        // `go infinite` / `go ponder` must search until `stop`, so no book there; nor with
+        // `searchmoves`, which may leave the book's move out.
+        if !limits.infinite && limits.searchmoves.is_empty() {
             if let Some(hit) = self.engine.probe_book() {
                 let usi = hit.mv.to_usi_string();
                 return vec![
@@ -60,11 +61,12 @@ impl UsiHandler {
 
         // The stop flag is reset by the command loop before dispatching `go` (see
         // `run_usi_loop`), so a `stop` that arrives during the search is honoured.
-        let best_move = self.engine.get_best_move_with_limits(
+        let best_move = self.engine.get_best_move_with_search_moves(
             depth,
             time_to_use,
             limits.nodes,
             Some(self.engine.stop_flag.clone()),
+            &limits.searchmoves,
         );
 
         match best_move {
@@ -186,6 +188,12 @@ impl UsiHandler {
     }
 }
 
+/// The words that start a `go` field (they end a `searchmoves` list).
+const GO_KEYWORDS: [&str; 13] = [
+    "btime", "wtime", "binc", "winc", "byoyomi", "movetime", "depth", "nodes", "mate",
+    "infinite", "ponder", "searchmoves", "movestogo",
+];
+
 /// The limits of a USI `go` command.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct GoLimits {
@@ -206,6 +214,8 @@ pub struct GoLimits {
     pub mate: bool,
     /// The `mate` time limit in ms; `None` for `mate infinite` (until `stop`).
     pub mate_ms: Option<u64>,
+    /// `searchmoves m1 m2 ...`: search only these root moves (USI strings, unchecked).
+    pub searchmoves: Vec<String>,
 }
 
 impl GoLimits {
@@ -232,6 +242,16 @@ impl GoLimits {
                 "infinite" => {
                     g.infinite = true;
                     takes_value = false;
+                }
+                // The moves run to the next `go` keyword (or the end).
+                "searchmoves" => {
+                    let mut j = i + 1;
+                    while j < parts.len() && !GO_KEYWORDS.contains(&parts[j]) {
+                        g.searchmoves.push(parts[j].to_string());
+                        j += 1;
+                    }
+                    i = j;
+                    continue;
                 }
                 "ponder" => {
                     g.infinite = true;
@@ -511,6 +531,18 @@ mod go_limits_tests {
         let m = go("mate infinite");
         assert_eq!((m.mate, m.mate_ms, m.infinite), (true, None, false));
         assert_eq!((go("mate").mate, go("mate").mate_ms), (true, None));
+    }
+
+    #[test]
+    fn parses_searchmoves_up_to_the_next_keyword() {
+        let g = go("searchmoves 7g7f 2g2f P*5e byoyomi 1000");
+        assert_eq!(g.searchmoves, ["7g7f", "2g2f", "P*5e"]);
+        assert_eq!(g.byoyomi, 1000);
+        let g = go("btime 0 wtime 0 byoyomi 500 searchmoves 8h2b+");
+        assert_eq!((g.byoyomi, g.searchmoves.as_slice()), (500, ["8h2b+".to_string()].as_slice()));
+        let g = go("searchmoves infinite");
+        assert!(g.searchmoves.is_empty() && g.infinite);
+        assert!(go("depth 3").searchmoves.is_empty());
     }
 
     #[test]
@@ -820,5 +852,41 @@ mod ponder_tests {
         assert_eq!(b, "bestmove G*5b");
         send(&tx, "quit");
         h.join().unwrap();
+    }
+}
+
+#[cfg(test)]
+mod search_moves_tests {
+    use super::UsiHandler;
+
+    /// Black's pawn on 5f can take an undefended rook on 5e: the free search's move.
+    const ROOK_HANGS: &str = "4k4/9/9/9/4r4/4P4/9/9/4K4 b - 1";
+
+    fn bestmove(threads: usize, go: &str) -> String {
+        let mut usi = UsiHandler::new();
+        usi.engine.set_thread_count_unsaved(threads);
+        usi.handle_command(&format!("position sfen {ROOK_HANGS}"));
+        let out = usi.handle_command(go);
+        out.last().cloned().unwrap_or_default()
+    }
+
+    /// `go searchmoves` plays a listed move, on one thread and with Lazy SMP helpers (a helper
+    /// searching all moves would hand back the capture), timed and fixed-depth.
+    #[test]
+    fn plays_only_a_listed_move() {
+        for threads in [1, 4] {
+            assert_eq!(bestmove(threads, "go depth 6"), "bestmove 5f5e", "threads {threads}");
+            assert_eq!(bestmove(threads, "go depth 6 searchmoves 5i4h"), "bestmove 5i4h");
+            assert_eq!(bestmove(threads, "go movetime 400 searchmoves 5i4h"), "bestmove 5i4h");
+            let two = bestmove(threads, "go movetime 400 searchmoves 5i4h 5i6h");
+            assert!(two == "bestmove 5i4h" || two == "bestmove 5i6h", "{two}");
+        }
+    }
+
+    /// Entries that are not legal moves are ignored; with none left, every move is searched.
+    #[test]
+    fn ignores_illegal_entries() {
+        assert_eq!(bestmove(1, "go depth 6 searchmoves 1a1b 5i4h"), "bestmove 5i4h");
+        assert_eq!(bestmove(1, "go depth 6 searchmoves 1a1b xyz"), "bestmove 5f5e");
     }
 }

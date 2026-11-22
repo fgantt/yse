@@ -92,6 +92,7 @@ impl LazyHelpers {
                 let captured = captured_pieces.clone();
                 let game_path = main.game_path().to_vec();
                 let hand_prefix = main.hand_path_prefix().to_vec();
+                let root_filter = main.root_filter().to_vec();
                 let stop = stop.clone();
                 let best = best.clone();
                 std::thread::Builder::new()
@@ -99,8 +100,8 @@ impl LazyHelpers {
                     .stack_size(64 * 1024 * 1024)
                     .spawn(move || {
                         helper_search(
-                            id, tt, nnue, board, captured, player, &game_path, &hand_prefix, stop,
-                            best, max_depth,
+                            id, tt, nnue, board, captured, player, &game_path, &hand_prefix,
+                            &root_filter, stop, best, max_depth,
                         );
                     })
                     .ok()
@@ -142,6 +143,7 @@ fn helper_search(
     player: Player,
     game_path: &[u64],
     hand_prefix: &[crate::search::search_engine::HandPathEntry],
+    root_filter: &[Move],
     stop: Arc<AtomicBool>,
     best: Arc<std::sync::Mutex<Option<HelperResult>>>,
     max_depth: u8,
@@ -156,6 +158,7 @@ fn helper_search(
     engine.transposition_table = tt;
     engine.set_game_path(game_path);
     engine.set_hand_path_prefix(hand_prefix);
+    engine.set_root_filter(root_filter);
     engine.evaluator.install_nnue(nnue);
     // No `time_manager.begin_search` here: it zeroes `GLOBAL_SEARCH_NODES`, the
     // count `info nodes` and `go nodes` use, after the main thread has begun
@@ -225,4 +228,67 @@ fn helper_aspiration(
         }
     }
     engine.search_at_depth(board, captured, player, depth, 3_600_000, MIN_SCORE, MAX_SCORE)
+}
+
+#[cfg(test)]
+mod root_filter_tests {
+    use super::*;
+
+    /// Every helper gets the main engine's `searchmoves` list. A USI-level test cannot show it:
+    /// a helper's move is played only when it is both deeper and higher-scoring than the main
+    /// thread's, so this runs the helpers to their depth limit and reads what they found.
+    #[test]
+    fn helpers_search_only_the_listed_root_moves() {
+        // The pawn on 5f can take an undefended rook, so an unrestricted helper plays 5f5e.
+        let (board, player, captured) =
+            BitboardBoard::from_fen("4k4/9/9/9/4r4/4P4/9/9/4K4 b - 1").expect("valid sfen");
+        let mut main = SearchEngine::new(None, 1);
+        let found = |main: &SearchEngine| {
+            let mut helpers = LazyHelpers::start(main, &board, &captured, player, 3, 6);
+            for handle in helpers.handles.drain(..) {
+                handle.join().expect("helper finished");
+            }
+            let best = helpers.best.lock().expect("not poisoned").clone();
+            best.expect("a helper completed a depth").2.to_usi_string()
+        };
+        let listed: Vec<Move> = main
+            .move_generator
+            .generate_legal_moves(&board, player, &captured)
+            .into_iter()
+            .filter(|m| m.to_usi_string() == "5i4h")
+            .collect();
+        main.set_root_filter(&listed);
+        assert_eq!(found(&main), "5i4h");
+
+        // A fresh engine (and table) without a list takes the rook.
+        assert_eq!(found(&SearchEngine::new(None, 1)), "5f5e");
+    }
+
+    /// The best of some moves only bounds the position's value from below. Stored as exact (or,
+    /// on a fail-low, as an upper bound) it would give a forced move's score to any later
+    /// search that reaches this position through the shared table.
+    #[test]
+    fn a_restricted_root_stores_only_a_lower_bound() {
+        let (board, player, captured) =
+            BitboardBoard::from_fen("4k4/9/9/9/4r4/4P4/9/9/4K4 b - 1").expect("valid sfen");
+        let stored = |list: &[&str], alpha: i32, beta: i32| {
+            let mut engine = SearchEngine::new(None, 1);
+            let moves: Vec<Move> = engine
+                .move_generator
+                .generate_legal_moves(&board, player, &captured)
+                .into_iter()
+                .filter(|m| list.contains(&m.to_usi_string().as_str()))
+                .collect();
+            engine.set_root_filter(&moves);
+            engine.evaluator.nnue_refresh(&board, player, &captured);
+            let mut b = board.clone();
+            engine.search_at_depth(&mut b, &captured, player, 3, 60_000, alpha, beta);
+            engine.flush_tt_buffer();
+            let hash = engine.hash_calculator.get_position_hash(&board, player, &captured);
+            engine.tt_probe(hash, 0).map(|e| e.flag)
+        };
+        assert_eq!(stored(&[], MIN_SCORE, MAX_SCORE), Some(TranspositionFlag::Exact));
+        assert_eq!(stored(&["5i4h"], MIN_SCORE, MAX_SCORE), Some(TranspositionFlag::LowerBound));
+        assert_eq!(stored(&["5i4h"], 20_000, 20_001), None);
+    }
 }
