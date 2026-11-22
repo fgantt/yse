@@ -1402,6 +1402,45 @@ fn lean_q_checks() -> bool {
     *ON.get_or_init(|| std::env::var("SHOGI_LEAN_Q_CHECKS").map_or(true, |v| v != "0"))
 }
 
+/// The most `mv` can be expected to add to the evaluation, plus `margin`: quiescence skips the
+/// move when even that does not reach alpha (delta pruning).
+///
+/// A capture in shogi moves material twice: the piece leaves the board and its unpromoted kind
+/// joins the mover's hand. From Session 34 to S46 the bound counted the board value alone, about
+/// half the swing, and pruned winning captures at the horizon (PLAN_S46 §1.4: switching the rule
+/// off was +64 ± 21 in a1 self-play at 400k nodes). `board_only` restores that bound and its
+/// margin. Margin 600 tied 200 on a1 and was +104 over it on halfkpvm, whose scores run ~1.7x
+/// as wide (40k nodes against YaneuraOu's 10k, 480 games an arm).
+///
+/// Never below the board-only bound: a promotion keeps at least the 300 it was always allowed.
+fn q_delta_bound(mv: &Move, board_only: bool, margin: i32) -> i32 {
+    const PROMOTION: i32 = 300;
+    const BOARD_ONLY_MARGIN: i32 = 200;
+    if board_only {
+        return mv.captured_piece_value() + if mv.is_promotion { PROMOTION } else { 0 } + BOARD_ONLY_MARGIN;
+    }
+    let to_hand = mv.captured_piece.as_ref().map_or(0, |c| {
+        c.piece_type.unpromoted_version().unwrap_or(c.piece_type).base_value()
+    });
+    let promotion = if mv.is_promotion {
+        // `piece_type` is the piece before it promotes.
+        mv.piece_type
+            .promoted_version()
+            .map_or(0, |p| p.base_value() - mv.piece_type.base_value())
+            .max(PROMOTION)
+    } else {
+        0
+    };
+    mv.captured_piece_value() + to_hand + promotion + margin
+}
+
+/// `SHOGI_Q_DELTA_BOARD_ONLY=1`: the delta bound from before S46, for identity checks and as the
+/// control of its screens.
+fn q_delta_board_only() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_Q_DELTA_BOARD_ONLY", false))
+}
+
 /// Whether the lean search uses its own quiescence (default; `SHOGI_LEAN_Q=0`
 /// selects the shared one, for comparison).
 fn lean_q_enabled() -> bool {
@@ -1631,9 +1670,8 @@ impl SearchEngine {
                     }
             };
             if !in_check && !mv.gives_check && !lean_off(off::Q_DELTA) {
-                let promo = if mv.is_promotion { 300 } else { 0 };
-                // Even winning the piece outright does not reach alpha.
-                if stand_pat + mv.captured_piece_value() + promo + 200 <= alpha {
+                // Even winning the piece outright, into the hand, does not reach alpha.
+                if stand_pat + q_delta_bound(mv, q_delta_board_only(), super::lean_params::lean_params().q_delta_margin) <= alpha {
                     continue;
                 }
             }
@@ -1727,6 +1765,70 @@ impl SearchEngine {
             with_qtable(|t| t[slot] = QSlot { key, score: best, flag, checks: with_checks, left });
         }
         best
+    }
+}
+
+#[cfg(test)]
+mod q_delta_tests {
+    use super::*;
+    use crate::moves::MoveGenerator;
+
+    /// The moves of `sfen` by USI string.
+    fn moves(sfen: &str) -> Vec<Move> {
+        let (board, player, hands) = BitboardBoard::from_fen(sfen).expect("sfen");
+        MoveGenerator::new().generate_legal_moves(&board, player, &hands)
+    }
+
+    fn bound(sfen: &str, usi: &str) -> i32 {
+        let mv = moves(sfen).into_iter().find(|m| m.to_usi_string() == usi).expect("legal move");
+        q_delta_bound(&mv, false, 200)
+    }
+
+    /// A capture counts on the board and in the hand; a promoted piece comes to hand unpromoted.
+    #[test]
+    fn a_capture_counts_the_piece_twice() {
+        let bishop = 800 + 800 + 200;
+        assert_eq!(bound("4k4/9/9/9/4b4/4P4/9/9/4K4 b - 1", "5f5e"), bishop);
+        // A tokin is worth a gold on the board and a pawn in the hand.
+        assert_eq!(bound("4k4/9/9/9/4+p4/4P4/9/9/4K4 b - 1", "5f5e"), 500 + 100 + 200);
+        // A pawn promoting gains a tokin; a silver keeps the allowance it always had.
+        assert_eq!(bound("8k/9/9/4P4/9/9/9/9/4K4 b - 1", "5d5c+"), 400 + 200);
+        assert_eq!(bound("8k/9/9/4S4/9/9/9/9/4K4 b - 1", "5d5c+"), 300 + 200);
+    }
+
+    /// The repair only relaxes the rule: nothing it prunes was searched before.
+    #[test]
+    fn never_tighter_than_the_board_only_bound() {
+        let sfens = [
+            "lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1",
+            "4k4/1r5b1/2+p1+s1g2/3P1S3/2B1R4/2N1L4/9/9/4K4 b GSNLPgsnlp 1",
+            "4k4/1r5b1/2+p1+s1g2/3P1S3/2B1R4/2N1L4/9/9/4K4 w GSNLPgsnlp 1",
+        ];
+        for sfen in sfens {
+            for mv in moves(sfen) {
+                assert!(q_delta_bound(&mv, false, 200) >= q_delta_bound(&mv, true, 200), "{}", mv.to_usi_string());
+            }
+        }
+    }
+
+    /// Quiescence itself searches a free capture whose full swing could reach alpha. It is
+    /// fail-soft, so its score shows the capture was searched even when alpha is not reached.
+    #[test]
+    fn quiescence_takes_a_capture_that_only_the_full_swing_justifies() {
+        let (mut board, player, hands) =
+            BitboardBoard::from_fen("4k4/9/9/9/4b4/4P4/9/9/4K4 b - 1").expect("sfen");
+        let mut engine = SearchEngine::new(None, 1);
+        engine.evaluator.nnue_refresh(&board, player, &hands);
+        let stand_pat = engine.evaluator.evaluate(&board, player, &hands);
+        // Beyond what the board-only bound allowed (800 + 200), short of the capture's real gain.
+        let alpha = stand_pat + 1_050;
+        let root = path_entry(engine.hash_calculator.get_position_hash(&board, player, &hands), false);
+        let mut path = vec![root];
+        engine.root_path_len = 1;
+        engine.root_entry = root;
+        let clock = TimeSource::now();
+        let score = engine.lean_qsearch(&mut board, &hands, player, alpha, alpha + 1, &clock, 60_000, 0, &mut path);
+        assert!(score > stand_pat, "stand pat {stand_pat}, alpha {alpha}: capture pruned");
     }
 }
 

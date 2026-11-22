@@ -59,6 +59,7 @@ params! {
     see_quiet_mul = 86, "SEE pruning of quiet moves: loss allowed per ply.";
     see_cap_depth = 6, "SEE pruning of captures: deepest depth.";
     see_cap_mul = 171, "SEE pruning of captures: loss allowed per ply.";
+    q_delta_margin = 600, "Quiescence delta pruning: allowance over the capture's material swing.";
     lmr_div = 226, "LMR table: ln(d) ln(m) / (lmr_div / 100).";
     lmr_hist_div = 8123, "LMR: one ply less per this much quiet history.";
 }
