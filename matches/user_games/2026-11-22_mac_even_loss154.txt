@@ -1,0 +1,17 @@
+Mac GUI game, 2026-11-22 21:21Z. Yggdrasil (Black, engines/usi-engine-stable = 7b8b1a0, USI_Threads 20
+from a stale per-game setting; all other options at defaults) vs YaneuraOu V9.00 halfkpvm (White,
+no options sent: its defaults, 4 threads). 60 min + 10 s byoyomi. Full history and real clock times.
+Result 0-1, mated at move 154 (B*4g).
+
+Moves: ../s46/mac1122/game.moves. GUI log: ../s46/mac1122/gui_full.log.
+Judge: Suisho5 on the Mac, 10 threads, 3 s; 10 s re-check (judge*.jsonl in the same folder).
+
+- Moves 1-83: we were ahead by Suisho5 from move 23 (+110), peak +230 at move 81. No error over 80
+  except move 69 (fine at 10 s).
+- Move 85 5f5g: -323 at 10 s (best 5f5h, +255). Ours said +352. Move 87 4h4g: -289 (d13).
+  By move 89: -576; lost.
+- Our engine on move 85 (16 threads, from the same position): plays 5f5g until 35 s, then 5f5h at depth 19.
+  In the game it spent 37 s there.
+- Time: we spent 91-116 s on each of the first 10 moves and the schedule only falls from there
+  (37 s at move 85). YaneuraOu spent 10-40 s on most moves and 150-225 s on a few
+  (its moves 2, 20, 28, 30, 68, 76, 80; 129 s at 46). It ended with 538 s left; we had 98 s.

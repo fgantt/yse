@@ -1,0 +1,14 @@
+PC GUI game, 2026-11-22 21:10Z. Yggdrasil (Black, 7b8b1a0, USI_Threads 8, hash 256) vs
+YaneuraOu NNUE V9.00 + Suisho5 (White, Threads 8, FV_SCALE 24). 30 min + 10 s byoyomi.
+First game after the ysu fixes (5b68290, 15df20c): log shows the options sent, `position startpos moves ...`
+with full history, and real clock times. Result: YaneuraOu mates with B*9f at move 150
+(the exported JSON always says "ongoing": GamePage.tsx hardcodes it).
+
+Moves: see ../s46/pc1122b/game.moves. GUI log: ../s46/pc1122b/gui_full.log.
+Judge: Suisho5 on the Mac, 10 threads, 3 s (10 s re-check), judge*.jsonl in the same folder.
+
+- Moves 1-59: no single error; small losses of 10-40 each, +93 -> -143.
+- Moves 61-75: our score +70..+159 while Suisho5 says -110..-250 (a gap of 250-380).
+- Move 79 P*7i: -160 at 10 s (best 6h7h). Move 91 B*5f: -104 at 10 s.
+  Moves 87 and 89 looked like -89 / -335 at 3 s but are fine at 10 s (judge horizon).
+- By move 95: -1063. We entered byoyomi at move 129; YaneuraOu ended with 52 s of main time.

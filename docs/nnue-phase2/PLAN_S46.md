@@ -366,3 +366,50 @@ the user-game notes is wrong for the opponent (it came from a misread GUI defaul
 - Clock readings and think times in earlier GUI game notes are unreliable: the GUI's clock counted
   timer ticks, and engines got no move history (fixed in ysu 5b68290; 15df20c makes a resignation
   end the game).
+
+### Network size and step 3 re-measure (Mac, 2026-11-22 evening, `matches/s46/remeasure/`)
+
+**Network, same search.** YaneuraOu V9 + Suisho5 (FV_SCALE 24) against YaneuraOu V9 + halfkpvm, 1 thread,
+equal nodes, 240 games a row, seeds 57000-57011 (`netcmp.py`):
+
+| Nodes | Suisho5's score | Elo |
+|---|---|---|
+| 10k | 51.0% | +7 ± 22 |
+| 100k | 51.7% | +12 ± 22 |
+| 1M | 55.8% | +41 ± 23 |
+
+The network's share grows with depth. At the user's 10-100M nodes a move it is probably larger again (not
+measured).
+
+**Step 3, ours 800k against YaneuraOu halfkpvm 100k** (7b8b1a0, 1 thread, seeds 58000-58011, `rung.py`):
+
+| Our network | Score | Elo |
+|---|---|---|
+| halfkpvm (yo-diagnostic build of 7b8b1a0) | 46.0% (105-11-124) | −28 ± 22 |
+| a1 (shipped) | 40.8% (95-6-139) | −64 ± 23 |
+
+- Same network: parity at 100k now needs about 9x (was 16x before the delta fix, §1.1): ~0.8 doubling
+  closed, ~3.2 left. 46% clears §5's 45% line by less than its noise.
+- a1 is ~36 Elo below halfkpvm in our search at 800k (§1.4 had ~+40 at 40k). The shipped engine needs
+  about 11x.
+- In doublings against YaneuraOu + Suisho5 on equal hardware: search ~3.2; network ~0.5 at 1M (a1 to
+  halfkpvm ~36, halfkpvm to Suisho5 ~41), likely more deeper; speed ~1.8 (3.6x nps at 16 threads).
+
+### Time manager (worktree `s46tm`, 7b8b1a0 + `matches/s46/tm/tm1.patch`, 2026-11-22)
+
+Found in the Mac game of 2026-11-22 (`matches/user_games/2026-11-22_mac_even_loss154.txt`): 91-116 s on
+each opening move, 37 s on the losing move 85, which our engine gets right with 35 s+ more. The clock
+allocation was `time / 30 + byoyomi` for every move (`usi.rs`), with no use of how the search was going (R5).
+
+- New (`src/search/move_time.rs`): with main time left, a soft target `time / 25 + inc + byoyomi` and a hard
+  ceiling `time / 8 + inc + byoyomi`. Before each iteration the target is stretched by best-move changes
+  (halved per iteration, from depth 5), by a score falling against this side's previous move (±400 cp
+  scale, 0.8-1.6), and shrunk 0.8x once the best move has held 8 iterations; total 0.5-3x. A new iteration
+  starts while under half the stretched target. Byoyomi only: unchanged. `SHOGI_TM_OLD=1`: the old
+  allocation. Ponderhit keeps the old allocation. 1181 unit tests pass (Mac).
+- On the game's move 85 it did not help: the best move changes only at depth 19 after ~35 s.
+- **Test (PC `s46tmgate`): new vs the same binary with `SHOGI_TM_OLD=1`, 4 threads each, 60 s + 1 s byoyomi,
+  256 MB, 4 streams, seeds 60000-60003. PASS, LLR +3.20 after 232 games: 128-9-95, 57.1%, +50 ± 23**
+  (simple SE; early stopping biases it up). Mean think 1139 vs 1147 ms a move (82 vs 83 s a game): the same
+  time, spent differently. No time losses. 4 streams share 8 cores with SMT, equally for both.
+- Not measured: the user's 30-60 min + 10 s (main time is 360x byoyomi there, 60x here), 16 threads.
