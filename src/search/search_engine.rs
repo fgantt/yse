@@ -15854,8 +15854,19 @@ pub struct IterativeDeepening {
     /// Optional parallel search engine for root move search
     parallel_engine: Option<ParallelSearchEngine>,
     parallel_min_depth: u8,
+    /// Soft time target with main time left (`search::move_time`); `time_limit_ms`
+    /// is then the hard ceiling.
+    soft_limit_ms: Option<u32>,
+    /// This side's score from its previous search in the game.
+    previous_move_score: Option<i32>,
 }
 impl IterativeDeepening {
+    /// Aim at `soft_ms` and stretch it by how the search goes (`search::move_time`).
+    pub fn set_soft_limit(&mut self, soft_ms: Option<u32>, previous_move_score: Option<i32>) {
+        self.soft_limit_ms = soft_ms;
+        self.previous_move_score = previous_move_score;
+    }
+
     pub fn new(max_depth: u8, time_limit_ms: u32, stop_flag: Option<Arc<AtomicBool>>) -> Self {
         Self {
             max_depth,
@@ -15864,6 +15875,8 @@ impl IterativeDeepening {
             thread_count: 1,
             parallel_engine: None,
             parallel_min_depth: 0,
+            soft_limit_ms: None,
+            previous_move_score: None,
         }
     }
 
@@ -15914,6 +15927,8 @@ impl IterativeDeepening {
             thread_count: threads,
             parallel_engine,
             parallel_min_depth,
+            soft_limit_ms: None,
+            previous_move_score: None,
         }
     }
 
@@ -16159,6 +16174,7 @@ impl IterativeDeepening {
         // The main thread's last completed iteration, for choosing between its
         // result and a helper's.
         let mut main_completed_depth = 0u8;
+        let mut stability = crate::search::move_time::Stability::new(self.previous_move_score);
         for depth in 1..=effective_max_depth {
             // Reset global node counter for this depth and start periodic reporter
             GLOBAL_NODES_SEARCHED.store(0, Ordering::Relaxed);
@@ -16197,11 +16213,14 @@ impl IterativeDeepening {
             // started after half the budget has gone would almost never finish,
             // and its time would be wasted (the result of an unfinished iteration
             // is discarded below).
+            // With main time left, the soft target, stretched by how the search
+            // goes, decides instead (`search::move_time`).
             let past_half = self.max_depth >= 100
                 && depth > 1
-                && match search_toggles().iter_start_frac {
-                    None => elapsed_ms * 2 > search_time_limit,
-                    Some(f) => elapsed_ms as f32 > f * search_time_limit as f32,
+                && match (self.soft_limit_ms, search_toggles().iter_start_frac) {
+                    (Some(soft), _) => !stability.start_next(elapsed_ms, soft, search_time_limit),
+                    (None, None) => elapsed_ms * 2 > search_time_limit,
+                    (None, Some(f)) => elapsed_ms as f32 > f * search_time_limit as f32,
                 };
             if remaining_ms <= time_buffer_ms || past_half {
                 trace_log!(
@@ -17047,6 +17066,7 @@ impl IterativeDeepening {
             }
 
             if let Some((mv_final, score)) = search_result {
+                stability.record(depth, &mv_final, score);
                 // Ensure TT is flushed before building PV so all entries are visible
                 search_engine.flush_tt_buffer();
                 // Get seldepth (selective depth) - the maximum depth reached

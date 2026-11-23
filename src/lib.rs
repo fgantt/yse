@@ -116,6 +116,11 @@ pub struct ShogiEngine {
     /// Milliseconds subtracted from every clock-based time allocation, for GUI
     /// and communication delay (USI option `MoveOverhead`).
     pub move_overhead_ms: u32,
+    /// The soft time target for the next search (`GoLimits::soft_ms`), used once.
+    pub soft_time_ms: Option<u32>,
+    /// The side and score of the last search, for the next one's falling-score
+    /// check (`search::move_time`). Cleared on `usinewgame`.
+    last_search_score: Option<(Player, i32)>,
     /// USI `NNUEFile`: path to a v2 weight file that declares its feature set.
     nnue_file: String,
     /// Result of the last NNUE configuration, reported on `isready`.
@@ -212,6 +217,8 @@ impl ShogiEngine {
             book_rng: StdRng::from_entropy(),
             game_from_startpos: true,
             move_overhead_ms: 100,
+            soft_time_ms: None,
+            last_search_score: None,
             nnue_file: DEFAULT_NNUE_FILE.to_string(),
             nnue_status: String::new(),
         };
@@ -619,6 +626,11 @@ impl ShogiEngine {
             threads,
             parallel_config,
         );
+        let previous_score = self
+            .last_search_score
+            .filter(|(side, _)| *side == self.current_player)
+            .map(|(_, score)| score);
+        searcher.set_soft_limit(self.soft_time_ms.take(), previous_score);
 
         crate::utils::telemetry::debug_log("Trying to get search engine lock");
 
@@ -647,6 +659,9 @@ impl ShogiEngine {
 
         crate::utils::telemetry::debug_log("Search completed, checking result");
 
+        if let Ok(Some((_, score))) = &search_result {
+            self.last_search_score = Some((self.current_player, *score));
+        }
         if let Ok(Some((move_, _score))) = search_result {
             // CRITICAL: Verify move is legal before returning
             // This prevents illegal moves from being played
@@ -1638,6 +1653,7 @@ impl ShogiEngine {
 
     pub fn handle_usinewgame(&mut self) -> Vec<String> {
         search::search_engine::lean_new_game();
+        self.last_search_score = None;
         if let Ok(mut search_engine_guard) = self.search_engine.lock() {
             search_engine_guard.clear();
         }

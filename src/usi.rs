@@ -57,6 +57,7 @@ impl UsiHandler {
         }
         let black_to_move = self.engine.current_player == crate::types::Player::Black;
         let time_to_use = limits.allocate_ms(black_to_move, self.engine.move_overhead_ms);
+        self.engine.soft_time_ms = limits.soft_ms(black_to_move, self.engine.move_overhead_ms);
         let depth = limits.depth.unwrap_or(self.engine.depth);
 
         // The stop flag is reset by the command loop before dispatching `go` (see
@@ -271,7 +272,9 @@ impl GoLimits {
     /// pondering search runs unlimited, so the `ponderhit` timer is its only stop.
     pub fn ponderhit_ms(&self, black_to_move: bool, overhead_ms: u32) -> u32 {
         let own = Self { infinite: false, ponder: false, ..self.clone() };
-        own.allocate_ms(black_to_move, overhead_ms).saturating_sub(50).max(1)
+        // A timer ends it, with no iterations to judge, so the allocation
+        // before soft targets (`search::move_time`).
+        own.allocate_ms_with(black_to_move, overhead_ms, true).saturating_sub(50).max(1)
     }
 
     /// Milliseconds to spend on this move.
@@ -279,13 +282,41 @@ impl GoLimits {
     /// * `infinite` / `ponder`: until `stop` (a pondering search: until the
     ///   `ponderhit` timer, see [`Self::ponderhit_ms`]).
     /// * `movetime`: that, less the overhead.
-    /// * A clock: about 1/30 of the remaining main time, plus the increment,
-    ///   plus byoyomi; never more than a quarter of the main time on top of
-    ///   increment and byoyomi, less the overhead. With byoyomi only, the
-    ///   byoyomi less the overhead.
+    /// * A clock with main time left: a hard ceiling of 1/8 of the main time,
+    ///   plus the increment, plus byoyomi, less the overhead. The search
+    ///   aims at [`Self::soft_ms`] and stops before this
+    ///   (`search::move_time`).
+    /// * Byoyomi only: the byoyomi less the overhead.
     /// * Only `depth` or `nodes`: no time limit.
     /// * Nothing at all: 5 s.
+    ///
+    /// `SHOGI_TM_OLD=1`: the clock allocation before soft targets, about 1/30
+    /// of the main time plus increment and byoyomi, at most a quarter of it.
     pub fn allocate_ms(&self, black_to_move: bool, overhead_ms: u32) -> u32 {
+        self.allocate_ms_with(black_to_move, overhead_ms, crate::search::move_time::old_time_manager())
+    }
+
+    /// The soft target for a move while main time is left: 1/25 of the main
+    /// time, plus the increment, plus byoyomi, less the overhead. `None` with
+    /// byoyomi only, a fixed `movetime`, `infinite`, `ponder`, or `SHOGI_TM_OLD=1`.
+    pub fn soft_ms(&self, black_to_move: bool, overhead_ms: u32) -> Option<u32> {
+        self.soft_ms_with(black_to_move, overhead_ms, crate::search::move_time::old_time_manager())
+    }
+
+    fn soft_ms_with(&self, black_to_move: bool, overhead_ms: u32, old: bool) -> Option<u32> {
+        if old || self.infinite || self.ponder || self.movetime.is_some() {
+            return None;
+        }
+        let (time, inc) =
+            if black_to_move { (self.btime, self.binc) } else { (self.wtime, self.winc) };
+        if time == 0 {
+            return None;
+        }
+        let soft = (time / 25 + inc + self.byoyomi).saturating_sub(overhead_ms as u64).max(10);
+        Some(soft.min(u64::from(u32::MAX / 4)) as u32)
+    }
+
+    fn allocate_ms_with(&self, black_to_move: bool, overhead_ms: u32, old: bool) -> u32 {
         const UNLIMITED: u32 = u32::MAX / 4;
         let overhead = overhead_ms as u64;
         if self.infinite {
@@ -297,7 +328,7 @@ impl GoLimits {
         let (time, inc) =
             if black_to_move { (self.btime, self.binc) } else { (self.wtime, self.winc) };
         if time > 0 || inc > 0 || self.byoyomi > 0 {
-            let target = time / 30 + inc + self.byoyomi;
+            let target = if old || time == 0 { time / 30 } else { time / 8 } + inc + self.byoyomi;
             let cap = time / 4 + inc + self.byoyomi;
             return target.min(cap).saturating_sub(overhead).max(10).min(UNLIMITED as u64) as u32;
         }
@@ -549,11 +580,25 @@ mod go_limits_tests {
     fn allocates_time_from_the_movers_clock() {
         // byoyomi only: byoyomi less overhead.
         assert_eq!(go("btime 0 wtime 0 byoyomi 1000").allocate_ms(true, 100), 900);
-        // main time + increment: time/30 + inc - overhead, for the side to move.
-        assert_eq!(go("btime 60000 wtime 30000 binc 1000 winc 0").allocate_ms(true, 100), 2900);
-        assert_eq!(go("btime 60000 wtime 30000 binc 1000 winc 0").allocate_ms(false, 100), 900);
+        // main time + increment: a ceiling of time/8 + inc - overhead, for the side to move.
+        let inc = go("btime 60000 wtime 30000 binc 1000 winc 0");
+        assert_eq!(inc.allocate_ms_with(true, 100, false), 8400);
+        assert_eq!(inc.allocate_ms_with(false, 100, false), 3650);
+        // The soft target: time/25 + inc - overhead.
+        assert_eq!(inc.soft_ms_with(true, 100, false), Some(3300));
         // main time + byoyomi.
-        assert_eq!(go("btime 9000 wtime 9000 byoyomi 1000").allocate_ms(true, 100), 1200);
+        let byo = go("btime 9000 wtime 9000 byoyomi 1000");
+        assert_eq!(byo.allocate_ms_with(true, 100, false), 2025);
+        assert_eq!(byo.soft_ms_with(true, 100, false), Some(1260));
+        // Before soft targets (SHOGI_TM_OLD=1): time/30, no soft target.
+        assert_eq!(inc.allocate_ms_with(true, 100, true), 2900);
+        assert_eq!(inc.allocate_ms_with(false, 100, true), 900);
+        assert_eq!(byo.allocate_ms_with(true, 100, true), 1200);
+        assert_eq!(byo.soft_ms_with(true, 100, true), None);
+        // No soft target with byoyomi only, movetime, infinite or ponder.
+        assert_eq!(go("btime 0 wtime 0 byoyomi 1000").soft_ms_with(true, 100, false), None);
+        assert_eq!(go("movetime 500 btime 9000 wtime 9000").soft_ms_with(true, 100, false), None);
+        assert_eq!(go("ponder btime 9000 wtime 9000").soft_ms_with(true, 100, false), None);
         // Never more than a quarter of the main time on top of inc/byoyomi.
         assert!(go("btime 400 wtime 400").allocate_ms(true, 0) <= 100);
         // movetime, depth-only, infinite, nothing.
