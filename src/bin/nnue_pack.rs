@@ -95,6 +95,10 @@ enum Cmd {
     Tables {
         #[arg(long, default_value_t = 9)]
         king_buckets: usize,
+        /// The standard format's HalfKP features (81 king squares x 1548 BonaPieces) instead of
+        /// the engine's own; needs `--features yo-diagnostic`.
+        #[arg(long)]
+        halfkp: bool,
         #[arg(long)]
         out: PathBuf,
     },
@@ -673,6 +677,61 @@ fn write_lineage(
 /// Feature lookup tables (`-1` = no feature). Indices are rows of the
 /// king-conditioned input layer: `piece[frame][code][sq] + king[frame][own king sq]`,
 /// likewise for `hand[frame][holder][type][k]` (k = 1..=max).
+/// Lookup tables for the standard format's HalfKP (YaneuraOu `halfkp_256x2-32-32`): rows are
+/// king square x BonaPiece (`yo_nnue::halfkp_*`), the factoriser stride is the BonaPiece count,
+/// and there is no PSQT. Same JSON shape as `tables`, so the trainer needs no other change here.
+#[cfg(feature = "yo-diagnostic")]
+fn tables_halfkp(out: &Path) -> std::io::Result<()> {
+    use shogi_engine::evaluation::yo_nnue::{
+        halfkp_board_feature, halfkp_hand_feature, halfkp_king_square, HALFKP_FE_END, INPUTS_HALFKP,
+    };
+    let frames = [Player::Black, Player::White];
+    let mut piece = vec![vec![vec![-1i64; 81]; 29]; 2];
+    let mut hand = vec![vec![vec![vec![-1i64; 19]; 7]; 2]; 2];
+    let mut king = vec![vec![0i64; 81]; 2];
+    for (f, &frame) in frames.iter().enumerate() {
+        for (c, &owner) in frames.iter().enumerate() {
+            for (t, &pt) in PIECE_TYPES.iter().enumerate() {
+                if pt == PieceType::King {
+                    continue;
+                }
+                for sq in 0..81u8 {
+                    let p = Position::from_u8(sq);
+                    piece[f][1 + 14 * c + t][sq as usize] =
+                        halfkp_board_feature(frame, owner, pt, p.row, p.col) as i64;
+                }
+            }
+            for (t, &pt) in HAND_PIECE_TYPES.iter().enumerate() {
+                for k in 1..=MAX_HAND_COUNT[t] as usize {
+                    hand[f][c][t][k] = halfkp_hand_feature(frame, owner, pt, k) as i64;
+                }
+            }
+        }
+        for sq in 0..81u8 {
+            let p = Position::from_u8(sq);
+            king[f][sq as usize] = (halfkp_king_square(frame, p.row, p.col) * HALFKP_FE_END) as i64;
+        }
+    }
+    let json = serde_json::json!({
+        "king_buckets": 81,
+        "stride": HALFKP_FE_END,
+        "rows": INPUTS_HALFKP,
+        "max_hand": MAX_HAND_COUNT,
+        "piece": piece,
+        "hand": hand,
+        "king": king,
+        "material_psqt": vec![0i32; INPUTS_HALFKP],
+        "format": "halfkp_256x2-32-32",
+    });
+    serde_json::to_writer(BufWriter::new(File::create(out)?), &json)?;
+    Ok(())
+}
+
+#[cfg(not(feature = "yo-diagnostic"))]
+fn tables_halfkp(_out: &Path) -> std::io::Result<()> {
+    Err(std::io::Error::other("tables --halfkp needs --features yo-diagnostic"))
+}
+
 fn tables(nbuckets: usize, out: &Path) -> std::io::Result<()> {
     let frames = [Player::Black, Player::White];
     let mut piece = vec![vec![vec![-1i64; 81]; 29]; 2];
@@ -751,7 +810,8 @@ fn main() -> std::io::Result<()> {
         Cmd::Pack { corpus, out_dir, buckets, seed, half, quiet, eval_scale, note } => {
             pack(&corpus, &out_dir, buckets, seed, Filter { half, quiet, eval_scale }, &note)
         }
-        Cmd::Tables { king_buckets, out } => tables(king_buckets, &out),
+        Cmd::Tables { halfkp: true, out, .. } => tables_halfkp(&out),
+        Cmd::Tables { king_buckets, out, .. } => tables(king_buckets, &out),
         Cmd::PackPsv { inputs, out_dir, buckets, seed, quiet, note } => {
             pack_psv(&inputs, &out_dir, buckets, seed, quiet, &note)
         }
