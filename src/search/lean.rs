@@ -335,6 +335,7 @@ impl SearchEngine {
         if diag() {
             DIAG_NODES[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
             DIAG_INTERIOR_NODES.fetch_add(1, Ordering::Relaxed);
+            diag_count_under();
         }
         if self.should_stop(start_time, time_limit_ms) {
             return alpha;
@@ -646,6 +647,7 @@ impl SearchEngine {
         // move's score in a reduced search, the table move gets one more ply.
         // If even the others reach beta, more than one move cuts: return.
         let mut singular = false;
+        let mut singular_neg = false;
         if lean_se() && excluded.is_none() && depth >= se_param("SHOGI_LEAN_SE_DEPTH", 6) {
             if let (Some(e), Some(ttm)) = (tt_entry.as_ref(), tt_move.as_ref()) {
                 let s = mate_score_from_tt(e.score, ply);
@@ -691,6 +693,8 @@ impl SearchEngine {
                             SE_MULTICUT.fetch_add(1, Ordering::Relaxed);
                         }
                         return sing_beta;
+                    } else if s47() & 8 != 0 && (s >= beta || cut_node) {
+                        singular_neg = true;
                     }
                 }
             }
@@ -704,6 +708,30 @@ impl SearchEngine {
         let mut best_move: Option<Move> = None;
         let mut move_count = 0usize;
         let lmr = lmr_table();
+        // The LMR reduction of a late quiet move as the move loop computes it below, without the
+        // history term (S47 bit 1 prunes by the depth it leaves; history already prunes and
+        // orders, and counting it here too pushed the pruning depth down by up to six plies).
+        let quiet_r = |e: &SearchEngine, mv: &Move, move_count: usize| -> i32 {
+            let mut r = i32::from(lmr[(depth as usize).min(63)][move_count.min(63)]);
+            if pv_node {
+                r -= 1;
+            }
+            if cut_node {
+                r += 1;
+            }
+            if !improving_for(4) {
+                r += 1;
+            }
+            let killer = if hist & 1 != 0 {
+                super::lean_hist::with(|h| h.is_killer(mv, ply))
+            } else {
+                e.is_killer_move(mv)
+            };
+            if in_check || killer {
+                r -= 1;
+            }
+            r
+        };
 
         for (mi, mv) in moves.iter().enumerate() {
             if excluded.as_ref().is_some_and(|x| same_move(self, mv, x)) {
@@ -737,6 +765,38 @@ impl SearchEngine {
                 continue;
             }
 
+            // S47 diagnostic: would pruning gated by the reduced depth drop this late quiet move?
+            let diag_reduced_prune = diag()
+                && quiet
+                && !mv.gives_check
+                && !is_tt
+                && !pv_node
+                && !in_check
+                && best_score > -MATE_THRESHOLD
+                && move_count > 1
+                && {
+                    let lmp = |d: i32| (lp.lmp_base.max(0) as usize + (d * d) as usize) / (1 + usize::from(!improving_for(2)));
+                    let fut = |d: i32| static_eval + lp.fut_base + lp.fut_mul * d <= alpha;
+                    let r0 = i32::from(lmr[(depth as usize).min(63)][move_count.min(63)]) + i32::from(cut_node);
+                    let ld = (depth - 1 - r0).max(0);
+                    let now = (depth <= lp.lmp_depth && move_count > lmp(depth)) || (depth <= lp.fut_depth && fut(depth));
+                    let reduced = (ld <= lp.lmp_depth && move_count > lmp(ld)) || (ld <= lp.fut_depth && fut(ld));
+                    !now && reduced
+                };
+
+            // The depth quiet-move pruning reads: the node's, or (S47 bit 1) one more than the depth
+            // the loop will search the move to after LMR -- so an unreduced move is judged as before,
+            // and a reduced one by what it keeps. Same eligibility and clamp as the loop's LMR.
+            let prune_depth = if s47() & 1 != 0
+                && quiet
+                && depth >= 2
+                && !lean_off(off::LMR)
+                && move_count > 1 + usize::from(pv_node)
+            {
+                depth - quiet_r(self, mv, move_count).clamp(0, depth - 2)
+            } else {
+                depth
+            };
             // Shallow pruning, once a move has been searched, never of checks.
             if !in_check
                 && best_score > -MATE_THRESHOLD
@@ -749,8 +809,8 @@ impl SearchEngine {
                     if hist & 4 != 0
                         && !lean_off(off::HIST)
                         && !pv_node
-                        && depth <= lp.hist_prune_depth
-                        && super::lean_hist::with(|h| h.quiet_score(mv, ply)) < -lp.hist_prune_mul * depth
+                        && prune_depth <= lp.hist_prune_depth
+                        && super::lean_hist::with(|h| h.quiet_score(mv, ply)) < -lp.hist_prune_mul * prune_depth
                     {
                         if line_mv {
                             eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: history", mv.to_usi_string(), moves.len());
@@ -766,16 +826,16 @@ impl SearchEngine {
                         continue;
                     }
                     // Futility.
-                    if !pv_node && !lean_off(off::FUT) && depth <= lp.fut_depth && static_eval + lp.fut_base + lp.fut_mul * depth <= alpha {
+                    if !pv_node && !lean_off(off::FUT) && prune_depth <= lp.fut_depth && static_eval + lp.fut_base + lp.fut_mul * prune_depth <= alpha {
                         if line_mv {
                             eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: futility (eval {static_eval}, alpha {alpha})", mv.to_usi_string(), moves.len());
                         }
                         continue;
                     }
                     // Quiet moves and drops that lose material.
-                    if depth <= lp.see_quiet_depth
+                    if prune_depth <= lp.see_quiet_depth
                         && !lean_off(off::SEE_QUIET)
-                        && see_memo.get(mv, board) < -lp.see_quiet_mul * depth
+                        && see_memo.get(mv, board) < -lp.see_quiet_mul * prune_depth
                     {
                         if line_mv {
                             eprintln!("TRACE ply={ply} d={depth} line move {} #{move_count}/{} pruned: losing quiet/drop (SEE)", mv.to_usi_string(), moves.len());
@@ -795,11 +855,11 @@ impl SearchEngine {
 
             // Check and singular extensions, bounded per path as in negamax.
             let ext = i32::from(
-                ((mv.gives_check && !losing_check && !search_toggles().no_check_ext)
+                ((mv.gives_check && !losing_check && !search_toggles().no_check_ext && s47() & 2 == 0)
                     || (singular && is_tt))
                     && self.check_extensions_on_path < self.current_depth.max(1) as u32,
             );
-            let new_depth = depth - 1 + ext;
+            let new_depth = depth - 1 + ext - i32::from(singular_neg && is_tt);
 
             if diag() {
                 DIAG_SEARCHED[(depth as usize).min(15)].fetch_add(1, Ordering::Relaxed);
@@ -817,6 +877,19 @@ impl SearchEngine {
             if line_mv {
                 trace_set(ply + 1);
             }
+            let diag_tags = if diag() {
+                let check_ext = ext == 1 && mv.gives_check && !losing_check && !search_toggles().no_check_ext;
+                let t = [
+                    check_ext,
+                    ext == 1 && !check_ext,
+                    move_count > 1 + usize::from(pv_node) && depth >= 2 && quiet && mv.gives_check,
+                    diag_reduced_prune,
+                ];
+                diag_tag(t, 1);
+                t
+            } else {
+                [false; 4]
+            };
             let mut traced_r = 0;
 
             let mut score;
@@ -856,8 +929,11 @@ impl SearchEngine {
                         r -= 1;
                     }
                     r = r.clamp(0, new_depth - 1);
-                } else if late && quiet && !mv.gives_check {
+                } else if late && quiet && (!mv.gives_check || s47() & 4 != 0) {
                     r = i32::from(lmr[(depth as usize).min(63)][move_count.min(63)]);
+                    if mv.gives_check {
+                        r -= 1;
+                    }
                     if pv_node {
                         r -= 1;
                     }
@@ -942,6 +1018,9 @@ impl SearchEngine {
                     mv.to_usi_string(),
                     moves.len()
                 );
+            }
+            if diag_tags.iter().any(|t| *t) {
+                diag_tag(diag_tags, -1);
             }
             self.check_extensions_on_path -= ext as u32;
             self.nnue_unmake_move();
@@ -1069,6 +1148,17 @@ fn se_param(name: &'static str, default: i32) -> i32 {
 /// On since S41 (PLAN_S41 step 2a: 1-thread fixed-node screen at 400k nodes, +66 ± 13 over
 /// 600 games; it needs ~3.4x the nodes to reach a given depth, so depth-based checks
 /// misjudge it). Off before: S35 screened it once, on an engine without `lean_hist`.
+/// S47 stage 1 (`SHOGI_S47`, a bit set; 0, the default, is the shipped search): 1 prunes quiet
+/// moves (history, futility, SEE) by the depth the move would be searched to after LMR, not the
+/// node's remaining depth; 2 drops the check extension (as Stockfish did in 2024); 4 gives late
+/// quiet checks LMR, one ply less than other quiet moves; 8 adds a negative singular extension:
+/// when the singular test fails and the table move's score is at least beta, or at a cut node,
+/// the table move is searched a ply shallower.
+fn s47() -> u8 {
+    static ON: std::sync::OnceLock<u8> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SHOGI_S47").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
 fn lean_se() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| env_flag("SHOGI_LEAN_SE", true))
@@ -1610,6 +1700,7 @@ impl SearchEngine {
         self.search_statistics.increment_quiescence_nodes();
         if diag() {
             DIAG_QUIESCENCE_NODES.fetch_add(1, Ordering::Relaxed);
+            diag_count_under();
         }
         if self.should_stop(start_time, time_limit_ms) {
             return self.evaluator.evaluate(board, player, captured);

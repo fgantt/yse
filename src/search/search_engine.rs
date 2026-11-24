@@ -806,6 +806,43 @@ pub static DIAG_QUIESCENCE_NODES: AtomicU64 = AtomicU64::new(0);
 /// Lean quiescence breakdown (diagnostics only): in-check nodes, evasions searched,
 /// of which quiet, of which drops; quiet checks searched at the first ply, of which drops.
 pub static DIAG_Q: [AtomicU64; 6] = [const { AtomicU64::new(0) }; 6];
+/// S47 node shares (diagnostics only): all nodes (interior + quiescence) with, somewhere above them on
+/// the path, [0] a check extension, [1] a singular extension, [2] a late quiet check searched
+/// unreduced, [3] a late quiet move that pruning gated by its reduced depth would have dropped
+/// (late-move or futility), and [4] any of the four.
+pub static DIAG_UNDER: [AtomicU64; 5] = [const { AtomicU64::new(0) }; 5];
+
+thread_local! {
+    /// How many moves of each `DIAG_UNDER` kind are on the current path.
+    pub(crate) static DIAG_PATH_TAGS: std::cell::Cell<[u16; 4]> = const { std::cell::Cell::new([0; 4]) };
+}
+
+/// Counts one node in `DIAG_UNDER` from the path's tags.
+#[inline]
+pub(crate) fn diag_count_under() {
+    let t = DIAG_PATH_TAGS.with(std::cell::Cell::get);
+    for (i, n) in t.iter().enumerate() {
+        if *n > 0 {
+            DIAG_UNDER[i].fetch_add(1, Ordering::Relaxed);
+        }
+    }
+    if t.iter().any(|n| *n > 0) {
+        DIAG_UNDER[4].fetch_add(1, Ordering::Relaxed);
+    }
+}
+
+/// Adds (`sign` 1) or removes (-1) a move's tags on the path.
+pub(crate) fn diag_tag(tags: [bool; 4], sign: i16) {
+    DIAG_PATH_TAGS.with(|c| {
+        let mut t = c.get();
+        for (x, on) in t.iter_mut().zip(tags) {
+            if on {
+                *x = x.wrapping_add_signed(sign);
+            }
+        }
+        c.set(t);
+    });
+}
 
 /// Bucket a cutoff's move index for `DIAG_CUT_INDEX`.
 pub fn cut_index_bucket(index: usize) -> usize {

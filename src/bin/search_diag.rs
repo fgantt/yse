@@ -77,6 +77,9 @@ fn reset() {
         c.store(0, Ordering::Relaxed);
     }
     DIAG_PVS_RESEARCHES.store(0, Ordering::Relaxed);
+    for c in shogi_engine::search::search_engine::DIAG_UNDER.iter() {
+        c.store(0, Ordering::Relaxed);
+    }
     for c in DIAG_LMR_REJECT.iter() {
         c.store(0, Ordering::Relaxed);
     }
@@ -143,6 +146,19 @@ fn main() {
                     }
                     println!();
                 }
+            }
+            if depth == cli.max_depth {
+                let u: Vec<u64> = shogi_engine::search::search_engine::DIAG_UNDER
+                    .iter()
+                    .map(|c| c.load(Ordering::Relaxed))
+                    .collect();
+                let all = q + interior;
+                let pct = |x: u64| if all > 0 { 100.0 * x as f64 / all as f64 } else { 0.0 };
+                println!(
+                    "\n  UNDER all {all}: check-ext {:.1}%  singular-ext {:.1}%  unreduced-quiet-check {:.1}%  \
+                     reduced-depth-prunable {:.1}%  any {:.1}%",
+                    pct(u[0]), pct(u[1]), pct(u[2]), pct(u[3]), pct(u[4])
+                );
             }
             if depth == cli.max_depth {
                 let d: Vec<u64> = DIAG_Q.iter().map(|c| c.load(Ordering::Relaxed)).collect();
