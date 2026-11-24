@@ -603,7 +603,7 @@ impl SearchEngine {
             tt_move = self.tt_probe(position_hash, 0).and_then(|e| e.best_move);
         }
 
-        let legal_moves = self.move_generator.generate_legal_moves(board, player, captured_pieces);
+        let mut legal_moves = self.move_generator.generate_legal_moves(board, player, captured_pieces);
         if legal_moves.is_empty() {
             // No legal move is a loss in shogi, in check or not.
             return MATED_SCORE + ply;
@@ -616,6 +616,9 @@ impl SearchEngine {
             {
                 return score;
             }
+        }
+        if skip_twins() {
+            legal_moves.retain(|m| !dominated_twin(m));
         }
         if diag() {
             let d = (depth as usize).min(15);
@@ -1094,8 +1097,8 @@ fn lmr_tactical_candidate(mv: &Move, board: &BitboardBoard) -> bool {
 /// One move's SEE in `lean_inner`, computed at most once (S44 speed: the same exchange used to
 /// be computed in ordering and again by up to three of the checks that follow). `get` is the
 /// value the move's own kind uses: `calculate_see_internal` for a capture, `see_quiet`
-/// otherwise; `capture_see` is always `calculate_see_internal` (the losing-capture pruning
-/// also applies it to non-capturing promotions), shared with `get` only for captures.
+/// otherwise; `capture_see` is what the losing-capture pruning uses: the same, as it also prunes
+/// non-capturing promotions (`see_promo`; before S46 those got `calculate_see_internal`'s 0).
 struct MoveSee(Option<i32>, Option<i32>);
 
 impl MoveSee {
@@ -1114,7 +1117,11 @@ impl MoveSee {
     }
 
     fn capture_see(&mut self, mv: &Move, board: &BitboardBoard) -> i32 {
-        if mv.is_capture {
+        self.capture_see_with(mv, board, see_promo())
+    }
+
+    fn capture_see_with(&mut self, mv: &Move, board: &BitboardBoard, promo: bool) -> i32 {
+        if mv.is_capture || promo {
             return self.get(mv, board);
         }
         *self.1.get_or_insert_with(|| {
@@ -1167,11 +1174,11 @@ fn is_pv_window(alpha: i32, beta: i32) -> bool {
 
 /// Whether correction history may learn from a node's result: the best move is
 /// quiet (a capture's or a promotion's gain is not the evaluation's error), and
-/// the score is not one of hand repetition (±30,000) or mate. Promotions and
-/// hand-repetition scores used to be learned (council review, 2026-11-09).
+/// the score is not one of hand repetition or perpetual check (±29,000 to ±30,000) or mate.
+/// Promotions and hand-repetition scores used to be learned (council review, 2026-11-09).
 fn corr_learnable(best_move: Option<&Move>, best_score: i32) -> bool {
     best_move.is_none_or(|m| !m.is_capture && !m.is_promotion)
-        && best_score.abs() < super::HAND_REPETITION_SCORE
+        && best_score.abs() < super::HAND_REPETITION_SCORE - 1_000
 }
 
 /// Whether PV nodes without a table move run internal iterative deepening
@@ -1441,6 +1448,64 @@ fn q_delta_board_only() -> bool {
     *ON.get_or_init(|| env_flag("SHOGI_Q_DELTA_BOARD_ONLY", false))
 }
 
+/// Quiescence's move order, smallest first: most valuable victim, then least valuable attacker,
+/// promotions next. The king attacks for free (`king_first`): nothing may recapture it. At its
+/// board value of 20,000 every king move sorted last, so in check each interposing drop was
+/// searched before any escape, and the king's capture of the checker after all of them
+/// (PLAN_S46 D5).
+fn q_order_key(m: &Move, king_first: bool) -> i32 {
+    let promo = if m.is_promotion { 300 } else { 0 };
+    let attacker = if king_first && m.piece_type == PieceType::King { 0 } else { m.piece_value() };
+    -(m.captured_piece_value() * 16 + promo * 8 - attacker)
+}
+
+/// A pawn, bishop or rook move that could promote and does not (PLAN_S46 D7c). The promoted
+/// piece attacks every square the unpromoted one does, and more, so the twin is never better in
+/// practice; it doubled every capture and advance in the zone, in quiescence too. The root keeps
+/// it, as do legality and USI.
+fn dominated_twin(m: &Move) -> bool {
+    !m.is_promotion
+        && matches!(m.piece_type, PieceType::Pawn | PieceType::Bishop | PieceType::Rook)
+        && m.from.is_some_and(|from| {
+            let zone = m.player.opposite();
+            from.is_in_promotion_zone(zone) || m.to.is_in_promotion_zone(zone)
+        })
+}
+
+/// The root's extension for `mv` (PLAN_S46 D7b; `SHOGI_ROOT_CHECK_EXT=0` gives none): the +1 a check that
+/// does not lose material gets at every node below. The root gave none, so a checking root move
+/// was searched a ply shallower than the same check one ply down.
+pub(super) fn root_check_ext(mv: &Move, board: &BitboardBoard) -> i32 {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    if !*ON.get_or_init(|| env_flag("SHOGI_ROOT_CHECK_EXT", true))
+        || !mv.gives_check
+        || search_toggles().no_check_ext
+    {
+        return 0;
+    }
+    i32::from(!(lean_check_see() && MoveSee::new(None).get(mv, board) < 0))
+}
+
+/// Interior and quiescence nodes leave out `dominated_twin` moves (`SHOGI_SKIP_TWINS=0` keeps them).
+fn skip_twins() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_SKIP_TWINS", true))
+}
+
+/// `SHOGI_Q_KING_FIRST=1`: king moves first among quiescence evasions (D5). Off by default: it
+/// measured −40 ± 22 on the rung (PLAN_S46 §10, step 2).
+fn q_king_first() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_Q_KING_FIRST", false))
+}
+
+/// `SHOGI_SEE_PROMO=1`: shallow SEE pruning sees a non-capturing promotion, which it never did
+/// (`calculate_see_internal` is 0 without a victim; PLAN_S46 D3).
+fn see_promo() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| env_flag("SHOGI_SEE_PROMO", false))
+}
+
 /// Whether the lean search uses its own quiescence (default; `SHOGI_LEAN_Q=0`
 /// selects the shared one, for comparison).
 fn lean_q_enabled() -> bool {
@@ -1638,11 +1703,12 @@ impl SearchEngine {
         if in_check && moves.is_empty() {
             return MATED_SCORE + self.node_ply + qply;
         }
+        if skip_twins() {
+            moves.retain(|m| !dominated_twin(m));
+        }
         // Most valuable victim, then least valuable attacker; promotions next.
-        moves.sort_by_cached_key(|m| {
-            let promo = if m.is_promotion { 300 } else { 0 };
-            -(m.captured_piece_value() * 16 + promo * 8 - m.piece_value())
-        });
+        let king_first = q_king_first();
+        moves.sort_by_cached_key(|m| q_order_key(m, king_first));
 
         // On both paths while the children search (the root already is).
         let path_len = path.len();
@@ -1765,6 +1831,83 @@ impl SearchEngine {
             with_qtable(|t| t[slot] = QSlot { key, score: best, flag, checks: with_checks, left });
         }
         best
+    }
+}
+
+#[cfg(test)]
+mod repair_tests {
+    use super::*;
+    use crate::moves::MoveGenerator;
+
+    /// D5: in check, taking the checker and escaping come before interposing a drop.
+    #[test]
+    fn king_moves_come_before_interpositions() {
+        // The rook on 5e checks down the file; Black holds a pawn and a gold to interpose.
+        let (board, player, hands) =
+            BitboardBoard::from_fen("k8/9/9/9/4r4/9/9/9/4K4 b GP 1").expect("sfen");
+        let mut moves = MoveGenerator::new().generate_legal_moves(&board, player, &hands);
+        moves.sort_by_cached_key(|m| q_order_key(m, true));
+        let drop = moves.iter().position(|m| m.from.is_none()).expect("an interposition");
+        let king = moves.iter().rposition(|m| m.piece_type == PieceType::King).expect("an escape");
+        assert!(king < drop, "{:?}", moves.iter().map(Move::to_usi_string).collect::<Vec<_>>());
+
+        // Adjacent checker: the king's capture is first.
+        let (board, player, hands) =
+            BitboardBoard::from_fen("k8/9/9/9/9/9/9/4r4/4K4 b GP 1").expect("sfen");
+        let mut moves = MoveGenerator::new().generate_legal_moves(&board, player, &hands);
+        moves.sort_by_cached_key(|m| q_order_key(m, true));
+        assert_eq!(moves[0].to_usi_string(), "5i5h");
+    }
+
+    /// D4: a perpetual check is decided by the path, so its score must be one the main table
+    /// does not keep and the iteration loop does not stop on (> 50,000), and below a mate.
+    #[test]
+    fn perpetual_check_scores_stay_out_of_the_table() {
+        // We are checked at both of our positions in the cycle; the opponent never is.
+        let cycle = [5u64 << 60 | 1, 6u64 << 60];
+        for ply in [1, 7, 40] {
+            let won = super::super::cycle_score_with(&cycle, true, ply, true);
+            assert!(won > 0 && is_hand_repetition_score(won) && won < 50_000, "{won}");
+            assert!(!corr_learnable(None, won) && !corr_learnable(None, -won));
+            // The mate score it was before: stored, and an early stop at the root.
+            let old = super::super::cycle_score_with(&cycle, true, ply, false);
+            assert!(old >= MATE_THRESHOLD && !is_hand_repetition_score(old), "{old}");
+        }
+        // A real mate ranks above it.
+        assert!(super::super::cycle_score_with(&cycle, true, 1, true) < -(MATED_SCORE + 40));
+    }
+
+    /// D7c: a non-promoting pawn, bishop or rook move into, inside or out of the zone is a twin;
+    /// a promotion, a drop, a knight's or lance's non-promotion and a move outside the zone are not.
+    #[test]
+    fn non_promoting_twins_are_found() {
+        let (board, player, hands) =
+            BitboardBoard::from_fen("4k4/9/9/1R4P2/9/9/9/7B1/4K4 b P 1").expect("sfen");
+        let moves = MoveGenerator::new().generate_legal_moves(&board, player, &hands);
+        let twin = |u: &str| dominated_twin(moves.iter().find(|m| m.to_usi_string() == u).expect(u));
+        assert!(twin("3d3c") && twin("8d8c") && twin("8d8a"), "pawn and rook into the zone");
+        assert!(!twin("3d3c+") && !twin("8d8c+"), "promotions");
+        assert!(!twin("8d8e") && !twin("2h3g"), "outside the zone");
+        assert!(!twin("P*5e"), "a drop");
+        let (board, player, hands) =
+            BitboardBoard::from_fen("4k4/9/9/9/9/9/9/9/K2L2N2 b - 1").expect("sfen");
+        let moves = MoveGenerator::new().generate_legal_moves(&board, player, &hands);
+        assert!(moves.iter().filter(|m| m.piece_type != PieceType::King).all(|m| !dominated_twin(m)));
+    }
+
+    /// D3: a bishop promoting where a pawn takes it loses the bishop, and the pruning sees it.
+    #[test]
+    fn a_losing_promotion_has_a_negative_see() {
+        // 4d5c+ lands in front of the pawn on 5b.
+        let (board, player, hands) =
+            BitboardBoard::from_fen("k8/4p4/9/5B3/9/9/9/9/4K4 b - 1").expect("sfen");
+        let mv = MoveGenerator::new()
+            .generate_legal_moves(&board, player, &hands)
+            .into_iter()
+            .find(|m| m.to_usi_string() == "4d5c+")
+            .expect("legal move");
+        assert!(MoveSee::new(None).capture_see_with(&mv, &board, true) < 0);
+        assert_eq!(MoveSee::new(None).capture_see_with(&mv, &board, false), 0);
     }
 }
 
@@ -2024,11 +2167,12 @@ mod tests {
     #[test]
     fn quiescence_finds_repetition_with_the_path() {
         let pos = |sfen: &str| BitboardBoard::from_fen(sfen).expect("sfen");
-        // X: White king 1b, Black rook 5a, Black to move; Y: rook back to 5c,
-        // White to move; Z: king back to 1a, Black to move (the q root).
-        let (x, xp, xc) = pos("4R4/7pk/9/9/9/9/r8/r8/gg6K b - 1");
-        let (y, yp, yc) = pos("9/7pk/4R4/9/9/9/r8/r8/gg6K w - 1");
-        let (mut z, zp, zc) = pos("8k/7p1/4R4/9/9/9/r8/r8/gg6K b - 1");
+        // X: White king 1b, Black dragon 5a, Black to move; Y: dragon back to 5c,
+        // White to move; Z: king back to 1a, Black to move (the q root). A dragon,
+        // not a rook: an unpromoted rook's move in the zone is a skipped twin (D7c).
+        let (x, xp, xc) = pos("4+R4/7pk/9/9/9/9/r8/r8/gg6K b - 1");
+        let (y, yp, yc) = pos("9/7pk/4+R4/9/9/9/r8/r8/gg6K w - 1");
+        let (mut z, zp, zc) = pos("8k/7p1/4+R4/9/9/9/r8/r8/gg6K b - 1");
         let mut engine = SearchEngine::new(None, 16);
         let entry = |e: &SearchEngine, b: &BitboardBoard, p: Player, c: &CapturedPieces| {
             path_entry(e.hash_calculator.get_position_hash(b, p, c), b.is_king_in_check(p, c))

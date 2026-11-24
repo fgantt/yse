@@ -344,7 +344,8 @@ mod search_tests {
         engine.root_entry = path_entry(r, true);
         engine.root_path_len = 1;
         let path = [engine.root_entry];
-        assert_eq!(engine.path_repetition(&path, x1, false), Some(MATED_SCORE + 1));
+        let lost = if perpetual_band() { -(HAND_REPETITION_SCORE - 1) } else { MATED_SCORE + 1 };
+        assert_eq!(engine.path_repetition(&path, x1, false), Some(lost));
         // Without the check at R it is an ordinary repetition.
         engine.root_entry = path_entry(r, false);
         assert_eq!(engine.path_repetition(&[engine.root_entry], x1, false), Some(0));
@@ -1003,6 +1004,11 @@ fn game_filter_bit(entry: u64) -> (usize, u64) {
 /// The score of the repetition that closes `cycle` (its first position is the one
 /// repeated, the current position follows its last), `ply` plies from the root.
 fn cycle_score(cycle: &[u64], in_check_here: bool, ply: i32) -> i32 {
+    cycle_score_with(cycle, in_check_here, ply, perpetual_band())
+}
+
+/// `cycle_score`, with the perpetual-check band chosen by the caller (tests).
+fn cycle_score_with(cycle: &[u64], in_check_here: bool, ply: i32, band: bool) -> i32 {
     let n = cycle.len();
     let checked = |i: usize| cycle[i] & 1 == 1;
     // Positions in the cycle with this side to move: 0, 2, ..., and here.
@@ -1010,13 +1016,46 @@ fn cycle_score(cycle: &[u64], in_check_here: bool, ply: i32) -> i32 {
     // Positions with the opponent to move: 1, 3, ...
     let mut theirs = (0..n).filter(|i| (n - i) % 2 == 1).peekable();
     let they_were_checked = theirs.peek().is_some() && theirs.all(checked);
+    // A win for the side that was checked throughout.
+    let win = if band { HAND_REPETITION_SCORE - ply } else { -(MATED_SCORE + ply) };
     if we_were_checked {
-        -(MATED_SCORE + ply) // the opponent checked perpetually: we win
+        win // the opponent checked perpetually: we win
     } else if they_were_checked {
-        MATED_SCORE + ply // we checked perpetually: we lose
+        -win // we checked perpetually: we lose
     } else {
         0
     }
+}
+
+/// `SHOGI_ASP_WINDOW=<cp>` (PLAN_S46 D7a): the aspiration half-width at every depth from
+/// `min_depth`, in place of the fixed ±200 (measured on the classical engine at depth 5).
+/// Re-searches still double it from at least 50.
+fn asp_window() -> Option<i32> {
+    static W: std::sync::OnceLock<Option<i32>> = std::sync::OnceLock::new();
+    *W.get_or_init(|| {
+        std::env::var("SHOGI_ASP_WINDOW").ok().and_then(|v| v.parse().ok()).filter(|w: &i32| *w >= 10)
+    })
+}
+
+/// PLAN_S46 R3 (`SHOGI_ADOPT_FAIL_HIGH=0` keeps the previous iteration's move): when the clock cuts off the re-search after a root
+/// fail-high, play the move that failed high, not the previous iteration's. The fail-high was a
+/// completed search one ply deeper than that iteration, and it proved the move better than the
+/// window the previous best was expected to stay in. Fail-lows are still not adopted: their move
+/// is only an upper bound.
+fn adopt_fail_high() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SHOGI_ADOPT_FAIL_HIGH").map_or(true, |v| v != "0"))
+}
+
+/// PLAN_S46 D4 (`SHOGI_PERPETUAL_BAND=0` restores the mate score): a perpetual check scores ±(30,000 − ply), in the
+/// hand rule's band, instead of as a mate at this ply. The result belongs to the path that
+/// closed the cycle, not to the position, but as a mate score the main table kept it (mate
+/// scores are rebased and stored) and a won one at the root (> 50,000) ended the iteration loop.
+/// In the band it is kept out of the table, correction history and the early stop, as the hand
+/// rule's scores are, and a real mate still ranks above it.
+fn perpetual_band() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SHOGI_PERPETUAL_BAND").map_or(true, |v| v != "0"))
 }
 
 /// Whether a path entry is the position `hash` (the check bit ignored).
@@ -6708,6 +6747,9 @@ impl SearchEngine {
                 crate::debug_utils::start_timing(&format!("move_eval_{}", move_index));
             }
 
+            // The check extension the move would get below the root (PLAN_S46 D7b).
+            let root_ext = if lean::lean_enabled() { lean::root_check_ext(move_, board) } else { 0 };
+
             // Use move unmaking instead of board cloning
             let move_info = board.make_move_with_info(&move_);
             self.nnue_make_move(&move_info);
@@ -6748,7 +6790,8 @@ impl SearchEngine {
                 // Principal variation search at the root: the first move with
                 // the full window, the rest with a null window, re-searched
                 // only if they beat the best so far.
-                let d = depth as i32 - 1;
+                let d = depth as i32 - 1 + root_ext;
+                self.check_extensions_on_path += root_ext as u32;
                 let full = |s: &mut Self, b: &mut BitboardBoard, h: &mut Vec<u64>, a: i32| {
                     -s.lean_node(
                         b,
@@ -6823,6 +6866,7 @@ impl SearchEngine {
                     true,
                 )
             };
+            self.check_extensions_on_path -= root_ext as u32;
             if root_line_mv {
                 lean::trace_set(0);
                 eprintln!("TRACE root depth={depth} line move {} #{} -> {score}", move_.to_usi_string(), move_index + 1);
@@ -11514,6 +11558,9 @@ impl SearchEngine {
 
         if depth < self.aspiration_config.min_depth {
             return i32::MAX; // Use full-width window
+        }
+        if let Some(w) = asp_window() {
+            return w;
         }
 
         let window_size = self.calculate_adaptive_window_size(depth, recent_failures);
@@ -16552,6 +16599,9 @@ impl IterativeDeepening {
             let mut timed_out = false;
             let _ = search_result; // Suppress unused assignment warning
             let mut researches = 0;
+            // This iteration's last completed fail-high, kept for a re-search the clock cuts
+            // off (`adopt_fail_high`).
+            let mut fail_high: Option<(Move, i32)> = None;
             let mut current_alpha = alpha;
             let mut current_beta = beta;
 
@@ -16789,6 +16839,10 @@ impl IterativeDeepening {
                         if best_move.is_none() || partial {
                             best_move = Some(move_.clone());
                             best_score = score;
+                        } else if let Some((m, s)) = fail_high.take() {
+                            update_shared_state(Some(m.clone()), s, m.to_usi_string());
+                            best_move = Some(m);
+                            best_score = s;
                         }
                         search_result = best_move.clone().map(|m| (m, best_score));
                         break;
@@ -16858,6 +16912,10 @@ impl IterativeDeepening {
                             ),
                             Some(score),
                         );
+                        // Only a search that ran to the end proves the bound.
+                        if adopt_fail_high() && !search_engine.last_search_interrupted() {
+                            fail_high = Some((move_.clone(), score));
+                        }
                         // Mirror of fail-low: widen above the returned score, keep
                         // alpha, full width after max_researches.
                         researches += 1;
@@ -16922,6 +16980,10 @@ impl IterativeDeepening {
                             "ASPIRATION_WINDOW",
                             "Time limit reached after search failure, using previous best move",
                         );
+                        if let Some((m, s)) = fail_high.take() {
+                            best_move = Some(m);
+                            best_score = s;
+                        }
                         // Update shared state with previous best move if available
                         if let Some(prev_move) = &best_move {
                             let pv_string = prev_move.to_usi_string();

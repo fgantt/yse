@@ -413,3 +413,70 @@ allocation was `time / 30 + byoyomi` for every move (`usi.rs`), with no use of h
   (simple SE; early stopping biases it up). Mean think 1139 vs 1147 ms a move (82 vs 83 s a game): the same
   time, spent differently. No time losses. 4 streams share 8 cores with SMT, equally for both.
 - Not measured: the user's 30-60 min + 10 s (main time is 360x byoyomi there, 60x here), 16 threads.
+
+### Step 2, the rest of the bundle (worktree `s46bundle`, d4ac4c3 + `matches/s46/bundle/b2.patch`, 2026-11-23)
+
+The time manager shipped first (d4ac4c3, 2026-11-23, on the user's OK; `engines/usi-engine-stable`, previous
+stable kept as `engines/usi-engine-7b8b1a0`).
+
+Every repair is behind its own switch, off by default; all off = d4ac4c3 (0 of 40 fingerprints differ, Mac).
+D3 and D5 from round 1 now default off as well (`SHOGI_SEE_PROMO=1`, `SHOGI_Q_KING_FIRST=1`). Each has a unit
+test that fails on the old behaviour.
+
+| | Switch | Change | Fingerprints (of 40) |
+|---|---|---|---|
+| D4 | `SHOGI_PERPETUAL_BAND=1` | perpetual check scores ±(30,000 − ply), the hand rule's band: kept out of the table and correction history, no early stop at > 50,000, below a real mate | 0 (no perpetual in the set) |
+| D6 | `SHOGI_TT_BUCKETS=1` | 4-entry buckets; the same position keeps the one-way rule, otherwise the least valuable entry is always replaced (empty, then earlier search, then shallowest) | 40 |
+| R3 | `SHOGI_ADOPT_FAIL_HIGH=1` | a completed root fail-high is played if the clock cuts off its re-search | 0 (needs a clock) |
+| D7c | `SHOGI_SKIP_TWINS=1` | interior and quiescence nodes skip non-promoting pawn, bishop and rook moves that could promote (root, legality and USI keep them) | 40 |
+| D1 | `SHOGI_CORR_GAIN_CAP=1` | correction update's depth term stops at gain 1 (depth 4 at the defaults) | 40 |
+| D7a | `SHOGI_ASP_WINDOW=<cp>` | aspiration half-width (was a fixed ±200) | 40 at 60 |
+| D7b | `SHOGI_ROOT_CHECK_EXT=1` | a non-losing checking root move gets the +1 it gets below the root | 0 here; changes a position with safe checks |
+
+Not changed: D8 (a quiescence result found with checks used at a node searched without them is the more
+thorough search, not an error).
+
+**D6 offline check (PC, 1 thread, depth 16, 10 positions of g1108, `matches/s46/bundle/tools/depthcheck.py`):**
+nodes to depth 16 were 20.1M (1 MB), 29.1M (16 MB), 28.8M (256 MB) direct-mapped; 24.5M, 27.3M, 27.8M with buckets.
+Positions swing ±50% each way. A starved table reaches a depth with fewer nodes (fewer singular extensions, which
+need a table entry), so nodes-to-depth cannot rank table designs. D6 has to be judged by games at a saturating hash.
+
+**Screens (PC, build b2 md5 11c1cc09, one switch on vs all off, same binary, a1, colour-swapped pairs, simple SE;
+`matches/s46/bundle/tools/screen.py`, PC `s46b2scr`, `s46b2clk`):**
+
+| Arm | Conditions | Seeds | Result | Elo |
+|---|---|---|---|---|
+| D7c twins | 1 thread, 400k nodes, 256 MB | 61000-11 | 123-14-103 of 240, 54.2% | +29 ± 20 |
+| D1 correction cap | same | 61100-11 | 118-18-104 of 240, 52.9% | +20 ± 21 |
+| D7a aspiration ±60 | same | 61200-11 | 112-10-118 of 240, 48.8% | −9 ± 23 |
+| D7b root check extension | same | 61300-11 | 117-14-109 of 240, 51.7% | +12 ± 19 |
+| D6 buckets + R3 fail-high | 1 thread, 1 s byoyomi, **2 MB** (≈4.5 stores per entry a move, as the user's 16-thread 30-60 s moves at 256 MB) | 61400-09 | 110-9-81 of 200, 57.2% | **+51 ± 23** |
+
+Clock arm: no time losses, 725 vs 732 ms a move. D6 and R3 were not separated. The fixed-node arms cannot see D6 or
+R3; the gate (1 s, 4 threads, 256 MB) barely fills the table, so it sees R3 but little of D6.
+
+The bundle for the gate: D7c, D1, D7b, D6, R3, D4. Out: D7a (±200 stays), D5 (−40 on the rung), D3 (neutral, not
+screened). Screens have overstated before (S42: +63 → +11), so the sum is not a forecast.
+
+**Gate candidate b3** (`matches/s46/bundle/b3.patch` on d4ac4c3; Mac md5 6ee2f79b): D4, D6, R3, D7c, D1, D7b on by
+default, each `=0` to switch off. All six off = d4ac4c3 (0 of 40 fingerprints differ). 1187 unit tests pass (Mac). One
+test changed: `quiescence_finds_repetition_with_the_path` built its repetition from an unpromoted rook's move in the
+zone, a skipped twin; it uses a dragon now and passes with twins skipped or kept.
+
+**Gate PASS 2026-11-23 15:25** (PC `s46b3gate`, `matches/s46/bundle/gate/final/`): b3 vs the same binary with its six
+switches off (0 of 20 PC fingerprints differ from the d4ac4c3 build), 4 threads each, 1 s byoyomi, 256 MB, seeds 62000 /
+62001, pooled SPRT [0, 40]: **261-22-211 of 494, 55.1%, +35 ± 14** (pair SE), LLR +2.98. Streams 131-14-99 and
+130-8-112. No time losses; 727 vs 732 ms a move. The run dipped to LLR −1.54 at 132 games (48.5%) before recovering.
+This gate fills the table little, so it measures mostly the other five; D6's own evidence is the 2 MB clock screen.
+
+**16-thread check, started 2026-11-23 19:29** (PC `s46b3t16`, `matches/s46/bundle/t16/`; the §6.3 check before shipping):
+the same pair, 16 threads each, one game at a time, 2 s byoyomi, **32 MB**, MoveOverhead 100, `--time-loss-ms 200`,
+100 games, seed 63000. PC speed on a middlegame position: 0.40M nps at 1 thread, 3.95M at 16 (9.9x). At about 1.46 s
+a move that is ~20x the nodes of the 2 MB 1-thread 1 s screen, so 32 MB fills about 5x a move, as 256 MB does in the
+user's 16-thread 30-60 s moves. Read as a guard: 100 games have SE ~35-40 Elo, so it can catch a serious regression,
+not size the gain. The Mac controller runs the gate's SPRT [0, 40] on it and stops at a decision (40 games minimum).
+
+**16-thread check done 2026-11-24 02:08** (`matches/s46/bundle/t16/final/`): **49-12-39 of 100, 55.0%, +35 ± 30** (pair
+SE; 95% −22 to +94), LLR +0.72, undecided at the cap as planned. No time losses; 1576 vs 1591 ms a move. As black 28-7-15,
+as white 21-5-24. The same +35 as the 4-thread gate, now at 16 threads with a table filled ~5x a move: no sign of a
+16-thread or saturation regression. It cannot size D6 on its own.

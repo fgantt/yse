@@ -162,6 +162,16 @@ pub(super) fn with<R>(f: impl FnOnce(&mut LeanCorr) -> R) -> R {
     })
 }
 
+/// The depth at which one update corrects the whole error, with weights summing to `w`.
+fn gain_one_depth(w: i32, step: i32) -> i32 {
+    (4 * step / w.max(1)).max(1)
+}
+
+fn corr_gain_cap() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SHOGI_CORR_GAIN_CAP").map_or(true, |v| v != "0"))
+}
+
 fn nudge(e: &mut i16, bonus: i32) {
     let v = i32::from(*e);
     *e = (v + bonus - v * bonus.abs() / LIMIT).clamp(-LIMIT, LIMIT) as i16;
@@ -179,12 +189,40 @@ impl LeanCorr {
     /// Records that a search to `depth` returned `error` cp more than the
     /// corrected static evaluation.
     pub(super) fn update(&mut self, k: &Keys, error: i32, depth: i32) {
-        let step = params()[3];
+        self.update_with(k, error, depth, corr_gain_cap());
+    }
+
+    fn update_with(&mut self, k: &Keys, error: i32, depth: i32, cap: bool) {
+        let [wp, wh, wc, step] = params();
+        // One update moves the correction by error x depth x (wp + wh + wc) / (4 x step): past
+        // gain 1 it overshoots (from depth 5 at the defaults; PLAN_S46 D1), so the depth term stops at
+        // gain 1 (`SHOGI_CORR_GAIN_CAP=0` lets it run on).
+        let depth = if cap { depth.min(gain_one_depth(wp + wh + wc, step)) } else { depth };
         let bonus = (error * GRAIN * depth / step).clamp(-LIMIT / 4, LIMIT / 4);
         nudge(&mut self.pawn[k.pawn], bonus);
         nudge(&mut self.hand[k.hand], bonus);
         if let Some(i) = k.cont {
             nudge(&mut self.cont[i], bonus);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// D1: from fresh tables, one update after a depth-12 search corrects about the whole
+    /// error with the cap, and about three times it without.
+    #[test]
+    fn one_update_does_not_overshoot_with_the_cap() {
+        let fresh = || LeanCorr { pawn: vec![0; 2 * SIZE], hand: vec![0; 2 * SIZE], cont: vec![0; 2 * PT] };
+        let k = Keys { pawn: 3, hand: 5, cont: Some(7) };
+        let mut capped = fresh();
+        capped.update_with(&k, 40, 12, true);
+        let c = capped.correction(&k);
+        assert!((30..=44).contains(&c), "{c}");
+        let mut old = fresh();
+        old.update_with(&k, 40, 12, false);
+        assert!(old.correction(&k) > 80, "{}", old.correction(&k));
     }
 }

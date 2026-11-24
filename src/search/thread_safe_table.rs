@@ -370,6 +370,8 @@ pub struct ThreadSafeTranspositionTable {
     size: usize,
     /// Bit mask for fast modulo operations
     mask: usize,
+    /// Entries a position may occupy: 1 (direct-mapped) or `BUCKET_WAYS` (`tt_buckets`).
+    ways: usize,
     /// Thread safety mode
     thread_mode: ThreadSafetyMode,
     /// Synchronization primitives for multi-threaded access (bucketed for
@@ -446,6 +448,7 @@ impl ThreadSafeTranspositionTable {
             entries,
             size,
             mask,
+            ways: if tt_buckets() && size >= BUCKET_WAYS { BUCKET_WAYS } else { 1 },
             thread_mode,
             bucket_locks,
             bucket_shift,
@@ -483,6 +486,9 @@ impl ThreadSafeTranspositionTable {
     /// synchronization overhead in single-threaded environments.
     #[inline(always)]
     pub fn probe(&self, hash: u64, depth: u8) -> Option<TranspositionEntry> {
+        if self.ways > 1 {
+            return self.probe_bucket(hash, depth);
+        }
         let index = self.get_index(hash);
         let entry = &self.entries[index];
 
@@ -509,6 +515,25 @@ impl ThreadSafeTranspositionTable {
 
         self.increment_hits();
         Some(reconstructed_entry)
+    }
+
+    /// `probe` for a bucketed table: the position may be in any entry of its bucket.
+    fn probe_bucket(&self, hash: u64, depth: u8) -> Option<TranspositionEntry> {
+        let base = self.get_index(hash) & !(self.ways - 1);
+        for entry in &self.entries[base..base + self.ways] {
+            let stored_key = entry.hash_key.load(Ordering::Acquire);
+            let data = entry.packed_data.load();
+            if data == 0 || stored_key ^ data != hash {
+                continue;
+            }
+            if AtomicPackedEntry::depth_of(data) < depth {
+                break;
+            }
+            self.increment_hits();
+            return Some(Self::reconstruct_entry_static(entry, hash, data));
+        }
+        self.increment_misses();
+        None
     }
 
     /// Probe the table while optionally prefetching the next anticipated entry
@@ -642,6 +667,10 @@ impl ThreadSafeTranspositionTable {
         let generation = self.age_stamp.load(Ordering::Relaxed);
         let mut entry = entry;
         entry.age = generation;
+        if self.ways > 1 {
+            self.store_bucket(index & !(self.ways - 1), &entry, generation);
+            return;
+        }
         // Check if we should replace the existing entry
         let current_key = self.entries[index].hash_key.load(Ordering::Acquire);
         let current_data = self.entries[index].packed_data.load();
@@ -695,6 +724,45 @@ impl ThreadSafeTranspositionTable {
             Self::store_atomic_entry_static(&self.entries[index], &entry);
             self.increment_atomic_operations();
         }
+    }
+
+    /// `store_entry_core` for a bucketed table (PLAN_S46 D6). The same position keeps the
+    /// one-way rule. Otherwise the least valuable entry of the bucket is replaced, always: an
+    /// empty one, else one from an earlier search, else the shallowest. Direct-mapped, a slot's
+    /// current-search entry refused every new one unless it was deeper (or equal with a better
+    /// bound), so once the table filled during a long move it stopped learning.
+    fn store_bucket(&self, base: usize, entry: &TranspositionEntry, generation: u32) {
+        let mut victim = base;
+        let mut victim_value = i32::MAX;
+        for (i, slot) in self.entries[base..base + self.ways].iter().enumerate() {
+            let key = slot.hash_key.load(Ordering::Acquire);
+            let data = slot.packed_data.load();
+            if key == 0 && data == 0 {
+                if victim_value > i32::MIN {
+                    victim = base + i;
+                    victim_value = i32::MIN;
+                }
+                continue;
+            }
+            if key ^ data == entry.hash_key {
+                let depth = AtomicPackedEntry::depth_of(data);
+                if u32::from(entry.depth) + 3 >= u32::from(depth) || entry.is_exact() {
+                    Self::store_atomic_entry_static(slot, entry);
+                    self.increment_replacements();
+                    self.increment_atomic_operations();
+                }
+                return;
+            }
+            let stale = slot.age.load(Ordering::Relaxed) != generation;
+            let value = i32::from(AtomicPackedEntry::depth_of(data)) - if stale { 1 << 10 } else { 0 };
+            if value < victim_value {
+                victim = base + i;
+                victim_value = value;
+            }
+        }
+        Self::store_atomic_entry_static(&self.entries[victim], entry);
+        self.increment_replacements();
+        self.increment_atomic_operations();
     }
 
     /// Store with atomic operations only (single-threaded mode)
@@ -1159,6 +1227,42 @@ mod tests {
         assert!(!empty.is_valid());
     }
 
+    /// D6 (PLAN_S46): within one search a direct-mapped slot refused a shallower entry of
+    /// another position, so a full table stopped learning; a bucket takes it and keeps the deep one.
+    #[test]
+    fn a_bucket_takes_new_positions_and_keeps_the_deepest() {
+        let mut config = create_test_config();
+        config.replacement_policy = crate::search::transposition_config::ReplacementPolicy::DepthAndAge;
+        let size = config.table_size;
+        let deep = create_test_entry(10, 12, TranspositionFlag::LowerBound, 0, 0x40);
+        let shallow = |k: u64, d: u8| create_test_entry(20, d, TranspositionFlag::LowerBound, 0, 0x40 + k * size as u64);
+
+        let mut one_way = ThreadSafeTranspositionTable::new(config.clone());
+        one_way.ways = 1;
+        one_way.store(deep.clone());
+        one_way.store(shallow(1, 3));
+        assert!(one_way.probe(0x40 + size as u64, 0).is_none(), "the direct-mapped slot refuses it");
+
+        let mut bucket = ThreadSafeTranspositionTable::new(config);
+        bucket.ways = BUCKET_WAYS;
+        bucket.store(deep.clone());
+        for k in 1..=3 {
+            bucket.store(shallow(k, 2 + k as u8));
+        }
+        for k in 1..=3 {
+            assert!(bucket.probe(0x40 + k * size as u64, 0).is_some(), "entry {k}");
+        }
+        // A fifth position replaces the shallowest (depth 3), never the deep one.
+        bucket.store(shallow(4, 4));
+        assert!(bucket.probe(0x40 + 4 * size as u64, 0).is_some());
+        assert!(bucket.probe(0x40 + size as u64, 0).is_none());
+        assert_eq!(bucket.probe(0x40, 0).map(|e| e.depth), Some(12));
+        // The same position is updated where it is, not stored twice.
+        bucket.store(create_test_entry(-5, 12, TranspositionFlag::Exact, 0, 0x40));
+        assert_eq!(bucket.probe(0x40, 0).map(|e| e.score), Some(-5));
+        assert!(bucket.probe(0x40 + 2 * size as u64, 0).is_some());
+    }
+
     #[test]
     fn test_thread_safe_table_basic() {
         let config = create_test_config();
@@ -1528,6 +1632,16 @@ mod tests {
 
 /// Whether stores use search generations (`SHOGI_TT_GENERATIONS=0` restores
 /// the depth-only replacement).
+/// Entries in a bucket (`tt_buckets`): 4 x 24 bytes.
+const BUCKET_WAYS: usize = 4;
+
+/// PLAN_S46 D6 (`SHOGI_TT_BUCKETS=0`: direct-mapped, as before): a position may take any of `BUCKET_WAYS` entries, and a
+/// store replaces the bucket's least valuable one (`store_bucket`). Read when a table is made.
+fn tt_buckets() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("SHOGI_TT_BUCKETS").map_or(true, |v| v != "0"))
+}
+
 fn generations_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("SHOGI_TT_GENERATIONS").map_or(true, |v| v != "0"))
