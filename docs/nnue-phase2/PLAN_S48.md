@@ -138,3 +138,5 @@ h3 epoch 2: val pearson 0.9356, loss 0.02810 (h2 0.02808 on the same val); vs a1
 
 Reading: data volume is necessary but probably not sufficient for parity; the optimizer/schedule and lambda are the
 next levers worth single-variable tests, each checked in YaneuraOu vs Suisho5 at fixed nodes.
+h3 epoch 4: val pearson 0.9357, loss 0.02799; vs a1 43.3% (52-0-68); vs Suisho5 34.6% (−111 ± 33). Flat against h2
+epoch 16: more epochs on the same data have stopped paying.
