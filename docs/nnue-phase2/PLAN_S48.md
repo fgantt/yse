@@ -140,3 +140,12 @@ Reading: data volume is necessary but probably not sufficient for parity; the op
 next levers worth single-variable tests, each checked in YaneuraOu vs Suisho5 at fixed nodes.
 h3 epoch 4: val pearson 0.9357, loss 0.02799; vs a1 43.3% (52-0-68); vs Suisho5 34.6% (−111 ± 33). Flat against h2
 epoch 16: more epochs on the same data have stopped paying.
+h3 epoch 5: val loss 0.02790; stopped there (flat) for the h4 pilots.
+
+### h4 pilots (user chose pilots first, 2026-11-25; `matches/s48/s48_pc_pilots.sh`, Mac side `netmatch/pilots.sh`)
+
+One change each from h2's recipe, 6 epochs x 300M, same data and seed, so h2 epoch 6 is the baseline:
+p1 = outcome weight 0.5 (lambda 0.5); p2 = SGD momentum 0.9 (`train.py --optimizer sgd`) at the best lr of a 30M-position
+sweep (0.3 to 30). Each epoch-6 net: 360 games vs Suisho5 in YaneuraOu at 100k (seeds 58000 x 10 + 58100 x 20, ±~20
+Elo) and 240 vs a1 in our engine at 10k. `--plateau N` (halve lr after N epochs without val improvement) is ready
+for the long h4 run.

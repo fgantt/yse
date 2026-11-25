@@ -103,6 +103,10 @@ def main():
     ap.add_argument("--batch", type=int, default=16384)
     ap.add_argument("--lr", type=float, default=1e-3)
     ap.add_argument("--gamma", type=float, default=0.97, help="lr factor per epoch")
+    ap.add_argument("--optimizer", choices=["adam", "sgd"], default="adam")
+    ap.add_argument("--momentum", type=float, default=0.9, help="sgd only")
+    ap.add_argument("--plateau", type=int, default=0,
+                    help="instead of --gamma: halve the lr when val loss has not improved for this many epochs")
     ap.add_argument("--epochs", type=int, default=100)
     ap.add_argument("--epoch-size", type=int, default=100_000_000)
     ap.add_argument("--outcome-weight", type=float, default=0.3)
@@ -150,8 +154,15 @@ def main():
         q = load_engine_json(a.init)
         from_engine(q, net)
     net.to(dev)
-    opt = torch.optim.Adam(net.parameters(), lr=a.lr)
-    sched = torch.optim.lr_scheduler.StepLR(opt, step_size=1, gamma=a.gamma)
+    if a.optimizer == "sgd":
+        opt = torch.optim.SGD(net.parameters(), lr=a.lr, momentum=a.momentum)
+    else:
+        opt = torch.optim.Adam(net.parameters(), lr=a.lr)
+    if a.plateau > 0:
+        sched = torch.optim.lr_scheduler.ReduceLROnPlateau(opt, mode="min", factor=0.5, patience=a.plateau - 1,
+                                                           threshold=1e-4, threshold_mode="rel")
+    else:
+        sched = torch.optim.lr_scheduler.StepLR(opt, step_size=1, gamma=a.gamma)
     rng = np.random.default_rng(a.seed)
     start_epoch, poss = 1, [int(rng.integers(len(t))) for t in trains]
     ckpt = os.path.join(a.out, "last.pt")
@@ -207,8 +218,11 @@ def main():
             if halfkp:
                 net.clamp_()
             total += loss.item()
-        sched.step()
         r, vl = validate()
+        if a.plateau > 0:
+            sched.step(vl)
+        else:
+            sched.step()
         rate = steps * a.batch / (time.time() - t0)
         if halfkp:
             rep = export_halfkp(net, sample, a.header_from, os.path.join(a.out, f"epoch_{epoch:03d}.bin"))
