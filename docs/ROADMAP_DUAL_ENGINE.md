@@ -3,6 +3,26 @@
 The user chose a dual route after the S47 council on routes to parity (`docs/nnue-phase2/PLAN_S47.md` §10 on branch
 `s47-core`). Read this before planning engine work in a new session.
 
+## Goals (user, 2026-11-24)
+
+1. Train our standard-format network to surpass a1.
+2. Our standard-format network can be used with other engines.
+3. Our standard-format network can be used with our engine.
+4. Other standard-format networks can be used with our engine.
+5. Develop our new search core, using our and others' standard-format networks.
+6. Repeat on the other side of the dual path: the GPL engine with each network, measured as a matrix of engine x network.
+
+Standing rule behind them: where a community standard exists (USI, `nn.bin`, SFEN, KIF/CSA, book and training-data
+formats), adopt it with our own code; a custom format needs a measured reason and an export to the standard.
+
+| Goal | Status (2026-11-24) |
+|---|---|
+| 1 | run h1 (PLAN_S48, branch `s48-net`): epoch 4 is ~−250 vs Suisho5 in YaneuraOu; not yet measured against a1 directly |
+| 2 | done for YaneuraOu: it loads our `nn.bin` and searches normally |
+| 3, 4 | works only in the `yo-diagnostic` build (from-scratch evaluation, slow); Suisho5's file plays correctly in it. Needs a first-class loader (incremental, SIMD with runtime dispatch, an option in the normal build) and a licence check per third-party network |
+| 5 | not started; design in PLAN_S46 §4 and PLAN_S47 §9 |
+| 6 | not started |
+
 ## The three projects
 
 | Project | What | License | Status |
