@@ -118,3 +118,71 @@ x8 vs YaneuraOu halfkpvm 30k, ours on a1, 240 games, seeds 58000-58011, paired b
 - fixed bit 1: 55.0% (130-4-106), +35 ± 23; **paired −3.8 ± 4.5 points (z −0.83)**
 
 Pre-registered rule (§6): at or above −1 SE with a real node saving → a tuning night may be proposed. It passes, narrowly.
+
+## 8. Tuning pilot (PC, started 2026-11-24 12:24, `matches/s47/tune/`, PC `~/s47tune`, `~/s47spsa`)
+
+Two SPSA runs at once on 327541d (WSL build), 8 workers each, 20,000 pairs, 100 ms byoyomi, overhead 20, 1 thread, a1,
+correction on (`--corr`, weights 2,2,3,7 as shipped): **bit1** (`SHOGI_S47=1`) and **ctrl** (shipped search). Five live
+constants from their shipped values (`params5.json`: fut_depth 6, fut_base 106, fut_mul 153, see_quiet_depth 6,
+see_quiet_mul 86; S40 ranges and step sizes). ~65 pairs a minute each: ~5 h.
+- Checkpoint at 5,000 pairs: bit1's theta at x8 vs YaneuraOu 100k, a1, paired with the 17a2e37 a1 row (46.7%). Stop if
+  the one-sided 95% upper bound is below +40.
+- Verdict after 20,000: both thetas at 30k and 100k on a1. Pass: tuned bit1 >= +40 over 17a2e37 at 100k and above
+  tuned ctrl. Otherwise the bit 1 line ends.
+
+**Checkpoint (2026-11-24 13:41-14:20): stop.** bit1's theta at 5,150 pairs (fut_depth 6, fut_base 105, fut_mul 155,
+see_quiet_depth 7, see_quiet_mul 85: barely moved; ctrl's barely moved too) at x8 vs YaneuraOu 100k on a1: 37.1%
+(86-6-148) against 17a2e37's 46.7%, **paired −9.6 ± 4.2 points (z −2.3), about −67 Elo; one-sided 95% upper bound
+−19**, below the +40 line. Runs stopped at ~7,800 pairs each (14:21).
+
+- Reduced-depth pruning hurts more at 100k than at 30k (−3.8 ± 4.5 untuned at 30k), the opposite of the field note
+  that it pays more at longer time. SPSA at 100 ms found nothing to move.
+- **The bit 1 line ends** (rule of §6). Bits 2 and 4 were neutral at 30k on halfkpvm; bit 8 hurt. Stage 1 as a whole
+  gave nothing.
+
+**Singular extension row (2026-11-24 14:25): stopped unrun.** The user pointed out that a feature's value in lean does
+not carry to a rewrite structured differently, so the row could not decide anything about the new core. Agreed; the
+same applies to stage 1's verdicts. Stage 1 is closed; the rewrite goes ahead (§9).
+
+## 9. The rewrite (PLAN_S46 §4 design), proposed 2026-11-24
+
+A new search, `src/search/core/`, selected by `SHOGI_CORE=1` (default off: the shipped lean search stays the control),
+entered from the root loop of `search_at_depth` where lean is now (`search_engine.rs:6826`). Reused unchanged: board,
+make/unmake, move generation and legality, NNUE, the bucketed table, mate solver, repetition and hand-rule definitions,
+USI, time manager. Ideas from public notes only; no GPL source, no other engine's constants.
+
+| Milestone | Content | Check |
+|---|---|---|
+| M1 (~3-4 days) | per-ply stack; table entry with static eval and was-PV; staged move picker (table move, good captures, quiets by history, bad captures; evasions own order); one stats module (main, continuation, capture histories, correction); node: PVS, eval refined by table bound, reductions as one sum in fractional plies, pruning by reduced depth, singular/negative/double extension, no check extension; own quiescence, table-backed; all constants in one params table | shogi rule tests (perpetual check, superior/inferior repetition, pawn-drop mate, no-move loss, mate distances, `searchmoves`, stop latency); legal play over 200 games; 4 threads |
+| M2 (~1 day) | starting constants from our own statistics, scaled to a1 | rung 30k a1 sanity row: expected weaker than lean untuned |
+| M3 (2-3 PC nights) | SPSA in phases of 8-20 constants, a1, fixed-time 100 ms then a slower confirm | held-out rung row per phase |
+| M4 | verdict: x8 vs YaneuraOu 100k, a1, 480 games paired with lean | the rule below |
+
+**Verdict rule (PLAN_S46 §5 kill rule, kept):** after M3, at 100k x8 over 480 games on a1: >= lean + 40 Elo: continue to
+the gate; within ±40: one more tuning phase; below lean − 40: stop the rewrite. No design choice is judged in lean.
+
+## 10. Council (2026-11-24, direction: three routes to parity)
+
+Members: GPT-6.2 Sol (high), Grok 4.7 (high, Cursor; for Gemini). Claude Fable 5.2 (asked for in place of Opus) failed
+twice on an API rate limit: no review. Brief `matches/s47/council_parity_1124.md`. No GPL source was read.
+
+| Route | Sol: parity at equal hardware, 3 / 6 months | Grok | Expected |
+|---|---|---|---|
+| 1 independent rewrite + speed + network | 1-5% / 5-15% | 10-15% / 25-35% | +160-400 (Sol), +200-450 in ~4 months (Grok) |
+| 2 GPLv3: C++ fork of YaneuraOu + our network | 45-65% / 65-80% | ~40% / 65% vs halfkpvm; 20% / 45% vs Suisho5 | +550-800 (Sol); residual −80 to −250 (Grok) |
+| 2b GPLv3: Rust port | 10-20% / 25-45% | (4-8 weeks to a depth-agreeing port, then hot loops) | |
+| 3 target the user's 16-vs-4 settings | 1-3% / 3-10% (20-40% for the narrower target at 6 months) | a milestone, not a goal | |
+
+- **Agreed:** ranking 2, 1, 3. Route 3 is a lower bar (a public opponent is not held to 4 threads); use it as a
+  milestone. A port is a derivative work: private use is free, a public download requires the whole engine's
+  corresponding source under GPLv3. Dependencies are MIT/Apache (compatible); networks trained on nodchip's MIT data
+  stay ours; Suisho5 weights need their own clearance. `apery_rust` is GPLv3 (lead checked the local LICENSE);
+  `rshogi-core` GPL-3.0-or-later (both members, public page); Sekirei MIT/Apache with no evidence near V9 (Sol).
+- **Both say the lead's +300-550 for route 1 is too high;** its upside, not its expectation.
+- **Grok:** "~3 doublings at every depth" (§5) is not supported: the parity ratio grew 2x, 4x, 8.5x (§1) and the 10k/30k
+  YaneuraOu self-play rows are at the score ceiling. The gap past 100k is unmeasured. Lead agrees; §5's reading is
+  withdrawn to "unknown beyond 100k, possibly growing".
+- **Early checks:** route 1: the untuned core's 30k a1 row and nodes to depth 12; skip tuning if > ~150 Elo behind lean
+  with ~5x nodes per depth (Grok). Route 2: move agreement with the YaneuraOu binary on 200 positions at depth 8/12
+  (< ~90% or node ratio outside 0.5-2x: stop, Grok); deterministic one-thread PV/score/node match with our evaluator
+  (Sol).
