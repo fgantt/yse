@@ -87,3 +87,22 @@ arithmetic (clip [0, 127], bias before shift, output / 16, so scores are in the 
 
 Open for replacing a1: score scale (our search's margins were tuned on a1's narrower scale; a scale option, checked at
 fixed nodes, is cheap), then the gate at 1 s, 4 threads.
+
+### h2 results (done 02:06, 16 epochs)
+
+Our engine with h2 vs with a1 (fixed 10k nodes, 1 thread, 120 games) and YaneuraOu + h2 vs YaneuraOu + Suisho5 (100k):
+
+| Epoch | val pearson | val loss | vs a1, our engine, 10k | vs Suisho5, YaneuraOu, 100k |
+|---|---|---|---|---|
+| 2 | 0.896 | 0.0334 | 17.5% (21-0-99) | 16.2% (−285 ± 43) |
+| 4 | 0.916 | 0.0304 | 27.5% (33-0-87) | 24.2% (−199 ± 37) |
+| 6 | 0.924 | 0.0294 | 33.3% (40-0-80) | 23.8% (−203 ± 37) |
+| 8 | 0.930 | 0.0288 | 40.8% (49-0-71) | 37.1% (−92 ± 33) |
+| 10 | 0.932 | 0.0284 | 39.6% (47-1-72) | 30.4% (−144 ± 34) |
+| 12 | 0.934 | 0.0281 | 41.7% (50-0-70) | 30.8% (−140 ± 34) |
+| 14 | 0.934 | 0.0280 | 41.7% (50-0-70) | 39.6% (−73 ± 32) |
+| 16 | 0.935 | 0.0279 | 44.2% (53-0-67, about −40 ± 60) | 36.2% (−98 ± 33) |
+
+The data mix was the fix: h2 is ~120-150 stronger than h1 against Suisho5 and still climbing slowly against a1 at the
+last epoch (val loss still falling, lr 6e-5). Not yet equal to a1. The a1 rows play the standard net at its own score
+scale (~1.7x a1's); the scale option is not tested yet.
