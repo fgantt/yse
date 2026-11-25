@@ -106,3 +106,17 @@ Our engine with h2 vs with a1 (fixed 10k nodes, 1 thread, 120 games) and Yaneura
 The data mix was the fix: h2 is ~120-150 stronger than h1 against Suisho5 and still climbing slowly against a1 at the
 last epoch (val loss still falling, lr 6e-5). Not yet equal to a1. The a1 rows play the standard net at its own score
 scale (~1.7x a1's); the scale option is not tested yet.
+
+### Score scale (508aecd, `NNUEScale`)
+
+h2 epoch 16 in our engine (normal build, `NNUEFile`) vs a1, 10k nodes, 120 games: scale 100 44.2% (53-0-67, the same
+games as the diagnostic build), 80 44.6% (53-1-66), 60 39.2% (47-0-73). The scale is not the gap; keep 100.
+
+### Run h3 (PC GPU, started 04:23, `~/s48net/trainer/runs/h3`, `matches/s48/s48_pc_h3.sh`)
+
+Warm start from h2's last.pt (`train.py --warm`: weights and data positions, fresh Adam), lr 2e-4 gamma 0.78, 10 epochs
+x 300M, same data except Suisho5 is `packed_s5` with its real held-out val.bin (9.2M; h2's s5v val was the tail of
+train). h2 epoch 16 on this val: pearson 0.9348, loss 0.02808. Per-epoch check `per_epoch_h3.sh` -> `epochs_h3.txt`.
+
+Toward Suisho5: the full Suisho5 depth-9 set (~5B positions; S40 packed only the first 922.7M) is downloading to the PC's
+WSL disk (`~/data/s5_7z`, `matches/s48/s5_fetch_all.sh`) for an h4 run on ~7B positions.
