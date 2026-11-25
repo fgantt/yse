@@ -446,6 +446,13 @@ impl PositionEvaluator {
         }
     }
 
+    /// USI `NNUEScale`: percentage applied to a standard-format network's output.
+    pub fn nnue_set_output_scale_pct(&mut self, pct: i32) {
+        if let Some(ref mut nnue) = self.nnue_evaluator {
+            nnue.set_output_scale_pct(pct);
+        }
+    }
+
     /// Feature set declared by the loaded NNUE weight file (v2 files only).
     pub fn nnue_declared_feature_set(&self) -> Option<nnue::NNUEFeatureSet> {
         self.nnue_evaluator.as_ref().and_then(|n| n.declared_feature_set())

@@ -94,6 +94,7 @@ impl UsiHandler {
             "option name UseNNUE type check default true".to_string(),
             "option name MoveOverhead type spin default 100 min 0 max 10000".to_string(),
             format!("option name NNUEFile type string default {}", crate::DEFAULT_NNUE_FILE),
+            "option name NNUEScale type spin default 100 min 10 max 400".to_string(),
             format!("option name BookFile type string default {}", crate::DEFAULT_BOOK_FILE),
             "option name BookEvalDiff type spin default 0 min 0 max 10000".to_string(),
             "option name BookMaxPly type spin default 999 min 0 max 9999".to_string(),

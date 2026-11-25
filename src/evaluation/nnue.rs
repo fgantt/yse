@@ -338,6 +338,10 @@ pub struct NNUEWeights {
     /// shift (`clamp((b + a . w) >> s)`), and the output is `(b3 + a . w3) / nnue_std::OUTPUT_SCALE`
     /// in the format's own units. False for our own networks, whose arithmetic is unchanged.
     pub clipped: bool,
+    /// Standard-format networks only: the output is multiplied by this percentage (USI
+    /// `NNUEScale`, default 100 = the format's units, ~1.7x our own networks'). Our search's
+    /// margins were tuned on our networks' scale. Ignored when `clipped` is false.
+    pub output_scale_pct: i32,
 }
 
 /// An extra hidden layer: `a' = max(0, (a . weights) >> shift + biases)`, with
@@ -557,6 +561,7 @@ impl NNUEWeights {
             l3_shift: DEFAULT_SHIFT,
             mid_layers: Vec::new(),
             clipped: false,
+            output_scale_pct: 100,
         };
         built.rebuild_flat_weights_2();
         built
@@ -671,6 +676,7 @@ impl NNUEWeights {
             l3_shift: DEFAULT_SHIFT,
             mid_layers: Vec::new(),
             clipped: false,
+            output_scale_pct: 100,
         };
         built.rebuild_flat_weights_2();
         built
@@ -1763,8 +1769,10 @@ fn forward_from_activations(activated_1: &[i32], weights: &NNUEWeights) -> i32 {
             for (&a, &w) in act[..width].iter().zip(&weights.output_weights) {
                 dot += a * w as i64;
             }
+            // At 100 this is exactly `/ OUTPUT_SCALE` (both truncate toward zero).
             return ((i64::from(weights.output_bias) + (dot >> weights.l3_shift))
-                / i64::from(crate::evaluation::nnue_std::OUTPUT_SCALE)) as i32;
+                * i64::from(weights.output_scale_pct)
+                / (i64::from(crate::evaluation::nnue_std::OUTPUT_SCALE) * 100)) as i32;
         }
         if weights.mid_layers.is_empty() {
             for j in 0..hidden_size_2 {
@@ -3572,6 +3580,13 @@ impl NNUEEvaluator {
     }
 
     /// Get mutable reference to weights (for training)
+    /// Set [`NNUEWeights::output_scale_pct`] (standard-format networks only).
+    pub fn set_output_scale_pct(&mut self, pct: i32) {
+        if self.weights.output_scale_pct != pct {
+            self.get_weights_mut().output_scale_pct = pct;
+        }
+    }
+
     pub fn get_weights_mut(&mut self) -> &mut NNUEWeights {
         std::sync::Arc::make_mut(&mut self.weights)
     }

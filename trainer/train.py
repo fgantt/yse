@@ -97,6 +97,8 @@ def main():
     ap.add_argument("--out", required=True)
     ap.add_argument("--init", help="start from engine JSON weights instead of scratch")
     ap.add_argument("--resume", action="store_true")
+    ap.add_argument("--warm", help="start from another run's last.pt: its weights and data positions, a fresh "
+                    "optimizer and lr schedule (epochs count from 1); ignored once this run has its own last.pt")
     ap.add_argument("--device", default="auto")
     ap.add_argument("--batch", type=int, default=16384)
     ap.add_argument("--lr", type=float, default=1e-3)
@@ -153,6 +155,11 @@ def main():
     rng = np.random.default_rng(a.seed)
     start_epoch, poss = 1, [int(rng.integers(len(t))) for t in trains]
     ckpt = os.path.join(a.out, "last.pt")
+    if a.warm and not (a.resume and os.path.exists(ckpt)):
+        st = torch.load(a.warm, map_location=dev)
+        net.load_state_dict(st["net"])
+        poss = st["pos"] if isinstance(st["pos"], list) else [st["pos"]]
+        assert len(poss) == len(trains), "--warm: --data must list the same folders in the same order"
     if a.resume and os.path.exists(ckpt):
         st = torch.load(ckpt, map_location=dev)
         net.load_state_dict(st["net"])
@@ -162,7 +169,7 @@ def main():
         if isinstance(poss, int):
             poss = [poss]
     say(f"device {dev}  train {int(sizes.sum()):,} ({', '.join(f'{int(n):,}' for n in sizes)})  val {len(val):,}  batch {a.batch}  "
-        f"lr {a.lr} gamma {a.gamma}  init {a.init or 'scratch'}  args {vars(a)}")
+        f"lr {a.lr} gamma {a.gamma}  init {a.init or a.warm or 'scratch'}  args {vars(a)}")
 
     val_feats = [feats.batch(val[i:i + a.batch]) for i in range(0, len(val), a.batch)]
     val_teacher = np.clip(val["eval"].astype(np.float64), -a.clamp, a.clamp)

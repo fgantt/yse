@@ -174,6 +174,7 @@ impl StdNet {
             l3_shift: 0,
             mid_layers: Vec::new(),
             clipped: true,
+            output_scale_pct: 100,
         };
         w.set_mid_layers(vec![mid])?;
         w.rebuild_flat_weights_2();
