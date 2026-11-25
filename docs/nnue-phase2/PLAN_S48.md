@@ -69,3 +69,21 @@ a1 at 10k (the replace-a1 target), and YaneuraOu + it vs YaneuraOu + Suisho5 at 
 
 Replacing a1 needs, beyond the fixed-node rows: a first-class standard-format loader in our engine (incremental, SIMD
 with runtime dispatch; the diagnostic loader recomputes from scratch), then the gate (pooled SPRT [0, 40], 1 s, 4 threads).
+
+h1 epoch 6 at 100k vs Suisho5 (finished after the stop): 22.9% (26-3-91, −211 ± 38).
+
+### Standard-format loader in the normal build (f9b1d68)
+
+`src/evaluation/nnue_std.rs`: `NNUEFile` may name an `nn.bin` (HalfKP or HalfKP_vm 256x2-32-32). On load it is converted
+into our own king-conditioned POV layout (81 buckets, hand thermometer, dual, one middle layer), so the incremental
+accumulator, make/unmake stacks and SIMD layer 2 run unchanged; `NNUEWeights::clipped` switches to the format's
+arithmetic (clip [0, 127], bias before shift, output / 16, so scores are in the format's units, ~1.7x a1's).
+
+- Exact: `std_nnue_check` (yo-diagnostic) vs the from-scratch diagnostic on h1 epoch 6 and Suisho5's file: 4,000 static
+  scores and ~15,000 incremental search nodes each, 0 mismatches.
+- Our own networks unchanged: `search_bench` fingerprint on a1 identical to main (30 positions, depth 7).
+- Speed (Mac, 1 thread, 4 positions x 4 s, matches running alongside): a1 627k nps, h1 583k, Suisho5 605k; the
+  diagnostic path 470k.
+
+Open for replacing a1: score scale (our search's margins were tuned on a1's narrower scale; a scale option, checked at
+fixed nodes, is cheap), then the gate at 1 s, 4 threads.
