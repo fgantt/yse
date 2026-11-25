@@ -480,3 +480,45 @@ not size the gain. The Mac controller runs the gate's SPRT [0, 40] on it and sto
 SE; 95% −22 to +94), LLR +0.72, undecided at the cap as planned. No time losses; 1576 vs 1591 ms a move. As black 28-7-15,
 as white 21-5-24. The same +35 as the 4-thread gate, now at 16 threads with a table filled ~5x a move: no sign of a
 16-thread or saturation regression. It cannot size D6 on its own.
+
+### Step 3 re-measure on the shipped bundle (Mac, started 2026-11-24 05:15, `matches/s46/remeasure2/`)
+
+17a2e37 (bundle + time manager) with the 22 November rung settings and seeds 58000-58011, so each row pairs with the
+7b8b1a0 row above: ours 800k vs YaneuraOu halfkpvm 100k on halfkpvm (yo-diagnostic build) and on a1, then 1.6M (x16) on
+halfkpvm. The §5 rule reads the x8 halfkpvm row: >= 45% keep lean and tune it; < 45% step 4.
+
+| Row (240 games each) | 7b8b1a0 (22 Nov) | 17a2e37 (24 Nov) | Change |
+|---|---|---|---|
+| ours halfkpvm 800k vs 100k | 46.0% (−28 ± 22) | 48.1%, 107-17-116 (−13 ± 22) | +15 ± 31 |
+| ours a1 800k vs 100k | 40.8% (−64 ± 23) | 46.7%, 110-4-126 (−23 ± 22) | +41 ± 32 |
+| ours halfkpvm 1.6M vs 100k (x16) | 50.2% at 16x in §1.1 (pre-delta-fix, other openings) | 70.0%, 166-4-70 (+147 ± 24) | |
+
+Done 08:02. x8 halfkpvm at 48.1% clears the §5 line (45%) by about one SE: **keep lean and tune it** (step 4 not
+started). x8 to x16 is +160 Elo, as one doubling has been worth before (§1.1). Interpolating, parity on the same
+network is about 8.5x (2^(13/160) x 8): ~3.1 doublings of search left, from ~3.2 on 22 November and ~4 before the
+delta fix. a1 now trails halfkpvm in our search by ~10 Elo at 800k (was ~36).
+
+### Council (2026-11-24, direction after step 3)
+
+Members: Claude Opus 5.5 (high), GPT-6.2 Sol (high), Grok 4.7 (high, Cursor; replaces Gemini at the user's request,
+Gemini usage out). Brief `matches/s46/council_direction_1124.md`. One round, no scores (direction mode).
+
+- **Agreed:** a tuning pass on lean cannot close ~3.1 doublings (+50 on the rung is ~0.3). The search interior is the
+  main lever (Opus and Grok rank it first, Sol second). Network data/training is the parallel PC lever (all three, #2
+  or #3); a wider net is doubtful (speed cost; tanuki 1024 wide +10 at 65% nps). The +149 self-play vs +15 rung is a
+  denominator effect, not a contradiction: the delta fix is inside the 46.0% baseline, the time manager and R3 need a
+  clock, D6 needs a full table; what fixed nodes can see (twins, D1, D7b) screened ~+61 and measured +15/+41.
+  The 1-thread 100k rung alone is not the yardstick for 16-thread 10-100M-node games.
+- **Differed:** Sol wants one bounded lean tune first (improving + quiescence evasion pruning replicated, then 8-12
+  pruning/LMR knobs at 200k-400k), the core as the larger bet; Opus and Grok fold tuning into the end of an interior
+  rebuild (lean's margins x0.6/x1.6 moved < 5 points, §1.3; S40 SPSA moved little). Lead: the interior rebuild, with
+  Sol's replication run first as a cheap input to it.
+- **Checked by the lead in the code (17a2e37):** check and singular extensions +1, capped only by
+  `check_extensions_on_path < current_depth` (`lean.rs:796-801`); quiet checks never reduced (`late && quiet &&
+  !mv.gives_check`, `lean.rs:859`); all shallow pruning gated by remaining `depth` (`lean.rs:747-790`); singular 559k
+  vs 154k nodes to depth 12 (PLAN_S45 §13.2); k ≈ 29x in S41 (PLAN_S41 §7). Not checked: the field URLs and the
+  YaneuraOu per-step figures Grok cites from RESEARCH_S40 §2c.
+- **Partly did not hold:** Sol's "root and table first" — buckets and fail-high adoption already shipped; only
+  persistent root records and table eval/was-PV remain, and Opus and Grok fold those into the interior stage.
+- **Open, decides the size of the bet (Opus):** before the delta fix the parity ratio grew with depth (8x at 10k,
+  16x at 100k, §1.1). If it still does, the user's games face ~5 doublings, not 3.1. Measure x8 at 10k, 30k, 300k.
