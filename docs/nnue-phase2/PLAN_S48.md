@@ -149,3 +149,18 @@ p1 = outcome weight 0.5 (lambda 0.5); p2 = SGD momentum 0.9 (`train.py --optimiz
 sweep (0.3 to 30). Each epoch-6 net: 360 games vs Suisho5 in YaneuraOu at 100k (seeds 58000 x 10 + 58100 x 20, ±~20
 Elo) and 240 vs a1 in our engine at 10k. `--plateau N` (halve lr after N epochs without val improvement) is ready
 for the long h4 run.
+
+| Pilot (epoch 6) | vs Suisho5, YaneuraOu, 100k (360 games) | vs a1, our engine, 10k (240 games) |
+|---|---|---|
+| h2 (baseline: Adam, outcome weight 0.3) | 107-6-247, 30.6% (about −142) | 77-1-162, 32.3% |
+| p1 (outcome weight 0.5) | 70-4-286, 20.0% (about −241) | 72-0-168, 30.0% |
+
+p1 is ~100 worse against Suisho5: rejected; keep outcome weight 0.3. (Its val loss is on a different target, not
+comparable.)
+
+SGD lr sweep (1 epoch x 30M from scratch; Adam 1e-3: val loss 0.0469, pearson 0.833): lr 0.3 0.0535 / 0.806, 1 0.0527
+/ 0.806, 3 collapsed (pearson 0.000), 10 0.0598 / 0.796, 30 collapsed. p2 uses lr 1; unstable above it.
+
+Full Suisho5 set: 7,070,161,203 records after packed_s5's 922.7M (8.0B in all). Packed at 100 bytes a record, all of it
+would need 707 GB and C: has ~600 GB free, so 4 parts of 1B (`packed_s5_p1`-`p4`) are being packed; the raw chunks for
+the other ~3B stay in `suisho5/raw2`.
