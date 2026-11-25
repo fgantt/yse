@@ -164,3 +164,17 @@ SGD lr sweep (1 epoch x 30M from scratch; Adam 1e-3: val loss 0.0469, pearson 0.
 Full Suisho5 set: 7,070,161,203 records after packed_s5's 922.7M (8.0B in all). Packed at 100 bytes a record, all of it
 would need 707 GB and C: has ~600 GB free, so 4 parts of 1B (`packed_s5_p1`-`p4`) are being packed; the raw chunks for
 the other ~3B stay in `suisho5/raw2`.
+| p2 (SGD momentum 0.9, lr 1) | 63-4-293, 18.1% (about −263) | 57-1-182, 24.0% |
+
+p2 is ~120 worse against Suisho5 at equal positions: rejected for now (SGD learns slower; a long plateau-scheduled run
+might differ, untested). Both pilots lost, so h4 is h2's recipe with more data and a longer schedule.
+
+Packing: the Windows packer took the out dir `/mnt/c/...` as `C:\mnt\c\...` (part 1 landed there; moved, script now
+passes a relative dir).
+
+### Run h4 (PC GPU, starts when `packed_s5_p4` is done, ~13:40; `matches/s48/s48_pc_h4.sh`)
+
+h2's recipe on ~7.1B positions: ours_quiet x3 (~9% of draws), Hao s50q + s150q + s200bq, Suisho5 packed_s5 + p1-p4. From
+scratch, 48 epochs x 300M (14.4B draws), lr 1e-3 gamma 0.93; ~21 h. Per-epoch check every 4th epoch
+(`netmatch/per_epoch_h4.sh` -> `epochs_h4.txt`): vs a1 in our engine at 10k, vs Suisho5 in YaneuraOu at 100k, 120 each.
+Expectation from the field prior (nodchip, 8B Suisho5-generated positions, same format): around −50 vs Suisho5.
