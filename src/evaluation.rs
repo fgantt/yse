@@ -71,6 +71,7 @@ pub mod storm_tracking;
 pub mod telemetry;
 pub mod weight_tuning;
 pub mod nnue;
+pub mod nnue_std;
 pub mod nnue_threats;
 pub mod nnue_training;
 #[cfg(feature = "yo-diagnostic")]

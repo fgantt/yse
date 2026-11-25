@@ -24,8 +24,7 @@ const FE_HAND_END: usize = 90;
 const FE_END: usize = 1548;
 /// Input rows of the mirrored variant (45 king squares) and of plain HalfKP (81).
 const INPUTS_VM: usize = 45 * FE_END;
-pub const INPUTS_HALFKP: usize = 81 * FE_END;
-pub const HALFKP_FE_END: usize = FE_END;
+pub use super::nnue_std::{HALFKP_FE_END, INPUTS_HALFKP};
 const VERSION: u32 = 0x7AF3_2F16;
 const FV_SCALE: i32 = 16;
 
@@ -207,58 +206,4 @@ impl YoNnue {
 
 fn mir(sq: usize) -> usize { (8 - sq / 9) * 9 + sq % 9 }
 
-/// The standard format's square index of our (row, col): files right to left, ranks top down.
-fn yo_square(row: u8, col: u8) -> usize { (8 - col as usize) * 9 + row as usize }
-
-/// `frame`'s own king square in `frame`'s view (the row of the feature block it selects).
-pub fn halfkp_king_square(frame: Player, row: u8, col: u8) -> usize {
-    let sq = yo_square(row, col);
-    if frame == Player::Black { sq } else { 80 - sq }
-}
-
-/// BonaPiece of `owner`'s board piece `pt` on (row, col), from `frame`'s view (not a king).
-pub fn halfkp_board_feature(frame: Player, owner: Player, pt: PieceType, row: u8, col: u8) -> usize {
-    let sq = yo_square(row, col);
-    let f = board_base(pt);
-    let (base, s) = if frame == Player::Black { (f, sq) } else { (f, 80 - sq) };
-    if owner == frame { base + s } else { base + 81 + s }
-}
-
-/// BonaPiece of the `k`-th (1-based) `pt` in `holder`'s hand, from `frame`'s view.
-pub fn halfkp_hand_feature(frame: Player, holder: Player, pt: PieceType, k: usize) -> usize {
-    let (f, e) = hand_base(pt);
-    (if holder == frame { f } else { e }) + k - 1
-}
-
-/// `f_*` BonaPiece base for a board piece (promoted minor pieces count as gold).
-fn board_base(pt: PieceType) -> usize {
-    match pt {
-        PieceType::Pawn => 90,
-        PieceType::Lance => 252,
-        PieceType::Knight => 414,
-        PieceType::Silver => 576,
-        PieceType::Gold
-        | PieceType::PromotedPawn
-        | PieceType::PromotedLance
-        | PieceType::PromotedKnight
-        | PieceType::PromotedSilver => 738,
-        PieceType::Bishop => 900,
-        PieceType::PromotedBishop => 1062,
-        PieceType::Rook => 1224,
-        PieceType::PromotedRook => 1386,
-        PieceType::King => unreachable!(),
-    }
-}
-
-/// (`f_hand_*`, `e_hand_*`) BonaPiece bases for a piece in hand.
-fn hand_base(pt: PieceType) -> (usize, usize) {
-    match pt {
-        PieceType::Pawn => (1, 20),
-        PieceType::Lance => (39, 44),
-        PieceType::Knight => (49, 54),
-        PieceType::Silver => (59, 64),
-        PieceType::Gold => (69, 74),
-        PieceType::Bishop => (79, 82),
-        _ => (85, 88),
-    }
-}
+pub use super::nnue_std::{halfkp_board_feature, halfkp_hand_feature, halfkp_king_square};
