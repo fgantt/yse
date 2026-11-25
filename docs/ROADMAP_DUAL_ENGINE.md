@@ -17,9 +17,9 @@ formats), adopt it with our own code; a custom format needs a measured reason an
 
 | Goal | Status (2026-11-24) |
 |---|---|
-| 1 | run h1 (PLAN_S48, branch `s48-net`): epoch 4 is ~−250 vs Suisho5 in YaneuraOu; not yet measured against a1 directly |
+| 1 | h1 (Hao only) stalled at ~−220 vs Suisho5 and −200 to −240 vs a1 in our engine; h2 (our data + all Hao + Suisho5 data) training (PLAN_S48) |
 | 2 | done for YaneuraOu: it loads our `nn.bin` and searches normally |
-| 3, 4 | works only in the `yo-diagnostic` build (from-scratch evaluation, slow); Suisho5's file plays correctly in it. Needs a first-class loader (incremental, SIMD with runtime dispatch, an option in the normal build) and a licence check per third-party network |
+| 3, 4 | done on branch `s48-net` (f9b1d68): `NNUEFile` takes an `nn.bin`, converted on load to our incremental accumulator, exact against the diagnostic, ~95% of a1's speed. Not on main yet; licence check per third-party network still needed |
 | 5 | not started; design in PLAN_S46 §4 and PLAN_S47 §9 |
 | 6 | not started |
 
