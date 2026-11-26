@@ -1,5 +1,8 @@
 # GPU trainer (Session 38)
 
+New to network training? Start with `docs/TRAINING_A_NETWORK.md` (theory, how it works, and how these tools are
+used, including the standard-format `--arch halfkp` runs).
+
 PyTorch trainer for the engine's NNUE (256x2 -> 32 -> 1, pov + hand + 9 king buckets, dual).
 Runs on Apple MPS (~320k positions/s on an M4 Max), CUDA or CPU. It trains in float and rounds
 onto the engine's integers once, at export; the old Rust trainer (`nnue-offline-trainer`) kept
