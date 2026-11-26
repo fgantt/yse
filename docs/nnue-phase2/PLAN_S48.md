@@ -194,6 +194,7 @@ h4 so far (h2 at the same epoch in brackets; 120 games each):
 | 36 | 0.945 / 0.0270 | 47.5% (57-0-63) | 40.4%, −67 ± 32 |
 | 40 | 0.946 / 0.0270 | 45.0% (54-0-66) | 42.9%, −50 ± 32 (export |int − float| 23.5, max 145) |
 | 44 | 0.946 / 0.0269 | 54.6% (65-1-54) | 37.1%, −92 ± 33 (export 18.8) |
+| 48 | 0.946 / 0.0269 | 54.6% (65-1-54) | 42.1%, −55 ± 32 (export 23.6, max 174) |
 
 Behind h2 at equal epochs, by about the noise; h4's lr is higher (0.93/epoch vs 0.84). Val loss is on a different val
 mix (more Suisho5 folders), so not comparable with h2's. Decision point: epoch 16; if still behind h2, rebalance the mix.
