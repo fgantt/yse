@@ -226,3 +226,7 @@ a1, 4 threads, 1 s byoyomi, 256 MB, MoveOverhead 100; 2 streams x 300 games, see
 by the Mac controller (`matches/s48/gate/`, adapted from S46's). Pauses when the user's engines use the PC. Checks
 first: 4-thread helpers share the main thread's weights (Arc), and the PC and Mac builds give the same h4 depth-10
 search (98,560 nodes, cp 114).
+
+**Gate result: PASS** at 17:20 after 246 games (LLR +3.18 of 2.94): h4 140-4-102 vs a1, **57.7%, +54 ± 44**; no time
+losses, no pauses. Agrees with the ceiling check (+49 ± 36 at 100k, 1 thread). Shipping (merge s48-net, h4 as the
+default network, the Mac GUI's stable engine) waits for the user's OK.
