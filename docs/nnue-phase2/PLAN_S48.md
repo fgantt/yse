@@ -205,3 +205,17 @@ Ceiling check queued after epoch 48 (`netmatch/ceiling.sh` -> `ceiling.txt`): in
 a1 and h4 e48 vs a1 at 10k and 100k (360 games each) and 1M (120). Reason: in our engine a1 ≈ halfkpvm (+3 ± 33,
 PLAN_S44) and Suisho5's file vs halfkpvm was only 55.0% at 10k, so a network alone may top out far below the user's
 "win 8 of 10 vs a1" (+240); the check says how much a network can give and whether search should come first.
+
+**Result (2026-11-26, `ceiling.txt`; Elo vs a1 with 95% intervals; 10k and 100k pooled over 360 games, 1M of 120):**
+
+| Network in our engine | 10k | 100k | 1M |
+|---|---|---|---|
+| Suisho5's file | 52.9%, +20 ± 36 | 64.3%, +102 ± 37 | 62.5%, +89 ± 64 |
+| h4 e48 | 53.8%, +26 ± 36 | 56.9%, +49 ± 36 | 55.8%, +41 ± 63 |
+
+- A network gives our engine more as search deepens (10k understates it), but even Suisho5's tops out near +100 over a1.
+  "8 of 10 vs a1" (+240) cannot come from the network alone: at least +140 must come from search.
+- h4 is about half of Suisho5's gain (+49 vs +102 at 100k): the network track has ~+50 left in our engine, and in
+  YaneuraOu h4 is still −55 to −92 behind Suisho5.
+- h4 e48 is likely better than a1 at depth (+49 ± 36 at 100k). Ship-gate candidate (SPRT [0, 40], 1 s, 4 threads; the
+  standard-format loader runs at ~95% of a1's nps, roughly −7 Elo): needs the user's OK.
