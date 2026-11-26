@@ -1,5 +1,8 @@
 # Training a network: theory, mechanics and our tools
 
+An illustrated version of this guide is `TRAINING_A_NETWORK.html` beside it (published at
+https://claude.ai/artifact/BGPh8Ni2r8yvXmG6KpBwSy).
+
 This guide explains what "training a network" means, how it works inside, and how our tools are used to do it.
 Part 1 needs no machine-learning background. Part 2 shows how our network is built. Part 3 is the hands-on part: the
 commands, files and checks. Part 4 lists what we have learned, and Part 5 is a glossary.

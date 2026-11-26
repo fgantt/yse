@@ -1,0 +1,756 @@
+<title>Yggdrasil Network Training</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column (~68ch) with figures allowed to run wider; blue = the network's own output, amber = the teacher's target. */
+:root {
+  --bg: #f5f7fa; --surface: #ffffff; --fg: #18202c; --muted: #5a6575; --line: #d9dee6;
+  --net: #2f5bb7; --teach: #b86e12; --code: #eef1f6;
+  --display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #11151c; --surface: #181d26; --fg: #e3e8ef; --muted: #9aa5b5; --line: #2c3442;
+  --net: #86a8f0; --teach: #e7a84e; --code: #1d2330; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #11151c; --surface: #181d26; --fg: #e3e8ef; --muted: #9aa5b5; --line: #2c3442;
+  --net: #86a8f0; --teach: #e7a84e; --code: #1d2330; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 16px/1.65 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+main { max-width: 980px; margin: 0 auto; padding-block: 40px 80px; display: grid; gap: 0; }
+main > * { max-width: 68ch; width: 100%; justify-self: center; min-width: 0; }
+main > figure, main > .wide { max-width: 900px; }
+h1, h2, h3 { font-family: var(--display); line-height: 1.2; text-wrap: balance; letter-spacing: -0.01em; }
+h1 { font-size: clamp(2rem, 5vw, 2.9rem); margin: 0 0 12px; }
+h2 { font-size: 1.6rem; margin: 56px 0 8px; padding-top: 20px; border-top: 1px solid var(--line); }
+h3 { font-size: 1.15rem; margin: 28px 0 4px; }
+p { margin: 10px 0; }
+.lead { font-size: 1.15rem; color: var(--muted); }
+.eyebrow { font: 600 0.75rem/1 var(--body); letter-spacing: 0.12em; text-transform: uppercase; color: var(--net); margin-bottom: 14px; }
+.net { color: var(--net); font-weight: 600; } .teach { color: var(--teach); font-weight: 600; }
+a { color: var(--net); }
+code { font: 0.88em var(--mono); background: var(--code); padding: 1px 5px; border-radius: 4px; }
+pre { font: 0.82rem/1.55 var(--mono); background: var(--code); padding: 14px 16px; border-radius: 8px; overflow-x: auto; margin: 12px 0; }
+pre code { background: none; padding: 0; font-size: inherit; }
+nav.toc { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px 20px; margin: 24px 0 8px; }
+nav.toc ol { margin: 6px 0 0; padding-left: 22px; columns: 2 220px; column-gap: 32px; }
+nav.toc li { margin: 2px 0; }
+nav.toc .h { font: 600 0.75rem var(--body); letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+figure { margin: 22px 0 18px; }
+.fig { overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.fig svg { display: block; width: 100%; height: auto; color: var(--fg); font-family: var(--body); }
+.fig.scroll svg { min-width: 760px; }
+figcaption { font-size: 0.9rem; color: var(--muted); margin-top: 8px; max-width: 68ch; }
+svg .tk { font-size: 11px; fill: var(--muted); font-variant-numeric: tabular-nums; }
+svg .lb { font-size: 13px; fill: currentColor; }
+svg .lb2 { font-size: 11.5px; fill: var(--muted); }
+svg .hd { font-size: 12px; font-weight: 600; fill: var(--muted); letter-spacing: 0.06em; }
+svg .box { fill: var(--bg); stroke: currentColor; stroke-opacity: 0.55; }
+svg .boxn { fill: var(--bg); stroke: var(--net); stroke-width: 1.6; }
+svg .boxt { fill: var(--bg); stroke: var(--teach); stroke-width: 1.6; }
+svg .ar { fill: none; stroke: currentColor; stroke-opacity: 0.7; stroke-width: 1.4; }
+.tablewrap { overflow-x: auto; margin: 12px 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-weight: 600; color: var(--muted); font-size: 0.8rem; letter-spacing: 0.04em; text-transform: uppercase; }
+td code { white-space: nowrap; }
+.note { background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--teach); border-radius: 6px; padding: 10px 14px; margin: 16px 0; }
+dl.gloss { display: grid; grid-template-columns: minmax(120px, 11rem) 1fr; gap: 6px 18px; margin: 12px 0; }
+dl.gloss dt { font-weight: 600; } dl.gloss dd { margin: 0; color: var(--muted); }
+@media (max-width: 520px) { dl.gloss { grid-template-columns: 1fr; } dl.gloss dd { margin-bottom: 8px; } }
+.src { font-size: 0.85rem; color: var(--muted); }
+</style>
+
+<main>
+<div>
+  <div class="eyebrow">Yggdrasil shogi engine · how our networks are made</div>
+  <h1>Training a network</h1>
+  <p class="lead">What it means to "train" the network that judges positions in our engine, how that works inside, and how
+  our tools do it, from raw games to a file that two different engines can load.</p>
+</div>
+
+<nav class="toc" aria-label="Contents"><span class="h">Contents</span>
+<ol>
+  <li><a href="#job">What the network does</a></li>
+  <li><a href="#teacher">Learning from a teacher</a></li>
+  <li><a href="#loss">Measuring "wrong"</a></li>
+  <li><a href="#descent">Turning the dials</a></li>
+  <li><a href="#heldout">Held-out data, and why loss isn't strength</a></li>
+  <li><a href="#data">Why data matters</a></li>
+  <li><a href="#inside">Inside our network</a></li>
+  <li><a href="#tools">Our tools, step by step</a></li>
+  <li><a href="#learned">What we've learned</a></li>
+  <li><a href="#glossary">Glossary</a></li>
+</ol></nav>
+
+<h2 id="job">1. What the network does</h2>
+<p>An engine does two things over and over. It <strong>searches</strong>: it tries moves, the replies to them, the
+replies to those. And it <strong>evaluates</strong>: at the end of each line it looks at the position and gives it one
+number, plus for good and minus for bad from the side to move's view.</p>
+<p>The search may visit millions of positions for a single move, and it can only be as good as the scores it gets back.
+The <span class="net">network</span> is the evaluator. Older engines used hand-written rules ("a rook is worth this much").
+A network learns its judgement from examples instead.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 640 250" role="img" aria-label="A search tree: from the current position the search tries moves and replies, and the network scores every position at the end of a line.">
+  <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" fill-opacity="0.7"/></marker></defs>
+  <g stroke="currentColor" stroke-opacity="0.45" stroke-width="1.4">
+    <line x1="320" y1="54" x2="140" y2="106"/><line x1="320" y1="54" x2="320" y2="106"/><line x1="320" y1="54" x2="500" y2="106"/>
+    <line x1="140" y1="134" x2="80" y2="188"/><line x1="140" y1="134" x2="140" y2="188"/><line x1="140" y1="134" x2="200" y2="188"/>
+    <line x1="320" y1="134" x2="280" y2="188"/><line x1="320" y1="134" x2="360" y2="188"/>
+    <line x1="500" y1="134" x2="450" y2="188"/><line x1="500" y1="134" x2="550" y2="188"/>
+  </g>
+  <circle cx="320" cy="40" r="14" class="box"/>
+  <text x="344" y="44" class="lb">position now</text>
+  <g class="box"><circle cx="140" cy="120" r="14"/><circle cx="320" cy="120" r="14"/><circle cx="500" cy="120" r="14"/></g>
+  <text x="196" y="74" class="lb2" text-anchor="end">my moves</text>
+  <text x="62" y="160" class="lb2" text-anchor="end">replies</text>
+  <g fill="var(--net)" fill-opacity="0.14" stroke="var(--net)" stroke-width="1.4">
+    <rect x="56" y="188" width="48" height="24" rx="4"/><rect x="116" y="188" width="48" height="24" rx="4"/><rect x="176" y="188" width="48" height="24" rx="4"/>
+    <rect x="256" y="188" width="48" height="24" rx="4"/><rect x="336" y="188" width="48" height="24" rx="4"/>
+    <rect x="426" y="188" width="48" height="24" rx="4"/><rect x="526" y="188" width="48" height="24" rx="4"/>
+  </g>
+  <g class="lb" text-anchor="middle" font-family="var(--mono)" font-size="12">
+    <text x="80" y="204">−120</text><text x="140" y="204">+45</text><text x="200" y="204">+80</text>
+    <text x="280" y="204">+210</text><text x="360" y="204">+30</text>
+    <text x="450" y="204">−15</text><text x="550" y="204">+60</text>
+  </g>
+  <text x="320" y="238" class="lb" text-anchor="middle" fill="var(--net)" style="fill:var(--net)">the network scores every position at the end of a line</text>
+</svg>
+</div>
+<figcaption>The search looks ahead; the network judges where each line ends. The search assumes the opponent picks the reply
+that is worst for us, so the middle move wins here (its worst reply still leaves +30). This happens millions of times per move.</figcaption>
+</figure>
+
+<p>Technically the network is a formula with adjustable numbers in it, called <strong>weights</strong>: dials on a
+mixing desk. The formula's shape is fixed (section 7). Only the dial settings change. With random settings the scores are
+nonsense. <strong>Training</strong> is the search for dial settings whose scores are good. Ours has about 32 million dials,
+and its file, <code>nn.bin</code>, is 64 MB.</p>
+
+<h2 id="teacher">2. Learning from a teacher</h2>
+<p>"Good" needs a definition. We gather a very large number of examples, each made of a <strong>position</strong> and
+a <span class="teach">target</span>: the score we wish the network had given. The targets come from a
+<strong>teacher</strong>, a strong engine searching each position fairly deeply (YaneuraOu at depth 8 or 9 in our data).</p>
+<p>So the network learns to predict, <em>at a glance</em>, what a deep search would conclude. Inside our search, that
+glance happens at every line's end, so the search plays as if it saw further than it does.</p>
+<p>We also keep each game's <strong>result</strong>. The teacher's score says "this looks good". The result says "and the
+side that had it went on to win". The target blends them: 70% teacher, 30% result.</p>
+
+<h2 id="loss">3. Measuring "wrong": the loss</h2>
+<p>For each example we compare the network's score with the target. Raw scores are a poor yardstick. A position the
+network calls +3000 and the teacher +2500 is won either way, so that error should hardly count. An error between −200
+and +200 decides games. So both scores first pass through an S-shaped curve, the <strong>sigmoid</strong>, which turns a
+score into something like a winning chance between 0 and 1.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 640 300" role="img" aria-label="The sigmoid curve maps score to winning chance; a 400-point difference near zero becomes a gap of 0.17, while a 500-point difference at +2500 to +3000 becomes a gap of only 0.008.">
+<polyline points="60.0,248.5 64.5,248.4 69.0,248.3 73.5,248.1 78.0,248.0 82.5,247.8 87.0,247.6 91.5,247.4 96.0,247.2 100.5,246.9 105.0,246.6 109.5,246.4 114.0,246.0 118.5,245.7 123.0,245.3 127.5,244.9 132.0,244.5 136.5,244.1 141.0,243.6 145.5,243.0 150.0,242.4 154.5,241.8 159.0,241.1 163.5,240.4 168.0,239.6 172.5,238.7 177.0,237.8 181.5,236.8 186.0,235.7 190.5,234.6 195.0,233.3 199.5,232.0 204.0,230.6 208.5,229.0 213.0,227.4 217.5,225.6 222.0,223.8 226.5,221.8 231.0,219.7 235.5,217.4 240.0,215.0 244.5,212.5 249.0,209.9 253.5,207.1 258.0,204.1 262.5,201.0 267.0,197.8 271.5,194.4 276.0,190.8 280.5,187.2 285.0,183.4 289.5,179.4 294.0,175.4 298.5,171.2 303.0,166.9 307.5,162.6 312.0,158.2 316.5,153.7 321.0,149.1 325.5,144.6 330.0,140.0 334.5,135.4 339.0,130.9 343.5,126.3 348.0,121.8 352.5,117.4 357.0,113.1 361.5,108.8 366.0,104.6 370.5,100.6 375.0,96.6 379.5,92.8 384.0,89.2 388.5,85.6 393.0,82.2 397.5,79.0 402.0,75.9 406.5,72.9 411.0,70.1 415.5,67.5 420.0,65.0 424.5,62.6 429.0,60.3 433.5,58.2 438.0,56.2 442.5,54.4 447.0,52.6 451.5,51.0 456.0,49.4 460.5,48.0 465.0,46.7 469.5,45.4 474.0,44.3 478.5,43.2 483.0,42.2 487.5,41.3 492.0,40.4 496.5,39.6 501.0,38.9 505.5,38.2 510.0,37.6 514.5,37.0 519.0,36.4 523.5,35.9 528.0,35.5 532.5,35.1 537.0,34.7 541.5,34.3 546.0,34.0 550.5,33.6 555.0,33.4 559.5,33.1 564.0,32.8 568.5,32.6 573.0,32.4 577.5,32.2 582.0,32.0 586.5,31.9 591.0,31.7 595.5,31.6 600.0,31.5" fill="none" stroke="var(--net)" stroke-width="2.5"/>
+<line x1="60.0" y1="250" x2="60.0" y2="255" stroke="currentColor"/><text x="60.0" y="270" text-anchor="middle" class="tk">-3000</text>
+<line x1="150.0" y1="250" x2="150.0" y2="255" stroke="currentColor"/><text x="150.0" y="270" text-anchor="middle" class="tk">-2000</text>
+<line x1="240.0" y1="250" x2="240.0" y2="255" stroke="currentColor"/><text x="240.0" y="270" text-anchor="middle" class="tk">-1000</text>
+<line x1="330.0" y1="250" x2="330.0" y2="255" stroke="currentColor"/><text x="330.0" y="270" text-anchor="middle" class="tk">0</text>
+<line x1="420.0" y1="250" x2="420.0" y2="255" stroke="currentColor"/><text x="420.0" y="270" text-anchor="middle" class="tk">+1000</text>
+<line x1="510.0" y1="250" x2="510.0" y2="255" stroke="currentColor"/><text x="510.0" y="270" text-anchor="middle" class="tk">+2000</text>
+<line x1="600.0" y1="250" x2="600.0" y2="255" stroke="currentColor"/><text x="600.0" y="270" text-anchor="middle" class="tk">+3000</text>
+<line x1="60" y1="250.0" x2="600" y2="250.0" stroke="currentColor" opacity="0.35"/><text x="52" y="254.0" text-anchor="end" class="tk">0</text>
+<line x1="60" y1="195.0" x2="600" y2="195.0" stroke="currentColor" opacity="0.12"/><text x="52" y="199.0" text-anchor="end" class="tk">0.25</text>
+<line x1="60" y1="140.0" x2="600" y2="140.0" stroke="currentColor" opacity="0.12"/><text x="52" y="144.0" text-anchor="end" class="tk">0.5</text>
+<line x1="60" y1="85.0" x2="600" y2="85.0" stroke="currentColor" opacity="0.12"/><text x="52" y="89.0" text-anchor="end" class="tk">0.75</text>
+<line x1="60" y1="30.0" x2="600" y2="30.0" stroke="currentColor" opacity="0.35"/><text x="52" y="34.0" text-anchor="end" class="tk">1</text>
+<line x1="312.0" y1="250" x2="312.0" y2="158.2" stroke="var(--teach)" stroke-dasharray="3 3"/><circle cx="312.0" cy="158.2" r="4" fill="var(--teach)"/>
+<line x1="348.0" y1="250" x2="348.0" y2="121.8" stroke="var(--teach)" stroke-dasharray="3 3"/><circle cx="348.0" cy="121.8" r="4" fill="var(--teach)"/>
+<line x1="356.0" y1="158.2" x2="356.0" y2="121.8" stroke="var(--teach)" stroke-width="2"/>
+<line x1="555.0" y1="250" x2="555.0" y2="33.4" stroke="var(--teach)" stroke-dasharray="3 3"/><circle cx="555.0" cy="33.4" r="4" fill="var(--teach)"/>
+<line x1="600.0" y1="250" x2="600.0" y2="31.5" stroke="var(--teach)" stroke-dasharray="3 3"/><circle cx="600.0" cy="31.5" r="4" fill="var(--teach)"/>
+<line x1="608.0" y1="33.4" x2="608.0" y2="31.5" stroke="var(--teach)" stroke-width="2"/>
+  <text x="358" y="150" class="lb" style="fill:var(--teach)">−200 vs +200: gap 0.17</text>
+  <text x="596" y="64" class="lb" text-anchor="end" style="fill:var(--teach)">+2500 vs +3000: gap 0.008</text>
+  <text x="330" y="292" class="lb2" text-anchor="middle">score (format units, side to move)</text>
+  <text x="14" y="140" class="lb2" text-anchor="middle" transform="rotate(-90 14 140)">winning chance</text>
+</svg>
+</div>
+<figcaption>The curve used in training: chance = sigmoid(score / 600). The same kind of disagreement counts about twenty
+times more near level positions than in won ones. Teacher scores are also capped at ±3000.</figcaption>
+</figure>
+
+<p>The error for one example is (network's chance − target's chance)², averaged over a batch of positions. That
+average is the <strong>loss</strong>: one number saying how wrong the network currently is. Training means pushing it
+down.</p>
+
+<h2 id="descent">4. Turning the dials</h2>
+<p>With 32 million dials, trial and error is hopeless. Calculus answers a better question for every dial at once: "if I
+turn this one up a hair, does the loss rise or fall, and how fast?" Those answers together are the
+<strong>gradient</strong>. Computing them back through every layer is called <strong>backpropagation</strong>; PyTorch
+does it for us. One training step:</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 720 280" role="img" aria-label="One training step: a batch of positions goes into the network for a prediction and into the target; the loss compares them; the gradient nudges every weight; repeat.">
+  <defs><marker id="ah2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" fill-opacity="0.75"/></marker></defs>
+  <rect x="20" y="117" width="150" height="56" rx="8" class="box"/>
+  <text x="95" y="141" class="lb" text-anchor="middle" font-weight="600">Batch</text>
+  <text x="95" y="160" class="lb2" text-anchor="middle">16,384 positions</text>
+  <rect x="250" y="45" width="180" height="56" rx="8" class="boxn"/>
+  <text x="340" y="69" class="lb" text-anchor="middle" font-weight="600" style="fill:var(--net)">Network</text>
+  <text x="340" y="88" class="lb2" text-anchor="middle">32M weights</text>
+  <rect x="250" y="189" width="180" height="56" rx="8" class="boxt"/>
+  <text x="340" y="213" class="lb" text-anchor="middle" font-weight="600" style="fill:var(--teach)">Target</text>
+  <text x="340" y="232" class="lb2" text-anchor="middle">0.7 teacher + 0.3 result</text>
+  <rect x="520" y="117" width="170" height="56" rx="8" class="box"/>
+  <text x="605" y="141" class="lb" text-anchor="middle" font-weight="600">Loss</text>
+  <text x="605" y="160" class="lb2" text-anchor="middle">(prediction − target)²</text>
+  <path d="M170,135 H205 V73 H248" class="ar" marker-end="url(#ah2)"/>
+  <text x="227" y="67" class="lb2" text-anchor="middle">boards</text>
+  <path d="M170,155 H205 V217 H248" class="ar" marker-end="url(#ah2)"/>
+  <text x="227" y="211" class="lb2" text-anchor="middle">labels</text>
+  <path d="M430,73 H475 V135 H518" class="ar" marker-end="url(#ah2)"/>
+  <text x="452" y="67" class="lb2" text-anchor="middle">prediction</text>
+  <path d="M430,217 H475 V155 H518" class="ar" marker-end="url(#ah2)"/>
+  <text x="452" y="211" class="lb2" text-anchor="middle">target</text>
+  <path d="M605,117 V22 H340 V43" fill="none" stroke="var(--net)" stroke-width="1.8" marker-end="url(#ah2)"/>
+  <text x="472" y="16" class="lb" text-anchor="middle" style="fill:var(--net)">gradient: nudge every weight a little</text>
+  <text x="360" y="272" class="lb2" text-anchor="middle">repeat: about 879,000 steps in run h4 (14.4 billion positions)</text>
+</svg>
+</div>
+<figcaption>Each step improves the network a little on one batch. Hundreds of thousands of steps over billions of positions
+add up to a good evaluator.</figcaption>
+</figure>
+
+<h3>Learning rate</h3>
+<p>How far the dials move per step. Too big and they overshoot and training breaks: in our sweep, plain SGD at rates 3
+and 30 collapsed to a network that says the same thing about every position. Too small and nothing is learned.</p>
+<h3>Optimizer: Adam or SGD</h3>
+<p>The rule for turning the dials. <strong>SGD</strong> moves each dial in proportion to its gradient.
+<strong>Adam</strong>, our default, keeps a running average of each dial's recent gradients and how much they vary, then
+moves steady dials confidently and noisy ones cautiously. In our pilots Adam clearly beat SGD.</p>
+<h3>Epochs and the schedule</h3>
+<p>We cut a run into <strong>epochs</strong> of 300 million positions. After each one we check the network, save a file,
+and multiply the learning rate by a factor (0.93 in h4). The run starts with big steps, to get roughly right fast, and
+ends with tiny ones, to settle precisely.</p>
+
+<h2 id="heldout">5. Held-out data, and why loss isn't strength</h2>
+<p>A network can get good at the exact positions it was shown without getting good at shogi, like a student who memorises
+past exam answers. This is <strong>overfitting</strong>. To catch it, a slice of the data is never trained on. After each
+epoch we measure the loss there (<strong>val loss</strong>), and how closely the network's scores follow the teacher's
+(<strong>val pearson</strong>, 1.0 = perfect).</p>
+<p>Even the held-out loss only measures agreement with the teacher, one position at a time. Strength means winning games
+inside a search. The two rise together at first and then part ways, so every candidate network is judged by playing
+games.</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 680 290" role="img" aria-label="Run h4: held-out loss keeps falling slowly through epoch 40, while strength against Suisho5 rose until about epoch 24 and has since moved within the noise, between minus 50 and minus 100.">
+  <text x="60" y="22" class="hd">HELD-OUT LOSS</text>
+  <text x="400" y="22" class="hd">ELO VS SUISHO5 (YANEURAOU, 100K NODES)</text>
+<line x1="60" y1="208.9" x2="310" y2="208.9" stroke="currentColor" opacity="0.12"/><text x="54" y="212.9" text-anchor="end" class="tk">0.027</text>
+<line x1="60" y1="166.7" x2="310" y2="166.7" stroke="currentColor" opacity="0.12"/><text x="54" y="170.7" text-anchor="end" class="tk">0.028</text>
+<line x1="60" y1="124.4" x2="310" y2="124.4" stroke="currentColor" opacity="0.12"/><text x="54" y="128.4" text-anchor="end" class="tk">0.029</text>
+<line x1="60" y1="82.2" x2="310" y2="82.2" stroke="currentColor" opacity="0.12"/><text x="54" y="86.2" text-anchor="end" class="tk">0.030</text>
+<line x1="60" y1="40.0" x2="310" y2="40.0" stroke="currentColor" opacity="0.12"/><text x="54" y="44.0" text-anchor="end" class="tk">0.031</text>
+<text x="60.0" y="246" text-anchor="middle" class="tk">0</text>
+<text x="122.5" y="246" text-anchor="middle" class="tk">12</text>
+<text x="185.0" y="246" text-anchor="middle" class="tk">24</text>
+<text x="247.5" y="246" text-anchor="middle" class="tk">36</text>
+<text x="310.0" y="246" text-anchor="middle" class="tk">48</text>
+<line x1="60" y1="230" x2="310" y2="230" stroke="currentColor" opacity="0.4"/>
+<polyline points="80.8,52.7 101.7,132.9 122.5,158.2 143.3,170.9 164.2,183.6 185.0,192.0 205.8,200.4 226.7,204.7 247.5,208.9 268.3,208.9" fill="none" stroke="var(--net)" stroke-width="2.2"/>
+<circle cx="80.8" cy="52.7" r="3.5" fill="var(--net)"/>
+<circle cx="101.7" cy="132.9" r="3.5" fill="var(--net)"/>
+<circle cx="122.5" cy="158.2" r="3.5" fill="var(--net)"/>
+<circle cx="143.3" cy="170.9" r="3.5" fill="var(--net)"/>
+<circle cx="164.2" cy="183.6" r="3.5" fill="var(--net)"/>
+<circle cx="185.0" cy="192.0" r="3.5" fill="var(--net)"/>
+<circle cx="205.8" cy="200.4" r="3.5" fill="var(--net)"/>
+<circle cx="226.7" cy="204.7" r="3.5" fill="var(--net)"/>
+<circle cx="247.5" cy="208.9" r="3.5" fill="var(--net)"/>
+<circle cx="268.3" cy="208.9" r="3.5" fill="var(--net)"/>
+<line x1="400" y1="40.0" x2="650" y2="40.0" stroke="currentColor" opacity="0.12"/><text x="394" y="44.0" text-anchor="end" class="tk">0</text>
+<line x1="400" y1="99.4" x2="650" y2="99.4" stroke="currentColor" opacity="0.12"/><text x="394" y="103.4" text-anchor="end" class="tk">-100</text>
+<line x1="400" y1="158.8" x2="650" y2="158.8" stroke="currentColor" opacity="0.12"/><text x="394" y="162.8" text-anchor="end" class="tk">-200</text>
+<line x1="400" y1="218.1" x2="650" y2="218.1" stroke="currentColor" opacity="0.12"/><text x="394" y="222.1" text-anchor="end" class="tk">-300</text>
+<text x="400.0" y="246" text-anchor="middle" class="tk">0</text>
+<text x="462.5" y="246" text-anchor="middle" class="tk">12</text>
+<text x="525.0" y="246" text-anchor="middle" class="tk">24</text>
+<text x="587.5" y="246" text-anchor="middle" class="tk">36</text>
+<text x="650.0" y="246" text-anchor="middle" class="tk">48</text>
+<line x1="400" y1="230" x2="650" y2="230" stroke="currentColor" opacity="0.4"/>
+<line x1="420.8" y1="218.7" x2="420.8" y2="170.0" stroke="var(--teach)" opacity="0.45" stroke-width="2"/>
+<line x1="441.7" y1="192.6" x2="441.7" y2="147.5" stroke="var(--teach)" opacity="0.45" stroke-width="2"/>
+<line x1="462.5" y1="175.4" x2="462.5" y2="131.4" stroke="var(--teach)" opacity="0.45" stroke-width="2"/>
+<line x1="483.3" y1="135.6" x2="483.3" y2="95.2" stroke="var(--teach)" opacity="0.45" stroke-width="2"/>
+<line x1="504.2" y1="108.9" x2="504.2" y2="69.7" stroke="var(--teach)" opacity="0.45" stroke-width="2"/>
+<line x1="525.0" y1="98.8" x2="525.0" y2="60.8" stroke="var(--teach)" opacity="0.45" stroke-width="2"/>
+<line x1="545.8" y1="119.6" x2="545.8" y2="80.4" stroke="var(--teach)" opacity="0.45" stroke-width="2"/>
+<line x1="566.7" y1="95.2" x2="566.7" y2="57.2" stroke="var(--teach)" opacity="0.45" stroke-width="2"/>
+<line x1="587.5" y1="98.8" x2="587.5" y2="60.8" stroke="var(--teach)" opacity="0.45" stroke-width="2"/>
+<line x1="608.3" y1="88.7" x2="608.3" y2="50.7" stroke="var(--teach)" opacity="0.45" stroke-width="2"/>
+<polyline points="420.8,194.4 441.7,170.0 462.5,153.4 483.3,115.4 504.2,89.3 525.0,79.8 545.8,100.0 566.7,76.2 587.5,79.8 608.3,69.7" fill="none" stroke="var(--teach)" stroke-width="2.2"/>
+<circle cx="420.8" cy="194.4" r="3.5" fill="var(--teach)"/>
+<circle cx="441.7" cy="170.0" r="3.5" fill="var(--teach)"/>
+<circle cx="462.5" cy="153.4" r="3.5" fill="var(--teach)"/>
+<circle cx="483.3" cy="115.4" r="3.5" fill="var(--teach)"/>
+<circle cx="504.2" cy="89.3" r="3.5" fill="var(--teach)"/>
+<circle cx="525.0" cy="79.8" r="3.5" fill="var(--teach)"/>
+<circle cx="545.8" cy="100.0" r="3.5" fill="var(--teach)"/>
+<circle cx="566.7" cy="76.2" r="3.5" fill="var(--teach)"/>
+<circle cx="587.5" cy="79.8" r="3.5" fill="var(--teach)"/>
+<circle cx="608.3" cy="69.7" r="3.5" fill="var(--teach)"/>
+  <text x="185" y="272" class="lb2" text-anchor="middle">epoch</text>
+  <text x="525" y="272" class="lb2" text-anchor="middle">epoch (bars: ±1 s.e., 120 games)</text>
+</svg>
+</div>
+<figcaption>Run h4, epochs 4–40. Left: held-out loss, still falling slowly. Right: the same networks playing YaneuraOu with
+Suisho5's network. Strength climbed fast to epoch 24 and has since stayed within the noise. The loss alone would never have
+shown that.</figcaption>
+</figure>
+
+<h2 id="data">6. Why data matters</h2>
+<p>The network can only learn what its examples show. More positions, more varied positions and better teachers (deeper
+search, stronger engine) all help, with diminishing returns:</p>
+<ul>
+  <li>Each new kind of position (sharp attacks, odd material, long endgames) teaches something.</li>
+  <li>More of what is already well covered teaches little.</li>
+  <li>The teacher's mistakes are learned along with its knowledge.</li>
+</ul>
+<p>Strong public networks such as Suisho5 come from a loop, where each network helps make the data for the next:</p>
+
+<figure>
+<div class="fig">
+<svg viewBox="0 0 640 210" role="img" aria-label="The improvement loop: a network runs inside an engine that plays games; a deeper search labels their positions; training on them gives a better network.">
+  <defs><marker id="ah3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" fill-opacity="0.75"/></marker></defs>
+  <rect x="20" y="75" width="150" height="60" rx="8" class="boxn"/>
+  <text x="95" y="101" class="lb" text-anchor="middle" font-weight="600" style="fill:var(--net)">Network n</text>
+  <text x="95" y="119" class="lb2" text-anchor="middle">today's best</text>
+  <rect x="245" y="10" width="150" height="60" rx="8" class="box"/>
+  <text x="320" y="36" class="lb" text-anchor="middle" font-weight="600">Engine plays</text>
+  <text x="320" y="54" class="lb2" text-anchor="middle">millions of games</text>
+  <rect x="470" y="75" width="150" height="60" rx="8" class="boxt"/>
+  <text x="545" y="101" class="lb" text-anchor="middle" font-weight="600" style="fill:var(--teach)">Deep search</text>
+  <text x="545" y="119" class="lb2" text-anchor="middle">labels positions</text>
+  <rect x="245" y="140" width="150" height="60" rx="8" class="box"/>
+  <text x="320" y="166" class="lb" text-anchor="middle" font-weight="600">Train</text>
+  <text x="320" y="184" class="lb2" text-anchor="middle">on the new data</text>
+  <path d="M150,75 L243,48" class="ar" marker-end="url(#ah3)"/>
+  <path d="M395,48 L488,75" class="ar" marker-end="url(#ah3)"/>
+  <path d="M490,135 L397,165" class="ar" marker-end="url(#ah3)"/>
+  <path d="M243,165 L150,135" class="ar" marker-end="url(#ah3)"/>
+  <text x="182" y="52" class="lb2" text-anchor="middle">runs inside</text>
+  <text x="458" y="52" class="lb2" text-anchor="middle">positions</text>
+  <text x="458" y="168" class="lb2" text-anchor="middle">examples</text>
+  <text x="178" y="168" class="lb2" text-anchor="middle">network n+1</text>
+</svg>
+</div>
+<figcaption>Each round's network plays better games and gives a stronger teacher, so the next round's data is better.
+Our training so far has used one turn of other people's loops (the public Suisho5 and Hao sets) plus our own games.</figcaption>
+</figure>
+
+<h2 id="inside">7. Inside our network</h2>
+<p>We train in the community's standard layout, YaneuraOu's <strong>HalfKP 256x2-32-32</strong>, saved as
+<code>nn.bin</code>. That way one file runs in our engine and in YaneuraOu. We implement the format with our own code.
+"NNUE" stands for <em>efficiently updatable neural network</em>, after the trick shown below.</p>
+
+<h3>What the network sees</h3>
+<p>Not a picture of the board, but a list of yes/no <strong>features</strong>, each one a combination like
+<em>"my king on 5i, their silver on 4c"</em>. Pieces in hand count too. With 81 king squares × 1,548 piece-and-square cases
+there are 125,388 possible features, and in any position about 38 are on. Tying every piece to the king's square is what
+lets the network learn king safety. It reads the position twice, once from each king's side.</p>
+
+<figure>
+<div class="fig scroll">
+<svg viewBox="0 0 780 300" role="img" aria-label="The network's layers: 125,388 yes/no features, about 38 on, feed two accumulators of 256 numbers, one per king's view; these are clipped and passed through layers of 32 and 32 to one score.">
+  <defs><marker id="ah4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" fill-opacity="0.75"/></marker></defs>
+  <text x="40" y="22" class="hd" text-anchor="middle">INPUTS</text>
+  <text x="188" y="22" class="hd" text-anchor="middle">256 × 2</text>
+  <text x="405" y="22" class="hd" text-anchor="middle">32 → 32</text>
+  <text x="590" y="22" class="hd" text-anchor="middle">OUTPUT</text>
+<rect x="24" y="36.0" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="41.4" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="46.8" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="52.2" width="32" height="4.4" fill="var(--net)" fill-opacity="1"/>
+<rect x="24" y="57.6" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="63.0" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="68.4" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="73.8" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="79.2" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="84.6" width="32" height="4.4" fill="var(--net)" fill-opacity="1"/>
+<rect x="24" y="90.0" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="95.4" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="100.8" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="106.2" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="111.6" width="32" height="4.4" fill="var(--net)" fill-opacity="1"/>
+<rect x="24" y="117.0" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="122.4" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="127.8" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="133.2" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="138.6" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="144.0" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="149.4" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="154.8" width="32" height="4.4" fill="var(--net)" fill-opacity="1"/>
+<rect x="24" y="160.2" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="165.6" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="171.0" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="176.4" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="181.8" width="32" height="4.4" fill="var(--net)" fill-opacity="1"/>
+<rect x="24" y="187.2" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="192.6" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="198.0" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="203.4" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="208.8" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="214.2" width="32" height="4.4" fill="var(--net)" fill-opacity="1"/>
+<rect x="24" y="219.6" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="225.0" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="230.4" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="235.8" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="241.2" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<rect x="24" y="246.6" width="32" height="4.4" fill="currentColor" fill-opacity="0.12"/>
+<line x1="58" y1="216.4" x2="168" y2="90" stroke="var(--net)" stroke-opacity="0.35"/>
+<line x1="58" y1="216.4" x2="168" y2="210" stroke="var(--net)" stroke-opacity="0.35"/>
+<line x1="58" y1="54.4" x2="168" y2="90" stroke="var(--net)" stroke-opacity="0.35"/>
+<line x1="58" y1="54.4" x2="168" y2="210" stroke="var(--net)" stroke-opacity="0.35"/>
+<line x1="58" y1="157.0" x2="168" y2="90" stroke="var(--net)" stroke-opacity="0.35"/>
+<line x1="58" y1="157.0" x2="168" y2="210" stroke="var(--net)" stroke-opacity="0.35"/>
+<line x1="58" y1="86.8" x2="168" y2="90" stroke="var(--net)" stroke-opacity="0.35"/>
+<line x1="58" y1="86.8" x2="168" y2="210" stroke="var(--net)" stroke-opacity="0.35"/>
+<line x1="58" y1="184.0" x2="168" y2="90" stroke="var(--net)" stroke-opacity="0.35"/>
+<line x1="58" y1="184.0" x2="168" y2="210" stroke="var(--net)" stroke-opacity="0.35"/>
+<line x1="58" y1="113.8" x2="168" y2="90" stroke="var(--net)" stroke-opacity="0.35"/>
+<line x1="58" y1="113.8" x2="168" y2="210" stroke="var(--net)" stroke-opacity="0.35"/>
+  <rect x="170" y="45" width="36" height="95" rx="3" fill="var(--net)" fill-opacity="0.18" stroke="var(--net)"/>
+  <rect x="170" y="165" width="36" height="95" rx="3" fill="var(--net)" fill-opacity="0.18" stroke="var(--net)"/>
+  <text x="188" y="40" class="lb2" text-anchor="middle">side to move</text>
+  <text x="188" y="159" class="lb2" text-anchor="middle">opponent</text>
+  <path d="M206,92 L338,140" class="ar" marker-end="url(#ah4)"/>
+  <path d="M206,212 L338,160" class="ar" marker-end="url(#ah4)"/>
+  <text x="270" y="108" class="lb2" text-anchor="middle">clip 0–127</text>
+  <rect x="340" y="110" width="30" height="80" rx="3" class="box"/>
+  <text x="355" y="154" class="lb" text-anchor="middle">32</text>
+  <path d="M370,150 L438,150" class="ar" marker-end="url(#ah4)"/>
+  <rect x="440" y="110" width="30" height="80" rx="3" class="box"/>
+  <text x="455" y="154" class="lb" text-anchor="middle">32</text>
+  <path d="M470,150 L568,150" class="ar" marker-end="url(#ah4)"/>
+  <circle cx="590" cy="150" r="21" class="boxn"/>
+  <text x="590" y="154" class="lb" text-anchor="middle" style="fill:var(--net)">score</text>
+  <text x="40" y="272" class="lb2" text-anchor="middle">125,388</text>
+  <text x="40" y="288" class="lb2" text-anchor="middle">~38 on</text>
+  <text x="188" y="282" class="lb" text-anchor="middle" font-weight="600">32.1M weights</text>
+  <text x="405" y="210" class="lb2" text-anchor="middle">17,505 weights</text>
+  <text x="405" y="226" class="lb2" text-anchor="middle">(all small layers)</text>
+  <text x="640" y="140" class="lb2">side to move's view</text>
+  <text x="640" y="156" class="lb2">÷16 → format units</text>
+</svg>
+</div>
+<figcaption>Nearly all the weights sit in the first layer: one row of 256 numbers per feature. Each later layer multiplies
+its inputs by weights, adds them up and clips the result. The clipping is what makes it more than a single weighted sum.</figcaption>
+</figure>
+
+<h3>Why it is fast</h3>
+<p>Because the inputs are yes/no, the first layer's 256 numbers for a position are just the sum of the rows of the
+features that are on. A move changes only 2 to 4 features, so the engine updates the sum instead of recomputing it:</p>
+
+<figure>
+<div class="fig scroll">
+<svg viewBox="0 0 720 130" role="img" aria-label="Incremental update: the new accumulator equals the old one minus the row for the silver on 4c plus the row for the silver on 5d.">
+  <text x="84" y="40" class="lb2" text-anchor="middle">accumulator before</text>
+  <text x="264" y="40" class="lb2" text-anchor="middle">row: silver on 4c</text>
+  <text x="444" y="40" class="lb2" text-anchor="middle">row: silver on 5d</text>
+  <text x="624" y="40" class="lb2" text-anchor="middle">accumulator after</text>
+<rect x="20" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.38"/>
+<rect x="28" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.26"/>
+<rect x="36" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.61"/>
+<rect x="44" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.20"/>
+<rect x="52" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.53"/>
+<rect x="60" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.41"/>
+<rect x="68" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.19"/>
+<rect x="76" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.51"/>
+<rect x="84" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.18"/>
+<rect x="92" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.45"/>
+<rect x="100" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.20"/>
+<rect x="108" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.21"/>
+<rect x="116" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.45"/>
+<rect x="124" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.73"/>
+<rect x="132" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.24"/>
+<rect x="140" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.31"/>
+<rect x="20" y="50" width="128" height="26" fill="none" stroke="currentColor" stroke-opacity="0.5"/>
+<rect x="200" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.20"/>
+<rect x="208" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.72"/>
+<rect x="216" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.12"/>
+<rect x="224" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.17"/>
+<rect x="232" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.76"/>
+<rect x="240" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.73"/>
+<rect x="248" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.57"/>
+<rect x="256" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.34"/>
+<rect x="264" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.57"/>
+<rect x="272" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.61"/>
+<rect x="280" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.31"/>
+<rect x="288" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.51"/>
+<rect x="296" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.51"/>
+<rect x="304" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.13"/>
+<rect x="312" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.22"/>
+<rect x="320" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.20"/>
+<rect x="200" y="50" width="128" height="26" fill="none" stroke="currentColor" stroke-opacity="0.5"/>
+<rect x="380" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.08"/>
+<rect x="388" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.70"/>
+<rect x="396" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.70"/>
+<rect x="404" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.47"/>
+<rect x="412" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.29"/>
+<rect x="420" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.12"/>
+<rect x="428" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.30"/>
+<rect x="436" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.14"/>
+<rect x="444" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.07"/>
+<rect x="452" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.32"/>
+<rect x="460" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.47"/>
+<rect x="468" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.32"/>
+<rect x="476" y="50" width="8" height="26" fill="var(--teach)" fill-opacity="0.41"/>
+<rect x="484" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.12"/>
+<rect x="492" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.04"/>
+<rect x="500" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.60"/>
+<rect x="380" y="50" width="128" height="26" fill="none" stroke="currentColor" stroke-opacity="0.5"/>
+<rect x="560" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.34"/>
+<rect x="568" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.05"/>
+<rect x="576" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.35"/>
+<rect x="584" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.11"/>
+<rect x="592" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.38"/>
+<rect x="600" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.60"/>
+<rect x="608" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.05"/>
+<rect x="616" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.65"/>
+<rect x="624" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.33"/>
+<rect x="632" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.54"/>
+<rect x="640" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.44"/>
+<rect x="648" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.15"/>
+<rect x="656" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.48"/>
+<rect x="664" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.73"/>
+<rect x="672" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.18"/>
+<rect x="680" y="50" width="8" height="26" fill="var(--net)" fill-opacity="0.56"/>
+<rect x="560" y="50" width="128" height="26" fill="none" stroke="currentColor" stroke-opacity="0.5"/>
+  <text x="176" y="69" class="lb" text-anchor="middle" font-size="20">−</text>
+  <text x="356" y="69" class="lb" text-anchor="middle" font-size="20">+</text>
+  <text x="536" y="69" class="lb" text-anchor="middle" font-size="20">=</text>
+  <text x="360" y="112" class="lb2" text-anchor="middle">16 of the 256 numbers shown · move S4c-5d · a king move recounts that king's side</text>
+</svg>
+</div>
+<figcaption>Two rows touched instead of 38 re-added. The small layers after it are cheap, which is why a 32-million-weight
+network still scores millions of positions per second. Our engine builds this incremental form when it loads the file
+(<code>src/evaluation/nnue_std.rs</code>).</figcaption>
+</figure>
+
+<h3>Decimals in training, integers in the engine</h3>
+<p>The engine computes with small integers for speed. Training needs smooth decimal numbers, because the dials move by
+tiny amounts. So the trainer works in decimals and <strong>rounds onto the format's integers</strong> each time it saves
+a network. Rounding costs a little accuracy, which the trainer reports as <code>|int - float|</code>: about 18–24 points
+on average in h4. Training with the rounding simulated is one of our open ideas.</p>
+<h3>The factoriser</h3>
+<p>A feature such as "my king on 1a, their pawn on 9i" may be rare in the data. To help rare features learn, the trainer
+adds one shared row per piece-and-square that ignores the king square. When the file is saved, that row is folded into
+every king square's row, so the file format is unchanged.</p>
+
+<h2 id="tools">8. Our tools, step by step</h2>
+
+<figure class="wide">
+<div class="fig scroll">
+<svg viewBox="0 0 1000 330" role="img" aria-label="Pipeline: three data sources are packed by nnue_pack into train.bin and val.bin; train.py trains on the PC GPU using feature tables made from the engine's own code; each epoch writes an nn.bin that is checked and loaded by our engine or YaneuraOu.">
+  <defs><marker id="ah5" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" fill-opacity="0.75"/></marker></defs>
+  <rect x="10" y="20" width="190" height="70" rx="8" class="boxt"/>
+  <text x="105" y="47" class="lb" text-anchor="middle" font-weight="600">Our self-play games</text>
+  <text x="105" y="66" class="lb2" text-anchor="middle">labelled by YaneuraOu, depth 8</text>
+  <rect x="10" y="120" width="190" height="70" rx="8" class="boxt"/>
+  <text x="105" y="147" class="lb" text-anchor="middle" font-weight="600">Hao set (MIT)</text>
+  <text x="105" y="166" class="lb2" text-anchor="middle">1.83B positions</text>
+  <rect x="10" y="220" width="190" height="70" rx="8" class="boxt"/>
+  <text x="105" y="247" class="lb" text-anchor="middle" font-weight="600">Suisho5 depth-9 set (MIT)</text>
+  <text x="105" y="266" class="lb2" text-anchor="middle">8.0B positions</text>
+  <path d="M200,55 H225 V145 H248" class="ar" marker-end="url(#ah5)"/>
+  <path d="M200,155 H248" class="ar" marker-end="url(#ah5)"/>
+  <path d="M200,255 H225 V165 H248" class="ar" marker-end="url(#ah5)"/>
+  <rect x="250" y="120" width="150" height="70" rx="8" class="box"/>
+  <text x="325" y="147" class="lb" text-anchor="middle" font-weight="600" font-family="var(--mono)">nnue_pack</text>
+  <text x="325" y="166" class="lb2" text-anchor="middle">pack · pack-psv · --quiet</text>
+  <path d="M400,155 H448" class="ar" marker-end="url(#ah5)"/>
+  <rect x="450" y="120" width="150" height="70" rx="8" class="box"/>
+  <text x="525" y="147" class="lb" text-anchor="middle" font-weight="600" font-family="var(--mono)">train / val.bin</text>
+  <text x="525" y="166" class="lb2" text-anchor="middle">100-byte records</text>
+  <path d="M325,190 V265 H448" class="ar" marker-end="url(#ah5)"/>
+  <text x="372" y="258" class="lb2" text-anchor="middle">tables</text>
+  <rect x="450" y="235" width="150" height="60" rx="8" class="box"/>
+  <text x="525" y="259" class="lb" text-anchor="middle" font-family="var(--mono)" font-size="12">tables_halfkp.json</text>
+  <text x="525" y="277" class="lb2" text-anchor="middle">from the engine's code</text>
+  <path d="M600,155 H648" class="ar" marker-end="url(#ah5)"/>
+  <path d="M600,265 H725 V192" class="ar" marker-end="url(#ah5)"/>
+  <rect x="650" y="120" width="150" height="70" rx="8" class="boxn"/>
+  <text x="725" y="147" class="lb" text-anchor="middle" font-weight="600" font-family="var(--mono)" style="fill:var(--net)">train.py</text>
+  <text x="725" y="166" class="lb2" text-anchor="middle">PC GPU · 27 min/epoch</text>
+  <path d="M800,155 H848" class="ar" marker-end="url(#ah5)"/>
+  <text x="824" y="148" class="lb2" text-anchor="middle">each</text>
+  <rect x="850" y="120" width="140" height="70" rx="8" class="boxn"/>
+  <text x="920" y="147" class="lb" text-anchor="middle" font-weight="600" font-family="var(--mono)" font-size="12">epoch_NNN.bin</text>
+  <text x="920" y="166" class="lb2" text-anchor="middle">a standard nn.bin</text>
+  <path d="M920,120 V92" class="ar" marker-end="url(#ah5)"/>
+  <text x="928" y="110" class="lb2">loads</text>
+  <rect x="850" y="20" width="140" height="70" rx="8" class="box"/>
+  <text x="920" y="47" class="lb2" text-anchor="middle">our engine: NNUEFile</text>
+  <text x="920" y="66" class="lb2" text-anchor="middle">YaneuraOu: EvalDir</text>
+  <path d="M920,190 V228" class="ar" marker-end="url(#ah5)"/>
+  <rect x="850" y="230" width="140" height="80" rx="8" class="box"/>
+  <text x="920" y="254" class="lb" text-anchor="middle" font-weight="600">Checks</text>
+  <text x="920" y="273" class="lb2" text-anchor="middle">std_nnue_check</text>
+  <text x="920" y="291" class="lb2" text-anchor="middle">matches · ship gate</text>
+</svg>
+</div>
+<figcaption>Amber: where examples and their targets come from. Blue: the trainer and what it produces. Every data set,
+mix and run is traced in <code>docs/nnue-phase2/DATA_LINEAGE.md</code>, and each packed folder carries a
+<code>lineage.json</code> that the run copies.</figcaption>
+</figure>
+
+<h3>1 · Gather data</h3>
+<div class="tablewrap"><table>
+<thead><tr><th>Source</th><th>Teacher</th><th>Size</th></tr></thead>
+<tbody>
+<tr><td>Our even-game self-play</td><td>YaneuraOu + halfkpvm, depth 8 (<code>scripts/label_stream.py</code>)</td><td>~375M; 223M after the quiet filter</td></tr>
+<tr><td>Hao set (nodchip, MIT)</td><td>its publisher's search</td><td>1.83B (three parts)</td></tr>
+<tr><td>Suisho5 depth-9 set (nodchip, MIT)</td><td>YaneuraOu + Suisho5, depth 9</td><td>8.0B; ~4.9B packed, ~3B more raw on the PC</td></tr>
+</tbody></table></div>
+<p>We use only data we made or data published under licences that allow it. No other engine's code, constants or networks
+are copied.</p>
+
+<h3>2 · Pack it: <code>nnue_pack</code></h3>
+<p>The trainer reads one simple format of fixed 100-byte records: board, pieces in hand, side to move, teacher score, game
+result. <code>nnue_pack</code> (<code>src/bin/nnue_pack.rs</code>) converts our data and the public sets into it:</p>
+<pre><code># our labelled games (JSONL) -> train.bin (shuffled) + val.bin (every 20th game held out)
+cargo run --release --bin nnue_pack -- pack --corpus &lt;corpus.jsonl&gt; --out-dir &lt;packed_dir&gt; [--quiet]
+
+# public sets in the 40-byte PackedSfenValue format (our own decoder); the last input is held out
+cargo run --release --bin nnue_pack -- pack-psv --inputs &lt;f1&gt; &lt;f2&gt; ... --out-dir &lt;packed_dir&gt; [--quiet]
+
+# sanity check a public file: decode a sample, check every stored move is legal
+cargo run --release --bin nnue_pack -- psv-check --input &lt;file&gt;</code></pre>
+<p><code>--quiet</code> drops positions that are in check or in the middle of a capture. A score taken mid-exchange is
+misleading to learn from, and on our own data this filter was worth +64 Elo. On the PC, the Windows build needs a relative
+output folder: it reads <code>/mnt/c/…</code> as <code>C:\mnt\c\…</code>.</p>
+
+<h3>3 · Make the feature tables</h3>
+<p>The trainer must turn a board into exactly the features the engine uses. Rather than rewrite that logic in Python and
+risk a mismatch, <code>nnue_pack</code> writes lookup tables from the engine's own functions:</p>
+<pre><code>cargo run --release --features yo-diagnostic --bin nnue_pack -- tables --halfkp --out trainer/tables_halfkp.json</code></pre>
+
+<h3>4 · Train: <code>trainer/train.py</code></h3>
+<p>PyTorch, on the PC's GPU (~187,000 positions a second), Apple's GPU or a CPU. Setup is in <code>trainer/README.md</code>.
+Run h4 as an example:</p>
+<pre><code>cd trainer
+python train.py --arch halfkp --tables tables_halfkp.json --header-from suisho5_nn.bin \
+    --data ours,ours,ours,hao_s50q,hao_s150q,hao_s200bq,packed_s5,packed_s5_p1,packed_s5_p2,packed_s5_p3,packed_s5_p4 \
+    --out runs/h4 --epochs 48 --epoch-size 300000000 --lr 1e-3 --gamma 0.93 \
+    --sigmoid-scale 600 --clamp 3000 [--resume]</code></pre>
+<div class="tablewrap"><table>
+<thead><tr><th>Option</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td><code>--arch halfkp</code></td><td>train the standard layout (the default is our older a1-style network)</td></tr>
+<tr><td><code>--header-from</code></td><td>any HalfKP 256x2-32-32 <code>nn.bin</code>. Only its header (format version, layout name, checksums) is reused so engines accept our file; none of its weights</td></tr>
+<tr><td><code>--data a,b,c</code></td><td>packed folders. Batches are drawn from each in proportion to its size, so listing our small folder three times triples its share</td></tr>
+<tr><td><code>--epochs</code>, <code>--epoch-size</code></td><td>48 × 300M positions = 14.4B seen</td></tr>
+<tr><td><code>--lr</code>, <code>--gamma</code></td><td>starting learning rate; multiplied by gamma after each epoch</td></tr>
+<tr><td><code>--optimizer sgd</code>, <code>--momentum</code>, <code>--plateau N</code></td><td>SGD instead of Adam; or halve the rate when held-out loss stalls for N epochs</td></tr>
+<tr><td><code>--sigmoid-scale</code>, <code>--clamp</code>, <code>--outcome-weight</code></td><td>the target and loss of sections 2–3 (600, 3000, 0.3)</td></tr>
+<tr><td><code>--resume</code></td><td>continue from <code>runs/x/last.pt</code> after a stop</td></tr>
+<tr><td><code>--warm runs/y/last.pt</code></td><td>start from another run's network with a fresh optimizer and schedule (fine-tuning)</td></tr>
+<tr><td><code>--batch</code>, <code>--val-n</code>, <code>--seed</code></td><td>16,384 positions per step; 1M held-out positions; random seed</td></tr>
+</tbody></table></div>
+<p>Each epoch writes <code>runs/&lt;name&gt;/epoch_NNN.bin</code>, a ready-to-use <code>nn.bin</code>. The run also keeps
+<code>last.pt</code> (the full state, for <code>--resume</code>), <code>log.txt</code> and <code>data_lineage.json</code>.
+One line of the log:</p>
+<pre><code>epoch  40  train loss 0.02708  val pearson[clamp] +0.9455  val loss 0.02697  lr 5.49e-05  187,350 pos/s
+           export nn.bin: |int - float| 23.48 (max 145)</code></pre>
+<div class="tablewrap"><table>
+<tbody>
+<tr><td><code>train loss</code></td><td>loss on the batches just trained</td></tr>
+<tr><td><code>val pearson</code>, <code>val loss</code></td><td>agreement with the teacher on held-out positions (section 5). Comparable only between runs with the same held-out folders and outcome weight</td></tr>
+<tr><td><code>lr</code></td><td>current learning rate</td></tr>
+<tr><td><code>pos/s</code></td><td>training speed</td></tr>
+<tr><td><code>|int - float|</code></td><td>average and largest rounding gap of the saved file, in score units (section 7)</td></tr>
+</tbody></table></div>
+
+<h3>5 · Run it on the PC</h3>
+<p>Long runs use the Windows PC's GPU, started from the Mac. The run scripts live in <code>matches/s48/</code>, which is
+local and not in git. <code>s48_pc_h4.sh</code> runs the trainer with <code>--resume</code>, and <code>hold_h4.sh</code>
+keeps the SSH session open and reconnects if it drops, because detached jobs on the PC stall. A marker file stops a run.
+Every run gets a new folder.</p>
+
+<h3>6 · Check it</h3>
+<ol>
+  <li><strong>Is the file read correctly?</strong> <code>std_nnue_check</code> scores positions with our engine's fast
+  loader and with an independent, from-scratch reading of the format, and requires identical results, including during a
+  search with incremental updates.
+  <pre><code>cargo run --release --features yo-diagnostic --bin std_nnue_check -- --net epoch_040.bin --corpus &lt;corpus.jsonl&gt;</code></pre></li>
+  <li><strong>Quick strength checks.</strong> Every 4th epoch, <code>per_epoch_h4.sh</code> fetches the file and plays two
+  matches, 120 games each:
+  <ul>
+    <li><code>ourmatch.py</code>: our engine with the new network against our engine with a1 (the network we ship), 10k nodes
+    per move.</li>
+    <li><code>netmatch.py</code>: YaneuraOu with the new network against YaneuraOu with Suisho5's, 100k nodes per move.</li>
+  </ul>
+  A fixed node budget makes results independent of machine load. 120 games resolve only about ±60 Elo, so choosing a
+  final network takes a few hundred games.</li>
+  <li><strong>The ship gate.</strong> Before a network replaces a1: a sequential match (SPRT) at 1 second a move with
+  4 threads, as real games are played, which stops once the evidence is clear.</li>
+</ol>
+<div class="tablewrap"><table>
+<thead><tr><th>Score</th><th>50%</th><th>55%</th><th>64%</th><th>76%</th><th>80%</th></tr></thead>
+<tbody><tr><td>Elo</td><td>0</td><td>+35</td><td>+100</td><td>+200</td><td>+240 (8 wins in 10)</td></tr></tbody>
+</table></div>
+
+<h3>7 · Use it</h3>
+<p><strong>Our engine:</strong> set the USI option <code>NNUEFile</code> to the file's path. A standard-format file is
+recognised and converted on load. <code>NNUEScale</code> (percent, default 100) scales its scores. <strong>YaneuraOu</strong>
+and other engines that read the format: put the file in a folder as <code>nn.bin</code> and point <code>EvalDir</code> at
+that folder.</p>
+
+<h2 id="learned">9. What we've learned</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Run</th><th>Data</th><th>vs a1, our engine</th><th>vs Suisho5, YaneuraOu</th></tr></thead>
+<tbody>
+<tr><td>h1</td><td>Hao only, 1.8B</td><td>−200 to −240 Elo</td><td>about −260, flat after epoch 3</td></tr>
+<tr><td>h2</td><td>ours + Hao + part of Suisho5</td><td>up to 44%</td><td>−73 to −144 (epochs 8–16)</td></tr>
+<tr><td>h3</td><td>h2 fine-tuned at a low rate</td><td>flat; stopped</td><td>flat</td></tr>
+<tr><td>pilots</td><td>result weight 0.5; SGD</td><td>both worse</td><td>both worse</td></tr>
+<tr><td>h4</td><td>ours + Hao + ~4.9B Suisho5</td><td>45–54% (epochs 24–40)</td><td>−50 to −67 (epochs 32–40)</td></tr>
+</tbody></table></div>
+<ul>
+  <li><strong>Our own games matter.</strong> h1 without them stalled far below a1. Mixing them in was the first big gain.</li>
+  <li><strong>Held-out loss keeps falling after strength stops rising.</strong> Choose networks by games.</li>
+  <li><strong>This recipe is near its limit for this network size.</strong> A published reference, the same layout
+  trained on 8B Suisho5 positions, reached −56 against Suisho5. h4 is at about −60.</li>
+  <li><strong>A network alone moves our engine only so far.</strong> In our engine, a1 is level with YaneuraOu's older
+  halfkpvm network (+3 ± 33), and Suisho5's own network beat halfkpvm there by only +35 at 10k nodes. A check now queued
+  measures Suisho5's network and h4 against a1 at 10k, 100k and 1M nodes.</li>
+</ul>
+<div class="note">Next levers for the network: our own data, made with the stronger network at a deeper search (the loop
+of section 6); training that simulates the rounding; the remaining 3B Suisho5 positions; perhaps a larger standard layout.
+For playing strength in our engine, the search is the bigger lever.</div>
+
+<h2 id="glossary">10. Glossary</h2>
+<dl class="gloss">
+  <dt>accumulator</dt><dd>the first layer's 256 numbers per king's view, updated as moves are made</dd>
+  <dt>Adam, SGD</dt><dd>rules for turning the weights at each step</dd>
+  <dt>batch</dt><dd>the positions used for one step (16,384)</dd>
+  <dt>bias</dt><dd>a constant added inside a layer, learned like a weight</dd>
+  <dt>clipping</dt><dd>limiting a layer's outputs to a range (0–127 in the engine)</dd>
+  <dt>epoch</dt><dd>here, a checkpoint every 300M positions: check, save a file, lower the learning rate</dd>
+  <dt>feature</dt><dd>a yes/no input: (king square, piece, square)</dd>
+  <dt>gradient</dt><dd>for each weight, which way and how fast the loss changes if it moves</dd>
+  <dt>held-out set</dt><dd>positions never trained on, used to catch memorising</dd>
+  <dt>learning rate</dt><dd>how far the weights move per step</dd>
+  <dt>loss</dt><dd>the average squared error in winning-chance terms; training pushes it down</dd>
+  <dt>NNUE</dt><dd>efficiently updatable neural network (section 7)</dd>
+  <dt>overfitting</dt><dd>learning the training examples rather than the game</dd>
+  <dt>pearson</dt><dd>how closely the network's scores follow the teacher's (1.0 = perfectly)</dd>
+  <dt>quiet filter</dt><dd>dropping positions in check or mid-capture before training</dd>
+  <dt>sigmoid</dt><dd>the S-curve that turns a score into a winning chance</dd>
+  <dt>SPRT</dt><dd>a match that stops as soon as its result is statistically clear</dd>
+  <dt>teacher</dt><dd>the deep search whose scores the network learns to predict</dd>
+  <dt>weights</dt><dd>the adjustable numbers of the network</dd>
+</dl>
+<p class="src">Written from <code>docs/TRAINING_A_NETWORK.md</code> on branch <code>s48-net</code>; results from
+<code>docs/nnue-phase2/PLAN_S48.md</code> as of h4 epoch 40 (26 Nov 2026).</p>
+</main>
