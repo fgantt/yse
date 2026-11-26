@@ -71,6 +71,7 @@ pub mod storm_tracking;
 pub mod telemetry;
 pub mod weight_tuning;
 pub mod nnue;
+pub mod nnue_std;
 pub mod nnue_threats;
 pub mod nnue_training;
 #[cfg(feature = "yo-diagnostic")]
@@ -442,6 +443,13 @@ impl PositionEvaluator {
                 self.use_nnue = true;
             }
             None => self.use_nnue = false,
+        }
+    }
+
+    /// USI `NNUEScale`: percentage applied to a standard-format network's output.
+    pub fn nnue_set_output_scale_pct(&mut self, pct: i32) {
+        if let Some(ref mut nnue) = self.nnue_evaluator {
+            nnue.set_output_scale_pct(pct);
         }
     }
 

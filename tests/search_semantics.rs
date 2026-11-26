@@ -251,6 +251,8 @@ fn write_random_pov_weights() -> std::path::PathBuf {
         l2_shift: shogi_engine::evaluation::nnue::DEFAULT_SHIFT,
         l3_shift: shogi_engine::evaluation::nnue::DEFAULT_SHIFT,
         mid_layers: Vec::new(),
+        clipped: false,
+        output_scale_pct: 100,
         psqt: Vec::new(),
     };
     // A PSQT path too (material plus noise), so every test below also covers its

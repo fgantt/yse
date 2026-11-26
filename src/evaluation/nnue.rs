@@ -333,6 +333,15 @@ pub struct NNUEWeights {
     /// Session 38: `256x2 -> 32 -> 32 -> 1`). Empty for every earlier network.
     /// `output_weights` has one entry per output of the last of them.
     pub mid_layers: Vec<MidLayer>,
+    /// A standard-format network (`nnue_std`, `nn.bin`): every activation is clipped to
+    /// `[0, nnue_std::CLIP]`, the biases of layer 2 and the middle layers are added before their
+    /// shift (`clamp((b + a . w) >> s)`), and the output is `(b3 + a . w3) / nnue_std::OUTPUT_SCALE`
+    /// in the format's own units. False for our own networks, whose arithmetic is unchanged.
+    pub clipped: bool,
+    /// Standard-format networks only: the output is multiplied by this percentage (USI
+    /// `NNUEScale`, default 100 = the format's units, ~1.7x our own networks'). Our search's
+    /// margins were tuned on our networks' scale. Ignored when `clipped` is false.
+    pub output_scale_pct: i32,
 }
 
 /// An extra hidden layer: `a' = max(0, (a . weights) >> shift + biases)`, with
@@ -551,6 +560,8 @@ impl NNUEWeights {
             l2_shift: DEFAULT_SHIFT,
             l3_shift: DEFAULT_SHIFT,
             mid_layers: Vec::new(),
+            clipped: false,
+            output_scale_pct: 100,
         };
         built.rebuild_flat_weights_2();
         built
@@ -584,6 +595,10 @@ impl NNUEWeights {
             .unwrap_or(false);
         let (file_data, features): (NNUEWeightFile, Option<NNUEFeatureSet>) = if is_bin {
             let bytes = std::fs::read(path)?;
+            if crate::evaluation::nnue_std::is_standard(&bytes) {
+                let (weights, fs) = crate::evaluation::nnue_std::load(&bytes)?;
+                return Ok((weights, Some(fs)));
+            }
             if let Some(rest) = bytes.strip_prefix(NNUE_BIN_MAGIC_V6) {
                 type V6 = (NNUEFeatureSet, NNUEWeightFile, Vec<i32>, (u8, u8), Vec<MidLayer>);
                 let (fs, w, psqt, (l2, l3), mid): V6 = bincode::deserialize(rest)?;
@@ -660,6 +675,8 @@ impl NNUEWeights {
             l2_shift: DEFAULT_SHIFT,
             l3_shift: DEFAULT_SHIFT,
             mid_layers: Vec::new(),
+            clipped: false,
+            output_scale_pct: 100,
         };
         built.rebuild_flat_weights_2();
         built
@@ -1557,8 +1574,9 @@ impl NNUEAccumulator {
         // allocation per evaluation showed up in profiles.
         let mut act = [0i32; MAX_ACTIVATIONS];
         let n = self.hidden_1.len().min(MAX_ACTIVATIONS);
+        let hi = if weights.clipped { STD_CLIP } else { i32::MAX };
         for i in 0..n {
-            act[i] = (self.hidden_1[i] + weights.hidden_biases_1[i]).max(0);
+            act[i] = (self.hidden_1[i] + weights.hidden_biases_1[i]).clamp(0, hi);
         }
         forward_from_activations(&act[..n], weights) + self.psqt
     }
@@ -1575,9 +1593,16 @@ impl NNUEAccumulator {
         // was ~2% of search time).
         let mut buf = [std::mem::MaybeUninit::<i32>::uninit(); MAX_ACTIVATIONS];
         let h1 = stm.hidden_1.len().min(MAX_ACTIVATIONS / 2);
-        for i in 0..h1 {
-            buf[i].write((stm.hidden_1[i] + weights.hidden_biases_1[i]).max(0));
-            buf[h1 + i].write((nstm.hidden_1[i] + weights.hidden_biases_1[i]).max(0));
+        if weights.clipped {
+            for i in 0..h1 {
+                buf[i].write((stm.hidden_1[i] + weights.hidden_biases_1[i]).clamp(0, STD_CLIP));
+                buf[h1 + i].write((nstm.hidden_1[i] + weights.hidden_biases_1[i]).clamp(0, STD_CLIP));
+            }
+        } else {
+            for i in 0..h1 {
+                buf[i].write((stm.hidden_1[i] + weights.hidden_biases_1[i]).max(0));
+                buf[h1 + i].write((nstm.hidden_1[i] + weights.hidden_biases_1[i]).max(0));
+            }
         }
         // SAFETY: entries 0..2*h1 were all written just above.
         let act = unsafe { std::slice::from_raw_parts(buf.as_ptr().cast::<i32>(), 2 * h1) };
@@ -1614,12 +1639,16 @@ impl NNUEAccumulator {
                 }
             }
         }
+        let hi = if weights.clipped { STD_CLIP } else { i32::MAX };
         for v in pre[..2 * h1].iter_mut() {
-            *v = (*v).max(0);
+            *v = (*v).clamp(0, hi);
         }
         forward_from_activations(&pre[..2 * h1], weights) + (stm.psqt - nstm.psqt) / 2
     }
 }
+
+/// Activation ceiling of standard-format networks ([`NNUEWeights::clipped`]).
+const STD_CLIP: i32 = crate::evaluation::nnue_std::CLIP;
 
 /// Upper bound on activated first-layer entries: `2 * DEFAULT_HIDDEN_SIZE_1`
 /// (both perspectives). Larger networks fall back to their first entries.
@@ -1714,6 +1743,37 @@ fn forward_from_activations(activated_1: &[i32], weights: &NNUEWeights) -> i32 {
         // `output_bias` is in post-shift units (the trainer adds it without
         // dividing), so it is added after the shift, not before.
         let mut dot: i64 = 0;
+        if weights.clipped {
+            // Standard format: bias before the shift, every activation clipped.
+            let clip = i64::from(STD_CLIP);
+            let mut act = [0i64; MAX_HIDDEN_2];
+            for j in 0..hidden_size_2 {
+                act[j] = ((h2_values[j] + i64::from(biases_2[j])) >> weights.l2_shift).clamp(0, clip);
+            }
+            let mut width = hidden_size_2;
+            for m in &weights.mid_layers {
+                let mut next = [0i64; MAX_HIDDEN_2];
+                for (&a, row) in act[..width].iter().zip(&m.weights) {
+                    if a != 0 {
+                        for (n, &w) in next.iter_mut().zip(row) {
+                            *n += a * w as i64;
+                        }
+                    }
+                }
+                width = m.biases.len();
+                for (n, &b) in next[..width].iter_mut().zip(&m.biases) {
+                    *n = ((*n + b as i64) >> m.shift).clamp(0, clip);
+                }
+                act = next;
+            }
+            for (&a, &w) in act[..width].iter().zip(&weights.output_weights) {
+                dot += a * w as i64;
+            }
+            // At 100 this is exactly `/ OUTPUT_SCALE` (both truncate toward zero).
+            return ((i64::from(weights.output_bias) + (dot >> weights.l3_shift))
+                * i64::from(weights.output_scale_pct)
+                / (i64::from(crate::evaluation::nnue_std::OUTPUT_SCALE) * 100)) as i32;
+        }
         if weights.mid_layers.is_empty() {
             for j in 0..hidden_size_2 {
                 let h2_activated =
@@ -3520,6 +3580,13 @@ impl NNUEEvaluator {
     }
 
     /// Get mutable reference to weights (for training)
+    /// Set [`NNUEWeights::output_scale_pct`] (standard-format networks only).
+    pub fn set_output_scale_pct(&mut self, pct: i32) {
+        if self.weights.output_scale_pct != pct {
+            self.get_weights_mut().output_scale_pct = pct;
+        }
+    }
+
     pub fn get_weights_mut(&mut self) -> &mut NNUEWeights {
         std::sync::Arc::make_mut(&mut self.weights)
     }

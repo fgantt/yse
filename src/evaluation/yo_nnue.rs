@@ -1,4 +1,7 @@
-//! Diagnostic only: YaneuraOu's `halfkpvm_256x2-32-32` network (`eval/nn.bin`) inside our search.
+//! Standard-format networks (`eval/nn.bin`): YaneuraOu's `halfkp_256x2-32-32` and its mirrored
+//! `halfkpvm_256x2-32-32` variant, told apart by file size. Behind `yo-diagnostic`: other people's
+//! networks are a diagnostic only; our own networks in this format (S48, `trainer/ --arch halfkp`)
+//! are ours. The `halfkp_*` helpers below are the feature layout the trainer's tables come from.
 //!
 //! Session 35 asked how much of the gap to YaneuraOu is evaluation and how much is search.
 //! With `SHOGI_YO_NNUE=/path/to/nn.bin` set, `PositionEvaluator::evaluate` returns this
@@ -19,11 +22,15 @@ use std::sync::OnceLock;
 const HALF: usize = 256;
 const FE_HAND_END: usize = 90;
 const FE_END: usize = 1548;
-const INPUTS: usize = 45 * FE_END;
+/// Input rows of the mirrored variant (45 king squares) and of plain HalfKP (81).
+const INPUTS_VM: usize = 45 * FE_END;
+pub use super::nnue_std::{HALFKP_FE_END, INPUTS_HALFKP};
 const VERSION: u32 = 0x7AF3_2F16;
 const FV_SCALE: i32 = 16;
 
 pub struct YoNnue {
+    /// HalfKP_vm (king on files 6-9 mirrored); false for plain HalfKP.
+    mirror: bool,
     ft_bias: Vec<i16>,
     ft_w: Vec<i16>,
     b1: Vec<i32>,
@@ -85,7 +92,15 @@ impl YoNnue {
         r.1 += arch_len;
         let _ft_hash = r.u32()?;
         let ft_bias = r.i16s(HALF)?;
-        let ft_w = r.i16s(HALF * INPUTS)?;
+        // The rest after the feature transformer: net hash, then 32 + 32x512 + 32 + 32x32 + 1 + 32.
+        let tail = 4 + 32 * 4 + 32 * 2 * HALF + 32 * 4 + 32 * 32 + 4 + 32;
+        let ft_bytes = r.0.len().checked_sub(r.1 + tail).ok_or_else(|| err("truncated file"))?;
+        let mirror = match ft_bytes / (2 * HALF) {
+            INPUTS_VM => true,
+            INPUTS_HALFKP => false,
+            _ => return Err(err("unexpected file size (not halfkp(vm)_256x2-32-32)")),
+        };
+        let ft_w = r.i16s(ft_bytes / 2)?;
         let _net_hash = r.u32()?;
         let b1 = r.i32s(32)?;
         let w1 = r.i8s(32 * 2 * HALF)?;
@@ -94,9 +109,9 @@ impl YoNnue {
         let b3 = r.i32()?;
         let w3 = r.i8s(32)?;
         if r.1 != r.0.len() {
-            return Err(err("unexpected file size (not halfkpvm_256x2-32-32)"));
+            return Err(err("unexpected file size (not halfkp(vm)_256x2-32-32)"));
         }
-        Ok(Self { ft_bias, ft_w, b1, w1, b2, w2, b3, w3 })
+        Ok(Self { mirror, ft_bias, ft_w, b1, w1, b2, w2, b3, w3 })
     }
 
     /// Score in YaneuraOu's units from `stm`'s point of view.
@@ -109,20 +124,16 @@ impl YoNnue {
         for row in 0..9u8 {
             for col in 0..9u8 {
                 let Some(p) = board.get_piece(Position::new(row, col)) else { continue };
-                let sq = (8 - col as usize) * 9 + row as usize;
                 if p.piece_type == PieceType::King {
-                    if p.player == Player::Black { kb = sq } else { kw = 80 - sq }
+                    if p.player == Player::Black {
+                        kb = halfkp_king_square(Player::Black, row, col);
+                    } else {
+                        kw = halfkp_king_square(Player::White, row, col);
+                    }
                     continue;
                 }
-                let f = board_base(p.piece_type);
-                let e = f + 81;
-                if p.player == Player::Black {
-                    fb[n] = (f + sq) as u16;
-                    fw[n] = (e + 80 - sq) as u16;
-                } else {
-                    fb[n] = (e + sq) as u16;
-                    fw[n] = (f + 80 - sq) as u16;
-                }
+                fb[n] = halfkp_board_feature(Player::Black, p.player, p.piece_type, row, col) as u16;
+                fw[n] = halfkp_board_feature(Player::White, p.player, p.piece_type, row, col) as u16;
                 n += 1;
             }
         }
@@ -132,16 +143,10 @@ impl YoNnue {
                 PieceType::Gold, PieceType::Bishop, PieceType::Rook,
             ] {
                 let count = list.iter().filter(|&&q| q == pt).count();
-                let (f, e) = hand_base(pt);
-                for i in 0..count {
+                for k in 1..=count {
                     if n >= 38 { break; }
-                    if holder == Player::Black {
-                        fb[n] = (f + i) as u16;
-                        fw[n] = (e + i) as u16;
-                    } else {
-                        fb[n] = (e + i) as u16;
-                        fw[n] = (f + i) as u16;
-                    }
+                    fb[n] = halfkp_hand_feature(Player::Black, holder, pt, k) as u16;
+                    fw[n] = halfkp_hand_feature(Player::White, holder, pt, k) as u16;
                     n += 1;
                 }
             }
@@ -182,7 +187,7 @@ impl YoNnue {
     fn accumulate(&self, king: usize, pieces: &[u16]) -> [i16; HALF] {
         let mut acc = [0i16; HALF];
         acc.copy_from_slice(&self.ft_bias);
-        let mirror = king >= 45;
+        let mirror = self.mirror && king >= 45;
         let k = if mirror { mir(king) } else { king };
         for &p in pieces {
             let mut p = p as usize;
@@ -201,35 +206,4 @@ impl YoNnue {
 
 fn mir(sq: usize) -> usize { (8 - sq / 9) * 9 + sq % 9 }
 
-/// `f_*` BonaPiece base for a board piece (promoted minor pieces count as gold).
-fn board_base(pt: PieceType) -> usize {
-    match pt {
-        PieceType::Pawn => 90,
-        PieceType::Lance => 252,
-        PieceType::Knight => 414,
-        PieceType::Silver => 576,
-        PieceType::Gold
-        | PieceType::PromotedPawn
-        | PieceType::PromotedLance
-        | PieceType::PromotedKnight
-        | PieceType::PromotedSilver => 738,
-        PieceType::Bishop => 900,
-        PieceType::PromotedBishop => 1062,
-        PieceType::Rook => 1224,
-        PieceType::PromotedRook => 1386,
-        PieceType::King => unreachable!(),
-    }
-}
-
-/// (`f_hand_*`, `e_hand_*`) BonaPiece bases for a piece in hand.
-fn hand_base(pt: PieceType) -> (usize, usize) {
-    match pt {
-        PieceType::Pawn => (1, 20),
-        PieceType::Lance => (39, 44),
-        PieceType::Knight => (49, 54),
-        PieceType::Silver => (59, 64),
-        PieceType::Gold => (69, 74),
-        PieceType::Bishop => (79, 82),
-        _ => (85, 88),
-    }
-}
+pub use super::nnue_std::{halfkp_board_feature, halfkp_hand_feature, halfkp_king_square};

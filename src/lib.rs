@@ -123,6 +123,8 @@ pub struct ShogiEngine {
     last_search_score: Option<(Player, i32)>,
     /// USI `NNUEFile`: path to a v2 weight file that declares its feature set.
     nnue_file: String,
+    /// USI `NNUEScale`: percent applied to a standard-format network's output (100 = its own units).
+    nnue_scale_pct: i32,
     /// Result of the last NNUE configuration, reported on `isready`.
     nnue_status: String,
 }
@@ -220,6 +222,7 @@ impl ShogiEngine {
             soft_time_ms: None,
             last_search_score: None,
             nnue_file: DEFAULT_NNUE_FILE.to_string(),
+            nnue_scale_pct: 100,
             nnue_status: String::new(),
         };
         engine.parallel_options.enable_parallel = thread_count > 1;
@@ -320,7 +323,11 @@ impl ShogiEngine {
                 "NNUE disabled (UseNNUE=false); classical evaluation".to_string()
             } else {
                 let path = resolve_nnue_path(&self.nnue_file);
-                match evaluator.enable_nnue_with_weights(&path) {
+                let loaded = evaluator.enable_nnue_with_weights(&path);
+                if loaded.is_ok() {
+                    evaluator.nnue_set_output_scale_pct(self.nnue_scale_pct);
+                }
+                match loaded {
                     Ok(()) => match evaluator.nnue_declared_feature_set() {
                         Some(fs) => format!("NNUE enabled: {} (features {})", path.display(), fs),
                         None => {
@@ -1153,6 +1160,14 @@ impl ShogiEngine {
                     self.nnue_file = parts[3].trim().to_string();
                     self.apply_nnue_config();
                     output.push(format!("info string {}", self.nnue_status));
+                }
+                "NNUEScale" => {
+                    if let Ok(v) = parts[3].trim().parse::<i32>() {
+                        self.nnue_scale_pct = v.clamp(10, 400);
+                        if let Ok(mut guard) = self.search_engine.lock() {
+                            guard.get_evaluator_mut().nnue_set_output_scale_pct(self.nnue_scale_pct);
+                        }
+                    }
                 }
                 "BookFile" => {
                     self.book_file = parts[3].trim().to_string();
