@@ -204,3 +204,9 @@ Also deleted from the PC:
 
 Still on the PC: `hao/raw`, `hao/packed_s50q`, `packed_s150q`, `packed_s200bq`, `suisho5/packed_s5`,
 `~/data/ours_quiet`, `ours_b1q`, `ours_b2q`, `ours_b4q` (the four `ours_*` = the Mac's copies by sha256).
+
+## S48 standard-format networks (2026-11-26)
+
+| Network | Data | Training | Result |
+|---|---|---|---|
+| s48h4 (`nnue/default.bin` since 2026-11-26; PC `~/s48net/trainer/runs/h4/epoch_048.bin`) | `ours_quiet` x3 + Hao s50q + s150q + s200bq + Suisho5 `packed_s5` + `packed_s5_p1`-`p4` (~7.1B; `runs/h4/data_lineage_*.json`) | `train.py --arch halfkp`, 48 x 300M, Adam lr 1e-3 gamma 0.93, sigmoid 600, clamp 3000, outcome 0.3 | gate vs a1 +54 ± 44 (246 games, PASS); YaneuraOu vs Suisho5 −55 ± 32 at 100k (PLAN_S48) |

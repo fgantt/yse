@@ -230,3 +230,9 @@ search (98,560 nodes, cp 114).
 **Gate result: PASS** at 17:20 after 246 games (LLR +3.18 of 2.94): h4 140-4-102 vs a1, **57.7%, +54 ± 44**; no time
 losses, no pauses. Agrees with the ceiling check (+49 ± 36 at 100k, 1 thread). Shipping (merge s48-net, h4 as the
 default network, the Mac GUI's stable engine) waits for the user's OK.
+
+**Shipped (2026-11-26, user's OK):** `nnue/default.bin` = h4 e48, called **s48h4** (S38 already has a `default-h4.bin`);
+a1 kept as `nnue/default-a1.bin` (older builds cannot read the standard format: point them at it with `NNUEFile`).
+Before the swap: the s48-net build with a1 searches identically to the shipped 17a2e37 (5 positions, 300k nodes,
+1 thread: same depth, nodes, score, PV and move); tests: lib 1,187 passed, nnue_semantics 17, search_semantics 19,
+nnue_incremental_games 1 (on the new default).
