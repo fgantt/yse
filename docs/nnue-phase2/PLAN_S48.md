@@ -178,3 +178,14 @@ h2's recipe on ~7.1B positions: ours_quiet x3 (~9% of draws), Hao s50q + s150q +
 scratch, 48 epochs x 300M (14.4B draws), lr 1e-3 gamma 0.93; ~21 h. Per-epoch check every 4th epoch
 (`netmatch/per_epoch_h4.sh` -> `epochs_h4.txt`): vs a1 in our engine at 10k, vs Suisho5 in YaneuraOu at 100k, 120 each.
 Expectation from the field prior (nodchip, 8B Suisho5-generated positions, same format): around −50 vs Suisho5.
+
+h4 so far (h2 at the same epoch in brackets; 120 games each):
+
+| Epoch | val pearson / loss | vs a1, 10k | vs Suisho5, 100k |
+|---|---|---|---|
+| 4 | 0.918 / 0.0307 | 22.5% (27.5%) | 18.3%, −260 ± 41 (24.2%, −199) |
+| 8 | 0.935 / 0.0288 | 36.2% (40.8%) | 22.1%, −219 ± 38 (37.1%, −92) |
+| 12 | 0.939 / 0.0282 | 38.3% (41.7%) | 25.0%, −191 ± 37 (30.8%, −140) |
+
+Behind h2 at equal epochs, by about the noise; h4's lr is higher (0.93/epoch vs 0.84). Val loss is on a different val
+mix (more Suisho5 folders), so not comparable with h2's. Decision point: epoch 16; if still behind h2, rebalance the mix.
