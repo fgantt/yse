@@ -192,8 +192,14 @@ h4 so far (h2 at the same epoch in brackets; 120 games each):
 | 28 | 0.945 / 0.0272 | 54.2% (65-0-55) | 35.8%, −101 ± 33 |
 | 32 | 0.945 / 0.0271 | 47.5% (57-0-63) | 41.2%, −61 ± 32 (export |int − float| 24.3, max 231) |
 | 36 | 0.945 / 0.0270 | 47.5% (57-0-63) | 40.4%, −67 ± 32 |
+| 40 | 0.946 / 0.0270 | 45.0% (54-0-66) | 42.9%, −50 ± 32 (export |int − float| 23.5, max 145) |
 
 Behind h2 at equal epochs, by about the noise; h4's lr is higher (0.93/epoch vs 0.84). Val loss is on a different val
 mix (more Suisho5 folders), so not comparable with h2's. Decision point: epoch 16; if still behind h2, rebalance the mix.
 Epoch 16: within noise of h2's last epoch (−30 ± 50 against Suisho5) and still rising (lr 3.1e-4, h2 ended at 6e-5):
 continue to epoch 48.
+
+Ceiling check queued after epoch 48 (`netmatch/ceiling.sh` -> `ceiling.txt`): in our engine, 1 thread, Suisho5's file vs
+a1 and h4 e48 vs a1 at 10k and 100k (360 games each) and 1M (120). Reason: in our engine a1 ≈ halfkpvm (+3 ± 33,
+PLAN_S44) and Suisho5's file vs halfkpvm was only 55.0% at 10k, so a network alone may top out far below the user's
+"win 8 of 10 vs a1" (+240); the check says how much a network can give and whether search should come first.
