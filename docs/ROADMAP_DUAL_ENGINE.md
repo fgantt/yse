@@ -15,11 +15,11 @@ The user chose a dual route after the S47 council on routes to parity (`docs/nnu
 Standing rule behind them: where a community standard exists (USI, `nn.bin`, SFEN, KIF/CSA, book and training-data
 formats), adopt it with our own code; a custom format needs a measured reason and an export to the standard.
 
-| Goal | Status (2026-11-24) |
+| Goal | Status (2026-11-26) |
 |---|---|
-| 1 | h1 (Hao only) stalled at ~−220 vs Suisho5 and −200 to −240 vs a1 in our engine; h2 (our data + all Hao + Suisho5 data) training (PLAN_S48) |
+| 1 | low bar met 2026-11-26: s48h4 (h4 e48; ours + Hao + ~4.9B Suisho5) passed the gate vs a1, +54 ± 44, and is the default network (69f04c7). High bar open: −55 to −92 vs Suisho5 in YaneuraOu at 100k. In our engine even Suisho5's network is only +102 ± 37 over a1 at 100k nodes (PLAN_S48 ceiling check), so most further strength in our engine must come from search |
 | 2 | done for YaneuraOu: it loads our `nn.bin` and searches normally |
-| 3, 4 | done on branch `s48-net` (f9b1d68): `NNUEFile` takes an `nn.bin`, converted on load to our incremental accumulator, exact against the diagnostic, ~95% of a1's speed. Not on main yet; licence check per third-party network still needed |
+| 3, 4 | done and on main (69f04c7): `NNUEFile` takes an `nn.bin`, converted on load to our incremental accumulator, exact against the diagnostic, ~95% of a1's speed; `NNUEScale` option. Licence check per third-party network still needed |
 | 5 | not started; design in PLAN_S46 §4 and PLAN_S47 §9 |
 | 6 | not started |
 
