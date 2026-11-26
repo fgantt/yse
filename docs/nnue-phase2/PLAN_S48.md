@@ -219,3 +219,10 @@ PLAN_S44) and Suisho5's file vs halfkpvm was only 55.0% at 10k, so a network alo
   YaneuraOu h4 is still −55 to −92 behind Suisho5.
 - h4 e48 is likely better than a1 at depth (+49 ± 36 at 100k). Ship-gate candidate (SPRT [0, 40], 1 s, 4 threads; the
   standard-format loader runs at ~95% of a1's nps, roughly −7 Elo): needs the user's OK.
+
+**h4 ship gate (started 2026-11-26 13:54 on the user's go-ahead):** PC, `C:\Users\fgant\yse-s48gate` (s48-net
+74de312, engine 508aecd; exe md5 280f235c), the same binary with `NNUEFile` = h4 e48 (md5 a386c756) vs its default
+a1, 4 threads, 1 s byoyomi, 256 MB, MoveOverhead 100; 2 streams x 300 games, seeds 59000/59001; pooled SPRT [0, 40]
+by the Mac controller (`matches/s48/gate/`, adapted from S46's). Pauses when the user's engines use the PC. Checks
+first: 4-thread helpers share the main thread's weights (Arc), and the PC and Mac builds give the same h4 depth-10
+search (98,560 nodes, cp 114).
