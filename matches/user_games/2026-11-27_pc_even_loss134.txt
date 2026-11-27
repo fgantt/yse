@@ -1,0 +1,11 @@
+PC GUI game, 2026-11-27 00:28Z. Yggdrasil (Black, PC build of fa3a653, s48h4, USI_Threads 8, other options default)
+vs YaneuraOu V9.00 + Suisho5 (White, Threads 8, FV_SCALE 24). 30 min + 10 s byoyomi. Lost (export says "ongoing").
+Files: ../s48/pc1127/ (game.moves, gui_full.log, judge.jsonl 3 s, judge_deep.jsonl 30 s, ourthink.txt).
+Judge: Suisho5 on the Mac, 10 threads.
+
+- About even through move 67.
+- Move 69 N*6e: -223 at 30 s (best P*4d, -145). We spent 35 s. Our engine (8 threads, Mac, fresh) switches to
+  P*4d at 35.7 s (d19): a near miss on time.
+- Move 83 5c4a+: -748 at 30 s (best 5e6f). We spent 26 s. From a fresh process our engine picks 5e6f by 5 s (d12)
+  and keeps it to d19. Game-only? (TT/history carried from earlier moves, or thread nondeterminism.) Not checked yet.
+- Lost from there (-580 at move 85).

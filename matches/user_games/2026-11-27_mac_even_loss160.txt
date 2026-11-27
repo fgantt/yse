@@ -1,0 +1,12 @@
+Mac GUI game, 2026-11-27 00:23Z. Yggdrasil (Black, engines/usi-engine-stable = 69f04c7, s48h4, USI_Threads 20,
+hash 256) vs YaneuraOu V9.00 halfkpvm (White, its defaults). 60 min + 10 s byoyomi. 0-1, mated at move 160.
+Files: ../s48/mac1127/ (game.moves, gui_full.log, judge.jsonl 3 s, judge_deep.jsonl 30 s, ourthink.txt).
+Judge: Suisho5 on the Mac, 10 threads.
+
+- 3 s judge: almost every move = Suisho5's best through move 95; +151 at move 81.
+  30 s judge: already -104 at move 81 (a slow drift the 3 s judge cannot see).
+- Decisive at 30 s: 97 P*4h -130 (best 6i7i), 99 4d3b+ -129 (best P*3h), 101 3b2a -272 (best 6i7h).
+- Our engine from those positions, 16 threads, 60 s (fresh process): still plays all three (d19-21).
+  More time does not fix them.
+- Clock: 81-209 s on each of our first 6 moves; main time gone by about move 135 (YaneuraOu kept 612 s).
+  We spent 19-48 s on moves 97-103, more than YaneuraOu's 15-30 s, so the clock did not cause them.

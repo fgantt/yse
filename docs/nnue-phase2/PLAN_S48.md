@@ -236,3 +236,29 @@ a1 kept as `nnue/default-a1.bin` (older builds cannot read the standard format: 
 Before the swap: the s48-net build with a1 searches identically to the shipped 17a2e37 (5 positions, 300k nodes,
 1 thread: same depth, nodes, score, PV and move); tests: lib 1,187 passed, nnue_semantics 17, search_semantics 19,
 nnue_incremental_games 1 (on the new default).
+
+## Search gap with the same network (2026-11-27, user's request; `matches/s48/search/`)
+
+Both engines on s48h4 (nn.bin md5 a386c756), so the difference is search and speed only. PC: ours = the gate build
+(s48-net 74de312, `NNUEFile` = h4 e48); YaneuraOu V9.00 AVX512VNNI unmodified, a copy in `C:\Users\fgant\s48search\yo`
+with `eval/nn.bin` = h4 e48. Script `search/pc_search.sh` (PC `s48_pc_search.sh`), results in `search/pc/`.
+
+**Ladder:** 1 thread, 64 MB, no book; YaneuraOu `go nodes 100000`, ours N x that; 8 streams x 16 games, seeds 61000+.
+**Clock:** 4 threads, 256 MB, 1 s byoyomi (ours MoveOverhead 100, YaneuraOu NetworkDelay 0), 2 x 50 games.
+
+| Ours vs YaneuraOu | W-D-L | Score | Elo (95%) | Our ms / YaneuraOu ms per move |
+|---|---|---|---|---|
+| 1x nodes | 12-3-113 | 10.5% | −371 ± 98 | 271 / 66 |
+| 2x | 21-5-102 | 18.4% | −259 ± 78 | 512 / 66 |
+| 4x | 40-3-85 | 32.4% | −128 ± 64 | 1,047 / 66 |
+| 8x | 65-4-59 | 52.3% | +16 ± 60 | 2,058 / 67 |
+| 16x | 89-3-36 | 70.7% | +153 ± 66 | 3,571 / 65 |
+| 1 s, 4 threads | 3-1-96 | 3.5% | −576 ± 185 | 751 / 904 |
+
+- **Search:** parity at about 7.5x nodes (3 doublings), about +130 per doubling. Same as the S44-S46 estimates
+  (8.5x) made with different networks, so those measured search after all.
+- **Speed:** at 1 thread YaneuraOu does 100k nodes in 66 ms (~1.5M nodes/s); we need 270 ms (~370k/s): about 4x,
+  2 more doublings. Both count quiescence nodes.
+- **Clock:** we also use only 0.75 s of the 1 s byoyomi against its 0.90 s.
+- Together about 5 doublings (~30-40x effective work), which at ~130 per doubling predicts about −650: the clock
+  match's −576 ± 185 agrees. The rewrite must close both: about 3 doublings of search per node and 2 of speed.
