@@ -1,0 +1,10 @@
+Mac GUI game, 2026-11-27 17:39Z. Yggdrasil (Black, engines/usi-engine-stable = 69f04c7, s48h4, USI_Threads 16,
+hash 256) vs Gikou 2 v2.0.2 (White, no options sent: its defaults). 60 min + 10 s byoyomi. 1-0, Gikou resigned
+after our move 129 (7f7e).
+Files: ../s48/gikou1127/ (log.moves, gui_full.log, judge.jsonl). Judge: Suisho5 on the Mac, 10 threads, 3 s.
+
+- Ahead from the opening: +108 at move 3, +150 by move 17, about +195 from move 33 to 43 (bishop trade, 2a1a).
+- Our moves = Suisho5's best on 50 of our first 58 moves; largest slip 59 1a1b (-118, best R*2c), still +30.
+- Gikou's errors around moves 60-68 decided it: +215 at 67, +387 at 69, +600 at 77, +1000 by 93.
+- Later "losses" (99, 105, 117, 121) are in won positions (+1200 to +4300) and do not matter.
+- Clock: we used 70-180 s per move early, as in the YaneuraOu games; 85 s main time left at the end, Gikou 130 s.
